@@ -9,6 +9,7 @@
 pub mod error;
 pub mod identifier;
 pub mod ir;
+pub mod parse;
 
 /// Crate version, exposed for embedding in plan manifests.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

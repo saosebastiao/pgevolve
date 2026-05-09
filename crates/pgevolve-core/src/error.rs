@@ -11,7 +11,10 @@ pub enum Error {
     /// IR-construction error (e.g., invalid identifier).
     #[error(transparent)]
     Ir(#[from] crate::ir::IrError),
-    // Parse, Catalog, Diff, Plan variants added by later phases.
+    /// Source-parser error.
+    #[error(transparent)]
+    Parse(#[from] crate::parse::ParseError),
+    // Catalog, Diff, Plan variants added by later phases.
 }
 
 /// Result alias for crate-level operations.

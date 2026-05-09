@@ -1,0 +1,52 @@
+//! AST → IR builders.
+//!
+//! Each submodule consumes one classified [`crate::parse::Statement`] variant
+//! and produces zero-or-more IR objects, optionally appended to a partial
+//! [`crate::ir::catalog::Catalog`] via [`Builder`].
+
+pub mod alter_table_stmt;
+pub mod comment_stmt;
+pub mod create_schema_stmt;
+pub mod create_seq_stmt;
+pub mod create_stmt;
+pub mod desugar_serial;
+pub mod index_stmt;
+pub mod shared;
+
+use std::collections::HashMap;
+
+use crate::identifier::QualifiedName;
+use crate::ir::catalog::Catalog;
+use crate::parse::error::SourceLocation;
+
+/// Mutable accumulator passed through builders during a single
+/// `parse_directory` pass.
+#[derive(Debug, Default)]
+pub struct Builder {
+    /// The catalog being assembled.
+    pub catalog: Catalog,
+    /// First-seen source location for every object qname, for duplicate diagnostics.
+    pub locations: HashMap<String, SourceLocation>,
+}
+
+impl Builder {
+    /// Construct an empty builder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record the source location at which `qname` was first defined.
+    /// Returns the prior location if the qname is already known.
+    pub fn record_location(
+        &mut self,
+        qname: &QualifiedName,
+        location: SourceLocation,
+    ) -> Option<SourceLocation> {
+        let key = qname.to_string();
+        if let Some(prior) = self.locations.get(&key) {
+            return Some(prior.clone());
+        }
+        self.locations.insert(key, location);
+        None
+    }
+}

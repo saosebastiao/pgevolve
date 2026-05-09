@@ -50,24 +50,38 @@ pub enum LiteralValue {
 
 /// A normalized SQL expression — its canonical text plus a hash of the canonical AST.
 ///
-/// In phase 1 the `ast_hash` field is just `[0; 32]` (a placeholder); phase 2 wires in
-/// the real `pg_query` normalization passes.
+/// The `ast_hash` is a BLAKE3 hash of `canonical_text` (the canonical bytes after
+/// keyword lowercasing, paren folding, cast stripping, and commutative-operand
+/// sorting). Two expressions hash-equal iff their canonical texts match exactly,
+/// so equivalence is decided byte-wise on the canonical form.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NormalizedExpr {
     /// Canonical textual form (lowercased keywords, sorted commutative operands,
     /// stripped redundant casts).
     pub canonical_text: String,
-    /// BLAKE3 hash of the canonical AST bytes; placeholder until phase 2.
+    /// BLAKE3 hash of `canonical_text` as bytes.
     pub ast_hash: [u8; 32],
 }
 
 impl NormalizedExpr {
-    /// Construct from canonical text. AST hash is left zero in phase 1.
+    /// Construct from already-canonical text. The hash is computed from the text.
+    ///
+    /// This constructor does NOT run any normalization passes — it assumes the
+    /// caller has already produced canonical form. Source-side construction goes
+    /// through `pgevolve_core::parse::normalize_expr::from_pg_node` which deparses
+    /// and normalizes a `pg_query` node.
     pub fn from_text(canonical_text: impl Into<String>) -> Self {
+        let canonical_text = canonical_text.into();
+        let ast_hash = blake3::hash(canonical_text.as_bytes()).into();
         Self {
-            canonical_text: canonical_text.into(),
-            ast_hash: [0; 32],
+            canonical_text,
+            ast_hash,
         }
+    }
+
+    /// Alias for [`Self::from_text`], matching the phase-2 plan vocabulary.
+    pub fn from_canonical_text(text: impl Into<String>) -> Self {
+        Self::from_text(text)
     }
 }
 
