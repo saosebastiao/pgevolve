@@ -18,7 +18,7 @@ use thiserror::Error;
 /// inputs (Postgres lowercases unquoted identifiers) and in their original
 /// form for quoted inputs. The constructor distinguishes the two cases via
 /// [`Identifier::from_unquoted`] vs [`Identifier::from_quoted`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Identifier(String);
 
@@ -201,7 +201,7 @@ impl FromStr for Identifier {
 }
 
 /// A schema-qualified identifier — e.g., `app.users` or `"AppSchema".users`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct QualifiedName {
     /// The schema component.
     pub schema: Identifier,
