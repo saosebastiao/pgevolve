@@ -36,7 +36,7 @@ members = [
 [workspace.package]
 version      = "0.1.0-dev"
 edition      = "2021"
-rust-version = "1.78"
+rust-version = "1.85"
 license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/saosebastiao/pgevolve"
 authors      = ["Daniel Toone"]
@@ -58,7 +58,7 @@ missing_panics_doc      = "allow"
 
 [workspace.dependencies]
 # Parser
-pg_query = "5"
+pg_query = "6"
 
 # Errors / utilities
 thiserror = "1"
@@ -130,7 +130,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ```toml
 [toolchain]
-channel    = "1.78"
+channel    = "1.85"
 components = ["rustfmt", "clippy", "rust-src"]
 profile    = "minimal"
 ```
@@ -543,7 +543,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.78
+          toolchain: 1.85
           components: rustfmt
       - run: cargo fmt --all -- --check
 
@@ -554,7 +554,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.78
+          toolchain: 1.85
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -566,7 +566,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.78
+          toolchain: 1.85
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --lib --tests
         env:
@@ -586,7 +586,7 @@ jobs:
   #   steps:
   #     - uses: actions/checkout@v4
   #     - uses: dtolnay/rust-toolchain@stable
-  #       with: { toolchain: 1.78 }
+  #       with: { toolchain: 1.85 }
   #     - uses: Swatinem/rust-cache@v2
   #     - run: cargo test --workspace --features pg-tests
   #       env:

@@ -248,7 +248,7 @@ mod tests {
 cargo test -p pgevolve-core --lib parse
 ```
 
-Expected: 2 passing tests. (You may need to consult the actual `pg_query` 5.x API for `ParseResult` / `protobuf.stmts` field names; adjust to match.)
+Expected: 2 passing tests. (You may need to consult the actual `pg_query` 6.x API for `ParseResult` / `protobuf.stmts` field names; adjust to match.)
 
 - [ ] **Step 7: Commit**
 

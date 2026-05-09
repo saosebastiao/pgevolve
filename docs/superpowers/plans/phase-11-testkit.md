@@ -255,7 +255,7 @@ pg-matrix:
   steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
-      with: { toolchain: 1.78 }
+      with: { toolchain: 1.85 }
     - uses: Swatinem/rust-cache@v2
     - run: cargo test --workspace --features pg-tests
       env:
@@ -291,7 +291,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with: { toolchain: 1.78 }
+        with: { toolchain: 1.85 }
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --features pg-tests --release
         env:
