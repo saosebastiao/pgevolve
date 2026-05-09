@@ -1,0 +1,27 @@
+[package]
+name         = "pgevolve-testkit"
+description  = "Test infrastructure for pgevolve — ephemeral Postgres, generators, harnesses"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+repository   = { workspace = true }
+authors      = { workspace = true }
+publish      = false  # internal use only; revisit before public release
+
+[lints]
+workspace = true
+
+[dependencies]
+pgevolve-core = { path = "../pgevolve-core" }
+
+anyhow         = { workspace = true }
+proptest       = { workspace = true }
+testcontainers = { workspace = true }
+tokio          = { workspace = true }
+tokio-postgres = { workspace = true }
+tracing        = { workspace = true }
+uuid           = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

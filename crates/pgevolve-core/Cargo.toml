@@ -1,0 +1,26 @@
+[package]
+name         = "pgevolve-core"
+description  = "Postgres declarative schema management — core library (parser, IR, diff, planner)"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+repository   = { workspace = true }
+authors      = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+pg_query   = { workspace = true }
+thiserror  = { workspace = true }
+serde      = { workspace = true }
+toml       = { workspace = true }
+blake3     = { workspace = true }
+tracing    = { workspace = true }
+time       = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+proptest          = { workspace = true }
+insta             = { workspace = true }
