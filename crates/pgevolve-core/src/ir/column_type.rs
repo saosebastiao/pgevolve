@@ -117,6 +117,95 @@ pub enum NetAddressKind {
 }
 
 impl ColumnType {
+    /// Render this type as canonical Postgres syntax.
+    /// The output round-trips through [`Self::parse_from_pg_type_string`] back to `self`.
+    #[allow(clippy::too_many_lines)] // exhaustive variant match by design
+    pub fn render_sql(&self) -> String {
+        match self {
+            Self::Boolean => "boolean".into(),
+            Self::SmallInt => "smallint".into(),
+            Self::Integer => "integer".into(),
+            Self::BigInt => "bigint".into(),
+            Self::Real => "real".into(),
+            Self::DoublePrecision => "double precision".into(),
+            Self::Numeric {
+                precision: None,
+                scale: None,
+            } => "numeric".into(),
+            Self::Numeric {
+                precision: Some(p),
+                scale: None,
+            } => format!("numeric({p})"),
+            Self::Numeric {
+                precision: Some(p),
+                scale: Some(s),
+            } => format!("numeric({p},{s})"),
+            Self::Numeric {
+                precision: None,
+                scale: Some(_),
+            } => unreachable!("scale without precision should never be constructed"),
+            Self::Text => "text".into(),
+            Self::Varchar { len: None } => "varchar".into(),
+            Self::Varchar { len: Some(n) } => format!("varchar({n})"),
+            Self::Char { len: None } => "char".into(),
+            Self::Char { len: Some(n) } => format!("char({n})"),
+            Self::Bytea => "bytea".into(),
+            Self::Date => "date".into(),
+            Self::Time { precision, with_tz } => match (precision, with_tz) {
+                (None, false) => "time".into(),
+                (Some(p), false) => format!("time({p})"),
+                (None, true) => "time with time zone".into(),
+                (Some(p), true) => format!("time({p}) with time zone"),
+            },
+            Self::Timestamp { precision, with_tz } => match (precision, with_tz) {
+                (None, false) => "timestamp".into(),
+                (Some(p), false) => format!("timestamp({p})"),
+                (None, true) => "timestamp with time zone".into(),
+                (Some(p), true) => format!("timestamp({p}) with time zone"),
+            },
+            Self::Interval {
+                fields: None,
+                precision: None,
+            } => "interval".into(),
+            Self::Interval {
+                fields: None,
+                precision: Some(p),
+            } => format!("interval({p})"),
+            Self::Interval {
+                fields: Some(f),
+                precision: None,
+            } => format!("interval {f}"),
+            Self::Interval {
+                fields: Some(f),
+                precision: Some(p),
+            } => format!("interval {f}({p})"),
+            Self::Bit {
+                len,
+                varying: false,
+            } => format!("bit({len})"),
+            Self::Bit {
+                len,
+                varying: true,
+            } => format!("bit varying({len})"),
+            Self::Uuid => "uuid".into(),
+            Self::Json => "json".into(),
+            Self::Jsonb => "jsonb".into(),
+            Self::NetAddress(NetAddressKind::Inet) => "inet".into(),
+            Self::NetAddress(NetAddressKind::Cidr) => "cidr".into(),
+            Self::NetAddress(NetAddressKind::MacAddr) => "macaddr".into(),
+            Self::NetAddress(NetAddressKind::MacAddr8) => "macaddr8".into(),
+            Self::Array { element, dims } => {
+                let mut s = element.render_sql();
+                for _ in 0..*dims {
+                    s.push_str("[]");
+                }
+                s
+            }
+            Self::UserDefined(qname) => qname.render_sql(),
+            Self::Other { raw } => raw.clone(),
+        }
+    }
+
     /// Parse a Postgres type string (as found in `pg_type.typname` or in source DDL)
     /// into the canonical `ColumnType`.
     ///
@@ -482,6 +571,59 @@ mod tests {
     fn unknown_type_falls_through_to_other() {
         let t = ColumnType::parse_from_pg_type_string("nonexistent_type").unwrap();
         assert!(matches!(t, ColumnType::Other { ref raw } if raw == "nonexistent_type"));
+    }
+
+    #[test]
+    fn render_sql_round_trips_canonical() {
+        let cases = [
+            ColumnType::Boolean,
+            ColumnType::Integer,
+            ColumnType::BigInt,
+            ColumnType::Text,
+            ColumnType::Varchar { len: None },
+            ColumnType::Varchar { len: Some(50) },
+            ColumnType::Char { len: Some(8) },
+            ColumnType::Numeric {
+                precision: None,
+                scale: None,
+            },
+            ColumnType::Numeric {
+                precision: Some(10),
+                scale: Some(2),
+            },
+            ColumnType::Timestamp {
+                precision: None,
+                with_tz: false,
+            },
+            ColumnType::Timestamp {
+                precision: Some(3),
+                with_tz: true,
+            },
+            ColumnType::Time {
+                precision: None,
+                with_tz: true,
+            },
+            ColumnType::Uuid,
+            ColumnType::Jsonb,
+            ColumnType::NetAddress(NetAddressKind::Inet),
+            ColumnType::Bit {
+                len: 8,
+                varying: false,
+            },
+            ColumnType::Bit {
+                len: 8,
+                varying: true,
+            },
+            ColumnType::Array {
+                element: Box::new(ColumnType::Integer),
+                dims: 2,
+            },
+        ];
+        for t in cases {
+            let rendered = t.render_sql();
+            let parsed = ColumnType::parse_from_pg_type_string(&rendered).unwrap();
+            assert_eq!(parsed, t, "rendered: {rendered}");
+        }
     }
 
     #[test]
