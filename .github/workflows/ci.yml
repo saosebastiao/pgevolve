@@ -1,0 +1,67 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    name: test (unit + tier-2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --lib --tests
+        env:
+          # Tier-3+ tests require ephemeral PG containers; gate them via
+          # this env var so CI can opt in once the harness exists (phase 3).
+          PGEVOLVE_DISABLE_DOCKER_TESTS: "1"
+
+  # Placeholder for phase 6 onward; uncomment when the harness exists.
+  # pg-matrix:
+  #   name: pg matrix (tier 3-6)
+  #   needs: [test]
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       pg: ["14", "15", "16", "17"]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #       with: { toolchain: 1.88 }
+  #     - uses: Swatinem/rust-cache@v2
+  #     - run: cargo test --workspace --features pg-tests
+  #       env:
+  #         PGEVOLVE_TEST_PG_VERSION: ${{ matrix.pg }}
