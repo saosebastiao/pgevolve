@@ -8,7 +8,7 @@ use crate::identifier::QualifiedName;
 use crate::ir::column::Column;
 use crate::ir::constraint::Constraint;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field, prefix_diffs};
+use crate::ir::eq::{diff_field, prefix_diffs, Diff};
 
 /// A Postgres table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -184,10 +184,7 @@ mod tests {
         let mut b = base();
         b.constraints.push(pk("users_alt_pkey", &["email"]));
         let d = base().diff(&b);
-        assert!(
-            d.iter()
-                .any(|x| x.path == "constraints.app.users_alt_pkey")
-        );
+        assert!(d.iter().any(|x| x.path == "constraints.app.users_alt_pkey"));
     }
 
     #[test]

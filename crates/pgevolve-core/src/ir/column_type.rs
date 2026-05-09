@@ -183,10 +183,7 @@ impl ColumnType {
                 len,
                 varying: false,
             } => format!("bit({len})"),
-            Self::Bit {
-                len,
-                varying: true,
-            } => format!("bit varying({len})"),
+            Self::Bit { len, varying: true } => format!("bit varying({len})"),
             Self::Uuid => "uuid".into(),
             Self::Json => "json".into(),
             Self::Jsonb => "jsonb".into(),

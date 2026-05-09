@@ -4,13 +4,13 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ir::IrError;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, prefix_diffs};
+use crate::ir::eq::{prefix_diffs, Diff};
 use crate::ir::index::Index;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
+use crate::ir::IrError;
 
 /// A whole-database schema snapshot.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -48,12 +48,16 @@ impl Catalog {
 
         self.tables.sort_by(|a, b| a.qname.cmp(&b.qname));
         if let Some(dupe) = first_duplicate(self.tables.iter().map(|t| t.qname.to_string())) {
-            return Err(IrError::InvalidIdentifier(format!("duplicate table: {dupe}")));
+            return Err(IrError::InvalidIdentifier(format!(
+                "duplicate table: {dupe}"
+            )));
         }
 
         self.indexes.sort_by(|a, b| a.qname.cmp(&b.qname));
         if let Some(dupe) = first_duplicate(self.indexes.iter().map(|i| i.qname.to_string())) {
-            return Err(IrError::InvalidIdentifier(format!("duplicate index: {dupe}")));
+            return Err(IrError::InvalidIdentifier(format!(
+                "duplicate index: {dupe}"
+            )));
         }
 
         self.sequences.sort_by(|a, b| a.qname.cmp(&b.qname));
@@ -104,11 +108,7 @@ impl Diff for Catalog {
     }
 }
 
-fn diff_keyed<T: Diff, K: Fn(&T) -> String>(
-    lhs: &[T],
-    rhs: &[T],
-    key: K,
-) -> Vec<Difference> {
+fn diff_keyed<T: Diff, K: Fn(&T) -> String>(lhs: &[T], rhs: &[T], key: K) -> Vec<Difference> {
     let mut out = Vec::new();
     let lhs_map: BTreeMap<String, &T> = lhs.iter().map(|x| (key(x), x)).collect();
     let rhs_map: BTreeMap<String, &T> = rhs.iter().map(|x| (key(x), x)).collect();

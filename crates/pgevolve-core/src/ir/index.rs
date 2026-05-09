@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{diff_field, Diff};
 
 /// A Postgres index.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
