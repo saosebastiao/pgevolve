@@ -1,0 +1,2 @@
+A column-inline `PRIMARY KEY` and a table-level `PRIMARY KEY (id)` clause
+produce the same constraint and the same implicit NOT NULL on `id`.

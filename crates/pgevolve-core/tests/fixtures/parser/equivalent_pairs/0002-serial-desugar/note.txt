@@ -1,0 +1,4 @@
+`id serial PRIMARY KEY` is shorthand for an explicit `integer NOT NULL DEFAULT
+nextval(...)` plus a `CREATE SEQUENCE ... OWNED BY` pair. After SERIAL
+desugaring, both forms must produce identical IR — this is the load-bearing
+property that makes the catalog reader and source parser converge.

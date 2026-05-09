@@ -1,0 +1,3 @@
+columns.c.ty
+varchar(50)
+varchar(100)

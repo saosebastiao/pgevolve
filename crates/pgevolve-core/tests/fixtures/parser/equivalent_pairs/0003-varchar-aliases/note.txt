@@ -1,0 +1,1 @@
+`varchar(N)` is shorthand for `character varying(N)` — same canonical type.

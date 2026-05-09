@@ -1,0 +1,3 @@
+A redundant cast to the column's own type (`'foo'::text` for a text column)
+must be stripped during default-expression normalization. Both defaults reduce
+to a `LiteralValue::Text("foo")`.

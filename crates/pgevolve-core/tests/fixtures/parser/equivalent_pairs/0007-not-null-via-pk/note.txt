@@ -1,0 +1,2 @@
+A `PRIMARY KEY` constraint forces NOT NULL on its key columns even when the
+declaration does not mention NOT NULL explicitly.

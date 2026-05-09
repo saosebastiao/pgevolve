@@ -1,0 +1,1 @@
+`timestamptz` is the canonical short alias for `timestamp with time zone`.

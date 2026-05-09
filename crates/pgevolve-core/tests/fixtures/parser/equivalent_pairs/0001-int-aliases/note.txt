@@ -1,0 +1,2 @@
+`integer`, `int`, and `int4` are aliases for the same Postgres type and must
+parse to the same canonical `ColumnType::Integer`.

@@ -1,0 +1,1 @@
+CREATE VIEW app.v AS SELECT 1;
