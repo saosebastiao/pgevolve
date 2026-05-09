@@ -2,6 +2,7 @@ edition           = "2021"
 max_width         = 100
 use_field_init_shorthand = true
 use_try_shorthand        = true
-imports_granularity      = "Module"
-group_imports            = "StdExternalCrate"
 reorder_imports          = true
+# imports_granularity = "Module" and group_imports = "StdExternalCrate"
+# are nightly-only — re-enable when we move to nightly rustfmt or those
+# settings stabilize.
