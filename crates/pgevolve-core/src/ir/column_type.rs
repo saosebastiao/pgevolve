@@ -403,6 +403,20 @@ pub enum ParseTypeError {
     Empty,
 }
 
+impl crate::ir::eq::Diff for ColumnType {
+    fn diff(&self, other: &Self) -> Vec<crate::ir::difference::Difference> {
+        if self == other {
+            Vec::new()
+        } else {
+            vec![crate::ir::difference::Difference::new(
+                "",
+                self.render_sql(),
+                other.render_sql(),
+            )]
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -636,5 +650,25 @@ mod tests {
             ColumnType::parse_from_pg_type_string("   "),
             Err(ParseTypeError::Empty)
         ));
+    }
+
+    #[test]
+    fn columntype_diff_empty_when_equal() {
+        use crate::ir::eq::Diff;
+        let a = ColumnType::Varchar { len: Some(50) };
+        let b = ColumnType::Varchar { len: Some(50) };
+        assert!(a.diff(&b).is_empty());
+        assert!(a.canonical_eq(&b));
+    }
+
+    #[test]
+    fn columntype_diff_reports_difference() {
+        use crate::ir::eq::Diff;
+        let a = ColumnType::Varchar { len: Some(50) };
+        let b = ColumnType::Varchar { len: Some(100) };
+        let diffs = a.diff(&b);
+        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs[0].from, "varchar(50)");
+        assert_eq!(diffs[0].to, "varchar(100)");
     }
 }
