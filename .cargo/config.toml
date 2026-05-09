@@ -1,0 +1,7 @@
+[build]
+# Use a single workspace target dir so all crates share artifacts.
+# (Default already does this for workspaces; explicit for clarity.)
+target-dir = "target"
+
+[net]
+git-fetch-with-cli = true
