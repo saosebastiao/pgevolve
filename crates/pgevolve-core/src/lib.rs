@@ -6,6 +6,10 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod error;
+pub mod identifier;
+pub mod ir;
+
 /// Crate version, exposed for embedding in plan manifests.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
