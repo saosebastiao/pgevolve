@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod catalog;
+pub mod diff;
 pub mod error;
 pub mod identifier;
 pub mod ir;
