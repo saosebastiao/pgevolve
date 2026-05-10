@@ -49,7 +49,7 @@ pub struct IndexColumn {
 
 /// Either a bare column name or an expression.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum IndexColumnExpr {
     /// Bare column reference.
     Column(Identifier),

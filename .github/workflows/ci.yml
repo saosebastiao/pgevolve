@@ -48,20 +48,19 @@ jobs:
           # this env var so CI can opt in once the harness exists (phase 3).
           PGEVOLVE_DISABLE_DOCKER_TESTS: "1"
 
-  # Placeholder for phase 6 onward; uncomment when the harness exists.
-  # pg-matrix:
-  #   name: pg matrix (tier 3-6)
-  #   needs: [test]
-  #   runs-on: ubuntu-latest
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       pg: ["14", "15", "16", "17"]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #       with: { toolchain: 1.88 }
-  #     - uses: Swatinem/rust-cache@v2
-  #     - run: cargo test --workspace --features pg-tests
-  #       env:
-  #         PGEVOLVE_TEST_PG_VERSION: ${{ matrix.pg }}
+  pg-matrix:
+    name: pg matrix (tier 3)
+    needs: [test]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["16"]  # 14/15/17 enabled progressively as fixtures are blessed.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { toolchain: 1.88 }
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --tests
+        env:
+          PGEVOLVE_TEST_PG_VERSION: ${{ matrix.pg }}

@@ -1,0 +1,135 @@
+{
+  "schemas": [
+    {
+      "name": "app",
+      "comment": null
+    },
+    {
+      "name": "billing",
+      "comment": null
+    }
+  ],
+  "tables": [
+    {
+      "qname": {
+        "schema": "app",
+        "name": "users"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "email",
+          "ty": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": {
+            "schema": "pg_catalog",
+            "name": "default"
+          },
+          "comment": null
+        }
+      ],
+      "constraints": [
+        {
+          "qname": {
+            "schema": "app",
+            "name": "users_pkey"
+          },
+          "kind": {
+            "kind": "primary_key",
+            "columns": [
+              "id"
+            ],
+            "include": []
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": null
+        }
+      ],
+      "comment": null
+    },
+    {
+      "qname": {
+        "schema": "billing",
+        "name": "invoices"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "cents",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        }
+      ],
+      "constraints": [
+        {
+          "qname": {
+            "schema": "billing",
+            "name": "invoices_pkey"
+          },
+          "kind": {
+            "kind": "primary_key",
+            "columns": [
+              "id"
+            ],
+            "include": []
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": null
+        }
+      ],
+      "comment": null
+    }
+  ],
+  "indexes": [],
+  "sequences": []
+}

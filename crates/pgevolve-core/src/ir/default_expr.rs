@@ -17,7 +17,7 @@ use crate::ir::eq::Diff;
 
 /// A column-default expression.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum DefaultExpr {
     /// A literal value.
     Literal(LiteralValue),
@@ -32,7 +32,7 @@ pub enum DefaultExpr {
 /// Note: `Float(f64)` precludes deriving `Eq` and `Hash` on this type;
 /// equality is `PartialEq` only.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum LiteralValue {
     /// Boolean literal.
     Bool(bool),

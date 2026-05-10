@@ -1,0 +1,241 @@
+{
+  "schemas": [
+    {
+      "name": "app",
+      "comment": null
+    }
+  ],
+  "tables": [
+    {
+      "qname": {
+        "schema": "app",
+        "name": "orgs"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "ty": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": {
+            "schema": "pg_catalog",
+            "name": "default"
+          },
+          "comment": null
+        }
+      ],
+      "constraints": [
+        {
+          "qname": {
+            "schema": "app",
+            "name": "orgs_pkey"
+          },
+          "kind": {
+            "kind": "primary_key",
+            "columns": [
+              "id"
+            ],
+            "include": []
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": null
+        }
+      ],
+      "comment": null
+    },
+    {
+      "qname": {
+        "schema": "app",
+        "name": "users"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "org_id",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "email",
+          "ty": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": {
+            "schema": "pg_catalog",
+            "name": "default"
+          },
+          "comment": null
+        },
+        {
+          "name": "age",
+          "ty": {
+            "kind": "integer"
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        }
+      ],
+      "constraints": [
+        {
+          "qname": {
+            "schema": "app",
+            "name": "users_age_check"
+          },
+          "kind": {
+            "kind": "check",
+            "expression": {
+              "canonical_text": "age >= 0",
+              "ast_hash": [
+                79,
+                86,
+                78,
+                57,
+                66,
+                135,
+                87,
+                95,
+                197,
+                239,
+                220,
+                154,
+                12,
+                201,
+                134,
+                187,
+                72,
+                248,
+                151,
+                115,
+                151,
+                247,
+                61,
+                174,
+                150,
+                232,
+                213,
+                255,
+                213,
+                223,
+                101,
+                26
+              ]
+            },
+            "no_inherit": false
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": null
+        },
+        {
+          "qname": {
+            "schema": "app",
+            "name": "users_email_key"
+          },
+          "kind": {
+            "kind": "unique",
+            "columns": [
+              "email"
+            ],
+            "include": [],
+            "nulls_distinct": true
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": null
+        },
+        {
+          "qname": {
+            "schema": "app",
+            "name": "users_org_id_fkey"
+          },
+          "kind": {
+            "kind": "foreign_key",
+            "columns": [
+              "org_id"
+            ],
+            "referenced_table": {
+              "schema": "app",
+              "name": "orgs"
+            },
+            "referenced_columns": [
+              "id"
+            ],
+            "on_update": "no_action",
+            "on_delete": "cascade",
+            "match_type": "simple"
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": null
+        },
+        {
+          "qname": {
+            "schema": "app",
+            "name": "users_pkey"
+          },
+          "kind": {
+            "kind": "primary_key",
+            "columns": [
+              "id"
+            ],
+            "include": []
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": null
+        }
+      ],
+      "comment": null
+    }
+  ],
+  "indexes": [],
+  "sequences": []
+}

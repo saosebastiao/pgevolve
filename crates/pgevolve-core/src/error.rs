@@ -14,7 +14,10 @@ pub enum Error {
     /// Source-parser error.
     #[error(transparent)]
     Parse(#[from] crate::parse::ParseError),
-    // Catalog, Diff, Plan variants added by later phases.
+    /// Catalog-reader error.
+    #[error(transparent)]
+    Catalog(#[from] crate::catalog::CatalogError),
+    // Diff, Plan variants added by later phases.
 }
 
 /// Result alias for crate-level operations.

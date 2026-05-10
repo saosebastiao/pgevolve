@@ -4,6 +4,7 @@ members = [
   "crates/pgevolve-core",
   "crates/pgevolve",
   "crates/pgevolve-testkit",
+  "xtask",
 ]
 
 [workspace.package]

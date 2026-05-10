@@ -1,0 +1,296 @@
+{
+  "schemas": [
+    {
+      "name": "app",
+      "comment": null
+    }
+  ],
+  "tables": [
+    {
+      "qname": {
+        "schema": "app",
+        "name": "types_zoo"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "flag",
+          "ty": {
+            "kind": "boolean"
+          },
+          "nullable": false,
+          "default": {
+            "literal": {
+              "bool": false
+            }
+          },
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "s_int",
+          "ty": {
+            "kind": "small_int"
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "big",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "amt",
+          "ty": {
+            "kind": "numeric",
+            "precision": 10,
+            "scale": 2
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "note",
+          "ty": {
+            "kind": "text"
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": {
+            "schema": "pg_catalog",
+            "name": "default"
+          },
+          "comment": null
+        },
+        {
+          "name": "label",
+          "ty": {
+            "kind": "varchar",
+            "len": 50
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": {
+            "schema": "pg_catalog",
+            "name": "default"
+          },
+          "comment": null
+        },
+        {
+          "name": "fixed",
+          "ty": {
+            "kind": "char",
+            "len": 8
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": {
+            "schema": "pg_catalog",
+            "name": "default"
+          },
+          "comment": null
+        },
+        {
+          "name": "body",
+          "ty": {
+            "kind": "bytea"
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "born",
+          "ty": {
+            "kind": "date"
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "when_t",
+          "ty": {
+            "kind": "time",
+            "precision": 3,
+            "with_tz": false
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "seen_at",
+          "ty": {
+            "kind": "timestamp",
+            "precision": null,
+            "with_tz": true
+          },
+          "nullable": false,
+          "default": {
+            "expr": {
+              "canonical_text": "now()",
+              "ast_hash": [
+                85,
+                11,
+                59,
+                180,
+                246,
+                55,
+                116,
+                241,
+                131,
+                235,
+                175,
+                24,
+                193,
+                85,
+                169,
+                31,
+                62,
+                1,
+                70,
+                151,
+                17,
+                76,
+                125,
+                216,
+                240,
+                79,
+                170,
+                159,
+                77,
+                226,
+                212,
+                138
+              ]
+            }
+          },
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "tag",
+          "ty": {
+            "kind": "uuid"
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "payload",
+          "ty": {
+            "kind": "jsonb"
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "addr_v4",
+          "ty": {
+            "kind": "net_address",
+            "inet": null
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "digits",
+          "ty": {
+            "kind": "array",
+            "element": {
+              "kind": "integer"
+            },
+            "dims": 1
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        }
+      ],
+      "constraints": [
+        {
+          "qname": {
+            "schema": "app",
+            "name": "types_zoo_pkey"
+          },
+          "kind": {
+            "kind": "primary_key",
+            "columns": [
+              "id"
+            ],
+            "include": []
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": null
+        }
+      ],
+      "comment": null
+    }
+  ],
+  "indexes": [],
+  "sequences": []
+}

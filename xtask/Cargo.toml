@@ -1,0 +1,25 @@
+[package]
+name         = "xtask"
+description  = "Workspace dev-tooling: cargo xtask <bless | ...>"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+publish      = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+pgevolve-core    = { path = "../crates/pgevolve-core" }
+pgevolve-testkit = { path = "../crates/pgevolve-testkit" }
+
+anyhow      = { workspace = true }
+serde_json  = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+walkdir     = "2"

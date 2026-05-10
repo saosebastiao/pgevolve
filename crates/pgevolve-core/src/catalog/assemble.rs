@@ -1,0 +1,752 @@
+//! Convert raw catalog rows into [`Catalog`] IR.
+//!
+//! This is the heart of the catalog reader: it stitches together rows from
+//! [`crate::catalog::CatalogQuery`] into the same IR shape the source-side
+//! parser produces.
+//!
+//! The strategy:
+//! - Schemas, tables, sequences, columns: direct field-for-field translation.
+//! - Indexes: re-parse `pg_get_indexdef` text via `pg_query` and reuse
+//!   [`crate::parse::builder::index_stmt::build_index`].
+//! - Constraints: build PK/UNIQUE/FK from row fields; for CHECK, extract the
+//!   expression from `pg_get_constraintdef` text.
+//! - Default expressions: parse the `pg_get_expr` text and run it through
+//!   the same default-expr builder the source parser uses.
+//! - SERIAL/IDENTITY ownership: walk the dependencies rows and populate
+//!   `Sequence.owned_by` and the column-side `Identity`/`Default::Sequence`
+//!   linkage so source-IR and catalog-IR converge on the same shape.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use pg_query::NodeEnum;
+
+use crate::catalog::error::CatalogError;
+use crate::catalog::filter::CatalogFilter;
+use crate::catalog::rows::Row;
+use crate::catalog::version::PgVersion;
+use crate::catalog::CatalogQuery;
+use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::catalog::Catalog;
+use crate::ir::column::{
+    Column, Generated, GeneratedKind, Identity, IdentityKind, SequenceOptions,
+};
+use crate::ir::column_type::ColumnType;
+use crate::ir::constraint::{
+    Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
+};
+use crate::ir::default_expr::{DefaultExpr, NormalizedExpr};
+use crate::ir::index::Index;
+use crate::ir::schema::Schema;
+use crate::ir::sequence::{Sequence, SequenceOwner};
+use crate::ir::table::Table;
+use crate::parse::builder;
+use crate::parse::error::SourceLocation;
+
+/// Bundle of rows passed to [`assemble`].
+pub struct RawRows {
+    pub version: PgVersion,
+    pub schemas: Vec<Row>,
+    pub tables: Vec<Row>,
+    pub columns: Vec<Row>,
+    pub constraints: Vec<Row>,
+    pub indexes: Vec<Row>,
+    pub sequences: Vec<Row>,
+    pub dependencies: Vec<Row>,
+}
+
+/// Convert raw rows into a [`Catalog`]. Caller is responsible for
+/// canonicalization.
+pub fn assemble(raw: RawRows, filter: &CatalogFilter) -> Result<Catalog, CatalogError> {
+    let RawRows {
+        version,
+        schemas,
+        tables,
+        columns,
+        constraints,
+        indexes,
+        sequences,
+        dependencies,
+    } = raw;
+
+    let mut catalog = Catalog::empty();
+
+    catalog.schemas = build_schemas(&schemas, filter)?;
+
+    // Attach constraints to their tables.
+    let mut tables_mut: HashMap<i64, Table> = build_tables(tables, &columns, filter)?;
+    apply_constraints(&mut tables_mut, &constraints, filter)?;
+
+    // Build indexes (re-parsing pg_get_indexdef).
+    catalog.indexes = build_indexes(&indexes, version, filter)?;
+
+    // Build sequences.
+    let mut sequence_by_qname: HashMap<String, Sequence> = HashMap::new();
+    for r in &sequences {
+        if let Some(s) = build_sequence(r, filter)? {
+            sequence_by_qname.insert(s.qname.to_string(), s);
+        }
+    }
+
+    // Wire SERIAL/IDENTITY ownership: link sequences to their owning columns,
+    // and rewrite the column default to `DefaultExpr::Sequence(seq.qname)`
+    // whenever the introspected default points at the owned sequence.
+    apply_dependencies(&dependencies, &mut tables_mut, &mut sequence_by_qname)?;
+
+    catalog.tables = tables_mut.into_values().collect();
+    catalog.sequences = sequence_by_qname.into_values().collect();
+
+    Ok(catalog)
+}
+
+fn build_schemas(rows: &[Row], filter: &CatalogFilter) -> Result<Vec<Schema>, CatalogError> {
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let name = Identifier::from_unquoted(&r.get_text(CatalogQuery::Schemas, "name")?)
+            .map_err(|e| CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(e.to_string())))?;
+        if !filter.includes_schema(&name) {
+            continue;
+        }
+        out.push(Schema {
+            name,
+            comment: r.get_opt_text(CatalogQuery::Schemas, "comment")?,
+        });
+    }
+    Ok(out)
+}
+
+fn build_tables(
+    table_rows: Vec<Row>,
+    column_rows: &[Row],
+    filter: &CatalogFilter,
+) -> Result<HashMap<i64, Table>, CatalogError> {
+    let mut tables: HashMap<i64, Table> = HashMap::with_capacity(table_rows.len());
+
+    for r in table_rows {
+        let oid = r.get_int(CatalogQuery::Tables, "oid")?;
+        let qname = qname_from(&r, CatalogQuery::Tables, "schema", "name")?;
+        if !filter.allows(&qname) {
+            continue;
+        }
+        let comment = r.get_opt_text(CatalogQuery::Tables, "comment")?;
+        tables.insert(
+            oid,
+            Table {
+                qname,
+                columns: vec![],
+                constraints: vec![],
+                comment,
+            },
+        );
+    }
+
+    // Attach columns by oid, in attnum order. Column rows are already ordered
+    // by (schema, table, attnum) in the SQL.
+    for cr in column_rows {
+        let table_oid = cr.get_int(CatalogQuery::Columns, "table_oid")?;
+        let Some(table) = tables.get_mut(&table_oid) else {
+            continue;
+        };
+        let column = build_column(cr)?;
+        table.columns.push(column);
+    }
+
+    Ok(tables)
+}
+
+fn build_column(r: &Row) -> Result<Column, CatalogError> {
+    let q = CatalogQuery::Columns;
+    let name = ident_required(&r.get_text(q, "name")?)?;
+    let pg_ty = r.get_text(q, "pg_type_string")?;
+    let ty = ColumnType::parse_from_pg_type_string(&pg_ty).map_err(|e| {
+        CatalogError::Ir(crate::ir::IrError::InvalidColumnType(format!(
+            "{pg_ty}: {e}"
+        )))
+    })?;
+    let not_null = r.get_bool(q, "not_null")?;
+
+    let attidentity = r.get_opt_text(q, "attidentity")?.unwrap_or_default();
+    let attgenerated = r.get_opt_text(q, "attgenerated")?.unwrap_or_default();
+
+    let identity = if attidentity.is_empty() {
+        None
+    } else {
+        Some(Identity {
+            kind: match attidentity.as_str() {
+                "a" => IdentityKind::Always,
+                _ => IdentityKind::ByDefault,
+            },
+            sequence: SequenceOptions {
+                start: r.get_int(q, "identity_start")?,
+                increment: r.get_int(q, "identity_increment")?,
+                min_value: r.get_opt_int(q, "identity_min")?,
+                max_value: r.get_opt_int(q, "identity_max")?,
+                cache: r.get_int(q, "identity_cache")?,
+                cycle: r.get_bool(q, "identity_cycle").unwrap_or(false),
+            },
+        })
+    };
+
+    let default_text = r.get_opt_text(q, "default_expr")?;
+    let default = if attgenerated == "s" {
+        // Generated columns also carry their expression in `default_expr`; we'll
+        // materialize the `Generated` instead.
+        None
+    } else if let Some(text) = &default_text {
+        Some(parse_default_expr_text(text, &ty)?)
+    } else {
+        None
+    };
+
+    let generated =
+        if attgenerated == "s" {
+            let text = default_text.as_deref().ok_or(CatalogError::Ir(
+                crate::ir::IrError::MissingField("generated column missing expression"),
+            ))?;
+            let expr = reparse_expression_text(text)?;
+            Some(Generated {
+                kind: GeneratedKind::Stored,
+                expression: expr,
+            })
+        } else {
+            None
+        };
+
+    let collation = match (
+        r.get_opt_text(q, "collation_schema")?,
+        r.get_opt_text(q, "collation_name")?,
+    ) {
+        (Some(s), Some(n)) => Some(QualifiedName::new(ident_required(&s)?, ident_required(&n)?)),
+        _ => None,
+    };
+
+    let comment = r.get_opt_text(q, "comment")?;
+
+    Ok(Column {
+        name,
+        ty,
+        nullable: !not_null,
+        default,
+        identity,
+        generated,
+        collation,
+        comment,
+    })
+}
+
+fn apply_constraints(
+    tables: &mut HashMap<i64, Table>,
+    rows: &[Row],
+    filter: &CatalogFilter,
+) -> Result<(), CatalogError> {
+    let q = CatalogQuery::Constraints;
+
+    // Build attnum→name maps per table for `conkey` resolution.
+    let mut attnum_map: HashMap<i64, Vec<Identifier>> = HashMap::new();
+    for (oid, table) in tables.iter() {
+        let names = table.columns.iter().map(|c| c.name.clone()).collect();
+        attnum_map.insert(*oid, names);
+    }
+
+    for r in rows {
+        let table_qname = qname_from(r, q, "table_schema", "table_name")?;
+        if !filter.allows(&table_qname) {
+            continue;
+        }
+        let Some((oid, _)) = tables
+            .iter()
+            .find(|(_, t)| t.qname == table_qname)
+            .map(|(o, t)| (*o, t.clone()))
+        else {
+            continue;
+        };
+        let cons = build_constraint(r, attnum_map.get(&oid))?;
+        if let Some(c) = cons {
+            tables
+                .get_mut(&oid)
+                .expect("present above")
+                .constraints
+                .push(c);
+        }
+    }
+    Ok(())
+}
+
+fn build_constraint(
+    r: &Row,
+    columns_by_attnum: Option<&Vec<Identifier>>,
+) -> Result<Option<Constraint>, CatalogError> {
+    let q = CatalogQuery::Constraints;
+    let name = ident_required(&r.get_text(q, "name")?)?;
+    let schema = ident_required(&r.get_text(q, "schema")?)?;
+    let qname = QualifiedName::new(schema, name);
+    let contype = r.get_char(q, "contype")?;
+    let deferrable = if r.get_bool(q, "deferrable")? {
+        Deferrable::Deferrable {
+            initially_deferred: r.get_bool(q, "deferred")?,
+        }
+    } else {
+        Deferrable::NotDeferrable
+    };
+    let comment = r.get_opt_text(q, "comment")?;
+
+    let conkey = r.get_int_array(q, "conkey").unwrap_or_default();
+    let columns = resolve_attnums(&conkey, columns_by_attnum)?;
+
+    let kind = match contype {
+        'p' => ConstraintKind::PrimaryKey {
+            columns,
+            include: vec![],
+        },
+        'u' => {
+            // PG 15+ exposes nulls_not_distinct via pg_index; for now we only
+            // know whether the constraint is `NULLS NOT DISTINCT` by parsing
+            // pg_get_constraintdef. Default to nulls_distinct=true.
+            let def = r.get_opt_text(q, "constraint_def")?.unwrap_or_default();
+            let nulls_distinct = !def.to_uppercase().contains("NULLS NOT DISTINCT");
+            ConstraintKind::Unique {
+                columns,
+                include: vec![],
+                nulls_distinct,
+            }
+        }
+        'f' => {
+            let fk_attnums = r.get_int_array(q, "confkey").unwrap_or_default();
+            let fk_table_schema = ident_required(&r.get_text(q, "fk_schema")?)?;
+            let fk_table_name = ident_required(&r.get_text(q, "fk_table")?)?;
+            let referenced_table = QualifiedName::new(fk_table_schema, fk_table_name);
+            // We don't have the referenced table's columns indexed here; reparse
+            // pg_get_constraintdef for the column list and on_update/on_delete.
+            let def = r.get_opt_text(q, "constraint_def")?.unwrap_or_default();
+            let referenced_columns = parse_fk_referenced_columns(&def)
+                .unwrap_or_else(|| placeholder_idents(fk_attnums.len()));
+            let on_update = parse_referential_action(&r.get_text(q, "on_update")?);
+            let on_delete = parse_referential_action(&r.get_text(q, "on_delete")?);
+            let match_type = parse_match_type(&r.get_text(q, "match_type")?);
+            ConstraintKind::ForeignKey(ForeignKey {
+                columns,
+                referenced_table,
+                referenced_columns,
+                on_update,
+                on_delete,
+                match_type,
+            })
+        }
+        'c' => {
+            let def = r
+                .get_opt_text(q, "constraint_def")?
+                .unwrap_or_else(|| String::from("CHECK (true)"));
+            let expr = parse_check_expression(&def)?;
+            ConstraintKind::Check {
+                expression: expr,
+                no_inherit: r.get_bool(q, "no_inherit").unwrap_or(false),
+            }
+        }
+        other => {
+            return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+                format!("unknown constraint kind: {other:?}"),
+            )));
+        }
+    };
+
+    Ok(Some(Constraint {
+        qname,
+        kind,
+        deferrable,
+        comment,
+    }))
+}
+
+fn resolve_attnums(
+    conkey: &[i64],
+    columns: Option<&Vec<Identifier>>,
+) -> Result<Vec<Identifier>, CatalogError> {
+    let Some(cols) = columns else {
+        return Ok(vec![]);
+    };
+    let mut out = Vec::with_capacity(conkey.len());
+    for k in conkey {
+        let idx = usize::try_from(*k - 1).unwrap_or(0);
+        if let Some(c) = cols.get(idx) {
+            out.push(c.clone());
+        }
+    }
+    Ok(out)
+}
+
+fn placeholder_idents(n: usize) -> Vec<Identifier> {
+    (0..n)
+        .map(|i| Identifier::from_unquoted(&format!("col{i}")).expect("valid"))
+        .collect()
+}
+
+fn parse_referential_action(s: &str) -> ReferentialAction {
+    match s {
+        "r" => ReferentialAction::Restrict,
+        "c" => ReferentialAction::Cascade,
+        "n" => ReferentialAction::SetNull(vec![]),
+        "d" => ReferentialAction::SetDefault(vec![]),
+        // `a` (default) or empty/space.
+        _ => ReferentialAction::NoAction,
+    }
+}
+
+fn parse_match_type(s: &str) -> FkMatchType {
+    if s.eq_ignore_ascii_case("f") {
+        FkMatchType::Full
+    } else {
+        FkMatchType::Simple
+    }
+}
+
+/// Extract `(col, col, ...)` after `REFERENCES schema.tab` from a constraint
+/// definition. Returns `None` if the structure is unrecognized.
+fn parse_fk_referenced_columns(def: &str) -> Option<Vec<Identifier>> {
+    let lower = def.to_ascii_lowercase();
+    let refs_pos = lower.find("references")?;
+    let after_refs = &def[refs_pos + "references".len()..];
+    let lparen = after_refs.find('(')?;
+    let rparen_offset = after_refs[lparen + 1..].find(')')?;
+    let inner = &after_refs[lparen + 1..lparen + 1 + rparen_offset];
+    Some(
+        inner
+            .split(',')
+            .map(|s| s.trim().trim_matches('"'))
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| Identifier::from_unquoted(s).ok())
+            .collect(),
+    )
+}
+
+/// Strip the outer `CHECK (` / `)` from a `pg_get_constraintdef` payload and
+/// reparse the inner predicate.
+fn parse_check_expression(def: &str) -> Result<NormalizedExpr, CatalogError> {
+    let s = def.trim();
+    let inner = s
+        .strip_prefix("CHECK")
+        .or_else(|| s.strip_prefix("check"))
+        .map(str::trim_start)
+        .and_then(|rest| rest.strip_prefix('('))
+        .and_then(|rest| rest.strip_suffix(')'))
+        .unwrap_or(s);
+    reparse_expression_text(inner)
+}
+
+/// Parse `text` as a SQL expression by wrapping it in `SELECT (...) AS x` and
+/// extracting the resulting expression node, then normalize it.
+fn reparse_expression_text(text: &str) -> Result<NormalizedExpr, CatalogError> {
+    let sql = format!("SELECT ({text}) AS __pgevolve_expr__");
+    let parsed = pg_query::parse(&sql).map_err(|e| {
+        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
+            "could not reparse expression {text:?}: {e}"
+        )))
+    })?;
+    let stmt = parsed
+        .protobuf
+        .stmts
+        .into_iter()
+        .next()
+        .and_then(|raw| raw.stmt)
+        .and_then(|n| n.node)
+        .ok_or_else(|| {
+            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+                "reparsed expression had no statement".into(),
+            ))
+        })?;
+    let NodeEnum::SelectStmt(s) = stmt else {
+        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+            "expression scaffold did not yield SelectStmt".into(),
+        )));
+    };
+    let target = s
+        .target_list
+        .into_iter()
+        .next()
+        .and_then(|n| n.node)
+        .ok_or_else(|| {
+            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+                "expression scaffold had no target".into(),
+            ))
+        })?;
+    let NodeEnum::ResTarget(rt) = target else {
+        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+            "expression scaffold target was not a ResTarget".into(),
+        )));
+    };
+    let inner = rt.val.and_then(|n| n.node).ok_or_else(|| {
+        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+            "expression scaffold ResTarget missing value".into(),
+        ))
+    })?;
+    let location = SourceLocation::new(PathBuf::from("<catalog>"), 1, 1);
+    crate::parse::normalize_expr::from_pg_node(&inner, None, &location).map_err(|e| {
+        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
+            "could not normalize expression: {e}"
+        )))
+    })
+}
+
+/// Parse a default-expression text from `pg_get_expr`. Recognizes `nextval` as
+/// [`DefaultExpr::Sequence`] and bare literals as [`DefaultExpr::Literal`];
+/// anything else becomes [`DefaultExpr::Expr`].
+fn parse_default_expr_text(
+    text: &str,
+    target_type: &ColumnType,
+) -> Result<DefaultExpr, CatalogError> {
+    let sql = format!("SELECT ({text}) AS __pgevolve_default__");
+    let parsed = pg_query::parse(&sql).map_err(|e| {
+        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
+            "could not reparse default expression {text:?}: {e}"
+        )))
+    })?;
+    let stmt = parsed
+        .protobuf
+        .stmts
+        .into_iter()
+        .next()
+        .and_then(|raw| raw.stmt)
+        .and_then(|n| n.node)
+        .ok_or_else(|| {
+            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+                "default scaffold had no statement".into(),
+            ))
+        })?;
+    let NodeEnum::SelectStmt(s) = stmt else {
+        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+            "default scaffold not SelectStmt".into(),
+        )));
+    };
+    let target = s
+        .target_list
+        .into_iter()
+        .next()
+        .and_then(|n| n.node)
+        .ok_or_else(|| {
+            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+                "default scaffold missing target".into(),
+            ))
+        })?;
+    let NodeEnum::ResTarget(rt) = target else {
+        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+            "default scaffold target not ResTarget".into(),
+        )));
+    };
+    let inner = rt.val.and_then(|n| n.node).ok_or_else(|| {
+        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+            "default scaffold ResTarget missing value".into(),
+        ))
+    })?;
+    let location = SourceLocation::new(PathBuf::from("<catalog>"), 1, 1);
+    builder::shared::build_default_expr(&inner, Some(target_type), None, &location).map_err(|e| {
+        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
+            "could not build default: {e}"
+        )))
+    })
+}
+
+fn build_indexes(
+    rows: &[Row],
+    _version: PgVersion,
+    filter: &CatalogFilter,
+) -> Result<Vec<Index>, CatalogError> {
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let q = CatalogQuery::Indexes;
+        let qname = qname_from(r, q, "schema", "name")?;
+        let table_qname = qname_from(r, q, "table_schema", "table_name")?;
+        if !filter.allows(&qname) || !filter.allows(&table_qname) {
+            continue;
+        }
+        let indexdef = r.get_text(q, "indexdef")?;
+        let mut idx = parse_index_def(&indexdef)?;
+        // `pg_get_indexdef` always returns fully-qualified names; trust them.
+        idx.qname = qname;
+        idx.table = table_qname;
+        idx.comment = r.get_opt_text(q, "comment")?;
+        idx.nulls_not_distinct = r.get_bool(q, "nulls_not_distinct").unwrap_or(false);
+        out.push(idx);
+    }
+    Ok(out)
+}
+
+fn parse_index_def(sql: &str) -> Result<Index, CatalogError> {
+    let parsed = pg_query::parse(sql).map_err(|e| {
+        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
+            "could not reparse indexdef {sql:?}: {e}"
+        )))
+    })?;
+    let stmt = parsed
+        .protobuf
+        .stmts
+        .into_iter()
+        .next()
+        .and_then(|raw| raw.stmt)
+        .and_then(|n| n.node)
+        .ok_or_else(|| {
+            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+                "indexdef had no statement".into(),
+            ))
+        })?;
+    let NodeEnum::IndexStmt(idx_stmt) = stmt else {
+        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+            "indexdef scaffold did not yield IndexStmt".into(),
+        )));
+    };
+    let location = SourceLocation::new(PathBuf::from("<catalog>"), 1, 1);
+    builder::index_stmt::build_index(&idx_stmt, None, &location).map_err(|e| {
+        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
+            "indexdef → IR failed: {e}"
+        )))
+    })
+}
+
+fn build_sequence(r: &Row, filter: &CatalogFilter) -> Result<Option<Sequence>, CatalogError> {
+    let q = CatalogQuery::Sequences;
+    let qname = qname_from(r, q, "schema", "name")?;
+    if !filter.allows(&qname) {
+        return Ok(None);
+    }
+    let data_type_string = r.get_text(q, "data_type_string")?;
+    let data_type = ColumnType::parse_from_pg_type_string(&data_type_string).map_err(|e| {
+        CatalogError::Ir(crate::ir::IrError::InvalidColumnType(format!(
+            "{data_type_string}: {e}"
+        )))
+    })?;
+    let start = r.get_int(q, "start")?;
+    let increment = r.get_int(q, "increment")?;
+    let min_value = Some(r.get_int(q, "min_value")?);
+    let max_value = Some(r.get_int(q, "max_value")?);
+    let cache = r.get_int(q, "cache")?;
+    let cycle = r.get_bool(q, "cycle")?;
+    let comment = r.get_opt_text(q, "comment")?;
+
+    Ok(Some(Sequence {
+        qname,
+        data_type,
+        start,
+        increment,
+        min_value,
+        max_value,
+        cache,
+        cycle,
+        owned_by: None,
+        comment,
+    }))
+}
+
+fn apply_dependencies(
+    rows: &[Row],
+    tables: &mut HashMap<i64, Table>,
+    sequences: &mut HashMap<String, Sequence>,
+) -> Result<(), CatalogError> {
+    let q = CatalogQuery::Dependencies;
+    for r in rows {
+        let seq_qname = qname_from(r, q, "sequence_schema", "sequence_name")?;
+        let owner_table_qname = qname_from(r, q, "owner_schema", "owner_table")?;
+        let owner_column_name = ident_required(&r.get_text(q, "owner_column")?)?;
+
+        // Set owned_by on the sequence.
+        if let Some(seq) = sequences.get_mut(&seq_qname.to_string()) {
+            seq.owned_by = Some(SequenceOwner {
+                table: owner_table_qname.clone(),
+                column: owner_column_name.clone(),
+            });
+        }
+
+        // Convert the column's default to DefaultExpr::Sequence(seq_qname) when
+        // the existing default is an Expr referencing the same sequence text.
+        // We also handle the case where pg_get_expr returned `nextval('...')`
+        // and parse_default_expr_text already produced DefaultExpr::Sequence —
+        // in that case there's nothing to do.
+        for table in tables.values_mut() {
+            if table.qname != owner_table_qname {
+                continue;
+            }
+            for col in &mut table.columns {
+                if col.name != owner_column_name {
+                    continue;
+                }
+                if let Some(DefaultExpr::Sequence(_)) = col.default.as_ref() {
+                    // Already correct (parse_default_expr_text did its job).
+                    continue;
+                }
+                if col.default.is_some()
+                    && default_references_sequence(col.default.as_ref(), &seq_qname)
+                {
+                    col.default = Some(DefaultExpr::Sequence(seq_qname.clone()));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn default_references_sequence(default: Option<&DefaultExpr>, seq: &QualifiedName) -> bool {
+    let Some(DefaultExpr::Expr(e)) = default else {
+        return false;
+    };
+    let needle = format!("'{seq}'");
+    e.canonical_text.contains("nextval")
+        && (e.canonical_text.contains(&needle) || e.canonical_text.contains(seq.name.as_str()))
+}
+
+fn qname_from(
+    r: &Row,
+    q: CatalogQuery,
+    schema_key: &str,
+    name_key: &str,
+) -> Result<QualifiedName, CatalogError> {
+    let schema = ident_required(&r.get_text(q, schema_key)?)?;
+    let name = ident_required(&r.get_text(q, name_key)?)?;
+    Ok(QualifiedName::new(schema, name))
+}
+
+fn ident_required(s: &str) -> Result<Identifier, CatalogError> {
+    Identifier::from_unquoted(s)
+        .map_err(|e| CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(e.to_string())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fk_referenced_columns_parsed() {
+        let def = "FOREIGN KEY (org_id) REFERENCES app.orgs(id) ON DELETE CASCADE";
+        let cols = parse_fk_referenced_columns(def).unwrap();
+        assert_eq!(cols.len(), 1);
+        assert_eq!(cols[0].as_str(), "id");
+    }
+
+    #[test]
+    fn fk_referenced_columns_multi() {
+        let def = "FOREIGN KEY (a, b) REFERENCES app.t(x, y)";
+        let cols = parse_fk_referenced_columns(def).unwrap();
+        assert_eq!(cols.len(), 2);
+    }
+
+    #[test]
+    fn check_expression_strips_outer_check() {
+        let e = parse_check_expression("CHECK ((n > 0))").unwrap();
+        assert!(e.canonical_text.contains('n') || e.canonical_text.contains('>'));
+    }
+
+    #[test]
+    fn parse_default_recognizes_nextval() {
+        let d =
+            parse_default_expr_text("nextval('app.seq1'::regclass)", &ColumnType::BigInt).unwrap();
+        match d {
+            DefaultExpr::Sequence(q) => assert_eq!(q.to_string(), "app.seq1"),
+            other => panic!("expected Sequence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_default_integer_literal() {
+        let d = parse_default_expr_text("0", &ColumnType::Integer).unwrap();
+        assert!(matches!(
+            d,
+            DefaultExpr::Literal(crate::ir::default_expr::LiteralValue::Integer(0))
+        ));
+    }
+}

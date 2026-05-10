@@ -6,6 +6,13 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod catalog_snapshotter;
+pub mod ephemeral_pg;
+pub mod pg_querier;
+
+pub use ephemeral_pg::{docker_available, EphemeralPostgres};
+pub use pg_querier::PgCatalogQuerier;
+
 #[cfg(test)]
 mod tests {
     #[test]

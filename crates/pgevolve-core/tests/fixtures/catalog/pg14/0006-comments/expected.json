@@ -1,0 +1,165 @@
+{
+  "schemas": [
+    {
+      "name": "app",
+      "comment": "Application schema"
+    }
+  ],
+  "tables": [
+    {
+      "qname": {
+        "schema": "app",
+        "name": "users"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "email",
+          "ty": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": {
+            "schema": "pg_catalog",
+            "name": "default"
+          },
+          "comment": "User contact email"
+        }
+      ],
+      "constraints": [
+        {
+          "qname": {
+            "schema": "app",
+            "name": "users_email_check"
+          },
+          "kind": {
+            "kind": "check",
+            "expression": {
+              "canonical_text": "email <> ''::text",
+              "ast_hash": [
+                53,
+                115,
+                148,
+                186,
+                67,
+                232,
+                51,
+                143,
+                177,
+                32,
+                119,
+                214,
+                83,
+                213,
+                0,
+                125,
+                244,
+                175,
+                224,
+                218,
+                163,
+                227,
+                238,
+                42,
+                74,
+                131,
+                206,
+                203,
+                249,
+                232,
+                39,
+                23
+              ]
+            },
+            "no_inherit": false
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": "Reject empty emails"
+        },
+        {
+          "qname": {
+            "schema": "app",
+            "name": "users_pkey"
+          },
+          "kind": {
+            "kind": "primary_key",
+            "columns": [
+              "id"
+            ],
+            "include": []
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": null
+        }
+      ],
+      "comment": "Application users"
+    }
+  ],
+  "indexes": [
+    {
+      "qname": {
+        "schema": "app",
+        "name": "users_email_idx"
+      },
+      "table": {
+        "schema": "app",
+        "name": "users"
+      },
+      "method": "b_tree",
+      "columns": [
+        {
+          "expr": {
+            "column": "email"
+          },
+          "collation": null,
+          "opclass": null,
+          "sort_order": "asc",
+          "nulls_order": "nulls_last"
+        }
+      ],
+      "include": [],
+      "unique": false,
+      "nulls_not_distinct": false,
+      "predicate": null,
+      "tablespace": null,
+      "comment": "Lookup users by email"
+    }
+  ],
+  "sequences": [
+    {
+      "qname": {
+        "schema": "app",
+        "name": "id_seq"
+      },
+      "data_type": {
+        "kind": "big_int"
+      },
+      "start": 1,
+      "increment": 1,
+      "min_value": 1,
+      "max_value": 9223372036854775807,
+      "cache": 1,
+      "cycle": false,
+      "owned_by": null,
+      "comment": "Independent ID sequence"
+    }
+  ]
+}

@@ -1,0 +1,311 @@
+{
+  "schemas": [
+    {
+      "name": "app",
+      "comment": null
+    }
+  ],
+  "tables": [
+    {
+      "qname": {
+        "schema": "app",
+        "name": "users"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "ty": {
+            "kind": "big_int"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        },
+        {
+          "name": "email",
+          "ty": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": {
+            "schema": "pg_catalog",
+            "name": "default"
+          },
+          "comment": null
+        },
+        {
+          "name": "name",
+          "ty": {
+            "kind": "text"
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": {
+            "schema": "pg_catalog",
+            "name": "default"
+          },
+          "comment": null
+        },
+        {
+          "name": "deleted_at",
+          "ty": {
+            "kind": "timestamp",
+            "precision": null,
+            "with_tz": true
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        }
+      ],
+      "constraints": [
+        {
+          "qname": {
+            "schema": "app",
+            "name": "users_pkey"
+          },
+          "kind": {
+            "kind": "primary_key",
+            "columns": [
+              "id"
+            ],
+            "include": []
+          },
+          "deferrable": {
+            "kind": "not_deferrable"
+          },
+          "comment": null
+        }
+      ],
+      "comment": null
+    }
+  ],
+  "indexes": [
+    {
+      "qname": {
+        "schema": "app",
+        "name": "users_active_idx"
+      },
+      "table": {
+        "schema": "app",
+        "name": "users"
+      },
+      "method": "b_tree",
+      "columns": [
+        {
+          "expr": {
+            "column": "email"
+          },
+          "collation": null,
+          "opclass": null,
+          "sort_order": "asc",
+          "nulls_order": "nulls_last"
+        }
+      ],
+      "include": [],
+      "unique": false,
+      "nulls_not_distinct": false,
+      "predicate": {
+        "canonical_text": "deleted_at is null",
+        "ast_hash": [
+          206,
+          56,
+          125,
+          133,
+          162,
+          83,
+          46,
+          55,
+          186,
+          39,
+          140,
+          61,
+          217,
+          200,
+          84,
+          91,
+          177,
+          13,
+          151,
+          166,
+          154,
+          34,
+          148,
+          7,
+          59,
+          196,
+          197,
+          173,
+          7,
+          196,
+          57,
+          158
+        ]
+      },
+      "tablespace": null,
+      "comment": null
+    },
+    {
+      "qname": {
+        "schema": "app",
+        "name": "users_email_idx"
+      },
+      "table": {
+        "schema": "app",
+        "name": "users"
+      },
+      "method": "b_tree",
+      "columns": [
+        {
+          "expr": {
+            "column": "email"
+          },
+          "collation": null,
+          "opclass": null,
+          "sort_order": "asc",
+          "nulls_order": "nulls_last"
+        }
+      ],
+      "include": [],
+      "unique": false,
+      "nulls_not_distinct": false,
+      "predicate": null,
+      "tablespace": null,
+      "comment": null
+    },
+    {
+      "qname": {
+        "schema": "app",
+        "name": "users_email_lower_idx"
+      },
+      "table": {
+        "schema": "app",
+        "name": "users"
+      },
+      "method": "b_tree",
+      "columns": [
+        {
+          "expr": {
+            "expression": {
+              "canonical_text": "lower(email)",
+              "ast_hash": [
+                240,
+                167,
+                200,
+                202,
+                93,
+                150,
+                155,
+                180,
+                198,
+                3,
+                176,
+                180,
+                140,
+                184,
+                230,
+                63,
+                160,
+                165,
+                51,
+                105,
+                109,
+                49,
+                191,
+                15,
+                158,
+                28,
+                199,
+                220,
+                171,
+                183,
+                9,
+                216
+              ]
+            }
+          },
+          "collation": null,
+          "opclass": null,
+          "sort_order": "asc",
+          "nulls_order": "nulls_last"
+        }
+      ],
+      "include": [],
+      "unique": false,
+      "nulls_not_distinct": false,
+      "predicate": null,
+      "tablespace": null,
+      "comment": null
+    },
+    {
+      "qname": {
+        "schema": "app",
+        "name": "users_email_uniq"
+      },
+      "table": {
+        "schema": "app",
+        "name": "users"
+      },
+      "method": "b_tree",
+      "columns": [
+        {
+          "expr": {
+            "column": "email"
+          },
+          "collation": null,
+          "opclass": null,
+          "sort_order": "asc",
+          "nulls_order": "nulls_last"
+        }
+      ],
+      "include": [],
+      "unique": true,
+      "nulls_not_distinct": false,
+      "predicate": null,
+      "tablespace": null,
+      "comment": null
+    },
+    {
+      "qname": {
+        "schema": "app",
+        "name": "users_email_with_name"
+      },
+      "table": {
+        "schema": "app",
+        "name": "users"
+      },
+      "method": "b_tree",
+      "columns": [
+        {
+          "expr": {
+            "column": "email"
+          },
+          "collation": null,
+          "opclass": null,
+          "sort_order": "asc",
+          "nulls_order": "nulls_last"
+        }
+      ],
+      "include": [
+        "name"
+      ],
+      "unique": true,
+      "nulls_not_distinct": false,
+      "predicate": null,
+      "tablespace": null,
+      "comment": null
+    }
+  ],
+  "sequences": []
+}

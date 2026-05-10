@@ -1,0 +1,63 @@
+{
+  "schemas": [
+    {
+      "name": "app",
+      "comment": null
+    }
+  ],
+  "tables": [
+    {
+      "qname": {
+        "schema": "app",
+        "name": "t"
+      },
+      "columns": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "integer"
+          },
+          "nullable": true,
+          "default": null,
+          "identity": null,
+          "generated": null,
+          "collation": null,
+          "comment": null
+        }
+      ],
+      "constraints": [],
+      "comment": null
+    }
+  ],
+  "indexes": [
+    {
+      "qname": {
+        "schema": "app",
+        "name": "t_a_uniq"
+      },
+      "table": {
+        "schema": "app",
+        "name": "t"
+      },
+      "method": "b_tree",
+      "columns": [
+        {
+          "expr": {
+            "column": "a"
+          },
+          "collation": null,
+          "opclass": null,
+          "sort_order": "asc",
+          "nulls_order": "nulls_last"
+        }
+      ],
+      "include": [],
+      "unique": true,
+      "nulls_not_distinct": true,
+      "predicate": null,
+      "tablespace": null,
+      "comment": null
+    }
+  ],
+  "sequences": []
+}

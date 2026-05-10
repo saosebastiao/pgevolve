@@ -74,7 +74,7 @@ pub struct ForeignKey {
 
 /// Referential action for `ON UPDATE` / `ON DELETE`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum ReferentialAction {
     /// `NO ACTION` (default).
     NoAction,

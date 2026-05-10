@@ -5,3 +5,6 @@ target-dir = "target"
 
 [net]
 git-fetch-with-cli = true
+
+[alias]
+xtask = "run --quiet --package xtask --"
