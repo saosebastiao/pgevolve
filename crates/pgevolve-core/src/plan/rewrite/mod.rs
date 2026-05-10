@@ -15,6 +15,7 @@
 #![allow(clippy::format_push_string)]
 #![allow(clippy::needless_pass_by_value)]
 
+pub mod concurrent_index;
 pub mod sql;
 
 use crate::diff::change::{Change, ChangeEntry};
@@ -175,22 +176,21 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         }
 
         Change::CreateIndex(idx) => {
-            // Concurrent rewrite (Task 6.4) hooks in here; for now, a plain
-            // CREATE INDEX. The non-rewritten path is also taken when the
-            // table is being created in this same plan (the CREATE INDEX can
-            // ride inside the table's transaction) or when the index is
-            // unique (`CREATE UNIQUE INDEX CONCURRENTLY` is footgunny in v0.1).
-            let table_qname = idx.table.clone();
             let qname = idx.qname.clone();
-            out.push(RawStep {
-                kind: StepKind::CreateIndex,
-                destructive,
-                destructive_reason,
-                intent_id: None,
-                targets: vec![qname.clone(), table_qname],
-                sql: sql::create_index(&idx, false),
-                transactional: TransactionConstraint::InTransaction,
-            });
+            let step = if concurrent_index::should_rewrite_create(&idx, ctx.target, ctx.policy) {
+                concurrent_index::create_step(&idx, destructive, destructive_reason)
+            } else {
+                RawStep {
+                    kind: StepKind::CreateIndex,
+                    destructive,
+                    destructive_reason,
+                    intent_id: None,
+                    targets: vec![qname.clone(), idx.table.clone()],
+                    sql: sql::create_index(&idx, false),
+                    transactional: TransactionConstraint::InTransaction,
+                }
+            };
+            out.push(step);
             if let Some(c) = &idx.comment {
                 out.push(RawStep {
                     kind: StepKind::SetColumnComment,
@@ -207,35 +207,54 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 });
             }
         }
-        Change::DropIndex(qname) => out.push(RawStep {
-            kind: StepKind::DropIndex,
-            destructive,
-            destructive_reason,
-            intent_id: None,
-            targets: vec![qname.clone()],
-            sql: sql::drop_index(&qname, false),
-            transactional: TransactionConstraint::InTransaction,
-        }),
+        Change::DropIndex(qname) => {
+            let step = if concurrent_index::should_rewrite_drop(&qname, ctx.target, ctx.policy) {
+                concurrent_index::drop_step(&qname, destructive, destructive_reason)
+            } else {
+                RawStep {
+                    kind: StepKind::DropIndex,
+                    destructive,
+                    destructive_reason,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: sql::drop_index(&qname, false),
+                    transactional: TransactionConstraint::InTransaction,
+                }
+            };
+            out.push(step);
+        }
         Change::ReplaceIndex { from, to } => {
-            // Drop then create. Each side may later get the concurrent rewrite.
-            out.push(RawStep {
-                kind: StepKind::DropIndex,
-                destructive: false,
-                destructive_reason: None,
-                intent_id: None,
-                targets: vec![from.qname.clone()],
-                sql: sql::drop_index(&from.qname, false),
-                transactional: TransactionConstraint::InTransaction,
-            });
-            out.push(RawStep {
-                kind: StepKind::CreateIndex,
-                destructive: false,
-                destructive_reason: None,
-                intent_id: None,
-                targets: vec![to.qname.clone(), to.table.clone()],
-                sql: sql::create_index(&to, false),
-                transactional: TransactionConstraint::InTransaction,
-            });
+            // Drop the old index, then create the new one. Each side runs
+            // through the same concurrent-rewrite check as a top-level
+            // Create/Drop so policy applies uniformly.
+            let drop_step = if concurrent_index::should_rewrite_drop(&from.qname, ctx.target, ctx.policy) {
+                concurrent_index::drop_step(&from.qname, false, None)
+            } else {
+                RawStep {
+                    kind: StepKind::DropIndex,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![from.qname.clone()],
+                    sql: sql::drop_index(&from.qname, false),
+                    transactional: TransactionConstraint::InTransaction,
+                }
+            };
+            let create_step = if concurrent_index::should_rewrite_create(&to, ctx.target, ctx.policy) {
+                concurrent_index::create_step(&to, false, None)
+            } else {
+                RawStep {
+                    kind: StepKind::CreateIndex,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![to.qname.clone(), to.table.clone()],
+                    sql: sql::create_index(&to, false),
+                    transactional: TransactionConstraint::InTransaction,
+                }
+            };
+            out.push(drop_step);
+            out.push(create_step);
         }
 
         Change::CreateSequence(s) => {
@@ -1065,6 +1084,180 @@ mod tests {
         assert!(steps[0]
             .sql
             .contains("ADD CONSTRAINT a_b_fk FOREIGN KEY (ref_id) REFERENCES app.b (id)"));
+    }
+
+    // ---- concurrent-index rewrite (Task 6.4) ----
+
+    #[test]
+    fn create_index_on_existing_table_rewrites_to_concurrent() {
+        let mut target = Catalog::empty();
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+
+        let idx = make_index("users_idx", qn("app", "users"), false);
+        let mut cs = ChangeSet::new();
+        cs.push(Change::CreateIndex(idx), Destructiveness::Safe);
+
+        let steps = rewrite(
+            OrderedChangeSet {
+                creates_and_adds: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].kind, StepKind::CreateIndexConcurrent);
+        assert_eq!(
+            steps[0].transactional,
+            TransactionConstraint::OutsideTransaction,
+        );
+        assert!(steps[0].sql.contains("CONCURRENTLY"));
+    }
+
+    #[test]
+    fn create_index_on_new_table_stays_inline() {
+        // Empty target ⇒ users is being created in this plan ⇒ no concurrent rewrite.
+        let idx = make_index("users_idx", qn("app", "users"), false);
+        let mut cs = ChangeSet::new();
+        cs.push(Change::CreateIndex(idx), Destructiveness::Safe);
+
+        let steps = rewrite(
+            OrderedChangeSet {
+                creates_and_adds: cs.entries,
+                ..Default::default()
+            },
+            &Catalog::empty(),
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps[0].kind, StepKind::CreateIndex);
+        assert_eq!(steps[0].transactional, TransactionConstraint::InTransaction);
+        assert!(!steps[0].sql.contains("CONCURRENTLY"));
+    }
+
+    #[test]
+    fn unique_create_index_does_not_rewrite_to_concurrent() {
+        let mut target = Catalog::empty();
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+
+        let idx = make_index("users_email_idx", qn("app", "users"), true);
+        let mut cs = ChangeSet::new();
+        cs.push(Change::CreateIndex(idx), Destructiveness::Safe);
+
+        let steps = rewrite(
+            OrderedChangeSet {
+                creates_and_adds: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps[0].kind, StepKind::CreateIndex);
+        assert!(steps[0].sql.contains("UNIQUE INDEX"));
+        assert!(!steps[0].sql.contains("CONCURRENTLY"));
+    }
+
+    #[test]
+    fn atomic_policy_disables_concurrent_index_rewrite() {
+        let mut target = Catalog::empty();
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+
+        let idx = make_index("users_idx", qn("app", "users"), false);
+        let mut cs = ChangeSet::new();
+        cs.push(Change::CreateIndex(idx), Destructiveness::Safe);
+
+        let policy = PlannerPolicy {
+            strategy: crate::plan::policy::Strategy::Atomic,
+            ..PlannerPolicy::default()
+        };
+        let steps = rewrite(
+            OrderedChangeSet {
+                creates_and_adds: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &policy,
+        );
+        assert_eq!(steps[0].kind, StepKind::CreateIndex);
+        assert!(!steps[0].sql.contains("CONCURRENTLY"));
+    }
+
+    #[test]
+    fn drop_index_on_existing_non_unique_rewrites_to_concurrent() {
+        let mut target = Catalog::empty();
+        target.indexes.push(make_index("users_idx", qn("app", "users"), false));
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::DropIndex(qn("app", "users_idx")),
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                drops: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps[0].kind, StepKind::DropIndexConcurrent);
+        assert_eq!(steps[0].transactional, TransactionConstraint::OutsideTransaction);
+    }
+
+    #[test]
+    fn drop_unique_index_stays_inline() {
+        let mut target = Catalog::empty();
+        target.indexes.push(make_index("users_idx", qn("app", "users"), true));
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::DropIndex(qn("app", "users_idx")),
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                drops: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps[0].kind, StepKind::DropIndex);
+        assert_eq!(steps[0].transactional, TransactionConstraint::InTransaction);
+    }
+
+    #[test]
+    fn drop_index_unknown_in_target_stays_inline() {
+        // If the index isn't in the target catalog, we can't tell whether
+        // it's unique. Default to the safe inline form.
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::DropIndex(qn("app", "users_idx")),
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                drops: cs.entries,
+                ..Default::default()
+            },
+            &Catalog::empty(),
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps[0].kind, StepKind::DropIndex);
     }
 
     #[test]
