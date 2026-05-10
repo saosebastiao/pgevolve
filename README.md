@@ -24,8 +24,8 @@ for the implementation plan.
 | 1     | IR                           | done      |
 | 2     | Source parser                | done      |
 | 3     | Catalog reader               | done      |
-| 4     | Differ                       | next      |
-| 5     | Planner                      | pending   |
+| 4     | Differ                       | done      |
+| 5     | Planner                      | done      |
 | 6     | Rewrites                     | pending   |
 | 7     | Plan format                  | pending   |
 | 8     | Executor                     | pending   |
