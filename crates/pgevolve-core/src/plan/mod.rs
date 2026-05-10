@@ -8,6 +8,7 @@
 pub mod edges;
 pub mod error;
 pub mod graph;
+pub mod grouping;
 pub mod ordered;
 pub mod ordering;
 pub mod policy;
@@ -21,4 +22,5 @@ pub use ordered::{DeferredFkAdd, OrderedChangeSet};
 pub use ordering::order;
 pub use policy::{OnlineRewrites, PlannerPolicy, Strategy};
 pub use raw_step::{RawStep, StepKind, TransactionConstraint};
+pub use grouping::{group_steps, TransactionGroup};
 pub use rewrite::rewrite;
