@@ -15,6 +15,7 @@
 #![allow(clippy::format_push_string)]
 #![allow(clippy::needless_pass_by_value)]
 
+pub mod check_not_valid_validate;
 pub mod concurrent_index;
 pub mod fk_not_valid_validate;
 pub mod sql;
@@ -388,6 +389,15 @@ fn emit_table_op(
         TableOp::AddConstraint(c) => {
             if fk_not_valid_validate::should_rewrite(qname, &c, ctx.target, ctx.policy) {
                 let [a, b] = fk_not_valid_validate::rewrite_steps(
+                    qname,
+                    &c,
+                    destructive,
+                    destructive_reason,
+                );
+                out.push(a);
+                out.push(b);
+            } else if check_not_valid_validate::should_rewrite(qname, &c, ctx.target, ctx.policy) {
+                let [a, b] = check_not_valid_validate::rewrite_steps(
                     qname,
                     &c,
                     destructive,
@@ -1431,6 +1441,118 @@ mod tests {
             },
             &target,
             &PlannerPolicy::default(),
+        );
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].kind, StepKind::AddConstraint);
+    }
+
+    // ---- CHECK NOT VALID + VALIDATE rewrite (Task 6.6) ----
+
+    fn check(name: &str, expr: &str) -> Constraint {
+        Constraint {
+            qname: qn("app", name),
+            kind: ConstraintKind::Check {
+                expression: crate::ir::default_expr::NormalizedExpr::from_text(expr),
+                no_inherit: false,
+            },
+            deferrable: Deferrable::NotDeferrable,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn add_check_on_existing_table_emits_two_steps() {
+        let mut target = Catalog::empty();
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("age", ColumnType::Integer, true)],
+            constraints: vec![],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::AddConstraint(check("users_age_chk", "age >= 0")),
+                    destructiveness: Destructiveness::Safe,
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].kind, StepKind::AddConstraintNotValid);
+        assert!(steps[0].sql.contains("CHECK (age >= 0)"));
+        assert!(steps[0].sql.contains("NOT VALID"));
+        assert_eq!(steps[1].kind, StepKind::ValidateConstraint);
+    }
+
+    #[test]
+    fn add_check_on_new_table_via_alter_stays_inline_when_target_missing() {
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::AddConstraint(check("users_age_chk", "age >= 0")),
+                    destructiveness: Destructiveness::Safe,
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &Catalog::empty(),
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].kind, StepKind::AddConstraint);
+    }
+
+    #[test]
+    fn add_check_with_atomic_policy_stays_inline() {
+        let mut target = Catalog::empty();
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("age", ColumnType::Integer, true)],
+            constraints: vec![],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::AddConstraint(check("users_age_chk", "age >= 0")),
+                    destructiveness: Destructiveness::Safe,
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let policy = PlannerPolicy {
+            strategy: crate::plan::policy::Strategy::Atomic,
+            ..PlannerPolicy::default()
+        };
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &policy,
         );
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].kind, StepKind::AddConstraint);
