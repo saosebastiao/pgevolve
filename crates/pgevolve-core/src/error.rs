@@ -17,7 +17,10 @@ pub enum Error {
     /// Catalog-reader error.
     #[error(transparent)]
     Catalog(#[from] crate::catalog::CatalogError),
-    // Diff, Plan variants added by later phases.
+    /// Plan-ordering error.
+    #[error(transparent)]
+    Plan(#[from] crate::plan::PlanError),
+    // Diff variant added by later phases.
 }
 
 /// Result alias for crate-level operations.
