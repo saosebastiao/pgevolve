@@ -133,6 +133,153 @@ pub struct Plan {
     pub metadata: PlanMetadata,
 }
 
+impl Plan {
+    /// Assemble a `Plan` from a step-grouped output of the rewrite pass.
+    ///
+    /// Walks `groups` in order to:
+    /// 1. Assign 1-indexed `step_no` to every step (continuous across groups).
+    /// 2. Allocate a `DestructiveIntent` (and `intent_id`) for every
+    ///    destructive step, in step order.
+    /// 3. Compute the deterministic `PlanId` over `(source, target, version,
+    ///    ruleset_version)`.
+    ///
+    /// `target_identity` is opaque to the planner — the executor binary
+    /// computes it from `(host, port, dbname, system_identifier)` at apply time.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_grouped(
+        mut groups: Vec<TransactionGroup>,
+        source: &Catalog,
+        target: &Catalog,
+        target_identity: String,
+        source_rev: Option<String>,
+        pgevolve_version: &str,
+        planner_ruleset_version: u32,
+    ) -> Self {
+        let mut step_no: u32 = 0;
+        let mut intent_no: u32 = 0;
+        let mut intents: Vec<DestructiveIntent> = Vec::new();
+        for group in &mut groups {
+            for step in &mut group.steps {
+                step_no += 1;
+                step.step_no = step_no;
+                if step.destructive {
+                    intent_no += 1;
+                    step.intent_id = Some(intent_no);
+                    intents.push(DestructiveIntent {
+                        id: intent_no,
+                        step: step_no,
+                        kind: kind_name(step.kind).to_string(),
+                        target: render_targets(&step.targets),
+                        reason: step
+                            .destructive_reason
+                            .clone()
+                            .unwrap_or_else(|| "destructive".to_string()),
+                    });
+                }
+            }
+        }
+        let id = PlanId::compute(source, target, pgevolve_version, planner_ruleset_version);
+        let metadata = PlanMetadata {
+            pgevolve_version: pgevolve_version.to_string(),
+            planner_ruleset_version,
+            source_rev,
+            target_identity,
+            target_snapshot: target.clone(),
+            created_at: OffsetDateTime::now_utc(),
+        };
+        Self {
+            id,
+            groups,
+            intents,
+            metadata,
+        }
+    }
+}
+
+/// Human-readable kind name used in directive comments and intent rows.
+///
+/// The vocabulary matches [`StepKind`]'s `snake_case` serde encoding; this
+/// `const fn` exists so callers do not pay for a serde round-trip.
+pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
+    use crate::plan::raw_step::StepKind as K;
+    match k {
+        K::CreateSchema => "create_schema",
+        K::DropSchema => "drop_schema",
+        K::AlterSchemaComment => "alter_schema_comment",
+        K::CreateTable => "create_table",
+        K::DropTable => "drop_table",
+        K::AlterTableSetComment => "alter_table_set_comment",
+        K::AddColumn => "add_column",
+        K::DropColumn => "drop_column",
+        K::AlterColumnType => "alter_column_type",
+        K::SetColumnNullable => "set_column_nullable",
+        K::SetColumnDefault => "set_column_default",
+        K::SetColumnComment => "set_column_comment",
+        K::SetColumnIdentity => "set_column_identity",
+        K::SetColumnGenerated => "set_column_generated",
+        K::AddConstraint => "add_constraint",
+        K::AddConstraintNotValid => "add_constraint_not_valid",
+        K::ValidateConstraint => "validate_constraint",
+        K::DropConstraint => "drop_constraint",
+        K::SetConstraintComment => "set_constraint_comment",
+        K::CreateIndex => "create_index",
+        K::CreateIndexConcurrent => "create_index_concurrent",
+        K::DropIndex => "drop_index",
+        K::DropIndexConcurrent => "drop_index_concurrent",
+        K::CreateSequence => "create_sequence",
+        K::DropSequence => "drop_sequence",
+        K::AlterSequence => "alter_sequence",
+        K::AddCheckForNotNull => "add_check_for_not_null",
+    }
+}
+
+/// Parse [`kind_name`]'s output back into [`StepKind`].
+pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
+    use crate::plan::raw_step::StepKind as K;
+    Some(match s {
+        "create_schema" => K::CreateSchema,
+        "drop_schema" => K::DropSchema,
+        "alter_schema_comment" => K::AlterSchemaComment,
+        "create_table" => K::CreateTable,
+        "drop_table" => K::DropTable,
+        "alter_table_set_comment" => K::AlterTableSetComment,
+        "add_column" => K::AddColumn,
+        "drop_column" => K::DropColumn,
+        "alter_column_type" => K::AlterColumnType,
+        "set_column_nullable" => K::SetColumnNullable,
+        "set_column_default" => K::SetColumnDefault,
+        "set_column_comment" => K::SetColumnComment,
+        "set_column_identity" => K::SetColumnIdentity,
+        "set_column_generated" => K::SetColumnGenerated,
+        "add_constraint" => K::AddConstraint,
+        "add_constraint_not_valid" => K::AddConstraintNotValid,
+        "validate_constraint" => K::ValidateConstraint,
+        "drop_constraint" => K::DropConstraint,
+        "set_constraint_comment" => K::SetConstraintComment,
+        "create_index" => K::CreateIndex,
+        "create_index_concurrent" => K::CreateIndexConcurrent,
+        "drop_index" => K::DropIndex,
+        "drop_index_concurrent" => K::DropIndexConcurrent,
+        "create_sequence" => K::CreateSequence,
+        "drop_sequence" => K::DropSequence,
+        "alter_sequence" => K::AlterSequence,
+        "add_check_for_not_null" => K::AddCheckForNotNull,
+        _ => return None,
+    })
+}
+
+/// Render a step's `targets` list as a comma-separated string of qnames.
+fn render_targets(targets: &[crate::identifier::QualifiedName]) -> String {
+    let mut s = String::new();
+    for (i, t) in targets.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&t.render_sql());
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +346,131 @@ mod tests {
         assert_eq!(hex.len(), 64);
         let back = PlanId::from_full_hex(&hex).unwrap();
         assert_eq!(id, back);
+    }
+
+    // ---- Plan::from_grouped (Task 7.2) ----
+
+    use crate::identifier::QualifiedName;
+    use crate::plan::grouping::TransactionGroup;
+    use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
+
+    fn qn(schema: &str, name: &str) -> QualifiedName {
+        QualifiedName::new(id_id(schema), id_id(name))
+    }
+
+    fn step(kind: StepKind, destructive: bool, targets: Vec<QualifiedName>) -> RawStep {
+        RawStep {
+            step_no: 0,
+            kind,
+            destructive,
+            destructive_reason: destructive.then(|| "test".to_string()),
+            intent_id: None,
+            targets,
+            sql: String::new(),
+            transactional: TransactionConstraint::InTransaction,
+        }
+    }
+
+    fn group(id: u32, steps: Vec<RawStep>) -> TransactionGroup {
+        TransactionGroup {
+            id,
+            transactional: true,
+            steps,
+        }
+    }
+
+    #[test]
+    fn from_grouped_assigns_step_numbers_contiguously() {
+        let groups = vec![
+            group(1, vec![
+                step(StepKind::CreateSchema, false, vec![qn("app", "app")]),
+                step(StepKind::CreateTable, false, vec![qn("app", "users")]),
+            ]),
+            group(2, vec![step(
+                StepKind::DropColumn,
+                true,
+                vec![qn("app", "users")],
+            )]),
+        ];
+        let plan = Plan::from_grouped(
+            groups,
+            &Catalog::empty(),
+            &Catalog::empty(),
+            "tid".into(),
+            None,
+            "0.1.0",
+            1,
+        );
+        let nos: Vec<u32> = plan
+            .groups
+            .iter()
+            .flat_map(|g| g.steps.iter().map(|s| s.step_no))
+            .collect();
+        assert_eq!(nos, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn from_grouped_allocates_one_intent_per_destructive_step() {
+        let groups = vec![group(
+            1,
+            vec![
+                step(StepKind::CreateTable, false, vec![qn("app", "x")]),
+                step(StepKind::DropColumn, true, vec![qn("app", "x")]),
+                step(StepKind::DropTable, true, vec![qn("app", "y")]),
+            ],
+        )];
+        let plan = Plan::from_grouped(
+            groups,
+            &Catalog::empty(),
+            &Catalog::empty(),
+            "tid".into(),
+            None,
+            "0.1.0",
+            1,
+        );
+        assert_eq!(plan.intents.len(), 2);
+        assert_eq!(plan.intents[0].id, 1);
+        assert_eq!(plan.intents[0].step, 2);
+        assert_eq!(plan.intents[0].kind, "drop_column");
+        assert_eq!(plan.intents[1].id, 2);
+        assert_eq!(plan.intents[1].step, 3);
+        assert_eq!(plan.intents[1].kind, "drop_table");
+        // The destructive steps carry back their intent ids.
+        let intent_ids: Vec<Option<u32>> = plan
+            .groups
+            .iter()
+            .flat_map(|g| g.steps.iter().map(|s| s.intent_id))
+            .collect();
+        assert_eq!(intent_ids, vec![None, Some(1), Some(2)]);
+    }
+
+    #[test]
+    fn from_grouped_metadata_captures_target_snapshot() {
+        let target = cat_with_schema("legacy");
+        let plan = Plan::from_grouped(
+            Vec::new(),
+            &Catalog::empty(),
+            &target,
+            "tid".into(),
+            Some("git:abc".into()),
+            "0.1.0",
+            1,
+        );
+        assert_eq!(plan.metadata.target_snapshot, target);
+        assert_eq!(plan.metadata.source_rev.as_deref(), Some("git:abc"));
+        assert_eq!(plan.metadata.target_identity, "tid");
+    }
+
+    #[test]
+    fn kind_name_round_trips_via_parse() {
+        for k in [
+            StepKind::CreateSchema,
+            StepKind::DropColumn,
+            StepKind::CreateIndexConcurrent,
+            StepKind::AddCheckForNotNull,
+        ] {
+            assert_eq!(parse_kind_name(kind_name(k)), Some(k));
+        }
     }
 
     #[test]

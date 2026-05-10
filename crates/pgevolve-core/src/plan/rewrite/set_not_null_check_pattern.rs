@@ -70,6 +70,7 @@ pub fn rewrite_steps(
 
     [
         RawStep {
+            step_no: 0,
             kind: StepKind::AddCheckForNotNull,
             destructive,
             destructive_reason: destructive_reason.clone(),
@@ -79,6 +80,7 @@ pub fn rewrite_steps(
             transactional: TransactionConstraint::InTransaction,
         },
         RawStep {
+            step_no: 0,
             kind: StepKind::ValidateConstraint,
             destructive,
             destructive_reason: destructive_reason.clone(),
@@ -88,6 +90,7 @@ pub fn rewrite_steps(
             transactional: TransactionConstraint::InTransaction,
         },
         RawStep {
+            step_no: 0,
             kind: StepKind::SetColumnNullable,
             destructive,
             destructive_reason,
@@ -97,6 +100,7 @@ pub fn rewrite_steps(
             transactional: TransactionConstraint::InTransaction,
         },
         RawStep {
+            step_no: 0,
             kind: StepKind::DropConstraint,
             destructive: false,
             destructive_reason: None,

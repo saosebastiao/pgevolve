@@ -50,6 +50,7 @@ pub fn should_rewrite_drop(qname: &QualifiedName, target: &Catalog, policy: &Pla
 /// Caller must have first verified [`should_rewrite_create`].
 pub fn create_step(idx: &Index, destructive: bool, destructive_reason: Option<String>) -> RawStep {
     RawStep {
+        step_no: 0,
         kind: StepKind::CreateIndexConcurrent,
         destructive,
         destructive_reason,
@@ -69,6 +70,7 @@ pub fn drop_step(
     destructive_reason: Option<String>,
 ) -> RawStep {
     RawStep {
+        step_no: 0,
         kind: StepKind::DropIndexConcurrent,
         destructive,
         destructive_reason,

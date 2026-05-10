@@ -75,6 +75,7 @@ mod tests {
 
     fn step(kind: StepKind, c: TransactionConstraint) -> RawStep {
         RawStep {
+            step_no: 0,
             kind,
             destructive: false,
             destructive_reason: None,

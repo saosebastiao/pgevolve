@@ -26,5 +26,5 @@ pub use policy::{OnlineRewrites, PlannerPolicy, Strategy};
 pub use raw_step::{RawStep, StepKind, TransactionConstraint};
 pub use grouping::{group_steps, TransactionGroup};
 pub use io_error::PlanIoError;
-pub use plan::{DestructiveIntent, InvalidPlanHash, Plan, PlanId, PlanMetadata};
+pub use plan::{kind_name, parse_kind_name, DestructiveIntent, InvalidPlanHash, Plan, PlanId, PlanMetadata};
 pub use rewrite::rewrite;

@@ -41,6 +41,7 @@ pub fn rewrite_steps(
 ) -> [RawStep; 2] {
     [
         RawStep {
+            step_no: 0,
             kind: StepKind::AddConstraintNotValid,
             destructive,
             destructive_reason: destructive_reason.clone(),
@@ -50,6 +51,7 @@ pub fn rewrite_steps(
             transactional: TransactionConstraint::InTransaction,
         },
         RawStep {
+            step_no: 0,
             kind: StepKind::ValidateConstraint,
             destructive,
             destructive_reason,

@@ -71,6 +71,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
     match entry.change {
         Change::CreateSchema(s) => {
             out.push(RawStep {
+                step_no: 0,
                 kind: StepKind::CreateSchema,
                 destructive,
                 destructive_reason,
@@ -81,6 +82,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
             if let Some(c) = &s.comment {
                 out.push(RawStep {
+                    step_no: 0,
                     kind: StepKind::AlterSchemaComment,
                     destructive: false,
                     destructive_reason: None,
@@ -92,6 +94,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             }
         }
         Change::DropSchema(name) => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::DropSchema,
             destructive,
             destructive_reason,
@@ -101,6 +104,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             transactional: TransactionConstraint::InTransaction,
         }),
         Change::AlterSchema { name, comment } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::AlterSchemaComment,
             destructive: false,
             destructive_reason: None,
@@ -113,6 +117,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         Change::CreateTable(t) => {
             let qname = t.qname.clone();
             out.push(RawStep {
+                step_no: 0,
                 kind: StepKind::CreateTable,
                 destructive,
                 destructive_reason,
@@ -123,6 +128,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
             if let Some(c) = &t.comment {
                 out.push(RawStep {
+                    step_no: 0,
                     kind: StepKind::AlterTableSetComment,
                     destructive: false,
                     destructive_reason: None,
@@ -135,6 +141,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             for col in &t.columns {
                 if let Some(comment) = &col.comment {
                     out.push(RawStep {
+                        step_no: 0,
                         kind: StepKind::SetColumnComment,
                         destructive: false,
                         destructive_reason: None,
@@ -148,6 +155,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             for c in &t.constraints {
                 if let Some(cm) = &c.comment {
                     out.push(RawStep {
+                        step_no: 0,
                         kind: StepKind::SetConstraintComment,
                         destructive: false,
                         destructive_reason: None,
@@ -160,6 +168,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             }
         }
         Change::DropTable { qname, .. } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::DropTable,
             destructive,
             destructive_reason,
@@ -180,6 +189,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 concurrent_index::create_step(&idx, destructive, destructive_reason)
             } else {
                 RawStep {
+                    step_no: 0,
                     kind: StepKind::CreateIndex,
                     destructive,
                     destructive_reason,
@@ -192,6 +202,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             out.push(step);
             if let Some(c) = &idx.comment {
                 out.push(RawStep {
+                    step_no: 0,
                     kind: StepKind::SetColumnComment,
                     destructive: false,
                     destructive_reason: None,
@@ -211,6 +222,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 concurrent_index::drop_step(&qname, destructive, destructive_reason)
             } else {
                 RawStep {
+                    step_no: 0,
                     kind: StepKind::DropIndex,
                     destructive,
                     destructive_reason,
@@ -230,6 +242,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 concurrent_index::drop_step(&from.qname, false, None)
             } else {
                 RawStep {
+                    step_no: 0,
                     kind: StepKind::DropIndex,
                     destructive: false,
                     destructive_reason: None,
@@ -243,6 +256,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 concurrent_index::create_step(&to, false, None)
             } else {
                 RawStep {
+                    step_no: 0,
                     kind: StepKind::CreateIndex,
                     destructive: false,
                     destructive_reason: None,
@@ -259,6 +273,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         Change::CreateSequence(s) => {
             let qname = s.qname.clone();
             out.push(RawStep {
+                step_no: 0,
                 kind: StepKind::CreateSequence,
                 destructive: false,
                 destructive_reason: None,
@@ -269,6 +284,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
             if let Some(c) = &s.comment {
                 out.push(RawStep {
+                    step_no: 0,
                     kind: StepKind::AlterSequence,
                     destructive: false,
                     destructive_reason: None,
@@ -284,6 +300,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             }
         }
         Change::DropSequence(qname) => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::DropSequence,
             destructive,
             destructive_reason,
@@ -310,6 +327,7 @@ fn emit_table_op(
     let destructive_reason = destructive_reason(&entry.destructiveness);
     match entry.op {
         TableOp::AddColumn(c) => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::AddColumn,
             destructive,
             destructive_reason,
@@ -319,6 +337,7 @@ fn emit_table_op(
             transactional: TransactionConstraint::InTransaction,
         }),
         TableOp::DropColumn { name, .. } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::DropColumn,
             destructive,
             destructive_reason,
@@ -333,6 +352,7 @@ fn emit_table_op(
             to,
             using,
         } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::AlterColumnType,
             destructive,
             destructive_reason,
@@ -357,6 +377,7 @@ fn emit_table_op(
                 }
             } else {
                 out.push(RawStep {
+                    step_no: 0,
                     kind: StepKind::SetColumnNullable,
                     destructive,
                     destructive_reason,
@@ -368,6 +389,7 @@ fn emit_table_op(
             }
         }
         TableOp::SetColumnDefault { name, default } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::SetColumnDefault,
             destructive: false,
             destructive_reason: None,
@@ -377,6 +399,7 @@ fn emit_table_op(
             transactional: TransactionConstraint::InTransaction,
         }),
         TableOp::SetColumnIdentity { name, identity } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::SetColumnIdentity,
             destructive,
             destructive_reason,
@@ -386,6 +409,7 @@ fn emit_table_op(
             transactional: TransactionConstraint::InTransaction,
         }),
         TableOp::SetColumnGenerated { name, generated } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::SetColumnGenerated,
             destructive,
             destructive_reason,
@@ -395,6 +419,7 @@ fn emit_table_op(
             transactional: TransactionConstraint::InTransaction,
         }),
         TableOp::SetColumnComment { name, comment } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::SetColumnComment,
             destructive: false,
             destructive_reason: None,
@@ -425,6 +450,7 @@ fn emit_table_op(
                 out.push(b);
             } else {
                 out.push(RawStep {
+                    step_no: 0,
                     kind: StepKind::AddConstraint,
                     destructive,
                     destructive_reason,
@@ -436,6 +462,7 @@ fn emit_table_op(
             }
         }
         TableOp::DropConstraint { name } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::DropConstraint,
             destructive,
             destructive_reason,
@@ -445,6 +472,7 @@ fn emit_table_op(
             transactional: TransactionConstraint::InTransaction,
         }),
         TableOp::SetConstraintComment { name, comment } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::SetConstraintComment,
             destructive: false,
             destructive_reason: None,
@@ -454,6 +482,7 @@ fn emit_table_op(
             transactional: TransactionConstraint::InTransaction,
         }),
         TableOp::SetTableComment { comment } => out.push(RawStep {
+            step_no: 0,
             kind: StepKind::AlterTableSetComment,
             destructive: false,
             destructive_reason: None,
@@ -478,6 +507,7 @@ fn emit_sequence_op(qname: &QualifiedName, entry: SequenceOpEntry, out: &mut Vec
         SequenceOp::SetOwnedBy(o) => sql::alter_sequence_owned_by(qname, o.as_ref()),
     };
     out.push(RawStep {
+        step_no: 0,
         kind: StepKind::AlterSequence,
         destructive,
         destructive_reason,
@@ -490,6 +520,7 @@ fn emit_sequence_op(qname: &QualifiedName, entry: SequenceOpEntry, out: &mut Vec
 
 fn emit_deferred_fk(fk: &DeferredFkAdd, _ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
     out.push(RawStep {
+        step_no: 0,
         kind: StepKind::AddConstraint,
         destructive: false,
         destructive_reason: None,

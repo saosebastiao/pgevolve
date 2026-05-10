@@ -96,16 +96,21 @@ pub enum StepKind {
 
 /// One unit of work the executor will attempt.
 ///
-/// `intent_id` is `None` here; it is filled in by the plan serializer.
+/// `step_no` and `intent_id` start at zero / `None` and are assigned later
+/// by [`Plan::from_grouped`](crate::plan::Plan::from_grouped). The rewrite
+/// pass (Phase 6) builds steps without that numbering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawStep {
+    /// 1-indexed step number across the whole plan. `0` until assigned by
+    /// `Plan::from_grouped`.
+    pub step_no: u32,
     /// What kind of operation.
     pub kind: StepKind,
     /// Whether the step is destructive (requires explicit intent approval).
     pub destructive: bool,
     /// Human-readable reason for destructiveness, if any.
     pub destructive_reason: Option<String>,
-    /// Intent id assigned by the plan serializer; `None` until then.
+    /// Intent id assigned by `Plan::from_grouped`; `None` until then.
     pub intent_id: Option<u32>,
     /// IR objects this step affects (used by directive comments).
     pub targets: Vec<QualifiedName>,
