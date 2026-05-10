@@ -27,7 +27,7 @@ for the implementation plan.
 | 4     | Differ                       | done      |
 | 5     | Planner                      | done      |
 | 6     | Rewrites                     | done      |
-| 7     | Plan format                  | pending   |
+| 7     | Plan format                  | done      |
 | 8     | Executor                     | pending   |
 | 9     | CLI                          | pending   |
 | 10    | Linter                       | pending   |
