@@ -10,9 +10,11 @@ pub mod error;
 pub mod graph;
 pub mod ordered;
 pub mod ordering;
+pub mod policy;
 
 pub use edges::{build_create_graph, build_drop_graph, NodeId};
 pub use error::PlanError;
 pub use graph::{Cycle, Graph};
 pub use ordered::{DeferredFkAdd, OrderedChangeSet};
 pub use ordering::order;
+pub use policy::{OnlineRewrites, PlannerPolicy, Strategy};
