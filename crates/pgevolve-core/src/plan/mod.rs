@@ -12,6 +12,7 @@ pub mod ordered;
 pub mod ordering;
 pub mod policy;
 pub mod raw_step;
+pub mod rewrite;
 
 pub use edges::{build_create_graph, build_drop_graph, NodeId};
 pub use error::PlanError;
@@ -20,3 +21,4 @@ pub use ordered::{DeferredFkAdd, OrderedChangeSet};
 pub use ordering::order;
 pub use policy::{OnlineRewrites, PlannerPolicy, Strategy};
 pub use raw_step::{RawStep, StepKind, TransactionConstraint};
+pub use rewrite::rewrite;

@@ -37,6 +37,15 @@ impl Catalog {
         }
     }
 
+    /// True iff a table with the given qualified name exists in the catalog.
+    ///
+    /// Used by the planner to decide whether a `CreateIndex` / `AddConstraint`
+    /// targets an existing table (eligible for online rewrites) or one being
+    /// created in the same plan (must stay inline / transactional).
+    pub fn table_exists(&self, qname: &crate::identifier::QualifiedName) -> bool {
+        self.tables.iter().any(|t| &t.qname == qname)
+    }
+
     /// Sort each collection by its canonical key and reject duplicates.
     pub fn canonicalize(mut self) -> Result<Self, IrError> {
         self.schemas.sort_by(|a, b| a.name.cmp(&b.name));
