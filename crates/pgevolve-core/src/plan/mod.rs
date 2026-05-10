@@ -5,6 +5,7 @@
 //!
 //! See spec §6.4 for the design.
 
+pub mod deserialize;
 pub mod edges;
 pub mod error;
 pub mod graph;
@@ -29,4 +30,8 @@ pub use grouping::{group_steps, TransactionGroup};
 pub use io_error::PlanIoError;
 pub use plan::{kind_name, parse_kind_name, DestructiveIntent, InvalidPlanHash, Plan, PlanId, PlanMetadata};
 pub use rewrite::rewrite;
+pub use deserialize::{
+    read_intent_toml, read_manifest_toml, read_plan_dir, read_plan_sql, ParsedIntent,
+    ParsedManifest, PartialPlan,
+};
 pub use serialize::{write_intent_toml, write_manifest_toml, write_plan_dir, write_plan_sql};
