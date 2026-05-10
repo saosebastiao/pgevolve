@@ -16,6 +16,7 @@
 #![allow(clippy::needless_pass_by_value)]
 
 pub mod concurrent_index;
+pub mod fk_not_valid_validate;
 pub mod sql;
 
 use crate::diff::change::{Change, ChangeEntry};
@@ -29,11 +30,6 @@ use crate::plan::policy::PlannerPolicy;
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
 /// Context passed to every emitter — read-only.
-//
-// `target` and `policy` are not yet read by any emitter; they will be consumed
-// by the online rewrite hooks (Tasks 6.4–6.7). Held now so the dispatcher
-// signature stays stable.
-#[allow(dead_code)]
 struct Ctx<'a> {
     target: &'a Catalog,
     policy: &'a PlannerPolicy,
@@ -64,6 +60,7 @@ pub fn rewrite(
     }
     out
 }
+
 
 fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
     let destructive_reason = destructive_reason(&entry.destructiveness);
@@ -304,7 +301,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
 fn emit_table_op(
     qname: &QualifiedName,
     entry: TableOpEntry,
-    _ctx: &Ctx<'_>,
+    ctx: &Ctx<'_>,
     out: &mut Vec<RawStep>,
 ) {
     let destructive = entry.destructiveness.requires_approval();
@@ -389,17 +386,26 @@ fn emit_table_op(
         }),
 
         TableOp::AddConstraint(c) => {
-            // FK / CHECK NOT VALID + VALIDATE rewrites (Tasks 6.5/6.6) hook here.
-            // Non-rewritten path: single ADD CONSTRAINT step.
-            out.push(RawStep {
-                kind: StepKind::AddConstraint,
-                destructive,
-                destructive_reason,
-                intent_id: None,
-                targets: vec![qname.clone()],
-                sql: sql::alter_table_add_constraint(qname, &c),
-                transactional: TransactionConstraint::InTransaction,
-            });
+            if fk_not_valid_validate::should_rewrite(qname, &c, ctx.target, ctx.policy) {
+                let [a, b] = fk_not_valid_validate::rewrite_steps(
+                    qname,
+                    &c,
+                    destructive,
+                    destructive_reason,
+                );
+                out.push(a);
+                out.push(b);
+            } else {
+                out.push(RawStep {
+                    kind: StepKind::AddConstraint,
+                    destructive,
+                    destructive_reason,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: sql::alter_table_add_constraint(qname, &c),
+                    transactional: TransactionConstraint::InTransaction,
+                });
+            }
         }
         TableOp::DropConstraint { name } => out.push(RawStep {
             kind: StepKind::DropConstraint,
@@ -1258,6 +1264,176 @@ mod tests {
             &PlannerPolicy::default(),
         );
         assert_eq!(steps[0].kind, StepKind::DropIndex);
+    }
+
+    // ---- FK NOT VALID + VALIDATE rewrite (Task 6.5) ----
+
+    fn fk(name: &str, ref_table: QualifiedName) -> Constraint {
+        Constraint {
+            qname: qn("app", name),
+            kind: ConstraintKind::ForeignKey(ForeignKey {
+                columns: vec![id("ref_id")],
+                referenced_table: ref_table,
+                referenced_columns: vec![id("id")],
+                on_update: ReferentialAction::NoAction,
+                on_delete: ReferentialAction::NoAction,
+                match_type: FkMatchType::Simple,
+            }),
+            deferrable: Deferrable::NotDeferrable,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn add_fk_on_existing_table_emits_two_steps() {
+        let mut target = Catalog::empty();
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false), col("ref_id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+        target.tables.push(Table {
+            qname: qn("app", "orgs"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::AddConstraint(fk("users_orgs_fk", qn("app", "orgs"))),
+                    destructiveness: Destructiveness::Safe,
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].kind, StepKind::AddConstraintNotValid);
+        assert!(steps[0].sql.contains("NOT VALID"));
+        assert_eq!(steps[1].kind, StepKind::ValidateConstraint);
+        assert_eq!(
+            steps[1].sql,
+            "ALTER TABLE app.users VALIDATE CONSTRAINT users_orgs_fk;",
+        );
+    }
+
+    #[test]
+    fn add_fk_on_new_table_via_alter_stays_inline_when_target_missing() {
+        // Target is empty, so users does not yet exist ⇒ no rewrite.
+        // (In practice an FK on a brand-new table would ride inside the
+        // CREATE TABLE — we exercise the alter-path edge case here.)
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::AddConstraint(fk("users_orgs_fk", qn("app", "orgs"))),
+                    destructiveness: Destructiveness::Safe,
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &Catalog::empty(),
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].kind, StepKind::AddConstraint);
+    }
+
+    #[test]
+    fn add_fk_with_atomic_policy_stays_inline() {
+        let mut target = Catalog::empty();
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false), col("ref_id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::AddConstraint(fk("users_orgs_fk", qn("app", "orgs"))),
+                    destructiveness: Destructiveness::Safe,
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let policy = PlannerPolicy {
+            strategy: crate::plan::policy::Strategy::Atomic,
+            ..PlannerPolicy::default()
+        };
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &policy,
+        );
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].kind, StepKind::AddConstraint);
+    }
+
+    #[test]
+    fn add_unique_constraint_on_existing_table_does_not_trigger_fk_rewrite() {
+        let mut target = Catalog::empty();
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false), col("email", ColumnType::Text, true)],
+            constraints: vec![],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::AddConstraint(Constraint {
+                        qname: qn("app", "users_email_uq"),
+                        kind: ConstraintKind::Unique {
+                            columns: vec![id("email")],
+                            include: vec![],
+                            nulls_distinct: true,
+                        },
+                        deferrable: Deferrable::NotDeferrable,
+                        comment: None,
+                    }),
+                    destructiveness: Destructiveness::Safe,
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].kind, StepKind::AddConstraint);
     }
 
     #[test]
