@@ -18,6 +18,7 @@
 pub mod check_not_valid_validate;
 pub mod concurrent_index;
 pub mod fk_not_valid_validate;
+pub mod set_not_null_check_pattern;
 pub mod sql;
 
 use crate::diff::change::{Change, ChangeEntry};
@@ -340,15 +341,32 @@ fn emit_table_op(
             sql: sql::alter_column_type(qname, &name, &to, using.as_ref()),
             transactional: TransactionConstraint::InTransaction,
         }),
-        TableOp::SetColumnNullable { name, nullable } => out.push(RawStep {
-            kind: StepKind::SetColumnNullable,
-            destructive,
-            destructive_reason,
-            intent_id: None,
-            targets: vec![qname.clone()],
-            sql: sql::alter_column_set_nullable(qname, &name, nullable),
-            transactional: TransactionConstraint::InTransaction,
-        }),
+        TableOp::SetColumnNullable { name, nullable } => {
+            // Only `SET NOT NULL` is eligible for the CHECK pattern; flipping a
+            // column back to nullable is always a single cheap step.
+            if !nullable
+                && set_not_null_check_pattern::should_rewrite(qname, &name, ctx.target, ctx.policy)
+            {
+                for step in set_not_null_check_pattern::rewrite_steps(
+                    qname,
+                    &name,
+                    destructive,
+                    destructive_reason,
+                ) {
+                    out.push(step);
+                }
+            } else {
+                out.push(RawStep {
+                    kind: StepKind::SetColumnNullable,
+                    destructive,
+                    destructive_reason,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: sql::alter_column_set_nullable(qname, &name, nullable),
+                    transactional: TransactionConstraint::InTransaction,
+                });
+            }
+        }
         TableOp::SetColumnDefault { name, default } => out.push(RawStep {
             kind: StepKind::SetColumnDefault,
             destructive: false,
@@ -1556,6 +1574,160 @@ mod tests {
         );
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].kind, StepKind::AddConstraint);
+    }
+
+    // ---- SET NOT NULL via CHECK pattern (Task 6.7) ----
+
+    fn target_with_users_and_email() -> Catalog {
+        let mut target = Catalog::empty();
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("email", ColumnType::Text, true),
+            ],
+            constraints: vec![],
+            comment: None,
+        });
+        target
+    }
+
+    #[test]
+    fn set_not_null_on_existing_column_emits_four_steps() {
+        let target = target_with_users_and_email();
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::SetColumnNullable {
+                        name: id("email"),
+                        nullable: false,
+                    },
+                    destructiveness: Destructiveness::RequiresApproval {
+                        reason: "set not null".into(),
+                    },
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps.len(), 4);
+        assert_eq!(steps[0].kind, StepKind::AddCheckForNotNull);
+        assert!(steps[0].sql.contains("__pgevolve_chk_email"));
+        assert!(steps[0].sql.contains("CHECK (email IS NOT NULL)"));
+        assert!(steps[0].sql.contains("NOT VALID"));
+        assert_eq!(steps[1].kind, StepKind::ValidateConstraint);
+        assert!(steps[1].sql.contains("__pgevolve_chk_email"));
+        assert_eq!(steps[2].kind, StepKind::SetColumnNullable);
+        assert_eq!(
+            steps[2].sql,
+            "ALTER TABLE app.users ALTER COLUMN email SET NOT NULL;",
+        );
+        assert_eq!(steps[3].kind, StepKind::DropConstraint);
+        assert!(steps[3].sql.contains("__pgevolve_chk_email"));
+    }
+
+    #[test]
+    fn set_not_null_on_unknown_column_stays_single_step() {
+        // email isn't in the (empty) target ⇒ this is a new column path; the
+        // existing AddColumn would carry NOT NULL inline, but if the differ
+        // happens to emit a bare SetColumnNullable it should remain one step.
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::SetColumnNullable {
+                        name: id("email"),
+                        nullable: false,
+                    },
+                    destructiveness: Destructiveness::Safe,
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &Catalog::empty(),
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].kind, StepKind::SetColumnNullable);
+    }
+
+    #[test]
+    fn set_not_null_with_atomic_policy_stays_single_step() {
+        let target = target_with_users_and_email();
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::SetColumnNullable {
+                        name: id("email"),
+                        nullable: false,
+                    },
+                    destructiveness: Destructiveness::Safe,
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let policy = PlannerPolicy {
+            strategy: crate::plan::policy::Strategy::Atomic,
+            ..PlannerPolicy::default()
+        };
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &policy,
+        );
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].kind, StepKind::SetColumnNullable);
+    }
+
+    #[test]
+    fn drop_not_null_is_always_single_step() {
+        // Going from NOT NULL to nullable never needs the CHECK pattern.
+        let target = target_with_users_and_email();
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::SetColumnNullable {
+                        name: id("email"),
+                        nullable: true,
+                    },
+                    destructiveness: Destructiveness::Safe,
+                }],
+            },
+            Destructiveness::Safe,
+        );
+        let steps = rewrite(
+            OrderedChangeSet {
+                modifies: cs.entries,
+                ..Default::default()
+            },
+            &target,
+            &PlannerPolicy::default(),
+        );
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].kind, StepKind::SetColumnNullable);
+        assert!(steps[0].sql.contains("DROP NOT NULL"));
     }
 
     #[test]
