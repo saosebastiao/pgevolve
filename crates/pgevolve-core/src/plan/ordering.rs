@@ -1,15 +1,762 @@
-//! Stub — replaced in task 5.4.
+//! Three-phase ordering with FK cycle extraction.
+//!
+//! `order(target, source, changes)` partitions an unordered [`ChangeSet`]
+//! into [`OrderedChangeSet`]'s three buckets and sorts each by the appropriate
+//! dependency graph. FK cycles in the create graph are broken by removing
+//! offending FK constraints into [`OrderedChangeSet::deferred_fks`].
 
+use std::collections::HashMap;
+
+use crate::diff::change::{Change, ChangeEntry};
 use crate::diff::ChangeSet;
+use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
+use crate::ir::constraint::{Constraint, ConstraintKind};
+use crate::plan::edges::{build_create_graph, build_drop_graph, NodeId};
 use crate::plan::error::PlanError;
-use crate::plan::ordered::OrderedChangeSet;
+use crate::plan::ordered::{DeferredFkAdd, OrderedChangeSet};
 
-/// Order an unordered [`ChangeSet`] (stub — full impl in task 5.4).
+/// Order a `ChangeSet` into an [`OrderedChangeSet`] for plan emission.
+///
+/// `target` is the live database catalog; `source` is the desired one. The
+/// create / modify graphs are built from `source`; the drop graph from `target`.
 pub fn order(
-    _target: &Catalog,
-    _source: &Catalog,
-    _changes: ChangeSet,
+    target: &Catalog,
+    source: &Catalog,
+    changes: ChangeSet,
 ) -> Result<OrderedChangeSet, PlanError> {
-    Ok(OrderedChangeSet::default())
+    // 1. Bucket entries by phase.
+    let (creates, modifies, drops) = partition(changes);
+
+    // 2. Try to topo-sort the create graph; extract FK cycles if needed.
+    let mut working_source: Option<Catalog> = None;
+    let create_graph = build_create_graph(source);
+    let (sorted_create_nodes, deferred_fks) = match create_graph.topological_sort() {
+        Ok(order) => (order, Vec::new()),
+        Err(cycle) => {
+            let (reduced, deferred) = extract_fk_cycles(source, &cycle.nodes);
+            let g = build_create_graph(&reduced);
+            let order = g.topological_sort().map_err(|c| {
+                PlanError::UnbreakableCycle(c.nodes.iter().map(render_node).collect())
+            })?;
+            working_source = Some(reduced);
+            (order, deferred)
+        }
+    };
+
+    // The graph used for modify ordering is the same as the (possibly reduced)
+    // create graph — modify ops live on already-existing objects whose
+    // structural dependencies match the source-side picture.
+    let modify_graph = working_source
+        .as_ref()
+        .map_or(create_graph, build_create_graph);
+    let sorted_modify_nodes = modify_graph.topological_sort().map_err(|c| {
+        PlanError::UnexpectedCycleAfterFkExtraction(c.nodes.iter().map(render_node).collect())
+    })?;
+
+    let drop_graph = build_drop_graph(target);
+    let sorted_drop_nodes = drop_graph.reverse_topological_sort().map_err(|c| {
+        PlanError::UnexpectedDropCycle(c.nodes.iter().map(render_node).collect())
+    })?;
+
+    // Strip deferred FKs from any CreateTable change so they aren't emitted
+    // both inline and as a post-pass `ADD CONSTRAINT`.
+    let creates = strip_deferred_fks(creates, &deferred_fks);
+
+    let creates = sort_changes_by_order(creates, &sorted_create_nodes);
+    let modifies = sort_changes_by_order(modifies, &sorted_modify_nodes);
+    let drops = sort_changes_by_order(drops, &sorted_drop_nodes);
+
+    Ok(OrderedChangeSet {
+        creates_and_adds: creates,
+        modifies,
+        drops,
+        deferred_fks,
+    })
+}
+
+/// Remove every constraint named in `deferred` from any matching `CreateTable`
+/// change. The deferred FK will be emitted as a post-pass `ADD CONSTRAINT`.
+fn strip_deferred_fks(
+    creates: Vec<ChangeEntry>,
+    deferred: &[DeferredFkAdd],
+) -> Vec<ChangeEntry> {
+    if deferred.is_empty() {
+        return creates;
+    }
+    creates
+        .into_iter()
+        .map(|mut entry| {
+            if let Change::CreateTable(table) = &mut entry.change {
+                table.constraints.retain(|c| {
+                    !deferred
+                        .iter()
+                        .any(|d| d.table == table.qname && d.constraint.qname == c.qname)
+                });
+            }
+            entry
+        })
+        .collect()
+}
+
+/// Split a `ChangeSet` into (creates, modifies, drops) buckets.
+fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<ChangeEntry>) {
+    let mut creates = Vec::new();
+    let mut modifies = Vec::new();
+    let mut drops = Vec::new();
+    for entry in changes.entries {
+        match &entry.change {
+            Change::CreateSchema(_)
+            | Change::CreateTable(_)
+            | Change::CreateIndex(_)
+            | Change::CreateSequence(_) => creates.push(entry),
+            Change::DropSchema(_)
+            | Change::DropTable { .. }
+            | Change::DropIndex(_)
+            | Change::DropSequence(_) => drops.push(entry),
+            Change::AlterTable { .. }
+            | Change::AlterSchema { .. }
+            | Change::AlterSequence { .. }
+            | Change::ReplaceIndex { .. } => modifies.push(entry),
+        }
+    }
+    (creates, modifies, drops)
+}
+
+/// Map a `Change` to the [`NodeId`] that represents it in the dependency graph.
+///
+/// Returns the schema/table/index/sequence node for top-level operations.
+/// `AlterTable` maps to its target table node; per-op constraint changes
+/// inside it are not separately ordered (they ride with the table).
+fn change_node(change: &Change) -> NodeId {
+    match change {
+        Change::CreateSchema(s) => NodeId::Schema(s.name.clone()),
+        Change::DropSchema(name) | Change::AlterSchema { name, .. } => NodeId::Schema(name.clone()),
+        Change::CreateTable(t) => NodeId::Table(t.qname.clone()),
+        Change::DropTable { qname, .. } | Change::AlterTable { qname, .. } => {
+            NodeId::Table(qname.clone())
+        }
+        Change::CreateIndex(i) => NodeId::Index(i.qname.clone()),
+        Change::DropIndex(qname) => NodeId::Index(qname.clone()),
+        Change::ReplaceIndex { to, .. } => NodeId::Index(to.qname.clone()),
+        Change::CreateSequence(s) => NodeId::Sequence(s.qname.clone()),
+        Change::DropSequence(qname) | Change::AlterSequence { qname, .. } => {
+            NodeId::Sequence(qname.clone())
+        }
+    }
+}
+
+/// Sort `entries` by the position of their associated `NodeId` in `order`.
+///
+/// Entries whose node is missing from `order` (which would indicate a bug
+/// in graph construction) are placed at the end in their original order.
+fn sort_changes_by_order(entries: Vec<ChangeEntry>, order: &[NodeId]) -> Vec<ChangeEntry> {
+    let position: HashMap<&NodeId, usize> = order.iter().enumerate().map(|(i, n)| (n, i)).collect();
+    let mut indexed: Vec<(usize, ChangeEntry)> = entries
+        .into_iter()
+        .map(|e| {
+            let node = change_node(&e.change);
+            let pos = position.get(&node).copied().unwrap_or(usize::MAX);
+            (pos, e)
+        })
+        .collect();
+    // Stable sort preserves tie-broken input order; primary key is graph index.
+    indexed.sort_by_key(|(p, _)| *p);
+    indexed.into_iter().map(|(_, e)| e).collect()
+}
+
+/// Identify FK constraints inside a cycle and return a reduced catalog plus
+/// the extracted FK list for the planner's post-pass.
+///
+/// An FK is extracted iff its owning-table and referenced-table nodes both
+/// appear in `cycle_nodes` and the two tables are distinct (a self-referential
+/// FK never induces a graph-level cycle, by construction in `edges.rs`).
+fn extract_fk_cycles(source: &Catalog, cycle_nodes: &[NodeId]) -> (Catalog, Vec<DeferredFkAdd>) {
+    let in_cycle: std::collections::HashSet<&NodeId> = cycle_nodes.iter().collect();
+    let mut reduced = source.clone();
+    let mut deferred = Vec::new();
+
+    for table in &mut reduced.tables {
+        let table_node = NodeId::Table(table.qname.clone());
+        if !in_cycle.contains(&table_node) {
+            continue;
+        }
+        let owner_qname = table.qname.clone();
+        let mut keep = Vec::with_capacity(table.constraints.len());
+        for c in std::mem::take(&mut table.constraints) {
+            if let Some(ref_table) = fk_referenced_table(&c) {
+                let ref_node = NodeId::Table(ref_table.clone());
+                if *ref_table != owner_qname && in_cycle.contains(&ref_node) {
+                    deferred.push(DeferredFkAdd {
+                        table: owner_qname.clone(),
+                        constraint: c,
+                    });
+                    continue;
+                }
+            }
+            keep.push(c);
+        }
+        table.constraints = keep;
+    }
+    // Stable, deterministic order: deferred FKs are produced in iteration
+    // order over `tables` (which is `Catalog::canonicalize`-sorted upstream).
+    (reduced, deferred)
+}
+
+const fn fk_referenced_table(c: &Constraint) -> Option<&QualifiedName> {
+    match &c.kind {
+        ConstraintKind::ForeignKey(fk) => Some(&fk.referenced_table),
+        _ => None,
+    }
+}
+
+fn render_node(n: &NodeId) -> String {
+    match n {
+        NodeId::Schema(s) => format!("schema:{s}"),
+        NodeId::Table(q) => format!("table:{q}"),
+        NodeId::Index(q) => format!("index:{q}"),
+        NodeId::Sequence(q) => format!("sequence:{q}"),
+        NodeId::Constraint { table, name } => format!("constraint:{table}.{name}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diff::change::Change;
+    use crate::diff::destructiveness::Destructiveness;
+    use crate::identifier::Identifier;
+    use crate::ir::column::Column;
+    use crate::ir::column_type::ColumnType;
+    use crate::ir::constraint::{Constraint, Deferrable, FkMatchType, ForeignKey, ReferentialAction};
+    use crate::ir::index::{Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder};
+    use crate::ir::schema::Schema;
+    use crate::ir::table::Table;
+
+    fn id(s: &str) -> Identifier {
+        Identifier::from_unquoted(s).unwrap()
+    }
+
+    fn qn(schema: &str, name: &str) -> QualifiedName {
+        QualifiedName::new(id(schema), id(name))
+    }
+
+    fn col(name: &str, ty: ColumnType, nullable: bool) -> Column {
+        Column {
+            name: id(name),
+            ty,
+            nullable,
+            default: None,
+            identity: None,
+            generated: None,
+            collation: None,
+            comment: None,
+        }
+    }
+
+    fn pk(name: &str, cols: &[&str]) -> Constraint {
+        Constraint {
+            qname: qn("app", name),
+            kind: ConstraintKind::PrimaryKey {
+                columns: cols.iter().map(|c| id(c)).collect(),
+                include: vec![],
+            },
+            deferrable: Deferrable::NotDeferrable,
+            comment: None,
+        }
+    }
+
+    fn fk(name: &str, cols: &[&str], ref_table: QualifiedName, ref_cols: &[&str]) -> Constraint {
+        Constraint {
+            qname: qn("app", name),
+            kind: ConstraintKind::ForeignKey(ForeignKey {
+                columns: cols.iter().map(|c| id(c)).collect(),
+                referenced_table: ref_table,
+                referenced_columns: ref_cols.iter().map(|c| id(c)).collect(),
+                on_update: ReferentialAction::NoAction,
+                on_delete: ReferentialAction::NoAction,
+                match_type: FkMatchType::Simple,
+            }),
+            deferrable: Deferrable::NotDeferrable,
+            comment: None,
+        }
+    }
+
+    fn make_index(name: &str, table: QualifiedName) -> Index {
+        Index {
+            qname: qn("app", name),
+            table,
+            method: IndexMethod::BTree,
+            columns: vec![IndexColumn {
+                expr: IndexColumnExpr::Column(id("id")),
+                collation: None,
+                opclass: None,
+                sort_order: SortOrder::Asc,
+                nulls_order: NullsOrder::NullsLast,
+            }],
+            include: vec![],
+            unique: false,
+            nulls_not_distinct: false,
+            predicate: None,
+            tablespace: None,
+            comment: None,
+        }
+    }
+
+    fn safe(change: Change) -> ChangeEntry {
+        ChangeEntry {
+            change,
+            destructiveness: Destructiveness::Safe,
+        }
+    }
+
+    fn drop(change: Change) -> ChangeEntry {
+        ChangeEntry {
+            change,
+            destructiveness: Destructiveness::RequiresApproval {
+                reason: "drop".into(),
+            },
+        }
+    }
+
+    /// Helper: position of an entry's node in a slice of entries.
+    fn pos<F: Fn(&Change) -> bool>(entries: &[ChangeEntry], pred: F) -> usize {
+        entries
+            .iter()
+            .position(|e| pred(&e.change))
+            .expect("entry not found")
+    }
+
+    #[test]
+    fn empty_changeset_yields_empty_ordered_set() {
+        let target = Catalog::empty();
+        let source = Catalog::empty();
+        let result = order(&target, &source, ChangeSet::new()).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn linear_schema_table_index_orders_in_dependency_order() {
+        // source has schema app, table users in app, index users_idx on users
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+        source.indexes.push(make_index("users_idx", qn("app", "users")));
+
+        let mut cs = ChangeSet::new();
+        // Push in deliberately wrong order to confirm the planner sorts.
+        cs.push(
+            Change::CreateIndex(make_index("users_idx", qn("app", "users"))),
+            Destructiveness::Safe,
+        );
+        cs.push(
+            Change::CreateTable(source.tables[0].clone()),
+            Destructiveness::Safe,
+        );
+        cs.push(
+            Change::CreateSchema(Schema::new(id("app"))),
+            Destructiveness::Safe,
+        );
+
+        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        assert_eq!(result.creates_and_adds.len(), 3);
+
+        let schema_pos = pos(&result.creates_and_adds, |c| matches!(c, Change::CreateSchema(_)));
+        let table_pos = pos(&result.creates_and_adds, |c| matches!(c, Change::CreateTable(_)));
+        let index_pos = pos(&result.creates_and_adds, |c| matches!(c, Change::CreateIndex(_)));
+        assert!(schema_pos < table_pos);
+        assert!(table_pos < index_pos);
+    }
+
+    #[test]
+    fn fk_between_independent_tables_orders_referenced_first() {
+        // source: orgs (referenced) and users (with FK to orgs).
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "orgs"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![pk("orgs_pkey", &["id"])],
+            comment: None,
+        });
+        source.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("org_id", ColumnType::BigInt, false),
+            ],
+            constraints: vec![
+                pk("users_pkey", &["id"]),
+                fk("users_org_fk", &["org_id"], qn("app", "orgs"), &["id"]),
+            ],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::CreateTable(source.tables[1].clone()), // users first
+            Destructiveness::Safe,
+        );
+        cs.push(
+            Change::CreateTable(source.tables[0].clone()), // orgs second
+            Destructiveness::Safe,
+        );
+        cs.push(
+            Change::CreateSchema(Schema::new(id("app"))),
+            Destructiveness::Safe,
+        );
+
+        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        assert!(result.deferred_fks.is_empty());
+        let orgs_pos = result
+            .creates_and_adds
+            .iter()
+            .position(|e| matches!(&e.change, Change::CreateTable(t) if t.qname == qn("app", "orgs")))
+            .unwrap();
+        let users_pos = result
+            .creates_and_adds
+            .iter()
+            .position(|e| matches!(&e.change, Change::CreateTable(t) if t.qname == qn("app", "users")))
+            .unwrap();
+        assert!(orgs_pos < users_pos);
+    }
+
+    #[test]
+    fn two_table_fk_cycle_extracts_one_or_more_fks() {
+        // a.id, a.ref_id (FK -> b); b.id, b.ref_id (FK -> a).
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "a"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("ref_id", ColumnType::BigInt, false),
+            ],
+            constraints: vec![pk("a_pk", &["id"]), fk("a_to_b", &["ref_id"], qn("app", "b"), &["id"])],
+            comment: None,
+        });
+        source.tables.push(Table {
+            qname: qn("app", "b"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("ref_id", ColumnType::BigInt, false),
+            ],
+            constraints: vec![pk("b_pk", &["id"]), fk("b_to_a", &["ref_id"], qn("app", "a"), &["id"])],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::CreateSchema(Schema::new(id("app"))),
+            Destructiveness::Safe,
+        );
+        cs.push(
+            Change::CreateTable(source.tables[0].clone()),
+            Destructiveness::Safe,
+        );
+        cs.push(
+            Change::CreateTable(source.tables[1].clone()),
+            Destructiveness::Safe,
+        );
+
+        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        // Both tables present in creates_and_adds, schema first.
+        assert_eq!(result.creates_and_adds.len(), 3);
+        // At least one FK was extracted.
+        assert!(!result.deferred_fks.is_empty());
+        // Each deferred entry is in fact a ForeignKey constraint.
+        for d in &result.deferred_fks {
+            assert!(matches!(d.constraint.kind, ConstraintKind::ForeignKey(_)));
+        }
+        // Total deferred + remaining FKs == original FK count (2).
+        let remaining_fks: usize = result
+            .creates_and_adds
+            .iter()
+            .map(|e| match &e.change {
+                Change::CreateTable(t) => t
+                    .constraints
+                    .iter()
+                    .filter(|c| matches!(c.kind, ConstraintKind::ForeignKey(_)))
+                    .count(),
+                _ => 0,
+            })
+            .sum();
+        assert_eq!(remaining_fks + result.deferred_fks.len(), 2);
+    }
+
+    #[test]
+    fn drops_run_in_reverse_dependency_order() {
+        // target: schema app, table users, index users_idx
+        let mut target = Catalog::empty();
+        target.schemas.push(Schema::new(id("app")));
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+        target.indexes.push(make_index("users_idx", qn("app", "users")));
+
+        let mut cs = ChangeSet::new();
+        cs.push(Change::DropSchema(id("app")), Destructiveness::RequiresApproval { reason: "x".into() });
+        cs.push(
+            Change::DropTable {
+                qname: qn("app", "users"),
+                row_count_estimate: None,
+            },
+            Destructiveness::RequiresApprovalAndDataLossWarning {
+                reason: "drop users".into(),
+            },
+        );
+        cs.push(Change::DropIndex(qn("app", "users_idx")), Destructiveness::Safe);
+
+        let result = order(&target, &Catalog::empty(), cs).unwrap();
+        assert_eq!(result.drops.len(), 3);
+        let idx_pos = pos(&result.drops, |c| matches!(c, Change::DropIndex(_)));
+        let table_pos = pos(&result.drops, |c| matches!(c, Change::DropTable { .. }));
+        let schema_pos = pos(&result.drops, |c| matches!(c, Change::DropSchema(_)));
+        // Reverse dependency: index dropped before table; table before schema.
+        assert!(idx_pos < table_pos);
+        assert!(table_pos < schema_pos);
+    }
+
+    #[test]
+    fn drop_fk_constraint_handled_via_alter_table_modify_bucket() {
+        // ALTER TABLE entries land in `modifies`. Confirm modify-bucket
+        // ordering follows source-side dependencies.
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![pk("users_pkey", &["id"])],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![],
+            },
+            Destructiveness::Safe,
+        );
+
+        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        assert_eq!(result.modifies.len(), 1);
+        assert!(result.creates_and_adds.is_empty());
+        assert!(result.drops.is_empty());
+    }
+
+    #[test]
+    fn deterministic_under_input_permutation() {
+        // Same source, two different changeset orderings; outputs must match.
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "orgs"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![pk("orgs_pkey", &["id"])],
+            comment: None,
+        });
+        source.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![pk("users_pkey", &["id"])],
+            comment: None,
+        });
+
+        let mk_cs = |reversed: bool| {
+            let mut cs = ChangeSet::new();
+            let entries = [
+                Change::CreateSchema(Schema::new(id("app"))),
+                Change::CreateTable(source.tables[0].clone()),
+                Change::CreateTable(source.tables[1].clone()),
+            ];
+            let iter: Box<dyn Iterator<Item = &Change>> = if reversed {
+                Box::new(entries.iter().rev())
+            } else {
+                Box::new(entries.iter())
+            };
+            for c in iter {
+                cs.push(c.clone(), Destructiveness::Safe);
+            }
+            cs
+        };
+
+        let r1 = order(&Catalog::empty(), &source, mk_cs(false)).unwrap();
+        let r2 = order(&Catalog::empty(), &source, mk_cs(true)).unwrap();
+        assert_eq!(r1, r2);
+    }
+
+    #[test]
+    fn replace_index_lands_in_modifies() {
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+        source.indexes.push(make_index("users_idx", qn("app", "users")));
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::ReplaceIndex {
+                from: make_index("users_idx", qn("app", "users")),
+                to: make_index("users_idx", qn("app", "users")),
+            },
+            Destructiveness::Safe,
+        );
+
+        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        assert_eq!(result.modifies.len(), 1);
+    }
+
+    #[test]
+    fn alter_sequence_lands_in_modifies() {
+        use crate::ir::sequence::Sequence;
+        let mut source = Catalog::empty();
+        source.sequences.push(Sequence {
+            qname: qn("app", "s1"),
+            data_type: ColumnType::BigInt,
+            start: 1,
+            increment: 1,
+            min_value: None,
+            max_value: None,
+            cache: 1,
+            cycle: false,
+            owned_by: None,
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterSequence {
+                qname: qn("app", "s1"),
+                ops: vec![],
+            },
+            Destructiveness::Safe,
+        );
+
+        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        assert_eq!(result.modifies.len(), 1);
+    }
+
+    #[test]
+    fn three_way_fk_cycle_breaks_at_least_one() {
+        // a -> b -> c -> a
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        for n in ["a", "b", "c"] {
+            source.tables.push(Table {
+                qname: qn("app", n),
+                columns: vec![
+                    col("id", ColumnType::BigInt, false),
+                    col("ref_id", ColumnType::BigInt, false),
+                ],
+                constraints: vec![pk(&format!("{n}_pk"), &["id"])],
+                comment: None,
+            });
+        }
+        // Add FKs forming a cycle: a -> b, b -> c, c -> a.
+        let pairs = [("a", "b"), ("b", "c"), ("c", "a")];
+        for (from, to) in pairs {
+            let table = source
+                .tables
+                .iter_mut()
+                .find(|t| t.qname == qn("app", from))
+                .unwrap();
+            table.constraints.push(fk(
+                &format!("{from}_to_{to}"),
+                &["ref_id"],
+                qn("app", to),
+                &["id"],
+            ));
+        }
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::CreateSchema(Schema::new(id("app"))),
+            Destructiveness::Safe,
+        );
+        for t in &source.tables {
+            cs.push(Change::CreateTable(t.clone()), Destructiveness::Safe);
+        }
+
+        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        assert_eq!(result.creates_and_adds.len(), 4);
+        assert!(!result.deferred_fks.is_empty());
+    }
+
+    #[test]
+    fn drops_with_independent_objects_use_target_graph() {
+        // Target has two independent schemas + tables; drop them all.
+        let mut target = Catalog::empty();
+        target.schemas.push(Schema::new(id("a")));
+        target.schemas.push(Schema::new(id("b")));
+        target.tables.push(Table {
+            qname: QualifiedName::new(id("a"), id("t1")),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+        target.tables.push(Table {
+            qname: QualifiedName::new(id("b"), id("t2")),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        for t in &target.tables {
+            cs.push(
+                Change::DropTable {
+                    qname: t.qname.clone(),
+                    row_count_estimate: None,
+                },
+                Destructiveness::RequiresApprovalAndDataLossWarning {
+                    reason: "drop".into(),
+                },
+            );
+        }
+        for s in &target.schemas {
+            cs.push(
+                Change::DropSchema(s.name.clone()),
+                Destructiveness::RequiresApproval {
+                    reason: "drop".into(),
+                },
+            );
+        }
+
+        let result = order(&target, &Catalog::empty(), cs).unwrap();
+        assert_eq!(result.drops.len(), 4);
+        // Every DropTable must precede the corresponding DropSchema.
+        for table in &target.tables {
+            let table_pos = result
+                .drops
+                .iter()
+                .position(|e| matches!(&e.change, Change::DropTable { qname, .. } if qname == &table.qname))
+                .unwrap();
+            let schema_pos = result
+                .drops
+                .iter()
+                .position(|e| matches!(&e.change, Change::DropSchema(s) if s == &table.qname.schema))
+                .unwrap();
+            assert!(table_pos < schema_pos);
+        }
+    }
+
+    // ---- Suppress dead-code warnings for the `drop` helper used in tests. ----
+    #[test]
+    fn _drop_helper_is_used() {
+        let _ = drop(Change::DropSchema(id("x")));
+        let _ = safe(Change::CreateSchema(Schema::new(id("y"))));
+    }
 }

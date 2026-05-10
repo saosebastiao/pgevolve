@@ -18,6 +18,10 @@ use crate::ir::constraint::Constraint;
 ///   order over the target-side graph.
 /// - `deferred_fks`: FK constraints removed from the create graph to break a
 ///   cycle; emitted after `creates_and_adds` as `ALTER TABLE ... ADD CONSTRAINT`.
+// `ChangeEntry` is only `PartialEq` (it transitively contains `f64` literals),
+// so this struct cannot derive `Eq`. The clippy `derive_partial_eq_without_eq`
+// lint is suppressed accordingly.
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OrderedChangeSet {
     /// Creates and additive operations, in dependency order.
@@ -32,7 +36,7 @@ pub struct OrderedChangeSet {
 
 /// A single FK constraint extracted from the create graph for a post-pass
 /// `ALTER TABLE ... ADD CONSTRAINT`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeferredFkAdd {
     /// Table that owns the constraint.
     pub table: QualifiedName,
@@ -42,7 +46,7 @@ pub struct DeferredFkAdd {
 
 impl OrderedChangeSet {
     /// True iff every bucket is empty.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.creates_and_adds.is_empty()
             && self.modifies.is_empty()
             && self.drops.is_empty()
@@ -50,7 +54,7 @@ impl OrderedChangeSet {
     }
 
     /// Total entries across all buckets, including deferred FKs.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.creates_and_adds.len()
             + self.modifies.len()
             + self.drops.len()
