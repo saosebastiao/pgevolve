@@ -1,0 +1,21 @@
+[project]
+name           = "myproject"
+schema_dir     = "schema"
+plan_dir       = "plans"
+layout_profile = "schema-mirror"
+
+[managed]
+schemas        = []
+ignore_objects = []
+
+[planner]
+strategy = "online"
+
+[planner.online_rewrites]
+create_index_concurrent       = true
+fk_not_valid_then_validate    = true
+check_not_valid_then_validate = true
+not_null_via_check_pattern    = true
+
+[environments.dev]
+url = "postgres://localhost/myproject_dev"
