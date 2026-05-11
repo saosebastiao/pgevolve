@@ -30,7 +30,7 @@ for the implementation plan.
 | 7     | Plan format                  | done      |
 | 8     | Executor                     | done      |
 | 9     | CLI                          | done      |
-| 10    | Linter                       | pending   |
+| 10    | Linter                       | done      |
 | 11    | Testkit                      | partial   |
 | 12    | Shadow                       | pending   |
 
