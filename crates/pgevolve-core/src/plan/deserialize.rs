@@ -369,7 +369,7 @@ struct ManifestDocDe {
     source_rev: Option<String>,
     target_identity: String,
     created_at: String,
-    target_snapshot_yaml: String,
+    target_snapshot_json: String,
 }
 
 /// Parse `manifest.toml` from a string.
@@ -378,7 +378,7 @@ pub fn read_manifest_toml(s: &str) -> Result<ParsedManifest, PlanIoError> {
     let created_at = OffsetDateTime::parse(&doc.created_at, &Rfc3339).map_err(|e| {
         PlanIoError::MalformedDirective(format!("manifest created_at={}: {e}", doc.created_at))
     })?;
-    let target_snapshot: Catalog = serde_yaml::from_str(&doc.target_snapshot_yaml)?;
+    let target_snapshot: Catalog = serde_json::from_str(&doc.target_snapshot_json)?;
     Ok(ParsedManifest {
         plan_id: doc.plan_id,
         plan_hash: doc.plan_hash,

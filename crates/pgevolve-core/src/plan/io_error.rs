@@ -38,9 +38,10 @@ pub enum PlanIoError {
     #[error("toml serialize error: {0}")]
     TomlSer(#[from] toml::ser::Error),
 
-    /// YAML parse failure.
-    #[error("yaml parse error: {0}")]
-    Yaml(#[from] serde_yaml::Error),
+    /// JSON parse/serialize failure (used by the manifest's embedded
+    /// `target_snapshot_json`).
+    #[error("json error: {0}")]
+    Json(#[from] serde_json::Error),
 
     /// `manifest.toml`'s `plan_hash` field is not a valid 64-char hex string.
     #[error(transparent)]

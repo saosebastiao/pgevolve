@@ -146,13 +146,17 @@ struct ManifestDoc<'a> {
     source_rev: Option<&'a str>,
     target_identity: &'a str,
     created_at: String,
-    target_snapshot_yaml: String,
+    /// Embedded pre-image `Catalog` as a pretty-printed JSON string. (v0.1
+    /// used YAML here; we switched to JSON to drop the archived
+    /// `serde_yaml` crate. The field is still a TOML string — only the
+    /// payload format inside it changed.)
+    target_snapshot_json: String,
 }
 
 /// Write `manifest.toml` to `w`.
 ///
-/// The `target_snapshot_yaml` field embeds the pre-image `Catalog` as YAML —
-/// verbose but human-readable for review and recoverable by
+/// The `target_snapshot_json` field embeds the pre-image `Catalog` as
+/// pretty-printed JSON — recoverable by
 /// [`read_manifest_toml`](crate::plan::deserialize::read_manifest_toml).
 pub fn write_manifest_toml(plan: &Plan, w: &mut dyn Write) -> Result<(), PlanIoError> {
     let created = plan
@@ -160,7 +164,7 @@ pub fn write_manifest_toml(plan: &Plan, w: &mut dyn Write) -> Result<(), PlanIoE
         .created_at
         .format(&Rfc3339)
         .map_err(|e| PlanIoError::MalformedDirective(format!("created_at format: {e}")))?;
-    let snapshot_yaml = render_catalog_yaml(&plan.metadata.target_snapshot)?;
+    let snapshot_json = render_catalog_json(&plan.metadata.target_snapshot)?;
     let doc = ManifestDoc {
         plan_id: plan.id.short(),
         plan_hash: plan.id.to_hex(),
@@ -169,7 +173,7 @@ pub fn write_manifest_toml(plan: &Plan, w: &mut dyn Write) -> Result<(), PlanIoE
         source_rev: plan.metadata.source_rev.as_deref(),
         target_identity: &plan.metadata.target_identity,
         created_at: created,
-        target_snapshot_yaml: snapshot_yaml,
+        target_snapshot_json: snapshot_json,
     };
     let s = toml::to_string_pretty(&doc)?;
     w.write_all(s.as_bytes())
@@ -177,8 +181,8 @@ pub fn write_manifest_toml(plan: &Plan, w: &mut dyn Write) -> Result<(), PlanIoE
     Ok(())
 }
 
-fn render_catalog_yaml(c: &Catalog) -> Result<String, PlanIoError> {
-    Ok(serde_yaml::to_string(c)?)
+fn render_catalog_json(c: &Catalog) -> Result<String, PlanIoError> {
+    serde_json::to_string_pretty(c).map_err(PlanIoError::Json)
 }
 
 // ---------------------------------------------------------------------------
@@ -374,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_toml_contains_full_hex_and_embedded_yaml() {
+    fn manifest_toml_contains_full_hex_and_embedded_json() {
         let plan = simple_plan();
         let mut out = Vec::new();
         write_manifest_toml(&plan, &mut out).unwrap();
@@ -385,9 +389,14 @@ mod tests {
         assert!(s.lines().any(|l| {
             l.contains("plan_hash") && l.chars().filter(char::is_ascii_hexdigit).count() >= 64
         }));
-        assert!(s.contains("target_snapshot_yaml ="));
-        assert!(s.contains("schemas:")); // embedded YAML body
-        assert!(s.contains("- name: app"));
+        assert!(s.contains("target_snapshot_json ="));
+        // Embedded JSON body — TOML emits the field as a multi-line
+        // basic-string literal, so quote-escape style depends on its
+        // chosen form. Check for substring fragments that survive either
+        // form ("schemas" + "name" appear as bare tokens with quote chars
+        // around them).
+        assert!(s.contains("schemas"));
+        assert!(s.contains("\"app\"") || s.contains("\\\"app\\\""));
     }
 
     #[test]
