@@ -4,6 +4,12 @@
 //! bootstrap/lock/identity/audit/execute paths, and assert against the
 //! `pgevolve.*` audit tables. Skipped when Docker is not available.
 
+// Per-fixture helpers below intentionally mix imports with statements
+// (each test owns its own use-list); these clippy lints fight the test
+// readability and are silenced at file scope.
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::similar_names)]
+
 use pgevolve_core::catalog::PgVersion;
 use pgevolve_testkit::ephemeral_pg::{docker_available, EphemeralPostgres};
 
@@ -360,6 +366,59 @@ async fn apply_rejects_target_identity_mismatch() {
         err,
         pgevolve::executor::ApplyError::TargetIdentityMismatch { .. }
     ));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_queries_return_recent_apply_with_steps() {
+    if !docker_available() {
+        eprintln!("skipping: docker unavailable");
+        return;
+    }
+    let pg = EphemeralPostgres::start(PgVersion::Pg16).await.unwrap();
+    let mut client = pg.connect().await.unwrap();
+    let identity = pgevolve::compute_target_identity(&client).await.unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let _plan = build_demo_plan(dir.path(), &identity);
+
+    let filter = pgevolve_core::catalog::CatalogFilter::new(
+        vec![pgevolve_core::identifier::Identifier::from_unquoted("demo").unwrap()],
+        vec![],
+    )
+    .unwrap();
+    pgevolve::apply(
+        dir.path(),
+        &mut client,
+        &filter,
+        pgevolve::executor::ApplyOverrides {
+            allow_drift: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let recent = pgevolve::executor::status::fetch_recent_applies(&client, 10)
+        .await
+        .unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].status, "succeeded");
+
+    let steps = pgevolve::executor::status::fetch_apply_steps(&client, recent[0].apply_id)
+        .await
+        .unwrap();
+    assert_eq!(steps.len(), 2);
+    assert!(steps.iter().all(|s| s.status == "succeeded"));
+
+    let human = pgevolve::executor::status::format_status_human(&recent[0], &steps);
+    assert!(human.contains("status=succeeded"));
+    assert!(human.contains("create_schema"));
+    assert!(human.contains("create_table"));
+
+    let json = pgevolve::executor::status::format_status_json(&recent[0], &steps);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["apply"]["status"], "succeeded");
+    assert_eq!(v["steps"].as_array().unwrap().len(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

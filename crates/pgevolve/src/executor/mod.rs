@@ -10,6 +10,7 @@ pub mod error;
 pub mod execute;
 pub mod lock;
 pub mod preflight;
+pub mod status;
 
 use std::path::Path;
 
