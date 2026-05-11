@@ -3618,6 +3618,7 @@ name = "xtask"
 version = "0.1.0-dev"
 dependencies = [
  "anyhow",
+ "pgevolve-conformance",
  "pgevolve-core",
  "pgevolve-testkit",
  "serde_json",
