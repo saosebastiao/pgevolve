@@ -1,7 +1,7 @@
 # System documentation
 
-How pgevolve is built. Aimed at contributors and at users who want to
-understand the internals well enough to reason about edge cases.
+How pgevolve is built. Aimed at users who want to understand the
+internals well enough to reason about edge cases.
 
 | Topic | Read when… |
 |---|---|
@@ -9,7 +9,6 @@ understand the internals well enough to reason about edge cases.
 | [IR](./ir.md) | You want to understand the in-memory representation pgevolve diffs against. |
 | [Planner](./planner.md) | You want to know how pgevolve orders changes and rewrites destructive ops into online-safe ones. |
 | [Executor](./executor.md) | You want to understand the apply loop: locks, audit, rollback, recovery. |
-| [Contributing](./contributing.md) | You want to fix a bug, add a feature, or change a fixture. |
 
 See also:
 

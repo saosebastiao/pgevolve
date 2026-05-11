@@ -93,8 +93,8 @@ libpq env (`PGHOST`, `PGUSER`, ...).
   operating pgevolve on a project.
 - [`docs/system/`](./docs/system/) — **architecture and internals**:
   the dedicated [architecture chapter](./docs/system/architecture.md),
-  deep dives on the IR, planner, executor, and a contributing guide.
-  Start here if you're hacking on the code.
+  deep dives on the IR, planner, and executor. Start here if you want
+  to understand how pgevolve works under the hood.
 - [`docs/spec/`](./docs/spec/) — **living capability catalogue**: every
   object kind, column type, constraint, index option, CLI command,
   etc., with its implementation status (Implemented / Partial /
