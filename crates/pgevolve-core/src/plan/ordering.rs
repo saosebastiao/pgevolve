@@ -5,13 +5,15 @@
 //! dependency graph. FK cycles in the create graph are broken by removing
 //! offending FK constraints into [`OrderedChangeSet::deferred_fks`].
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
 use crate::diff::change::{Change, ChangeEntry};
-use crate::identifier::QualifiedName;
+use crate::diff::table_op::TableOp;
+use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::ir::constraint::{Constraint, ConstraintKind};
+use crate::ir::index::IndexColumnExpr;
 use crate::plan::edges::{NodeId, build_create_graph, build_drop_graph};
 use crate::plan::error::PlanError;
 use crate::plan::ordered::{DeferredFkAdd, OrderedChangeSet};
@@ -25,6 +27,13 @@ pub fn order(
     source: &Catalog,
     changes: ChangeSet,
 ) -> Result<OrderedChangeSet, PlanError> {
+    // Elide DropIndex changes whose target index will be cascade-dropped by
+    // an upstream `ALTER TABLE ... DROP COLUMN` in the same plan. Postgres
+    // implicitly drops any index that references a dropped column (in its
+    // key list or `INCLUDE` list); leaving the explicit `DROP INDEX` in the
+    // plan causes the executor to fail with SQLSTATE 42704.
+    let changes = elide_cascaded_index_drops(target, changes);
+
     // 1. Bucket entries by phase.
     let (creates, modifies, drops) = partition(changes);
 
@@ -94,6 +103,63 @@ fn strip_deferred_fks(creates: Vec<ChangeEntry>, deferred: &[DeferredFkAdd]) -> 
             entry
         })
         .collect()
+}
+
+/// Remove `DropIndex` changes whose target index will be implicitly dropped
+/// by an upstream `ALTER TABLE ... DROP COLUMN` on a column the index
+/// references (in its key column list or `INCLUDE` list).
+///
+/// Postgres cascade-drops such indexes as part of the column drop, so the
+/// explicit `DROP INDEX` in a later step would fail with
+/// `42704 (undefined_object)`. The elision keeps the audit trail attached
+/// to the column-drop step that does the actual work.
+///
+/// Limitations: expression-key indexes and partial-index predicates are not
+/// analyzed; their `DropIndex` is retained even if the predicate or
+/// expression references the dropped column. The executor will surface
+/// those (still rare) cases as the same 42704 until expression analysis is
+/// added.
+fn elide_cascaded_index_drops(target: &Catalog, mut changes: ChangeSet) -> ChangeSet {
+    let dropped_columns = collect_dropped_columns(&changes);
+    if dropped_columns.is_empty() {
+        return changes;
+    }
+    let target_indexes: HashMap<&QualifiedName, &crate::ir::index::Index> =
+        target.indexes.iter().map(|i| (&i.qname, i)).collect();
+    changes.entries.retain(|entry| {
+        let Change::DropIndex(qname) = &entry.change else {
+            return true;
+        };
+        let Some(idx) = target_indexes.get(qname) else {
+            return true;
+        };
+        let cascades = idx
+            .columns
+            .iter()
+            .filter_map(|ic| match &ic.expr {
+                IndexColumnExpr::Column(name) => Some(name),
+                IndexColumnExpr::Expression(_) => None,
+            })
+            .chain(idx.include.iter())
+            .any(|col| dropped_columns.contains(&(idx.table.clone(), col.clone())));
+        !cascades
+    });
+    changes
+}
+
+fn collect_dropped_columns(changes: &ChangeSet) -> HashSet<(QualifiedName, Identifier)> {
+    let mut out = HashSet::new();
+    for entry in &changes.entries {
+        let Change::AlterTable { qname, ops } = &entry.change else {
+            continue;
+        };
+        for op_entry in ops {
+            if let TableOp::DropColumn { name, .. } = &op_entry.op {
+                out.insert((qname.clone(), name.clone()));
+            }
+        }
+    }
+    out
 }
 
 /// Split a `ChangeSet` into (creates, modifies, drops) buckets.
@@ -222,6 +288,7 @@ mod tests {
     use super::*;
     use crate::diff::change::Change;
     use crate::diff::destructiveness::Destructiveness;
+    use crate::diff::table_op::{TableOp, TableOpEntry};
     use crate::identifier::Identifier;
     use crate::ir::column::Column;
     use crate::ir::column_type::ColumnType;
@@ -789,5 +856,253 @@ mod tests {
     fn _drop_helper_is_used() {
         let _ = drop(Change::DropSchema(id("x")));
         let _ = safe(Change::CreateSchema(Schema::new(id("y"))));
+    }
+
+    #[test]
+    fn drop_index_elided_when_alter_table_drops_indexed_column() {
+        // Postgres cascade-drops any index whose column list references a
+        // column being dropped by `ALTER TABLE ... DROP COLUMN`. If the
+        // planner emits a separate `DROP INDEX` in the drops phase that runs
+        // after the column drop, the explicit DROP fails with
+        // `42704 (undefined_object): index "..." does not exist`.
+        //
+        // The planner must therefore elide such DropIndex changes — the
+        // cascade is implicit in the column drop.
+        let mut target = Catalog::empty();
+        target.schemas.push(Schema::new(id("app")));
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("deleted_at", ColumnType::Text, true),
+            ],
+            constraints: vec![pk("users_pkey", &["id"])],
+            comment: None,
+        });
+        target.indexes.push(Index {
+            qname: qn("app", "users_deleted_at_idx"),
+            table: qn("app", "users"),
+            method: IndexMethod::BTree,
+            columns: vec![IndexColumn {
+                expr: IndexColumnExpr::Column(id("deleted_at")),
+                collation: None,
+                opclass: None,
+                sort_order: SortOrder::Asc,
+                nulls_order: NullsOrder::NullsLast,
+            }],
+            include: vec![],
+            unique: false,
+            nulls_not_distinct: false,
+            predicate: None,
+            tablespace: None,
+            comment: None,
+        });
+
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![pk("users_pkey", &["id"])],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::DropColumn {
+                        name: id("deleted_at"),
+                        is_populated: false,
+                    },
+                    destructiveness: Destructiveness::RequiresApproval {
+                        reason: "drops column".into(),
+                    },
+                }],
+            },
+            Destructiveness::RequiresApproval {
+                reason: "drops column".into(),
+            },
+        );
+        cs.push(
+            Change::DropIndex(qn("app", "users_deleted_at_idx")),
+            Destructiveness::RequiresApproval {
+                reason: "drops index".into(),
+            },
+        );
+
+        let result = order(&target, &source, cs).unwrap();
+        assert_eq!(result.modifies.len(), 1, "AlterTable must stay in modifies");
+        assert!(
+            result.drops.is_empty(),
+            "DropIndex must be elided when the indexed column is dropped in \
+             the same plan; got: {:?}",
+            result.drops.iter().map(|e| &e.change).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn drop_index_retained_when_column_drop_unrelated() {
+        // Sanity check on the elision logic: if the column being dropped is
+        // not in the index's column list, the DropIndex must NOT be elided.
+        let mut target = Catalog::empty();
+        target.schemas.push(Schema::new(id("app")));
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("email", ColumnType::Text, true),
+                col("unused", ColumnType::Text, true),
+            ],
+            constraints: vec![pk("users_pkey", &["id"])],
+            comment: None,
+        });
+        // Index on `email`, but the column being dropped is `unused`.
+        target.indexes.push(Index {
+            qname: qn("app", "users_email_idx"),
+            table: qn("app", "users"),
+            method: IndexMethod::BTree,
+            columns: vec![IndexColumn {
+                expr: IndexColumnExpr::Column(id("email")),
+                collation: None,
+                opclass: None,
+                sort_order: SortOrder::Asc,
+                nulls_order: NullsOrder::NullsLast,
+            }],
+            include: vec![],
+            unique: false,
+            nulls_not_distinct: false,
+            predicate: None,
+            tablespace: None,
+            comment: None,
+        });
+
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("email", ColumnType::Text, true),
+            ],
+            constraints: vec![pk("users_pkey", &["id"])],
+            comment: None,
+        });
+        // Source still has the email index, but it's being dropped from the
+        // source for an unrelated reason (simulate user removing it).
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::DropColumn {
+                        name: id("unused"),
+                        is_populated: false,
+                    },
+                    destructiveness: Destructiveness::RequiresApproval {
+                        reason: "drops column".into(),
+                    },
+                }],
+            },
+            Destructiveness::RequiresApproval {
+                reason: "drops column".into(),
+            },
+        );
+        cs.push(
+            Change::DropIndex(qn("app", "users_email_idx")),
+            Destructiveness::RequiresApproval {
+                reason: "drops index".into(),
+            },
+        );
+
+        let result = order(&target, &source, cs).unwrap();
+        assert_eq!(result.modifies.len(), 1);
+        assert_eq!(
+            result.drops.len(),
+            1,
+            "DropIndex must be retained when the dropped column is unrelated"
+        );
+    }
+
+    #[test]
+    fn drop_index_elided_when_indexed_column_is_in_include_list() {
+        // INCLUDE columns participate in the index's storage and dropping
+        // them also cascades the index.
+        let mut target = Catalog::empty();
+        target.schemas.push(Schema::new(id("app")));
+        target.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("email", ColumnType::Text, true),
+                col("payload", ColumnType::Text, true),
+            ],
+            constraints: vec![pk("users_pkey", &["id"])],
+            comment: None,
+        });
+        target.indexes.push(Index {
+            qname: qn("app", "users_email_idx"),
+            table: qn("app", "users"),
+            method: IndexMethod::BTree,
+            columns: vec![IndexColumn {
+                expr: IndexColumnExpr::Column(id("email")),
+                collation: None,
+                opclass: None,
+                sort_order: SortOrder::Asc,
+                nulls_order: NullsOrder::NullsLast,
+            }],
+            include: vec![id("payload")],
+            unique: false,
+            nulls_not_distinct: false,
+            predicate: None,
+            tablespace: None,
+            comment: None,
+        });
+
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("email", ColumnType::Text, true),
+            ],
+            constraints: vec![pk("users_pkey", &["id"])],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "users"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::DropColumn {
+                        name: id("payload"),
+                        is_populated: false,
+                    },
+                    destructiveness: Destructiveness::RequiresApproval {
+                        reason: "drops column".into(),
+                    },
+                }],
+            },
+            Destructiveness::RequiresApproval {
+                reason: "drops column".into(),
+            },
+        );
+        cs.push(
+            Change::DropIndex(qn("app", "users_email_idx")),
+            Destructiveness::RequiresApproval {
+                reason: "drops index".into(),
+            },
+        );
+
+        let result = order(&target, &source, cs).unwrap();
+        assert!(
+            result.drops.is_empty(),
+            "DropIndex must be elided when an INCLUDEd column is dropped; got: {:?}",
+            result.drops.iter().map(|e| &e.change).collect::<Vec<_>>()
+        );
     }
 }
