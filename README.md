@@ -31,7 +31,7 @@ for the implementation plan.
 | 8     | Executor                     | done      |
 | 9     | CLI                          | done      |
 | 10    | Linter                       | done      |
-| 11    | Testkit                      | partial   | <!-- v0.1: generators + asserter + pure properties + CI matrix; IRMutator + chaos harness + PG-dependent properties deferred to v0.1.x -->
+| 11    | Testkit                      | done      |
 | 12    | Shadow                       | pending   |
 
 ### Workspace layout
