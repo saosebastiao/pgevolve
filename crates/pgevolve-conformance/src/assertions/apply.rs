@@ -170,12 +170,19 @@ fn collect_managed_schemas(after_sql: &str) -> Vec<String> {
 
 fn cargo_bin() -> PathBuf {
     // CARGO_BIN_EXE_pgevolve is injected by Cargo when the integration test
-    // binary declares pgevolve as a [[bin]] dependency. Falls back to a
-    // well-known debug path.
+    // binary declares pgevolve as a [[bin]] dependency in the *same* package.
+    // For cross-package dev-deps, the env var is not set; fall back to the
+    // absolute workspace debug path derived from CARGO_MANIFEST_DIR.
     option_env!("CARGO_BIN_EXE_pgevolve")
         .map(PathBuf::from)
         .filter(|p| p.exists())
-        .unwrap_or_else(|| PathBuf::from("target/debug/pgevolve"))
+        .unwrap_or_else(|| {
+            // CARGO_MANIFEST_DIR is the crate root of pgevolve-conformance.
+            // The workspace root is two levels up (../../).
+            let manifest_dir = env!("CARGO_MANIFEST_DIR");
+            PathBuf::from(manifest_dir)
+                .join("../../target/debug/pgevolve")
+        })
 }
 
 fn run_pgevolve(cwd: &Path, args: &[&str]) -> Result<(), String> {

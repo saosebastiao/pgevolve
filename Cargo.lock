@@ -1685,6 +1685,7 @@ name = "pgevolve-conformance"
 version = "0.1.0-dev"
 dependencies = [
  "anyhow",
+ "pgevolve",
  "pgevolve-core",
  "pgevolve-testkit",
  "pretty_assertions",
