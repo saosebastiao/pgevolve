@@ -28,7 +28,7 @@ for the implementation plan.
 | 5     | Planner                      | done      |
 | 6     | Rewrites                     | done      |
 | 7     | Plan format                  | done      |
-| 8     | Executor                     | pending   |
+| 8     | Executor                     | done      |
 | 9     | CLI                          | pending   |
 | 10    | Linter                       | pending   |
 | 11    | Testkit                      | partial   |
