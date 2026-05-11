@@ -36,9 +36,10 @@ uuid                = { workspace = true, features = ["v4"] }
 time                = { workspace = true }
 blake3              = { workspace = true }
 hex                 = { workspace = true }
+testcontainers      = { workspace = true }
+tempfile            = "3"
 
 [dev-dependencies]
 pgevolve-testkit  = { path = "../pgevolve-testkit" }
 pretty_assertions = { workspace = true }
 proptest          = { workspace = true }
-tempfile          = "3"

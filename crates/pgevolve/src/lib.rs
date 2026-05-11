@@ -12,6 +12,7 @@ pub mod config;
 pub mod connection;
 pub mod executor;
 pub mod pg_querier;
+pub mod shadow_pg;
 pub mod target_identity;
 
 pub use executor::{apply, bootstrap_metadata, ApplyError, ApplyOutcome, ApplyOverrides};

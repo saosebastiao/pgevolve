@@ -72,9 +72,12 @@ clap = { version = "4", features = ["derive", "env"] }
 tokio          = { version = "1", features = ["macros", "rt-multi-thread", "sync", "signal"] }
 tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-time-0_3"] }
 
+# Ephemeral Postgres (used by `validate --shadow` in the binary and by
+# the testkit's tier-3/4 fixtures).
+testcontainers   = "0.22"
+
 # Testing
 proptest         = "1"
-testcontainers   = "0.22"
 pretty_assertions = "1"
 
 [profile.dev]
