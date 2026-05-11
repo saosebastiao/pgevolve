@@ -11,6 +11,7 @@ pub mod diff;
 pub mod error;
 pub mod identifier;
 pub mod ir;
+pub mod lint;
 pub mod parse;
 pub mod plan;
 

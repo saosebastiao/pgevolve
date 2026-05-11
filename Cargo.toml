@@ -39,6 +39,7 @@ const_is_empty          = "allow"
 [workspace.dependencies]
 # Parser
 pg_query = "6"
+regex    = "1"
 
 # Errors / utilities
 thiserror = "1"

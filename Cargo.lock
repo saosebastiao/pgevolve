@@ -1505,6 +1505,7 @@ dependencies = [
  "pgevolve-testkit",
  "pretty_assertions",
  "proptest",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml",

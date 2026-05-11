@@ -31,6 +31,19 @@ use crate::ir::IrError;
 /// After all files have been processed, the catalog is canonicalized (vec-
 /// sorted) and duplicate qnames raise [`ParseError::DuplicateObject`].
 pub fn parse_directory(root: &Path, ignores: &[glob::Pattern]) -> Result<Catalog, ParseError> {
+    parse_directory_with_locations(root, ignores).map(|(c, _)| c)
+}
+
+/// Like [`parse_directory`] but also returns the per-qname source-location
+/// map built during parsing. Used by the lint engine (Phase 10) to know which
+/// file each object was declared in.
+///
+/// The map keys are qname strings as rendered by `Display`: `"schema_name"`
+/// for schemas, `"schema.name"` for tables / indexes / sequences.
+pub fn parse_directory_with_locations(
+    root: &Path,
+    ignores: &[glob::Pattern],
+) -> Result<(Catalog, HashMap<String, SourceLocation>), ParseError> {
     let mut files: Vec<PathBuf> = Vec::new();
     for entry in walkdir::WalkDir::new(root).sort_by_file_name() {
         let entry = entry.map_err(|e| ParseError::Io {
@@ -100,9 +113,10 @@ pub fn parse_directory(root: &Path, ignores: &[glob::Pattern]) -> Result<Catalog
         table.constraints.push(pending.constraint);
     }
 
-    catalog
+    let canonical = catalog
         .canonicalize()
-        .map_err(|e: IrError| translate_canonicalize_error(e, &locations))
+        .map_err(|e: IrError| translate_canonicalize_error(e, &locations))?;
+    Ok((canonical, locations))
 }
 
 #[allow(clippy::too_many_lines)]
