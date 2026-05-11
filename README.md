@@ -29,7 +29,7 @@ for the implementation plan.
 | 6     | Rewrites                     | done      |
 | 7     | Plan format                  | done      |
 | 8     | Executor                     | done      |
-| 9     | CLI                          | pending   |
+| 9     | CLI                          | done      |
 | 10    | Linter                       | pending   |
 | 11    | Testkit                      | partial   |
 | 12    | Shadow                       | pending   |
