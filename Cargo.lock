@@ -1688,6 +1688,7 @@ dependencies = [
  "pgevolve-core",
  "pgevolve-testkit",
  "pretty_assertions",
+ "regex",
  "serde",
  "tempfile",
  "thiserror 2.0.18",

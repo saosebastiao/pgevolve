@@ -17,6 +17,7 @@ pgevolve-core    = { path = "../pgevolve-core" }
 pgevolve-testkit = { path = "../pgevolve-testkit" }
 
 anyhow         = { workspace = true }
+regex          = { workspace = true }
 serde          = { workspace = true }
 tempfile       = "3"
 thiserror      = { workspace = true }
