@@ -11,11 +11,11 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
-use pgevolve_core::catalog::{read_catalog, CatalogFilter, PgVersion};
+use anyhow::{Context, Result, anyhow};
+use pgevolve_core::catalog::{CatalogFilter, PgVersion, read_catalog};
 use pgevolve_core::identifier::Identifier;
 use pgevolve_testkit::catalog_snapshotter;
-use pgevolve_testkit::ephemeral_pg::{docker_available, EphemeralPostgres};
+use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
 use pgevolve_testkit::pg_querier::PgCatalogQuerier;
 
 #[tokio::main(flavor = "multi_thread")]

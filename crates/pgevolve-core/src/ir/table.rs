@@ -8,7 +8,7 @@ use crate::identifier::QualifiedName;
 use crate::ir::column::Column;
 use crate::ir::constraint::Constraint;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{diff_field, prefix_diffs, Diff};
+use crate::ir::eq::{Diff, diff_field, prefix_diffs};
 
 /// A Postgres table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

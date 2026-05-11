@@ -10,9 +10,9 @@
 
 use std::collections::HashSet;
 
+use super::ManagedConfig;
 use super::finding::Finding;
 use super::source_tree::{ObjectKey, SourceTree};
-use super::ManagedConfig;
 use crate::ir::constraint::ConstraintKind;
 
 /// Run every universal rule.
@@ -91,26 +91,26 @@ fn closed_world_references(tree: &SourceTree) -> Vec<Finding> {
 
     for table in &tree.catalog.tables {
         for c in &table.constraints {
-            if let ConstraintKind::ForeignKey(fk) = &c.kind {
-                if !table_names.contains(&fk.referenced_table) {
-                    let loc = tree
-                        .object_locations
-                        .get(&ObjectKey::Table(table.qname.clone()))
-                        .cloned();
-                    let mut f = Finding::error(
-                        "closed_world_references",
-                        format!(
-                            "FK `{constraint}` on `{owner}` references unknown table `{ref_table}`",
-                            constraint = c.qname.name,
-                            owner = table.qname,
-                            ref_table = fk.referenced_table,
-                        ),
-                    );
-                    if let Some(l) = loc {
-                        f = f.at(l);
-                    }
-                    out.push(f);
+            if let ConstraintKind::ForeignKey(fk) = &c.kind
+                && !table_names.contains(&fk.referenced_table)
+            {
+                let loc = tree
+                    .object_locations
+                    .get(&ObjectKey::Table(table.qname.clone()))
+                    .cloned();
+                let mut f = Finding::error(
+                    "closed_world_references",
+                    format!(
+                        "FK `{constraint}` on `{owner}` references unknown table `{ref_table}`",
+                        constraint = c.qname.name,
+                        owner = table.qname,
+                        ref_table = fk.referenced_table,
+                    ),
+                );
+                if let Some(l) = loc {
+                    f = f.at(l);
                 }
+                out.push(f);
             }
         }
     }
@@ -138,24 +138,24 @@ fn closed_world_references(tree: &SourceTree) -> Vec<Finding> {
 
     // Sequences' OWNED BY references.
     for seq in &tree.catalog.sequences {
-        if let Some(owner) = &seq.owned_by {
-            if !table_names.contains(&owner.table) {
-                let mut f = Finding::error(
-                    "closed_world_references",
-                    format!(
-                        "sequence `{seq}` is OWNED BY unknown table `{tbl}`",
-                        seq = seq.qname,
-                        tbl = owner.table,
-                    ),
-                );
-                if let Some(loc) = tree
-                    .object_locations
-                    .get(&ObjectKey::Sequence(seq.qname.clone()))
-                {
-                    f = f.at(loc.clone());
-                }
-                out.push(f);
+        if let Some(owner) = &seq.owned_by
+            && !table_names.contains(&owner.table)
+        {
+            let mut f = Finding::error(
+                "closed_world_references",
+                format!(
+                    "sequence `{seq}` is OWNED BY unknown table `{tbl}`",
+                    seq = seq.qname,
+                    tbl = owner.table,
+                ),
+            );
+            if let Some(loc) = tree
+                .object_locations
+                .get(&ObjectKey::Sequence(seq.qname.clone()))
+            {
+                f = f.at(loc.clone());
             }
+            out.push(f);
         }
     }
 

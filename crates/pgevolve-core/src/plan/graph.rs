@@ -80,7 +80,7 @@ where
     }
 
     /// Iterate the dependencies of `n` (the set `edges[n]`).
-    pub fn dependencies_of<'a>(&'a self, n: &N) -> impl Iterator<Item = &'a N> + 'a {
+    pub fn dependencies_of<'a>(&'a self, n: &N) -> impl Iterator<Item = &'a N> + 'a + use<'a, N> {
         self.edges.get(n).into_iter().flat_map(BTreeSet::iter)
     }
 

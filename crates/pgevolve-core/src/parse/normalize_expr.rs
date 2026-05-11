@@ -13,8 +13,8 @@
 //! - Paren folding (collapsing trivial nested `A_Expr` parens).
 //! - Sorting commutative operands of `+`, `*`, `AND`, `OR`.
 
-use pg_query::protobuf::{self, Node, ResTarget};
 use pg_query::NodeEnum;
+use pg_query::protobuf::{self, Node, ResTarget};
 
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::NormalizedExpr;

@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 
-use pgevolve_core::catalog::read_catalog;
 use pgevolve_core::catalog::CatalogFilter;
+use pgevolve_core::catalog::read_catalog;
 use pgevolve_core::diff::diff;
 
 use crate::cli::{DiffArgs, OutputFormat};

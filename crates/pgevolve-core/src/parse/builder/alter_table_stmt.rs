@@ -9,10 +9,10 @@
 //! `ALTER TABLE ... ADD CONSTRAINT <name> FOREIGN KEY (...) REFERENCES ...`,
 //! which lands directly into the target table's `Constraint` list.
 
+use pg_query::NodeEnum;
 use pg_query::protobuf::{
     AlterTableCmd, AlterTableStmt, AlterTableType, ConstrType, Constraint as PgConstraint,
 };
-use pg_query::NodeEnum;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::constraint::Constraint;

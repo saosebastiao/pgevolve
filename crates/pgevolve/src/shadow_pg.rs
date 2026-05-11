@@ -9,7 +9,7 @@
 
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt};
@@ -93,7 +93,7 @@ impl ShadowPostgres {
 }
 
 async fn wait_until_ready(dsn: &str) -> Result<()> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    let deadline = std::time::Instant::now() + Duration::from_mins(1);
     let mut last_err: Option<anyhow::Error> = None;
     while std::time::Instant::now() < deadline {
         match tokio_postgres::connect(dsn, NoTls).await {
@@ -101,10 +101,13 @@ async fn wait_until_ready(dsn: &str) -> Result<()> {
                 tokio::spawn(async move {
                     let _ = connection.await;
                 });
-                if let Err(e) = client.simple_query("SELECT 1").await {
-                    last_err = Some(anyhow!("smoke query failed: {e}"));
-                } else {
-                    return Ok(());
+                match client.simple_query("SELECT 1").await {
+                    Err(e) => {
+                        last_err = Some(anyhow!("smoke query failed: {e}"));
+                    }
+                    _ => {
+                        return Ok(());
+                    }
                 }
             }
             Err(e) => last_err = Some(anyhow!("connect failed: {e}")),
@@ -127,6 +130,5 @@ pub fn docker_available() -> bool {
     std::process::Command::new("docker")
         .arg("info")
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success())
 }

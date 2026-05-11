@@ -9,14 +9,14 @@
 use std::path::Path;
 
 use serde::Deserialize;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::plan::grouping::TransactionGroup;
 use crate::plan::io_error::PlanIoError;
-use crate::plan::plan::{parse_kind_name, DestructiveIntent, Plan, PlanId, PlanMetadata};
+use crate::plan::plan::{DestructiveIntent, Plan, PlanId, PlanMetadata, parse_kind_name};
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
 // ---------------------------------------------------------------------------
@@ -429,10 +429,10 @@ pub fn read_plan_dir(dir: &Path) -> Result<Plan, PlanIoError> {
     let mut groups = partial.groups;
     for g in &mut groups {
         for step in &mut g.steps {
-            if let Some(intent_id) = step.intent_id {
-                if let Some(row) = intent.intents.iter().find(|i| i.id == intent_id) {
-                    step.destructive_reason = Some(row.reason.clone());
-                }
+            if let Some(intent_id) = step.intent_id
+                && let Some(row) = intent.intents.iter().find(|i| i.id == intent_id)
+            {
+                step.destructive_reason = Some(row.reason.clone());
             }
         }
     }

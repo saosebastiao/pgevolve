@@ -146,11 +146,13 @@ mod tests {
             other => panic!("expected DropTable, got {other:?}"),
         }
         assert!(entry.destructiveness.data_loss_risk());
-        assert!(entry
-            .destructiveness
-            .reason()
-            .unwrap()
-            .contains("app.users"));
+        assert!(
+            entry
+                .destructiveness
+                .reason()
+                .unwrap()
+                .contains("app.users")
+        );
     }
 
     #[test]

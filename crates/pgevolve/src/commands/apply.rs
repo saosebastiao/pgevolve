@@ -13,7 +13,7 @@ use pgevolve_core::catalog::CatalogFilter;
 use crate::cli::ApplyArgs;
 use crate::config::PgevolveConfig;
 use crate::connection::{connect, resolve_db};
-use crate::executor::{apply, ApplyError, ApplyOutcome, ApplyOverrides};
+use crate::executor::{ApplyError, ApplyOutcome, ApplyOverrides, apply};
 
 /// Run `pgevolve apply`.
 pub async fn run(args: ApplyArgs, cfg: &PgevolveConfig) -> Result<i32> {

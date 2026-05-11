@@ -75,7 +75,7 @@ mod tests {
     impl CatalogQuerier for MockSingle {
         fn fetch(&self, _: CatalogQuery, _: &[&str]) -> Result<Vec<Row>, CatalogError> {
             Ok(vec![
-                Row::new().with("server_version_num", Value::Integer(self.0))
+                Row::new().with("server_version_num", Value::Integer(self.0)),
             ])
         }
     }

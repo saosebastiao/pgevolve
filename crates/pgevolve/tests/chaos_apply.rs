@@ -16,7 +16,7 @@ use anyhow::Result;
 use pgevolve::executor::ApplyError;
 use pgevolve_core::catalog::PgVersion;
 use pgevolve_core::ir::catalog::Catalog;
-use pgevolve_testkit::ephemeral_pg::{docker_available, EphemeralPostgres};
+use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
 
 use common::{apply_diff, connect_and_bootstrap, introspect, schemas_of};
 

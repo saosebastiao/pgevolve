@@ -8,17 +8,17 @@
 
 use std::path::Path;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use tempfile::TempDir;
 use tokio_postgres::Client;
 
 use pgevolve::executor::{ApplyError, ApplyOverrides};
 use pgevolve::pg_querier::PgCatalogQuerier;
-use pgevolve_core::catalog::{read_catalog, CatalogFilter};
+use pgevolve_core::catalog::{CatalogFilter, read_catalog};
 use pgevolve_core::identifier::Identifier;
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::plan::{
-    group_steps, order, rewrite, write_plan_dir, Plan, PlannerPolicy, Strategy,
+    Plan, PlannerPolicy, Strategy, group_steps, order, rewrite, write_plan_dir,
 };
 
 /// Open a fresh client to `pg` and bootstrap the pgevolve metadata schema.

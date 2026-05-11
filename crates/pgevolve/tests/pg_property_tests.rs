@@ -21,9 +21,9 @@ use proptest::test_runner::TestRunner;
 
 use pgevolve_core::catalog::PgVersion;
 use pgevolve_core::ir::catalog::Catalog;
-use pgevolve_testkit::ephemeral_pg::{docker_available, EphemeralPostgres};
+use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
 use pgevolve_testkit::{
-    arbitrary_catalog, arbitrary_mutation, assert_canonical_eq, IRGeneratorConfig,
+    IRGeneratorConfig, arbitrary_catalog, arbitrary_mutation, assert_canonical_eq,
 };
 
 use common::{apply_diff, connect_and_bootstrap, introspect, schemas_of};

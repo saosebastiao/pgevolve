@@ -3,7 +3,7 @@
 //! Wraps the core `Diff` trait so test failures show the offending paths and
 //! before/after values rather than a wall of `Debug` text.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::ir::difference::Difference;

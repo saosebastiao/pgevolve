@@ -1,7 +1,7 @@
 //! `CREATE INDEX` → [`crate::ir::index::Index`].
 
-use pg_query::protobuf::{self, IndexElem, IndexStmt, SortByDir, SortByNulls};
 use pg_query::NodeEnum;
+use pg_query::protobuf::{self, IndexElem, IndexStmt, SortByDir, SortByNulls};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::index::{Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder};

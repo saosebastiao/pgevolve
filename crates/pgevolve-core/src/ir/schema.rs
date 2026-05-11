@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{diff_field, Diff};
+use crate::ir::eq::{Diff, diff_field};
 
 /// A Postgres schema (namespace).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

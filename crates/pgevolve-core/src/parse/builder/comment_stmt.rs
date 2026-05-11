@@ -6,8 +6,8 @@
 //! `comment` on the matching object. If no target is found, we emit a
 //! [`ParseError::Structural`] with the missing qname.
 
-use pg_query::protobuf::{CommentStmt, ObjectType};
 use pg_query::NodeEnum;
+use pg_query::protobuf::{CommentStmt, ObjectType};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
@@ -129,10 +129,10 @@ fn single_string(stmt: &CommentStmt, location: &SourceLocation) -> Result<String
     if let NodeEnum::String(s) = obj {
         return Ok(s.sval.clone());
     }
-    if let NodeEnum::List(list) = obj {
-        if let Some(NodeEnum::String(s)) = list.items.first().and_then(|n| n.node.as_ref()) {
-            return Ok(s.sval.clone());
-        }
+    if let NodeEnum::List(list) = obj
+        && let Some(NodeEnum::String(s)) = list.items.first().and_then(|n| n.node.as_ref())
+    {
+        return Ok(s.sval.clone());
     }
     Err(ParseError::Structural {
         location: location.clone(),

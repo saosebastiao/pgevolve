@@ -112,7 +112,7 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
         })
 }
 
-fn arbitrary_schemas(cfg: &IRGeneratorConfig) -> impl Strategy<Value = Vec<Schema>> {
+fn arbitrary_schemas(cfg: &IRGeneratorConfig) -> impl Strategy<Value = Vec<Schema>> + use<> {
     let count = SizeRange::from(cfg.schema_count_range.0..=cfg.schema_count_range.1);
     proptest_vec(schema_name_strategy(), count).prop_map(|names| {
         // Deduplicate while preserving order: HashSet would lose ordering.
@@ -142,7 +142,7 @@ fn schema_name_strategy() -> impl Strategy<Value = Identifier> {
 fn arbitrary_tables_for_schema(
     schema: Identifier,
     cfg: &IRGeneratorConfig,
-) -> impl Strategy<Value = Vec<Table>> {
+) -> impl Strategy<Value = Vec<Table>> + use<> {
     let count = SizeRange::from(cfg.tables_per_schema_range.0..=cfg.tables_per_schema_range.1);
     let cfg = cfg.clone();
     proptest_vec(table_name_strategy(), count).prop_flat_map(move |raw_names| {
@@ -180,7 +180,7 @@ fn arbitrary_table(
     schema: Identifier,
     name: Identifier,
     cfg: &IRGeneratorConfig,
-) -> impl Strategy<Value = Table> {
+) -> impl Strategy<Value = Table> + use<> {
     let cfg = cfg.clone();
     let col_count = SizeRange::from(cfg.columns_per_table_range.0..=cfg.columns_per_table_range.1);
     proptest_vec(arbitrary_non_pk_column(), col_count).prop_map(move |non_pk_cols| {
@@ -295,7 +295,7 @@ pub fn arbitrary_column_type() -> impl Strategy<Value = ColumnType> {
 fn arbitrary_indexes_for_table(
     table: &Table,
     _table_count: usize,
-) -> impl Strategy<Value = Vec<Index>> {
+) -> impl Strategy<Value = Vec<Index>> + use<> {
     // Build a list of candidate columns; sample 0-2 of them and produce an
     // index per pick. Filter to btree-indexable types: `json` famously has
     // no default btree opclass; the same applies to a few other v0.1 types.

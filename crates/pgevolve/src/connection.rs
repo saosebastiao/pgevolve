@@ -134,10 +134,17 @@ mod tests {
         );
         let cfg = cfg_with(envs);
         // SAFETY: env access is exclusive to this test by variable name; no
-        // cross-test contention.
-        std::env::set_var("PGEVOLVE_TEST_DSN_FOR_RESOLVE", "from_env_var");
+        // cross-test contention. Edition 2024 marks set_var/remove_var as
+        // `unsafe` because they're racy across threads in the general case.
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("PGEVOLVE_TEST_DSN_FOR_RESOLVE", "from_env_var");
+        }
         let r = resolve_db(&cfg, "dev", None).unwrap();
-        std::env::remove_var("PGEVOLVE_TEST_DSN_FOR_RESOLVE");
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("PGEVOLVE_TEST_DSN_FOR_RESOLVE");
+        }
         assert_eq!(r.dsn, "from_env_var");
     }
 
@@ -155,7 +162,11 @@ mod tests {
         let mut envs = BTreeMap::new();
         envs.insert("dev".into(), env(None, None));
         let cfg = cfg_with(envs);
-        std::env::remove_var("PGEVOLVE_DATABASE_URL");
+        // SAFETY: see `url_env_is_read_from_env` above — same reasoning.
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("PGEVOLVE_DATABASE_URL");
+        }
         let r = resolve_db(&cfg, "dev", None).unwrap();
         assert!(r.dsn.is_empty());
     }

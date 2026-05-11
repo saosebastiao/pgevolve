@@ -2,8 +2,8 @@
 
 #![allow(clippy::similar_names, clippy::missing_const_for_fn)]
 
-use pg_query::protobuf::{self, ColumnDef, ConstrType, Constraint as PgConstraint, CreateStmt};
 use pg_query::NodeEnum;
+use pg_query::protobuf::{self, ColumnDef, ConstrType, Constraint as PgConstraint, CreateStmt};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column::{
@@ -119,15 +119,15 @@ fn build_column(
 
     // Column-level default in raw_default (sometimes used) — fold into the
     // constraint scan below since most defaults arrive as ConstrDefault entries.
-    if let Some(raw) = col.raw_default.as_ref() {
-        if let Some(node) = raw.node.as_ref() {
-            default = Some(shared::build_default_expr(
-                node,
-                Some(&ty),
-                default_schema,
-                location,
-            )?);
-        }
+    if let Some(raw) = col.raw_default.as_ref()
+        && let Some(node) = raw.node.as_ref()
+    {
+        default = Some(shared::build_default_expr(
+            node,
+            Some(&ty),
+            default_schema,
+            location,
+        )?);
     }
 
     let collation = col
@@ -149,15 +149,15 @@ fn build_column(
                 nullable = true;
             }
             ConstrType::ConstrDefault => {
-                if let Some(raw) = con.raw_expr.as_ref() {
-                    if let Some(node) = raw.node.as_ref() {
-                        default = Some(shared::build_default_expr(
-                            node,
-                            Some(&ty),
-                            default_schema,
-                            location,
-                        )?);
-                    }
+                if let Some(raw) = con.raw_expr.as_ref()
+                    && let Some(node) = raw.node.as_ref()
+                {
+                    default = Some(shared::build_default_expr(
+                        node,
+                        Some(&ty),
+                        default_schema,
+                        location,
+                    )?);
                 }
             }
             ConstrType::ConstrIdentity => {
@@ -175,14 +175,14 @@ fn build_column(
                 nullable = false;
             }
             ConstrType::ConstrGenerated => {
-                if let Some(raw) = con.raw_expr.as_ref() {
-                    if let Some(node) = raw.node.as_ref() {
-                        let expr = normalize_expr::from_pg_node(node, None, location)?;
-                        generated = Some(Generated {
-                            kind: GeneratedKind::Stored,
-                            expression: expr,
-                        });
-                    }
+                if let Some(raw) = con.raw_expr.as_ref()
+                    && let Some(node) = raw.node.as_ref()
+                {
+                    let expr = normalize_expr::from_pg_node(node, None, location)?;
+                    generated = Some(Generated {
+                        kind: GeneratedKind::Stored,
+                        expression: expr,
+                    });
                 }
             }
             ConstrType::ConstrPrimary => {

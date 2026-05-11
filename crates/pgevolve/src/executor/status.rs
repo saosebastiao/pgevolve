@@ -7,8 +7,8 @@
 #![allow(clippy::format_push_string)]
 
 use serde::Serialize;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use tokio_postgres::Client;
 use uuid::Uuid;
 

@@ -708,7 +708,7 @@ fn render_idents(v: &[Identifier]) -> String {
 }
 
 fn render_owner(o: &SequenceOwner) -> String {
-    format!("{}.{}", o.table.render_sql(), o.column.render_sql(),)
+    format!("{}.{}", o.table.render_sql(), o.column.render_sql())
 }
 
 fn render_comment(comment: Option<&str>) -> String {

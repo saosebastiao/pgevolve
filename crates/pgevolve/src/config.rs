@@ -50,12 +50,13 @@ pub enum ConfigError {
 }
 
 /// Strategy values accepted by `[planner].strategy` and `[environments.<n>].strategy`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigStrategy {
     /// All operations run inside one transaction; no online rewrites.
     Atomic,
     /// Apply online rewrites (default).
+    #[default]
     Online,
 }
 
@@ -139,12 +140,6 @@ pub struct PlannerConfig {
 
 const fn default_strategy() -> ConfigStrategy {
     ConfigStrategy::Online
-}
-
-impl Default for ConfigStrategy {
-    fn default() -> Self {
-        Self::Online
-    }
 }
 
 /// `[planner.online_rewrites]` switches. Each defaults to `true`.

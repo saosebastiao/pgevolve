@@ -86,7 +86,7 @@ pub enum ColumnType {
     /// Array type — element + dimension count.
     Array {
         /// Element type.
-        element: Box<ColumnType>,
+        element: Box<Self>,
         /// Number of dimensions (Postgres treats arrays as flat at the type level,
         /// but stores dim count in `pg_attribute.attndims`).
         dims: u8,

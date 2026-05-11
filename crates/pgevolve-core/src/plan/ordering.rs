@@ -7,12 +7,12 @@
 
 use std::collections::HashMap;
 
-use crate::diff::change::{Change, ChangeEntry};
 use crate::diff::ChangeSet;
+use crate::diff::change::{Change, ChangeEntry};
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
 use crate::ir::constraint::{Constraint, ConstraintKind};
-use crate::plan::edges::{build_create_graph, build_drop_graph, NodeId};
+use crate::plan::edges::{NodeId, build_create_graph, build_drop_graph};
 use crate::plan::error::PlanError;
 use crate::plan::ordered::{DeferredFkAdd, OrderedChangeSet};
 

@@ -751,9 +751,11 @@ mod tests {
         assert!(steps[0].sql.starts_with("CREATE TABLE app.users ("));
         assert!(steps[0].sql.contains("id bigint NOT NULL"));
         assert!(steps[0].sql.contains("email text"));
-        assert!(steps[0]
-            .sql
-            .contains("CONSTRAINT users_pkey PRIMARY KEY (id)"));
+        assert!(
+            steps[0]
+                .sql
+                .contains("CONSTRAINT users_pkey PRIMARY KEY (id)")
+        );
     }
 
     #[test]
@@ -792,9 +794,11 @@ mod tests {
         let steps = rewrite_changeset_only(cs);
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].kind, StepKind::CreateIndex);
-        assert!(steps[0]
-            .sql
-            .starts_with("CREATE INDEX users_idx ON app.users USING btree (id)"));
+        assert!(
+            steps[0]
+                .sql
+                .starts_with("CREATE INDEX users_idx ON app.users USING btree (id)")
+        );
         assert_eq!(steps[0].transactional, TransactionConstraint::InTransaction);
     }
 
@@ -856,9 +860,11 @@ mod tests {
         let steps = rewrite_changeset_only(cs);
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].kind, StepKind::CreateSequence);
-        assert!(steps[0]
-            .sql
-            .starts_with("CREATE SEQUENCE app.id_seq AS bigint"));
+        assert!(
+            steps[0]
+                .sql
+                .starts_with("CREATE SEQUENCE app.id_seq AS bigint")
+        );
         assert!(steps[0].sql.contains("INCREMENT BY 1"));
         assert!(steps[0].sql.contains("START WITH 1"));
         assert!(steps[0].sql.contains("NO CYCLE"));
@@ -1156,9 +1162,11 @@ mod tests {
         );
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].kind, StepKind::AddConstraint);
-        assert!(steps[0]
-            .sql
-            .contains("ADD CONSTRAINT a_b_fk FOREIGN KEY (ref_id) REFERENCES app.b (id)"));
+        assert!(
+            steps[0]
+                .sql
+                .contains("ADD CONSTRAINT a_b_fk FOREIGN KEY (ref_id) REFERENCES app.b (id)")
+        );
     }
 
     // ---- concurrent-index rewrite (Task 6.4) ----

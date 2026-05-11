@@ -4,13 +4,13 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::ir::IrError;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{prefix_diffs, Diff};
+use crate::ir::eq::{Diff, prefix_diffs};
 use crate::ir::index::Index;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
-use crate::ir::IrError;
 
 /// A whole-database schema snapshot.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

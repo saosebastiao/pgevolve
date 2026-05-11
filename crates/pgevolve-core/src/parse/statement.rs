@@ -3,8 +3,8 @@
 //! Anything outside the whitelist is rejected with [`ParseError::UnsupportedObjectKind`]
 //! so that source-loading fails loudly instead of silently dropping unsupported DDL.
 
-use pg_query::protobuf;
 use pg_query::NodeEnum;
+use pg_query::protobuf;
 
 use crate::parse::error::{ParseError, SourceLocation};
 

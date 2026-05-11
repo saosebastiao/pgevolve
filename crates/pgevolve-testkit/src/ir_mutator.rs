@@ -308,10 +308,10 @@ fn pk_columns(t: &pgevolve_core::ir::table::Table) -> Vec<Identifier> {
 fn unique_column_name(columns: &[Column], seed: usize) -> Identifier {
     for n in 0..16usize {
         let candidate = format!("c{}", seed.wrapping_add(n) % 4096);
-        if let Ok(id) = Identifier::from_unquoted(&candidate) {
-            if !columns.iter().any(|c| c.name == id) {
-                return id;
-            }
+        if let Ok(id) = Identifier::from_unquoted(&candidate)
+            && !columns.iter().any(|c| c.name == id)
+        {
+            return id;
         }
     }
     // Fall back to a deterministic guaranteed-fresh name.
@@ -321,13 +321,12 @@ fn unique_column_name(columns: &[Column], seed: usize) -> Identifier {
 fn unique_index_name(indexes: &[Index], table: &QualifiedName, seed: usize) -> Identifier {
     for n in 0..16usize {
         let candidate = format!("{}_g{}_idx", table.name, seed.wrapping_add(n) % 4096);
-        if let Ok(id) = Identifier::from_unquoted(&candidate) {
-            if !indexes
+        if let Ok(id) = Identifier::from_unquoted(&candidate)
+            && !indexes
                 .iter()
                 .any(|i| i.qname.name == id && i.qname.schema == table.schema)
-            {
-                return id;
-            }
+        {
+            return id;
         }
     }
     Identifier::from_unquoted(&format!("{}_idx{}", table.name, indexes.len() + 10_000)).unwrap()
@@ -340,13 +339,12 @@ fn unique_table_name(
 ) -> Identifier {
     for n in 0..16usize {
         let candidate = format!("gen_t_{}", seed.wrapping_add(n) % 4096);
-        if let Ok(id) = Identifier::from_unquoted(&candidate) {
-            if !tables
+        if let Ok(id) = Identifier::from_unquoted(&candidate)
+            && !tables
                 .iter()
                 .any(|t| t.qname.schema == *schema && t.qname.name == id)
-            {
-                return id;
-            }
+        {
+            return id;
         }
     }
     Identifier::from_unquoted(&format!("gen_t_{}", tables.len() + 10_000)).unwrap()
@@ -361,7 +359,7 @@ fn cascade_drop_objects_for_table(c: &mut Catalog, qname: &QualifiedName) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir_generator::{arbitrary_catalog, IRGeneratorConfig};
+    use crate::ir_generator::{IRGeneratorConfig, arbitrary_catalog};
     use proptest::strategy::ValueTree;
     use proptest::test_runner::TestRunner;
 

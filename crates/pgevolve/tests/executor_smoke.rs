@@ -11,7 +11,7 @@
 #![allow(clippy::similar_names)]
 
 use pgevolve_core::catalog::PgVersion;
-use pgevolve_testkit::ephemeral_pg::{docker_available, EphemeralPostgres};
+use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bootstrap_is_idempotent() {
@@ -112,9 +112,9 @@ fn build_demo_plan(dir: &std::path::Path, target_identity: &str) -> pgevolve_cor
     use pgevolve_core::identifier::{Identifier, QualifiedName};
     use pgevolve_core::ir::catalog::Catalog;
     use pgevolve_core::ir::schema::Schema;
+    use pgevolve_core::plan::Plan;
     use pgevolve_core::plan::grouping::TransactionGroup;
     use pgevolve_core::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
-    use pgevolve_core::plan::Plan;
 
     let id = |s: &str| Identifier::from_unquoted(s).unwrap();
     let qn = |sch: &str, n: &str| QualifiedName::new(id(sch), id(n));
@@ -236,9 +236,9 @@ async fn apply_rolls_back_transactional_group_on_failure() {
     }
     use pgevolve_core::identifier::QualifiedName;
     use pgevolve_core::ir::catalog::Catalog;
+    use pgevolve_core::plan::Plan;
     use pgevolve_core::plan::grouping::TransactionGroup;
     use pgevolve_core::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
-    use pgevolve_core::plan::Plan;
 
     let pg = EphemeralPostgres::start(PgVersion::Pg16).await.unwrap();
     let mut client = pg.connect().await.unwrap();

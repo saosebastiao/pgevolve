@@ -9,7 +9,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::ir::catalog::Catalog;
 use crate::plan::io_error::PlanIoError;
-use crate::plan::plan::{kind_name, Plan};
+use crate::plan::plan::{Plan, kind_name};
 use crate::plan::raw_step::RawStep;
 
 // ---------------------------------------------------------------------------

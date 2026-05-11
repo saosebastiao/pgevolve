@@ -16,7 +16,7 @@ pub mod universal;
 use std::path::Path;
 
 pub use finding::{Finding, Severity};
-pub use profile::{check_profile, CustomProfile, PathPattern, Profile};
+pub use profile::{CustomProfile, PathPattern, Profile, check_profile};
 pub use source_tree::{ObjectKey, SourceTree};
 pub use universal::check_universal;
 

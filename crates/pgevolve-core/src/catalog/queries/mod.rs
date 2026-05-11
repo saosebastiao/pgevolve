@@ -10,8 +10,8 @@ pub mod pg16;
 pub mod pg17;
 pub mod shared;
 
-use crate::catalog::version::PgVersion;
 use crate::catalog::CatalogQuery;
+use crate::catalog::version::PgVersion;
 
 /// Pick the SQL string for `query` on the given PG major version.
 #[must_use]

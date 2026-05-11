@@ -82,10 +82,12 @@ fn parses_a_two_table_two_index_project() {
     assert_eq!(catalog.indexes[0].qname.to_string(), "app.users_email_idx");
 
     // Synthesized sequence from bigserial.
-    assert!(catalog
-        .sequences
-        .iter()
-        .any(|s| s.qname.to_string() == "app.users_id_seq"));
+    assert!(
+        catalog
+            .sequences
+            .iter()
+            .any(|s| s.qname.to_string() == "app.users_id_seq")
+    );
 }
 
 #[test]

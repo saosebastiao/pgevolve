@@ -16,8 +16,8 @@
 
 use proptest::prelude::*;
 
-use pgevolve_core::plan::{build_create_graph, NodeId, PlanId};
-use pgevolve_testkit::{arbitrary_catalog, IRGeneratorConfig};
+use pgevolve_core::plan::{NodeId, PlanId, build_create_graph};
+use pgevolve_testkit::{IRGeneratorConfig, arbitrary_catalog};
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]

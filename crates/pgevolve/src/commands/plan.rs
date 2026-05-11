@@ -5,9 +5,9 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use pgevolve_core::catalog::{read_catalog, CatalogFilter};
+use pgevolve_core::catalog::{CatalogFilter, read_catalog};
 use pgevolve_core::diff::diff;
-use pgevolve_core::plan::{group_steps, order, rewrite, write_plan_dir, Plan, PlannerPolicy};
+use pgevolve_core::plan::{Plan, PlannerPolicy, group_steps, order, rewrite, write_plan_dir};
 
 use crate::cli::PlanArgs;
 use crate::config::PgevolveConfig;

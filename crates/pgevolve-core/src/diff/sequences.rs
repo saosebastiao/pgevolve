@@ -261,9 +261,10 @@ mod tests {
         match &cs.entries[0].change {
             Change::AlterSequence { ops, .. } => {
                 assert_eq!(ops.len(), 4);
-                assert!(ops
-                    .iter()
-                    .all(|o| o.destructiveness == Destructiveness::Safe));
+                assert!(
+                    ops.iter()
+                        .all(|o| o.destructiveness == Destructiveness::Safe)
+                );
             }
             other => panic!("got {other:?}"),
         }

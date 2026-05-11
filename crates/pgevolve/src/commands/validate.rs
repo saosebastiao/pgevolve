@@ -2,23 +2,23 @@
 //! round-trip the source through an ephemeral Postgres of the configured
 //! version (spec §10 / Phase 12).
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use tempfile::TempDir;
 
-use pgevolve_core::catalog::{read_catalog, CatalogFilter, PgVersion};
+use pgevolve_core::catalog::{CatalogFilter, PgVersion, read_catalog};
 use pgevolve_core::identifier::Identifier;
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::ir::difference::Difference;
 use pgevolve_core::ir::eq::Diff;
 use pgevolve_core::plan::{
-    group_steps, order, rewrite, write_plan_dir, Plan, PlannerPolicy, Strategy,
+    Plan, PlannerPolicy, Strategy, group_steps, order, rewrite, write_plan_dir,
 };
 
 use crate::cli::ValidateArgs;
 use crate::config::PgevolveConfig;
-use crate::executor::{apply, ApplyOverrides};
+use crate::executor::{ApplyOverrides, apply};
 use crate::pg_querier::PgCatalogQuerier;
-use crate::shadow_pg::{docker_available, ShadowPostgres};
+use crate::shadow_pg::{ShadowPostgres, docker_available};
 
 /// Run `pgevolve validate`.
 pub async fn run(args: &ValidateArgs, cfg: &PgevolveConfig) -> Result<i32> {

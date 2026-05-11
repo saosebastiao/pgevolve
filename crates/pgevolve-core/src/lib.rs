@@ -4,7 +4,7 @@
 //! implementation from callers, and returns IR, diffs, and plans as data.
 //! See the workspace `docs/superpowers/specs/` for the design.
 #![warn(missing_docs)]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 pub mod catalog;
 pub mod diff;

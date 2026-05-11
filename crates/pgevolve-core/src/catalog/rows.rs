@@ -7,8 +7,8 @@
 
 use std::collections::BTreeMap;
 
-use crate::catalog::error::CatalogError;
 use crate::catalog::CatalogQuery;
+use crate::catalog::error::CatalogError;
 
 /// A SQL value variant supported by the catalog reader.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,9 +199,10 @@ mod tests {
     fn null_is_treated_as_absent() {
         let r = Row::new().with("c", Value::Null);
         assert!(r.is_null("c"));
-        assert!(r
-            .get_opt_text(CatalogQuery::Schemas, "c")
-            .unwrap()
-            .is_none());
+        assert!(
+            r.get_opt_text(CatalogQuery::Schemas, "c")
+                .unwrap()
+                .is_none()
+        );
     }
 }

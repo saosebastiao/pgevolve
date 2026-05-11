@@ -6,7 +6,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::DefaultExpr;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{diff_field, Diff};
+use crate::ir::eq::{Diff, diff_field};
 
 /// A table column.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

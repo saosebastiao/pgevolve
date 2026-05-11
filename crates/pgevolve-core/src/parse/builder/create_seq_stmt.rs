@@ -1,7 +1,7 @@
 //! `CREATE SEQUENCE` → [`crate::ir::sequence::Sequence`].
 
-use pg_query::protobuf::{a_const, AConst, CreateSeqStmt, DefElem};
 use pg_query::NodeEnum;
+use pg_query::protobuf::{AConst, CreateSeqStmt, DefElem, a_const};
 
 use crate::identifier::Identifier;
 use crate::ir::column_type::ColumnType;
@@ -40,10 +40,10 @@ pub fn build_sequence(
         };
         match de.defname.as_str() {
             "as" => {
-                if let Some(t) = type_name_of(de) {
-                    if let Ok(parsed) = ColumnType::parse_from_pg_type_string(&t) {
-                        data_type = parsed;
-                    }
+                if let Some(t) = type_name_of(de)
+                    && let Ok(parsed) = ColumnType::parse_from_pg_type_string(&t)
+                {
+                    data_type = parsed;
                 }
             }
             "start" => {

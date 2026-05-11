@@ -193,11 +193,13 @@ mod tests {
         assert_eq!(ops.len(), 1);
         assert!(matches!(ops[0].op, TableOp::DropConstraint { .. }));
         assert!(ops[0].destructiveness.requires_approval());
-        assert!(ops[0]
-            .destructiveness
-            .reason()
-            .unwrap()
-            .contains("primary key"));
+        assert!(
+            ops[0]
+                .destructiveness
+                .reason()
+                .unwrap()
+                .contains("primary key")
+        );
     }
 
     #[test]
@@ -207,11 +209,13 @@ mod tests {
         let ops = run(&target, &source);
         assert_eq!(ops.len(), 1);
         assert!(ops[0].destructiveness.requires_approval());
-        assert!(ops[0]
-            .destructiveness
-            .reason()
-            .unwrap()
-            .contains("foreign key"));
+        assert!(
+            ops[0]
+                .destructiveness
+                .reason()
+                .unwrap()
+                .contains("foreign key")
+        );
     }
 
     #[test]

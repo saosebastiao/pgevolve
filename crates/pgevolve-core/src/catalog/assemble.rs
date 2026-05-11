@@ -21,11 +21,11 @@ use std::path::PathBuf;
 
 use pg_query::NodeEnum;
 
+use crate::catalog::CatalogQuery;
 use crate::catalog::error::CatalogError;
 use crate::catalog::filter::CatalogFilter;
 use crate::catalog::rows::Row;
 use crate::catalog::version::PgVersion;
-use crate::catalog::CatalogQuery;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::ir::column::{
@@ -395,8 +395,9 @@ fn parse_referential_action(s: &str) -> ReferentialAction {
     }
 }
 
-fn parse_match_type(s: &str) -> FkMatchType {
-    if s.eq_ignore_ascii_case("f") {
+const fn parse_match_type(s: &str) -> FkMatchType {
+    let b = s.as_bytes();
+    if b.len() == 1 && (b[0] == b'f' || b[0] == b'F') {
         FkMatchType::Full
     } else {
         FkMatchType::Simple

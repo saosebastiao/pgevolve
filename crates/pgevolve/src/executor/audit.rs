@@ -8,8 +8,8 @@
 use tokio_postgres::Client;
 use uuid::Uuid;
 
-use pgevolve_core::plan::plan::kind_name;
 use pgevolve_core::plan::Plan;
+use pgevolve_core::plan::plan::kind_name;
 
 use super::error::ApplyError;
 

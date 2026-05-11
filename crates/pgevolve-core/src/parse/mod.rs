@@ -13,13 +13,13 @@ pub mod statement;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-pub use directives::{extract_file_directives, FileDirectives};
+pub use directives::{FileDirectives, extract_file_directives};
 pub use error::{ParseError, SourceLocation};
 pub use statement::Statement;
 
 use crate::identifier::QualifiedName;
-use crate::ir::catalog::Catalog;
 use crate::ir::IrError;
+use crate::ir::catalog::Catalog;
 
 /// Parse every `*.sql` file under `root`, recursively, and produce a fully-
 /// populated [`Catalog`]. Files matching any pattern in `ignores` are skipped.
@@ -255,16 +255,15 @@ fn translate_canonicalize_error(
 ) -> ParseError {
     if let IrError::InvalidIdentifier(msg) = &e {
         // Format is "duplicate <kind>: <qname>" (see `Catalog::canonicalize`).
-        if let Some(rest) = msg.strip_prefix("duplicate ") {
-            if let Some((_, qname)) = rest.split_once(": ") {
-                if let Some(loc) = locations.get(qname) {
-                    return ParseError::DuplicateObject {
-                        qname: qname.to_string(),
-                        first: loc.clone(),
-                        second: loc.clone(),
-                    };
-                }
-            }
+        if let Some(rest) = msg.strip_prefix("duplicate ")
+            && let Some((_, qname)) = rest.split_once(": ")
+            && let Some(loc) = locations.get(qname)
+        {
+            return ParseError::DuplicateObject {
+                qname: qname.to_string(),
+                first: loc.clone(),
+                second: loc.clone(),
+            };
         }
     }
     let placeholder = SourceLocation::new(PathBuf::new(), 0, 0);

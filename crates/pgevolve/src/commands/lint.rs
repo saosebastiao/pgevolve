@@ -4,7 +4,7 @@
 use anyhow::Result;
 
 use pgevolve_core::lint::{
-    run as run_lint, LintInputs, ManagedConfig, Profile, Severity, SourceTree,
+    LintInputs, ManagedConfig, Profile, Severity, SourceTree, run as run_lint,
 };
 
 use crate::cli::LintArgs;

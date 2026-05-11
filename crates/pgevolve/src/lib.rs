@@ -4,7 +4,7 @@
 //! The binary at `src/main.rs` is a thin wrapper around [`run_main`].
 
 #![warn(missing_docs)]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 pub mod cli;
 pub mod commands;
@@ -15,5 +15,5 @@ pub mod pg_querier;
 pub mod shadow_pg;
 pub mod target_identity;
 
-pub use executor::{apply, bootstrap_metadata, ApplyError, ApplyOutcome, ApplyOverrides};
+pub use executor::{ApplyError, ApplyOutcome, ApplyOverrides, apply, bootstrap_metadata};
 pub use target_identity::compute_target_identity;

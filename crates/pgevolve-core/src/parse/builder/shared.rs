@@ -5,8 +5,8 @@
 //!   can decide the canonical form).
 //! - Default-expression classification (literal vs. `nextval` vs. arbitrary expr).
 
-use pg_query::protobuf::{a_const, AConst, RangeVar, TypeName};
 use pg_query::NodeEnum;
+use pg_query::protobuf::{AConst, RangeVar, TypeName, a_const};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
@@ -137,12 +137,11 @@ fn literal_from_node(node: &NodeEnum) -> Option<LiteralValue> {
 
 /// Strip a single layer of `TypeCast` wrapping, if any.
 fn unwrap_typecast(node: &NodeEnum) -> &NodeEnum {
-    if let NodeEnum::TypeCast(cast) = node {
-        if let Some(arg) = cast.arg.as_ref() {
-            if let Some(inner) = arg.node.as_ref() {
-                return inner;
-            }
-        }
+    if let NodeEnum::TypeCast(cast) = node
+        && let Some(arg) = cast.arg.as_ref()
+        && let Some(inner) = arg.node.as_ref()
+    {
+        return inner;
     }
     node
 }

@@ -22,7 +22,7 @@ use pgevolve_core::catalog::CatalogFilter;
 pub use bootstrap::bootstrap_metadata;
 pub use error::ApplyError;
 pub use lock::{release_lock, try_acquire_lock};
-pub use preflight::{run_preflight, PreflightOverrides};
+pub use preflight::{PreflightOverrides, run_preflight};
 
 /// Caller-supplied overrides for the apply flow.
 #[derive(Debug, Clone, Default)]

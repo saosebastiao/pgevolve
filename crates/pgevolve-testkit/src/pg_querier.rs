@@ -11,8 +11,8 @@ use anyhow::Context;
 use pgevolve_core::catalog::queries::query_for;
 use pgevolve_core::catalog::{CatalogError, CatalogQuerier, CatalogQuery, PgVersion, Row, Value};
 use tokio::runtime::Handle;
-use tokio_postgres::types::Type;
 use tokio_postgres::Row as PgRow;
+use tokio_postgres::types::Type;
 
 /// Adapter that runs catalog queries against a live `tokio_postgres::Client`.
 ///
