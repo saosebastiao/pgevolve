@@ -96,13 +96,14 @@ fn normalize_plan_sql(s: &str) -> String {
                 // Strip ` created=<value>` — the value has no spaces, so we
                 // find the token and remove everything from " created=" to the
                 // next space (or end of line).
-                if let Some(start) = line.find(" created=") {
-                    let after_prefix = &line[start + " created=".len()..];
-                    let end = after_prefix.find(' ').map_or(after_prefix.len(), |i| i);
-                    format!("{}{}", &line[..start], &after_prefix[end..])
-                } else {
-                    line.to_string()
-                }
+                line.find(" created=").map_or_else(
+                    || line.to_string(),
+                    |start| {
+                        let after_prefix = &line[start + " created=".len()..];
+                        let end = after_prefix.find(' ').unwrap_or(after_prefix.len());
+                        format!("{}{}", &line[..start], &after_prefix[end..])
+                    },
+                )
             } else {
                 line.to_string()
             }
