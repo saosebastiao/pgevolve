@@ -156,14 +156,19 @@ If `compatible = false`: planner emits `DROP VIEW` + `CREATE VIEW`, and recursiv
 
 ### 6.3 Step kinds
 
-Two new `-- @pgevolve step` kinds are added to the plan format:
+The plan format's step-kind vocabulary (`plan::raw_step::StepKind`) gains the following variants. Each maps to exactly one SQL statement, consistent with v0.1.
 
-| Step kind | Payload fields | Notes |
+| Step kind | SQL emitted | Notes |
 |---|---|---|
-| `refresh_materialized_view` | `target: <qname>`, `concurrently: bool` | Emitted after every `CREATE MATERIALIZED VIEW` and `Mv::ReplaceBody`. Can be suppressed per-step via `intent.toml` (`refresh_after_create = false`). |
-| `replace_view` | `target: <qname>`, `mode: or_replace \| drop_create` | Mode is informational; lets golden tests assert on which path was chosen. |
+| `create_view` | `CREATE VIEW ...` or `CREATE OR REPLACE VIEW ...` | The `or_replace` flag in the step payload distinguishes the two; golden tests assert on it. Used both for fresh creation (`View::Create`) and for compatible body replacement (`View::ReplaceBody { compatible: true }`). |
+| `drop_view` | `DROP VIEW <qname>` | No `CASCADE`. Destructive — requires an `[[intent]]` row. Used for `View::Drop` and as the first half of `View::ReplaceBody { compatible: false }`. |
+| `create_materialized_view` | `CREATE MATERIALIZED VIEW ... WITH NO DATA` | Always `WITH NO DATA`; the subsequent `refresh_materialized_view` step populates it. |
+| `drop_materialized_view` | `DROP MATERIALIZED VIEW <qname>` | No `CASCADE`. Non-destructive. |
+| `refresh_materialized_view` | `REFRESH MATERIALIZED VIEW [CONCURRENTLY] <qname>` | `concurrently` flag in the step payload. Emitted after every `create_materialized_view` and `Mv::ReplaceBody` unless suppressed via a `[[step_override]]` row in `intent.toml` (see §8). |
+| `alter_view_set_reloption` | `ALTER VIEW <qname> SET ( <option> = <value> )` | Used for `security_barrier` / `security_invoker` flips. |
+| `comment_on_view` | `COMMENT ON VIEW ...` / `COMMENT ON COLUMN ...` / `COMMENT ON MATERIALIZED VIEW ...` | Reuses the existing comment-step machinery; the new step kind exists so goldens can disambiguate view comments from table comments. |
 
-Existing `create`, `drop`, `alter`, `comment` step kinds cover everything else.
+A `View::ReplaceBody { compatible: false }` therefore emits two steps: `drop_view` then `create_view` (with `or_replace = false`). Each transitively-recreated dependent view contributes another `drop_view` + `create_view` pair. Existing `create_index` / `drop_index` step kinds cover indexes on MVs without change.
 
 ### 6.4 Dependent-view recreation
 
@@ -199,18 +204,23 @@ Three new lint rules ship with this work:
 
 ## 8. `intent.toml` impact
 
-`intent.toml` schema is unchanged. The new destructive entry shape is:
+The destructive-approval shape is unchanged from v0.1. `DROP VIEW` is the only new destructive change kind this sub-spec introduces; it follows the existing `[[intent]]` schema:
 
 ```toml
-[[approve]]
-kind   = "drop_view"
-target = "app.users_summary"
-reason = "Replaced by app.users_summary_v2 — coordinated with billing team."
+plan_id = "abc1234567890123"
+
+[[intent]]
+id       = 1
+step     = 7
+kind     = "drop_view"
+target   = "app.users_summary"
+reason   = "drops view app.users_summary"
+approved = false
 ```
 
-`DROP VIEW` is the only new destructive change kind. `DROP MATERIALIZED VIEW`, `CREATE OR REPLACE VIEW`, drop-and-recreate dependent recreations, comment updates, and reloption flips are all non-destructive.
+`DROP MATERIALIZED VIEW`, `CREATE OR REPLACE VIEW`, drop-and-recreate dependent recreations, comment updates, and reloption flips are all non-destructive — no `[[intent]]` row required.
 
-A new non-destructive override entry shape allows suppressing the auto-emitted post-create refresh on a per-MV basis:
+**New table: `[[step_override]]`.** Adds a non-destructive per-step modifier so users can suppress the auto-emitted post-create `REFRESH` for specific MVs (the `WITH NO DATA` use case). It is a sibling of `[[intent]]`, not a replacement:
 
 ```toml
 [[step_override]]
@@ -219,7 +229,9 @@ target   = "app.daily_revenue"
 suppress = true
 ```
 
-This handles the `WITH NO DATA` use case without expanding the destructive surface.
+The executor honors `[[step_override]]` rows the same way it honors `[[intent]]` rows — read at apply time, recorded in the audit log. Unlike `[[intent]]`, missing `[[step_override]]` rows are not a hard failure: the default behavior (emit the REFRESH) just runs.
+
+This handles `WITH NO DATA` without expanding the destructive surface. The `[[step_override]]` table is reserved for additional non-destructive per-step modifiers in future sub-specs; for now `refresh_materialized_view` is its only consumer.
 
 ## 9. File layout
 
