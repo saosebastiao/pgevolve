@@ -9,6 +9,10 @@
 //! cranks `PROPTEST_CASES` to 5000 across all four PG majors.
 //!
 //! Skipped wholesale when Docker is unavailable.
+//!
+//! All tests in this file are #[ignore]'d for CI. Run with
+//! `cargo test --test pg_property_tests -- --ignored` locally, or via the
+//! property-tests.yml workflow.
 
 #![allow(clippy::items_after_statements)]
 
@@ -159,6 +163,7 @@ fn block_on<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
         .block_on(fut)
 }
 
+#[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
 #[test]
 fn round_trip_property() {
     if !docker_available() {
@@ -174,6 +179,7 @@ fn round_trip_property() {
     });
 }
 
+#[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
 #[test]
 fn idempotency_property() {
     if !docker_available() {
@@ -189,6 +195,7 @@ fn idempotency_property() {
     });
 }
 
+#[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
 #[test]
 fn end_to_end_equivalence_property() {
     if !docker_available() {
@@ -208,6 +215,7 @@ fn end_to_end_equivalence_property() {
     });
 }
 
+#[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
 #[test]
 fn drift_recovery_property() {
     if !docker_available() {
