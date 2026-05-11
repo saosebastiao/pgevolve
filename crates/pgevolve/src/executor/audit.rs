@@ -117,9 +117,10 @@ pub async fn mark_step_failed(
 
 /// Mark steps in a group as `rolled_back`.
 ///
-/// Updates every step whose current status is `succeeded` or `running` to
-/// `rolled_back`. Used after a transactional group fails: every step in the
-/// same group that already completed is now logically reverted.
+/// Used after a transactional group's tx is rolled back. Every step in the
+/// group whose status isn't `failed` (the one that failed) is now logically
+/// reverted — including `pending` rows whose `running`/`succeeded` audit
+/// updates lived inside the rolled-back transaction and therefore disappeared.
 pub async fn mark_steps_rolled_back(
     client: &Client,
     apply_id: Uuid,
@@ -129,7 +130,9 @@ pub async fn mark_steps_rolled_back(
         .execute(
             "UPDATE pgevolve.plan_steps
              SET status='rolled_back', finished_at=now()
-             WHERE apply_id=$1 AND group_no=$2 AND status IN ('succeeded','running')",
+             WHERE apply_id=$1
+               AND group_no=$2
+               AND status IN ('pending','running','succeeded')",
             &[&apply_id, &i32::try_from(group_no).unwrap_or(i32::MAX)],
         )
         .await?;
