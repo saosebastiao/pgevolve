@@ -12,3 +12,5 @@ pub mod assertions;
 pub mod fixture;
 pub mod normalize;
 pub mod planning;
+
+pub use fixture::{Fixture, FixtureError, FixtureExpect, FixtureMeta};
