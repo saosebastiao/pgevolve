@@ -15,8 +15,9 @@ name = "xtask"
 path = "src/main.rs"
 
 [dependencies]
-pgevolve-core    = { path = "../crates/pgevolve-core" }
-pgevolve-testkit = { path = "../crates/pgevolve-testkit" }
+pgevolve-core          = { path = "../crates/pgevolve-core" }
+pgevolve-testkit       = { path = "../crates/pgevolve-testkit" }
+pgevolve-conformance   = { path = "../crates/pgevolve-conformance" }
 
 anyhow      = { workspace = true }
 serde_json  = { workspace = true }

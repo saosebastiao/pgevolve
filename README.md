@@ -132,28 +132,36 @@ libpq env (`PGHOST`, `PGUSER`, ...).
 - `crates/pgevolve-testkit` — internal test infra: `EphemeralPostgres`
   (testcontainers wrapper), `PgCatalogQuerier`, IR generator and mutator,
   equivalence asserter, migration-fixture loader.
+- `crates/pgevolve-conformance` — deterministic fixture-driven
+  conformance suite: one directory per fixture, asserts diff / plan /
+  plan.sql golden / apply roundtrip. New goldens via
+  `cargo xtask bless --conformance`.
 - `xtask` — `cargo xtask bless` regenerates tier-3 catalog goldens.
 
 ## Test tiers
 
-| Tier | Where | Runs | Needs Docker |
-|------|-------|------|--------------|
-| 1 | unit tests in `src/` | `cargo test --workspace --lib` | no |
-| 2 | parser/IR fixture corpora in `tests/parser_corpus.rs`, `tests/parse_directory.rs` | `cargo test --workspace --tests` | no |
-| 3 | catalog round-trip goldens in `tests/catalog_round_trip.rs` | `cargo test --workspace --tests` | yes (PG 14/15/16/17) |
-| 4 | executor + CLI integration in `crates/pgevolve/tests/{executor_smoke,cli_e2e,chaos_apply}.rs` | `cargo test --workspace --tests` | yes |
-| 5 | property tests in `crates/pgevolve-core/tests/property_tests.rs` (pure) and `crates/pgevolve/tests/pg_property_tests.rs` (PG-bound) | `cargo test --workspace --tests` | partial |
-| 7 | weekly soak via `.github/workflows/soak.yml` at `PROPTEST_CASES=5000` | manual / cron | yes |
+| Tier | Where | Runs | Needs Docker | CI gate |
+|------|-------|------|--------------|---------|
+| 1 | unit tests in `src/` | `cargo test --workspace --lib` | no | yes |
+| 2 | parser/IR fixture corpora | `cargo test --workspace --tests` | no | yes |
+| 3 | catalog round-trip goldens | `cargo test --workspace --tests` | yes | yes |
+| C | **conformance suite (`crates/pgevolve-conformance`)** | `cargo test -p pgevolve-conformance` | yes (apply layer) | yes |
+| 5 | property tests | `cargo test --workspace --tests -- --ignored` | partial | no — nightly only |
+| 7 | weekly soak | manual / cron | yes | no |
+
+The conformance suite (Tier C) is the canonical regression gate; every
+deterministic correctness expectation lives there as a fixture. Property
+tests run nightly to surface new failure shapes that are then permanently
+captured as conformance fixtures under
+`crates/pgevolve-conformance/tests/cases/regressions/`. See
+[`docs/superpowers/specs/2026-05-11-conformance-test-suite-design.md`](docs/superpowers/specs/2026-05-11-conformance-test-suite-design.md).
 
 Set `PGEVOLVE_DISABLE_DOCKER_TESTS=1` to skip every Docker-gated test;
 the suite skips cleanly when `docker info` fails.
 
 Regenerate tier-3 catalog goldens with `cargo xtask bless` (runs against
-ephemeral containers per PG major).
-
-PG-bound property tests default to 3 cases per test for fast feedback;
-override with `PGEVOLVE_PROPERTY_CASES=<n>` to stress harder locally. CI
-uses 50; the soak workflow uses 5000.
+ephemeral containers per PG major). Regenerate tier-C conformance goldens
+with `cargo xtask bless --conformance`.
 
 ## Dependencies
 

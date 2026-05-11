@@ -13,6 +13,10 @@
 //! Property tests that depend on a live Postgres (round-trip, idempotency,
 //! end-to-end equivalence) land in v0.1.x once `IRMutator` exists and the
 //! generator's coverage is tight enough to survive PG normalization.
+//!
+//! All tests in this file are #[ignore]'d for CI. Run with
+//! `cargo test --test property_tests -- --ignored` locally, or via the
+//! property-tests.yml workflow.
 
 use proptest::prelude::*;
 
@@ -23,6 +27,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
     /// PlanId is deterministic across re-runs.
+    #[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
     #[test]
     fn plan_id_is_deterministic(
         source in arbitrary_catalog(IRGeneratorConfig::default()),
@@ -40,6 +45,7 @@ proptest! {
     /// sorts. (The generator does not currently emit FK cycles; if it ever
     /// does, the cycle's nodes must be FK-bound, which the planner's
     /// `extract_fk_cycles_and_resort` resolves.)
+    #[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
     #[test]
     fn create_graph_topo_sorts_or_only_fk_cycles(
         catalog in arbitrary_catalog(IRGeneratorConfig::default()),

@@ -5,6 +5,9 @@
 //! - `bless` — regenerate Tier-3 catalog round-trip goldens by spinning up
 //!   ephemeral Postgres containers, applying each `source.sql`, introspecting
 //!   the resulting catalog, and writing the canonical JSON to `expected.json`.
+//! - `bless --conformance` — walk every fixture under
+//!   `crates/pgevolve-conformance/tests/cases/`, render the in-process planner
+//!   pipeline, normalize the output, and write it to the fixture's golden path.
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
@@ -22,9 +25,15 @@ use pgevolve_testkit::pg_querier::PgCatalogQuerier;
 async fn main() -> Result<()> {
     let cmd = std::env::args().nth(1).unwrap_or_default();
     match cmd.as_str() {
-        "bless" => bless().await,
+        "bless" => {
+            let kind = std::env::args().nth(2);
+            match kind.as_deref() {
+                Some("--conformance") => bless_conformance(),
+                _ => bless().await,
+            }
+        }
         "" | "help" | "--help" | "-h" => {
-            eprintln!("usage: cargo xtask <bless>");
+            eprintln!("usage: cargo xtask <bless | bless --conformance>");
             Ok(())
         }
         other => Err(anyhow!("unknown subcommand: {other}")),
@@ -95,6 +104,74 @@ async fn run_one(version: PgVersion, source_sql: &Path) -> Result<String> {
         .await?
         .map_err(|e| anyhow!(e.to_string()))?;
     catalog_snapshotter::to_canonical_json(&catalog)
+}
+
+fn bless_conformance() -> Result<()> {
+    use pgevolve_conformance::fixture::Fixture;
+    use pgevolve_conformance::normalize::normalize;
+    use pgevolve_conformance::planning::render_plan;
+    use pgevolve_core::plan::Strategy;
+
+    let cases = workspace_root()?.join("crates/pgevolve-conformance/tests/cases");
+    if !cases.exists() {
+        return Err(anyhow!(
+            "conformance cases dir not found: {}",
+            cases.display()
+        ));
+    }
+
+    let mut blessed = 0usize;
+    let mut skipped = 0usize;
+
+    for entry in walkdir::WalkDir::new(&cases) {
+        let entry = entry?;
+        if entry.file_name() != "fixture.toml" {
+            continue;
+        }
+        let dir = entry
+            .path()
+            .parent()
+            .ok_or_else(|| anyhow!("fixture.toml has no parent"))?
+            .to_path_buf();
+        let fixture = Fixture::load(&dir)
+            .with_context(|| format!("load fixture {}", dir.display()))?;
+
+        let Some(rel) = fixture.expect.plan.golden.as_ref() else {
+            skipped += 1;
+            tracing::info!(
+                fixture = %dir.display(),
+                "skipping: goldening opted out"
+            );
+            continue;
+        };
+
+        let strategy = fixture
+            .passthrough
+            .planner
+            .get("strategy")
+            .and_then(|v| v.as_str())
+            .map_or(Strategy::Online, |s| match s {
+                "atomic" => Strategy::Atomic,
+                _ => Strategy::Online,
+            });
+
+        let (_plan, rendered_sql) =
+            render_plan(&fixture.before_sql, &fixture.after_sql, strategy)
+                .with_context(|| format!("render plan for {}", dir.display()))?;
+        let normalized = normalize(&rendered_sql);
+
+        let golden_path = dir.join(rel);
+        if let Some(parent) = golden_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&golden_path, normalized)
+            .with_context(|| format!("write {}", golden_path.display()))?;
+        blessed += 1;
+        tracing::info!(fixture = %dir.display(), "blessed");
+    }
+
+    eprintln!("conformance: blessed {blessed} fixture(s); skipped {skipped}");
+    Ok(())
 }
 
 fn workspace_root() -> Result<PathBuf> {

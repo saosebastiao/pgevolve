@@ -1681,6 +1681,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pgevolve-conformance"
+version = "0.1.0-dev"
+dependencies = [
+ "anyhow",
+ "pgevolve",
+ "pgevolve-core",
+ "pgevolve-testkit",
+ "pretty_assertions",
+ "regex",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-postgres",
+ "toml",
+ "tracing",
+ "walkdir",
+]
+
+[[package]]
 name = "pgevolve-core"
 version = "0.1.0-dev"
 dependencies = [
@@ -3598,6 +3618,7 @@ name = "xtask"
 version = "0.1.0-dev"
 dependencies = [
  "anyhow",
+ "pgevolve-conformance",
  "pgevolve-core",
  "pgevolve-testkit",
  "serde_json",

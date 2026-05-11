@@ -7,6 +7,10 @@
 //! is cheaper to reproduce reliably than a child-process SIGKILL.
 //!
 //! Skipped when Docker is unavailable.
+//!
+//! All tests in this file are #[ignore]'d for CI. Run with
+//! `cargo test --test chaos_apply -- --ignored` locally, or via the
+//! property-tests.yml workflow.
 
 #![allow(clippy::items_after_statements)]
 
@@ -60,6 +64,7 @@ async fn run_chaos(final_: &Catalog, abort_step: u32) -> Result<()> {
     pgevolve_testkit::assert_canonical_eq(final_, &live)
 }
 
+#[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn aborted_mid_apply_recovers_after_replan() {
     if !docker_available() {
