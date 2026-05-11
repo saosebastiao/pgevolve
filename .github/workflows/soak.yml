@@ -1,0 +1,31 @@
+name: soak
+
+# Long-running property-test sweep at high case counts. Manual-trigger
+# only by default; the scheduled run is weekly to catch slow regressions.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 0'  # Sunday 04:00 UTC
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  soak:
+    name: soak (tier 5 @ 5000 cases)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["14", "15", "16", "17"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { toolchain: 1.88 }
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --tests --release
+        env:
+          PGEVOLVE_TEST_PG_VERSION: ${{ matrix.pg }}
+          PROPTEST_CASES: 5000
+        timeout-minutes: 240

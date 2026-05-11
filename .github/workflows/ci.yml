@@ -49,13 +49,13 @@ jobs:
           PGEVOLVE_DISABLE_DOCKER_TESTS: "1"
 
   pg-matrix:
-    name: pg matrix (tier 3)
+    name: pg matrix (tier 3-5)
     needs: [test]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        pg: ["16"]  # 14/15/17 enabled progressively as fixtures are blessed.
+        pg: ["14", "15", "16", "17"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -64,3 +64,6 @@ jobs:
       - run: cargo test --workspace --tests
         env:
           PGEVOLVE_TEST_PG_VERSION: ${{ matrix.pg }}
+          # CI caps property-test cases. The weekly soak job (soak.yml)
+          # lifts this to 5000 per PG version.
+          PROPTEST_CASES: 50
