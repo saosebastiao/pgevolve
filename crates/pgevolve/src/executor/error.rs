@@ -55,4 +55,13 @@ pub enum ApplyError {
         /// Postgres error message.
         error: String,
     },
+
+    /// The executor aborted cleanly after a step because the caller passed
+    /// `ApplyOverrides::abort_after_step`. Used by the testkit's chaos
+    /// harness to validate the re-plan-and-resume recovery path.
+    #[error("aborted cleanly after step {step_no}")]
+    AbortedAfterStep {
+        /// Step at which the abort fired.
+        step_no: u32,
+    },
 }

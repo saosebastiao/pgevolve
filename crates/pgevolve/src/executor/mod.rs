@@ -35,6 +35,12 @@ pub struct ApplyOverrides {
     pub allow_drift: bool,
     /// Override the actor string written to `pgevolve.apply_log`.
     pub actor: Option<String>,
+    /// Testkit / chaos hook: if `Some(n)`, the executor aborts cleanly after
+    /// the step whose `step_no == n` succeeds, returning
+    /// [`ApplyError::AbortedAfterStep`] and marking the `apply_log` row
+    /// `aborted`. Remaining steps stay `pending` so a subsequent
+    /// re-plan + re-apply can resume.
+    pub abort_after_step: Option<u32>,
 }
 
 /// Outcome of a successful [`apply`].
@@ -85,12 +91,24 @@ pub async fn apply(
     }
 
     let apply_id = audit::open_apply_log(client, &plan, &actor).await?;
-    let exec_result = execute::execute_plan(client, &plan, apply_id).await;
+    let exec_result =
+        execute::execute_plan(client, &plan, apply_id, overrides.abort_after_step).await;
     match exec_result {
         Ok(()) => {
             audit::close_apply_log(client, apply_id, "succeeded", None).await?;
             release_lock(client).await?;
             Ok(ApplyOutcome::Succeeded { apply_id })
+        }
+        Err(ApplyError::AbortedAfterStep { step_no }) => {
+            audit::close_apply_log(
+                client,
+                apply_id,
+                "aborted",
+                Some(&format!("abort_after_step={step_no}")),
+            )
+            .await?;
+            let _ = release_lock(client).await;
+            Err(ApplyError::AbortedAfterStep { step_no })
         }
         Err(e) => {
             let msg = e.to_string();

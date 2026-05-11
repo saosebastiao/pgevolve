@@ -43,10 +43,7 @@
           "default": null,
           "identity": null,
           "generated": null,
-          "collation": {
-            "schema": "pg_catalog",
-            "name": "default"
-          },
+          "collation": null,
           "comment": null
         }
       ],
@@ -108,10 +105,7 @@
           "default": null,
           "identity": null,
           "generated": null,
-          "collation": {
-            "schema": "pg_catalog",
-            "name": "default"
-          },
+          "collation": null,
           "comment": null
         }
       ],
@@ -168,10 +162,7 @@
           "default": null,
           "identity": null,
           "generated": null,
-          "collation": {
-            "schema": "pg_catalog",
-            "name": "default"
-          },
+          "collation": null,
           "comment": null
         }
       ],
@@ -209,8 +200,8 @@
       },
       "start": 1,
       "increment": 1,
-      "min_value": 1,
-      "max_value": 9223372036854775807,
+      "min_value": null,
+      "max_value": null,
       "cache": 1,
       "cycle": false,
       "owned_by": null,
@@ -226,8 +217,8 @@
       },
       "start": 1,
       "increment": 1,
-      "min_value": 1,
-      "max_value": 9223372036854775807,
+      "min_value": null,
+      "max_value": null,
       "cache": 1,
       "cycle": false,
       "owned_by": null,
@@ -243,8 +234,8 @@
       },
       "start": 1,
       "increment": 1,
-      "min_value": 1,
-      "max_value": 2147483647,
+      "min_value": null,
+      "max_value": null,
       "cache": 1,
       "cycle": false,
       "owned_by": {

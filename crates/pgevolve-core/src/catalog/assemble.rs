@@ -216,6 +216,10 @@ fn build_column(r: &Row) -> Result<Column, CatalogError> {
         r.get_opt_text(q, "collation_schema")?,
         r.get_opt_text(q, "collation_name")?,
     ) {
+        // `pg_catalog.default` is PG's implicit collation for every
+        // text-typed column. Treat it as "no explicit collation" so that
+        // the IR doesn't gain a phantom collation that nobody declared.
+        (Some(s), Some(n)) if s == "pg_catalog" && n == "default" => None,
         (Some(s), Some(n)) => Some(QualifiedName::new(ident_required(&s)?, ident_required(&n)?)),
         _ => None,
     };
@@ -614,11 +618,19 @@ fn build_sequence(r: &Row, filter: &CatalogFilter) -> Result<Option<Sequence>, C
     })?;
     let start = r.get_int(q, "start")?;
     let increment = r.get_int(q, "increment")?;
-    let min_value = Some(r.get_int(q, "min_value")?);
-    let max_value = Some(r.get_int(q, "max_value")?);
     let cache = r.get_int(q, "cache")?;
     let cycle = r.get_bool(q, "cycle")?;
     let comment = r.get_opt_text(q, "comment")?;
+
+    // PG stores explicit `min_value`/`max_value` even when the source didn't
+    // specify them — the value defaults to the type's full range plus
+    // direction-aware start adjustments. Treat the type-default values as
+    // "unspecified" so the IR doesn't gain phantom MIN/MAX clauses.
+    let raw_min = r.get_int(q, "min_value")?;
+    let raw_max = r.get_int(q, "max_value")?;
+    let (default_min, default_max) = sequence_default_bounds(&data_type, increment);
+    let min_value = (raw_min != default_min).then_some(raw_min);
+    let max_value = (raw_max != default_max).then_some(raw_max);
 
     Ok(Some(Sequence {
         qname,
@@ -632,6 +644,24 @@ fn build_sequence(r: &Row, filter: &CatalogFilter) -> Result<Option<Sequence>, C
         owned_by: None,
         comment,
     }))
+}
+
+/// PG's per-type defaults for `MINVALUE`/`MAXVALUE` when not explicitly set.
+///
+/// For ascending sequences (`increment > 0`), `MINVALUE` defaults to `1` and
+/// `MAXVALUE` to the type's max. For descending sequences, the roles flip.
+fn sequence_default_bounds(ty: &ColumnType, increment: i64) -> (i64, i64) {
+    let (ty_min, ty_max) = match ty {
+        ColumnType::SmallInt => (i64::from(i16::MIN), i64::from(i16::MAX)),
+        ColumnType::Integer => (i64::from(i32::MIN), i64::from(i32::MAX)),
+        // BigInt or anything else we treat as bigint-shaped.
+        _ => (i64::MIN, i64::MAX),
+    };
+    if increment >= 0 {
+        (1, ty_max)
+    } else {
+        (ty_min, -1)
+    }
 }
 
 fn apply_dependencies(

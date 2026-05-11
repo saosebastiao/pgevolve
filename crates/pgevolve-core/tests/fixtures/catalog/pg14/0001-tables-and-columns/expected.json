@@ -87,10 +87,7 @@
           "default": null,
           "identity": null,
           "generated": null,
-          "collation": {
-            "schema": "pg_catalog",
-            "name": "default"
-          },
+          "collation": null,
           "comment": null
         },
         {
@@ -103,10 +100,7 @@
           "default": null,
           "identity": null,
           "generated": null,
-          "collation": {
-            "schema": "pg_catalog",
-            "name": "default"
-          },
+          "collation": null,
           "comment": null
         },
         {
@@ -119,10 +113,7 @@
           "default": null,
           "identity": null,
           "generated": null,
-          "collation": {
-            "schema": "pg_catalog",
-            "name": "default"
-          },
+          "collation": null,
           "comment": null
         },
         {

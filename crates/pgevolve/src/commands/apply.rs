@@ -28,6 +28,7 @@ pub async fn run(args: ApplyArgs, cfg: &PgevolveConfig) -> Result<i32> {
         allow_different_target: args.allow_different_target,
         allow_drift: true,
         actor: None,
+        abort_after_step: None,
     };
     let result = apply(&args.plan_dir, &mut client, &filter, overrides).await;
     match result {

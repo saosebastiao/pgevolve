@@ -40,4 +40,5 @@ hex                 = { workspace = true }
 [dev-dependencies]
 pgevolve-testkit  = { path = "../pgevolve-testkit" }
 pretty_assertions = { workspace = true }
+proptest          = { workspace = true }
 tempfile          = "3"

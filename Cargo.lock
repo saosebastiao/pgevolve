@@ -1478,6 +1478,7 @@ dependencies = [
  "pgevolve-core",
  "pgevolve-testkit",
  "pretty_assertions",
+ "proptest",
  "serde",
  "serde_json",
  "tempfile",

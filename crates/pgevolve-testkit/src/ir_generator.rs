@@ -297,9 +297,15 @@ fn arbitrary_indexes_for_table(
     _table_count: usize,
 ) -> impl Strategy<Value = Vec<Index>> {
     // Build a list of candidate columns; sample 0-2 of them and produce an
-    // index per pick.
+    // index per pick. Filter to btree-indexable types: `json` famously has
+    // no default btree opclass; the same applies to a few other v0.1 types.
     let qname = table.qname.clone();
-    let columns: Vec<Identifier> = table.columns.iter().map(|c| c.name.clone()).collect();
+    let columns: Vec<Identifier> = table
+        .columns
+        .iter()
+        .filter(|c| is_btree_indexable(&c.ty))
+        .map(|c| c.name.clone())
+        .collect();
 
     proptest_vec(0usize..columns.len().max(1), 0..3).prop_map(move |picks| {
         let mut out = Vec::new();
@@ -334,6 +340,13 @@ fn arbitrary_indexes_for_table(
         }
         out
     })
+}
+
+/// Type whitelist for btree-default indexability. `json` is the notable
+/// exclusion (use `jsonb` instead); arrays and a few exotic types are also
+/// not indexable with the default operator class.
+const fn is_btree_indexable(ty: &ColumnType) -> bool {
+    !matches!(ty, ColumnType::Json)
 }
 
 fn stand_alone_sequence(schema: &Identifier) -> Sequence {
