@@ -4,6 +4,18 @@ The planner turns a `ChangeSet` into a flat, applyable
 `Vec<TransactionGroup>`. Four sub-phases: **order → rewrite → group →
 wrap**. Source lives in `crates/pgevolve-core/src/plan/`.
 
+```mermaid
+flowchart LR
+    CS["ChangeSet"] --> Order["1. order"]
+    Order --> OCS["OrderedChangeSet"]
+    OCS --> Rewrite["2. rewrite"]
+    Rewrite --> Steps["Vec&lt;RawStep&gt;"]
+    Steps --> Group["3. group"]
+    Group --> TGs["Vec&lt;TransactionGroup&gt;"]
+    TGs --> Wrap["4. wrap"]
+    Wrap --> Plan["Plan"]
+```
+
 ## Sub-phase 1: order
 
 `order(target, source, changes) → OrderedChangeSet`.
@@ -43,6 +55,19 @@ ordered output.
 
 Inline FKs in `CREATE TABLE` introduce a chicken-and-egg cycle when
 table A FKs table B and B FKs A. The planner:
+
+```mermaid
+flowchart TD
+    Start([order&#40;target, source, changes&#41;]) --> Topo1["topological sort"]
+    Topo1 --> Cycle1{Cycle?}
+    Cycle1 -- No --> Done([emit OrderedChangeSet])
+    Cycle1 -- Yes --> Strip["strip FKs spanning cycle nodes<br/>(self-FKs exempt)"]
+    Strip --> Topo2["topological sort (reduced)"]
+    Topo2 --> Cycle2{Cycle?}
+    Cycle2 -- No --> Defer["emit DeferredFkAdd entries"]
+    Cycle2 -- Yes --> Fail([PlanError::UnbreakableCycle])
+    Defer --> Done
+```
 
 1. Runs the topological sort.
 2. On `Err(Cycle { nodes })`, walks `reduced = source` and removes every

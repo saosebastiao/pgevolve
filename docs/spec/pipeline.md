@@ -8,26 +8,23 @@ See [`../README.md`](./README.md) for the status legend.
 
 ## Phase summary
 
-```
-schema/*.sql  ──parse──►  Source IR  ──diff──►  ChangeSet  ──order──►  OrderedChangeSet
-                              ▲                                              │
-                              │ canonicalize                                 │ rewrite
-                              │                                              ▼
-                       Catalog IR  ◄──introspect── live Postgres        Vec<RawStep>
-                                                                              │
-                                                                              │ group_steps
-                                                                              ▼
-                                                                       Vec<TransactionGroup>
-                                                                              │
-                                                                              │ Plan::from_grouped
-                                                                              ▼
-                                                                          Plan ───►  plan.sql
-                                                                                     intent.toml
-                                                                                     manifest.toml
-                                                                              │
-                                                                              │ apply()
-                                                                              ▼
-                                                                         live Postgres
+```mermaid
+flowchart TD
+    SQL["schema/*.sql"] -- parse --> SourceIR["Source IR"]
+    DB[("live Postgres")] -- introspect --> CatalogIR["Catalog IR"]
+    SourceIR -- canonicalize --> Source["Catalog (source)"]
+    CatalogIR --> Target["Catalog (target)"]
+    Source --> Diff{{diff}}
+    Target --> Diff
+    Diff --> CS["ChangeSet"]
+    CS -- order --> OCS["OrderedChangeSet"]
+    OCS -- rewrite --> Steps["Vec&lt;RawStep&gt;"]
+    Steps -- group_steps --> Groups["Vec&lt;TransactionGroup&gt;"]
+    Groups -- "Plan::from_grouped" --> Plan["Plan"]
+    Plan --> PlanSql["plan.sql"]
+    Plan --> Intent["intent.toml"]
+    Plan --> Manifest["manifest.toml"]
+    Plan -- "apply()" --> DB
 ```
 
 ## Parsing (`pgevolve_core::parse`)

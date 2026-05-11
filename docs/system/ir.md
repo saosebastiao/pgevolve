@@ -20,6 +20,23 @@ their table by qname. Hierarchical nesting would have to maintain
 referential integrity at every mutation; flat lists + name-based
 references defer that to canonicalization time.
 
+The implicit name-based relationships look like this:
+
+```mermaid
+erDiagram
+    Catalog ||--o{ Schema    : "schemas[]"
+    Catalog ||--o{ Table     : "tables[]"
+    Catalog ||--o{ Index     : "indexes[]"
+    Catalog ||--o{ Sequence  : "sequences[]"
+    Table   ||--o{ Column    : "columns[]"
+    Table   ||--o{ Constraint : "constraints[]"
+    Index    }o--|| Table    : "table (qname)"
+    Sequence }o--o| Table    : "owned_by (optional)"
+    Schema   ||--o{ Table    : "qname.schema"
+    Schema   ||--o{ Index    : "qname.schema"
+    Schema   ||--o{ Sequence : "qname.schema"
+```
+
 ## Canonicalization
 
 `Catalog::canonicalize()`:

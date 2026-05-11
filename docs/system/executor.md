@@ -17,6 +17,19 @@ pub async fn apply(
 
 The flow, mapped to spec §8:
 
+```mermaid
+flowchart TD
+    Start([apply&#40;plan_dir, client, …&#41;]) --> Read["1. read_plan_dir"]
+    Read --> Bootstrap["2. bootstrap_metadata"]
+    Bootstrap --> Lock["3. try_acquire_lock"]
+    Lock --> Preflight["4. run_preflight<br/>(identity · drift · intent)"]
+    Preflight --> Open["5. open_apply_log<br/>(apply_log + plan_steps)"]
+    Open --> Exec["6. execute_plan<br/>(per-group)"]
+    Exec --> Close["7. close_apply_log<br/>(succeeded/failed/aborted)"]
+    Close --> Unlock["8. release_lock"]
+    Unlock --> Done([ApplyOutcome])
+```
+
 1. `read_plan_dir(plan_dir)` — load the three files; cross-check plan id.
 2. `bootstrap_metadata(client)` — install or upgrade the `pgevolve.*`
    tables. Idempotent.
@@ -230,6 +243,14 @@ UPDATE pgevolve.apply_log SET status = 'succeeded',           finished_at = now(
                                          'aborted',
 ```
 
+```mermaid
+stateDiagram-v2
+    [*] --> running: open_apply_log
+    running --> succeeded: close_apply_log (Ok)
+    running --> failed: close_apply_log (StepFailed)
+    running --> aborted: close_apply_log (AbortedAfterStep)
+```
+
 The CHECK constraint enforces the four valid statuses.
 
 ### `plan_steps` lifecycle
@@ -237,12 +258,15 @@ The CHECK constraint enforces the four valid statuses.
 `open_apply_log` pre-populates every step row as `pending`. Per-step
 transitions:
 
-```
-pending  ──mark_step_running──►  running  ──mark_step_succeeded──►  succeeded
-                                    │
-                                    └──mark_step_failed──►  failed
-                                    │
-                                    └──mark_steps_rolled_back──►  rolled_back
+```mermaid
+stateDiagram-v2
+    [*] --> pending: open_apply_log
+    pending --> running: mark_step_running
+    running --> succeeded: mark_step_succeeded
+    running --> failed: mark_step_failed
+    pending --> rolled_back: mark_steps_rolled_back
+    running --> rolled_back: mark_steps_rolled_back
+    succeeded --> rolled_back: mark_steps_rolled_back
 ```
 
 `mark_steps_rolled_back` is the cleanup after a transactional rollback:

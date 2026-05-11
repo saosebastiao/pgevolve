@@ -10,30 +10,21 @@ introspection both fold into the same `Catalog` type; the planner
 computes the difference; the executor applies the difference under
 strict transactional and audit guarantees.
 
-```
-schema/*.sql ──parse──►   Catalog (source) ─────┐
-                                                │
-                                                ├──diff──► ChangeSet ──order──► OrderedChangeSet
-                                                │
-live Postgres ──introspect──► Catalog (target) ─┘                                       │
-                                                                                        │
-                                                                                        │ rewrite
-                                                                                        ▼
-                                                                                  Vec<RawStep>
-                                                                                        │
-                                                                                        │ group_steps
-                                                                                        ▼
-                                                                                Vec<TransactionGroup>
-                                                                                        │
-                                                                                        │ Plan::from_grouped
-                                                                                        ▼
-                                                                                       Plan ───► plan.sql
-                                                                                                 intent.toml
-                                                                                                 manifest.toml
-                                                                                        │
-                                                                                        │ apply()
-                                                                                        ▼
-                                                                                  live Postgres
+```mermaid
+flowchart TD
+    SQL["schema/*.sql"] -- parse --> Source["Catalog (source)"]
+    DB[("live Postgres")] -- introspect --> Target["Catalog (target)"]
+    Source --> Diff{{diff}}
+    Target --> Diff
+    Diff --> CS["ChangeSet"]
+    CS -- order --> OCS["OrderedChangeSet"]
+    OCS -- rewrite --> Steps["Vec&lt;RawStep&gt;"]
+    Steps -- group_steps --> Groups["Vec&lt;TransactionGroup&gt;"]
+    Groups -- "Plan::from_grouped" --> Plan["Plan"]
+    Plan --> PlanSql["plan.sql"]
+    Plan --> Intent["intent.toml"]
+    Plan --> Manifest["manifest.toml"]
+    Plan -- "apply()" --> DB
 ```
 
 Every box and arrow is a module-level boundary. Sections below walk each.
