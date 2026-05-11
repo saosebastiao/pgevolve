@@ -87,14 +87,22 @@ libpq env (`PGHOST`, `PGUSER`, ...).
 
 ## Documentation
 
-- [`docs/spec/`](./docs/spec/) — living capability catalogue. Every object
-  kind, column type, constraint kind, index option, CLI command, etc.
-  with its implementation status (Implemented / Partial / Planned /
-  Future / Not planned). Start here when you want to know whether
+- [`docs/user/`](./docs/user/) — **user guide**: installation, getting
+  started, configuration reference, command reference, cookbook,
+  troubleshooting, plan-format walkthrough. Start here if you're
+  operating pgevolve on a project.
+- [`docs/system/`](./docs/system/) — **architecture and internals**:
+  the dedicated [architecture chapter](./docs/system/architecture.md),
+  deep dives on the IR, planner, executor, and a contributing guide.
+  Start here if you're hacking on the code.
+- [`docs/spec/`](./docs/spec/) — **living capability catalogue**: every
+  object kind, column type, constraint, index option, CLI command,
+  etc., with its implementation status (Implemented / Partial /
+  Planned / Future / Not planned). Start here to find out whether
   pgevolve does / will do a given thing.
-- [`docs/superpowers/specs/2026-05-09-pgevolve-design.md`](./docs/superpowers/specs/2026-05-09-pgevolve-design.md) — v0.1 design.
-- [`docs/superpowers/plans/`](./docs/superpowers/plans/) — phase-by-phase
-  implementation plans.
+- [`docs/superpowers/specs/2026-05-09-pgevolve-design.md`](./docs/superpowers/specs/2026-05-09-pgevolve-design.md) — original v0.1 design doc.
+- [`docs/superpowers/plans/`](./docs/superpowers/plans/) —
+  phase-by-phase implementation plans.
 
 ### v0.1 phase progress
 
