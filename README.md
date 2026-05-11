@@ -36,7 +36,7 @@ pgevolve apply plans/2026-05-12-<short-id> --db dev
 |---|---|---|---|
 | `pgevolve init` | Scaffold project files | no | yes |
 | `pgevolve lint` | Run universal + layout-profile rules | no | no |
-| `pgevolve validate` | Parse + build source IR (with `--shadow`, round-trip through ephemeral PG — Phase 12) | shadow only | no |
+| `pgevolve validate` | Parse + build source IR; with `--shadow`, round-trip the IR through an ephemeral Postgres of the configured version and report any divergences | shadow only | no |
 | `pgevolve diff --db <env>` | Build source + catalog IR; print change set (`--format=human|json|sql`) | read-only | no |
 | `pgevolve plan --db <env> [-o <dir>]` | Full pipeline; write plan directory | read-only | yes |
 | `pgevolve apply <plan-dir> --db <env>` | Execute plan | read+write | no |
@@ -107,7 +107,7 @@ libpq env (`PGHOST`, `PGUSER`, ...).
 | 9     | CLI                          | done     |
 | 10    | Linter                       | done     |
 | 11    | Testkit                      | done     |
-| 12    | Shadow                       | pending  |
+| 12    | Shadow                       | done     |
 
 ## Workspace layout
 
