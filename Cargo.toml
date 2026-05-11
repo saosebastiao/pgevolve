@@ -47,7 +47,7 @@ pg_query = "6"
 regex    = "1"
 
 # Errors / utilities
-thiserror = "1"
+thiserror = "2"
 anyhow    = "1"
 
 # Serialization. serde_yaml deliberately omitted — upstream archived it in
@@ -55,7 +55,11 @@ anyhow    = "1"
 # now uses serde_json instead.
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
-toml        = "0.8"
+toml        = "1"
+# Pinned to 2.x because bincode 3 dropped the bundled serde feature in
+# favor of a not-yet-published companion crate. Our only use site is the
+# PlanId hash payload, which depends on `bincode::serde::encode_to_vec`.
+# Revisit when the bincode 3 serde story stabilizes.
 bincode     = { version = "2", features = ["serde"] }
 
 # Hashing / IDs
@@ -79,7 +83,7 @@ tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-time-0_3"] 
 
 # Ephemeral Postgres (used by `validate --shadow` in the binary and by
 # the testkit's tier-3/4 fixtures).
-testcontainers   = "0.22"
+testcontainers   = "0.27"
 
 # Testing
 proptest         = "1"
