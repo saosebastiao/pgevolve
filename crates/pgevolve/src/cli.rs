@@ -187,8 +187,7 @@ mod tests {
 
     #[test]
     fn parses_apply_with_plan_dir() {
-        let cli =
-            Cli::try_parse_from(["pgevolve", "apply", "/tmp/plan", "--db", "dev"]).unwrap();
+        let cli = Cli::try_parse_from(["pgevolve", "apply", "/tmp/plan", "--db", "dev"]).unwrap();
         match cli.cmd {
             Command::Apply(a) => {
                 assert_eq!(a.plan_dir, PathBuf::from("/tmp/plan"));
@@ -206,7 +205,8 @@ mod tests {
 
     #[test]
     fn parses_global_format_flag() {
-        let cli = Cli::try_parse_from(["pgevolve", "--format", "json", "diff", "--db", "x"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["pgevolve", "--format", "json", "diff", "--db", "x"]).unwrap();
         assert_eq!(cli.format, OutputFormat::Json);
     }
 

@@ -39,9 +39,8 @@ impl Destructiveness {
     pub const fn reason(&self) -> Option<&str> {
         match self {
             Self::Safe => None,
-            Self::RequiresApproval { reason } | Self::RequiresApprovalAndDataLossWarning { reason } => {
-                Some(reason.as_str())
-            }
+            Self::RequiresApproval { reason }
+            | Self::RequiresApprovalAndDataLossWarning { reason } => Some(reason.as_str()),
         }
     }
 }
@@ -89,9 +88,7 @@ mod tests {
 
     #[test]
     fn serde_round_trip_requires_approval() {
-        let d = Destructiveness::RequiresApproval {
-            reason: "x".into(),
-        };
+        let d = Destructiveness::RequiresApproval { reason: "x".into() };
         let json = serde_json::to_string(&d).unwrap();
         let back: Destructiveness = serde_json::from_str(&json).unwrap();
         assert_eq!(d, back);
@@ -99,9 +96,7 @@ mod tests {
 
     #[test]
     fn serde_round_trip_data_loss() {
-        let d = Destructiveness::RequiresApprovalAndDataLossWarning {
-            reason: "x".into(),
-        };
+        let d = Destructiveness::RequiresApprovalAndDataLossWarning { reason: "x".into() };
         let json = serde_json::to_string(&d).unwrap();
         let back: Destructiveness = serde_json::from_str(&json).unwrap();
         assert_eq!(d, back);

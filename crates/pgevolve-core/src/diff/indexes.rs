@@ -110,7 +110,9 @@ mod tests {
     fn add_index_is_safe() {
         let target = Catalog::empty();
         let mut source = Catalog::empty();
-        source.indexes.push(ix("users_email_idx", vec![col("email")], true));
+        source
+            .indexes
+            .push(ix("users_email_idx", vec![col("email")], true));
         let mut cs = ChangeSet::new();
         diff_indexes(&target, &source, &mut cs);
         assert_eq!(cs.len(), 1);
@@ -122,7 +124,9 @@ mod tests {
     #[test]
     fn drop_index_requires_approval() {
         let mut target = Catalog::empty();
-        target.indexes.push(ix("users_email_idx", vec![col("email")], true));
+        target
+            .indexes
+            .push(ix("users_email_idx", vec![col("email")], true));
         let source = Catalog::empty();
         let mut cs = ChangeSet::new();
         diff_indexes(&target, &source, &mut cs);
@@ -158,7 +162,9 @@ mod tests {
         let mut target = Catalog::empty();
         target.indexes.push(ix("ix1", vec![col("a")], false));
         let mut source = Catalog::empty();
-        source.indexes.push(ix("ix1", vec![col("a"), col("b")], false));
+        source
+            .indexes
+            .push(ix("ix1", vec![col("a"), col("b")], false));
         let mut cs = ChangeSet::new();
         diff_indexes(&target, &source, &mut cs);
         assert_eq!(cs.len(), 1);

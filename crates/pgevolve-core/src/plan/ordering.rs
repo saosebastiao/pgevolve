@@ -55,9 +55,9 @@ pub fn order(
     })?;
 
     let drop_graph = build_drop_graph(target);
-    let sorted_drop_nodes = drop_graph.reverse_topological_sort().map_err(|c| {
-        PlanError::UnexpectedDropCycle(c.nodes.iter().map(render_node).collect())
-    })?;
+    let sorted_drop_nodes = drop_graph
+        .reverse_topological_sort()
+        .map_err(|c| PlanError::UnexpectedDropCycle(c.nodes.iter().map(render_node).collect()))?;
 
     // Strip deferred FKs from any CreateTable change so they aren't emitted
     // both inline and as a post-pass `ADD CONSTRAINT`.
@@ -77,10 +77,7 @@ pub fn order(
 
 /// Remove every constraint named in `deferred` from any matching `CreateTable`
 /// change. The deferred FK will be emitted as a post-pass `ADD CONSTRAINT`.
-fn strip_deferred_fks(
-    creates: Vec<ChangeEntry>,
-    deferred: &[DeferredFkAdd],
-) -> Vec<ChangeEntry> {
+fn strip_deferred_fks(creates: Vec<ChangeEntry>, deferred: &[DeferredFkAdd]) -> Vec<ChangeEntry> {
     if deferred.is_empty() {
         return creates;
     }
@@ -228,8 +225,12 @@ mod tests {
     use crate::identifier::Identifier;
     use crate::ir::column::Column;
     use crate::ir::column_type::ColumnType;
-    use crate::ir::constraint::{Constraint, Deferrable, FkMatchType, ForeignKey, ReferentialAction};
-    use crate::ir::index::{Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder};
+    use crate::ir::constraint::{
+        Constraint, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
+    };
+    use crate::ir::index::{
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+    };
     use crate::ir::schema::Schema;
     use crate::ir::table::Table;
 
@@ -346,7 +347,9 @@ mod tests {
             constraints: vec![],
             comment: None,
         });
-        source.indexes.push(make_index("users_idx", qn("app", "users")));
+        source
+            .indexes
+            .push(make_index("users_idx", qn("app", "users")));
 
         let mut cs = ChangeSet::new();
         // Push in deliberately wrong order to confirm the planner sorts.
@@ -366,9 +369,15 @@ mod tests {
         let result = order(&Catalog::empty(), &source, cs).unwrap();
         assert_eq!(result.creates_and_adds.len(), 3);
 
-        let schema_pos = pos(&result.creates_and_adds, |c| matches!(c, Change::CreateSchema(_)));
-        let table_pos = pos(&result.creates_and_adds, |c| matches!(c, Change::CreateTable(_)));
-        let index_pos = pos(&result.creates_and_adds, |c| matches!(c, Change::CreateIndex(_)));
+        let schema_pos = pos(&result.creates_and_adds, |c| {
+            matches!(c, Change::CreateSchema(_))
+        });
+        let table_pos = pos(&result.creates_and_adds, |c| {
+            matches!(c, Change::CreateTable(_))
+        });
+        let index_pos = pos(&result.creates_and_adds, |c| {
+            matches!(c, Change::CreateIndex(_))
+        });
         assert!(schema_pos < table_pos);
         assert!(table_pos < index_pos);
     }
@@ -416,12 +425,16 @@ mod tests {
         let orgs_pos = result
             .creates_and_adds
             .iter()
-            .position(|e| matches!(&e.change, Change::CreateTable(t) if t.qname == qn("app", "orgs")))
+            .position(
+                |e| matches!(&e.change, Change::CreateTable(t) if t.qname == qn("app", "orgs")),
+            )
             .unwrap();
         let users_pos = result
             .creates_and_adds
             .iter()
-            .position(|e| matches!(&e.change, Change::CreateTable(t) if t.qname == qn("app", "users")))
+            .position(
+                |e| matches!(&e.change, Change::CreateTable(t) if t.qname == qn("app", "users")),
+            )
             .unwrap();
         assert!(orgs_pos < users_pos);
     }
@@ -437,7 +450,10 @@ mod tests {
                 col("id", ColumnType::BigInt, false),
                 col("ref_id", ColumnType::BigInt, false),
             ],
-            constraints: vec![pk("a_pk", &["id"]), fk("a_to_b", &["ref_id"], qn("app", "b"), &["id"])],
+            constraints: vec![
+                pk("a_pk", &["id"]),
+                fk("a_to_b", &["ref_id"], qn("app", "b"), &["id"]),
+            ],
             comment: None,
         });
         source.tables.push(Table {
@@ -446,7 +462,10 @@ mod tests {
                 col("id", ColumnType::BigInt, false),
                 col("ref_id", ColumnType::BigInt, false),
             ],
-            constraints: vec![pk("b_pk", &["id"]), fk("b_to_a", &["ref_id"], qn("app", "a"), &["id"])],
+            constraints: vec![
+                pk("b_pk", &["id"]),
+                fk("b_to_a", &["ref_id"], qn("app", "a"), &["id"]),
+            ],
             comment: None,
         });
 
@@ -500,10 +519,15 @@ mod tests {
             constraints: vec![],
             comment: None,
         });
-        target.indexes.push(make_index("users_idx", qn("app", "users")));
+        target
+            .indexes
+            .push(make_index("users_idx", qn("app", "users")));
 
         let mut cs = ChangeSet::new();
-        cs.push(Change::DropSchema(id("app")), Destructiveness::RequiresApproval { reason: "x".into() });
+        cs.push(
+            Change::DropSchema(id("app")),
+            Destructiveness::RequiresApproval { reason: "x".into() },
+        );
         cs.push(
             Change::DropTable {
                 qname: qn("app", "users"),
@@ -513,7 +537,10 @@ mod tests {
                 reason: "drop users".into(),
             },
         );
-        cs.push(Change::DropIndex(qn("app", "users_idx")), Destructiveness::Safe);
+        cs.push(
+            Change::DropIndex(qn("app", "users_idx")),
+            Destructiveness::Safe,
+        );
 
         let result = order(&target, &Catalog::empty(), cs).unwrap();
         assert_eq!(result.drops.len(), 3);
@@ -604,7 +631,9 @@ mod tests {
             constraints: vec![],
             comment: None,
         });
-        source.indexes.push(make_index("users_idx", qn("app", "users")));
+        source
+            .indexes
+            .push(make_index("users_idx", qn("app", "users")));
 
         let mut cs = ChangeSet::new();
         cs.push(
@@ -747,7 +776,9 @@ mod tests {
             let schema_pos = result
                 .drops
                 .iter()
-                .position(|e| matches!(&e.change, Change::DropSchema(s) if s == &table.qname.schema))
+                .position(
+                    |e| matches!(&e.change, Change::DropSchema(s) if s == &table.qname.schema),
+                )
                 .unwrap();
             assert!(table_pos < schema_pos);
         }

@@ -383,8 +383,7 @@ mod tests {
         assert!(s.contains("plan_hash ="));
         // 64 hex chars somewhere in the doc
         assert!(s.lines().any(|l| {
-            l.contains("plan_hash")
-                && l.chars().filter(char::is_ascii_hexdigit).count() >= 64
+            l.contains("plan_hash") && l.chars().filter(char::is_ascii_hexdigit).count() >= 64
         }));
         assert!(s.contains("target_snapshot_yaml ="));
         assert!(s.contains("schemas:")); // embedded YAML body

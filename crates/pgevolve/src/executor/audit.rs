@@ -15,11 +15,7 @@ use super::error::ApplyError;
 
 /// Insert the `apply_log` row and pre-populate `plan_steps` with one
 /// `pending` row per step. Returns the new `apply_id`.
-pub async fn open_apply_log(
-    client: &Client,
-    plan: &Plan,
-    actor: &str,
-) -> Result<Uuid, ApplyError> {
+pub async fn open_apply_log(client: &Client, plan: &Plan, actor: &str) -> Result<Uuid, ApplyError> {
     let apply_id = Uuid::new_v4();
     client
         .execute(

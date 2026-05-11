@@ -68,7 +68,9 @@ mod tests {
     use crate::diff::change::Change;
     use crate::diff::destructiveness::Destructiveness;
     use crate::identifier::Identifier;
-    use crate::ir::constraint::{ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction};
+    use crate::ir::constraint::{
+        ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
+    };
     use crate::ir::schema::Schema;
 
     fn id(s: &str) -> Identifier {

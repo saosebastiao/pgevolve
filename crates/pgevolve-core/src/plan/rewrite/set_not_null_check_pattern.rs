@@ -34,7 +34,12 @@ fn synth_check_name(col: &Identifier) -> Identifier {
 /// Yes if the policy allows it and the column already exists in the target
 /// table — i.e., this is "make an existing column NOT NULL," not "add a
 /// brand-new NOT-NULL column."
-pub fn should_rewrite(qname: &QualifiedName, col: &Identifier, target: &Catalog, policy: &PlannerPolicy) -> bool {
+pub fn should_rewrite(
+    qname: &QualifiedName,
+    col: &Identifier,
+    target: &Catalog,
+    policy: &PlannerPolicy,
+) -> bool {
     if !policy.not_null_via_check_pattern() {
         return false;
     }

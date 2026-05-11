@@ -75,11 +75,7 @@ fn drop_constraint_entry(c: &Constraint) -> TableOpEntry {
             name: c.qname.name.clone(),
         },
         destructiveness: Destructiveness::RequiresApproval {
-            reason: format!(
-                "drops {} constraint {}",
-                kind_label(&c.kind),
-                c.qname.name
-            ),
+            reason: format!("drops {} constraint {}", kind_label(&c.kind), c.qname.name),
         },
     }
 }
@@ -104,7 +100,7 @@ mod tests {
     use crate::identifier::Identifier;
     use crate::ir::column::Column;
     use crate::ir::column_type::ColumnType;
-    use crate::ir::constraint::{Deferrable, ForeignKey, FkMatchType, ReferentialAction};
+    use crate::ir::constraint::{Deferrable, FkMatchType, ForeignKey, ReferentialAction};
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -197,7 +193,11 @@ mod tests {
         assert_eq!(ops.len(), 1);
         assert!(matches!(ops[0].op, TableOp::DropConstraint { .. }));
         assert!(ops[0].destructiveness.requires_approval());
-        assert!(ops[0].destructiveness.reason().unwrap().contains("primary key"));
+        assert!(ops[0]
+            .destructiveness
+            .reason()
+            .unwrap()
+            .contains("primary key"));
     }
 
     #[test]
@@ -207,7 +207,11 @@ mod tests {
         let ops = run(&target, &source);
         assert_eq!(ops.len(), 1);
         assert!(ops[0].destructiveness.requires_approval());
-        assert!(ops[0].destructiveness.reason().unwrap().contains("foreign key"));
+        assert!(ops[0]
+            .destructiveness
+            .reason()
+            .unwrap()
+            .contains("foreign key"));
     }
 
     #[test]

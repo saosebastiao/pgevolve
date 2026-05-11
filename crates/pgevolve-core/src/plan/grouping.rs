@@ -135,7 +135,10 @@ mod tests {
                 StepKind::CreateIndexConcurrent,
                 TransactionConstraint::OutsideTransaction,
             ),
-            step(StepKind::ValidateConstraint, TransactionConstraint::InTransaction),
+            step(
+                StepKind::ValidateConstraint,
+                TransactionConstraint::InTransaction,
+            ),
         ]);
         assert_eq!(out.len(), 3);
         assert_eq!(out[0].id, 1);

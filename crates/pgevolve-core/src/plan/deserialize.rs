@@ -16,9 +16,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::plan::grouping::TransactionGroup;
 use crate::plan::io_error::PlanIoError;
-use crate::plan::plan::{
-    parse_kind_name, DestructiveIntent, Plan, PlanId, PlanMetadata,
-};
+use crate::plan::plan::{parse_kind_name, DestructiveIntent, Plan, PlanId, PlanMetadata};
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
 // ---------------------------------------------------------------------------
@@ -89,11 +87,10 @@ pub fn read_plan_sql(s: &str) -> Result<PartialPlan, PlanIoError> {
                             "version" => version = Some(v.clone()),
                             "ruleset" => ruleset = Some(parse_u32(v)?),
                             "created" => {
-                                created = Some(OffsetDateTime::parse(v, &Rfc3339).map_err(|e| {
-                                    PlanIoError::MalformedDirective(format!(
-                                        "created={v}: {e}"
-                                    ))
-                                })?);
+                                created =
+                                    Some(OffsetDateTime::parse(v, &Rfc3339).map_err(|e| {
+                                        PlanIoError::MalformedDirective(format!("created={v}: {e}"))
+                                    })?);
                             }
                             _ => {}
                         }
@@ -411,8 +408,8 @@ pub fn read_plan_dir(dir: &Path) -> Result<Plan, PlanIoError> {
     let sql = std::fs::read_to_string(&sql_path).map_err(|e| PlanIoError::io(&sql_path, e))?;
     let intent_str =
         std::fs::read_to_string(&intent_path).map_err(|e| PlanIoError::io(&intent_path, e))?;
-    let manifest_str = std::fs::read_to_string(&manifest_path)
-        .map_err(|e| PlanIoError::io(&manifest_path, e))?;
+    let manifest_str =
+        std::fs::read_to_string(&manifest_path).map_err(|e| PlanIoError::io(&manifest_path, e))?;
 
     let partial = read_plan_sql(&sql)?;
     let intent = read_intent_toml(&intent_str)?;
@@ -562,8 +559,10 @@ mod tests {
         assert_eq!(partial.groups[1].steps.len(), 1);
         // Step bodies survive verbatim.
         assert_eq!(partial.groups[0].steps[0].sql, "CREATE SCHEMA app;");
-        assert_eq!(partial.groups[1].steps[0].sql,
-                   "CREATE INDEX CONCURRENTLY users_idx ON app.users USING btree (id);");
+        assert_eq!(
+            partial.groups[1].steps[0].sql,
+            "CREATE INDEX CONCURRENTLY users_idx ON app.users USING btree (id);"
+        );
         // Step numbers preserved.
         assert_eq!(partial.groups[0].steps[0].step_no, 1);
         assert_eq!(partial.groups[0].steps[1].step_no, 2);
@@ -637,9 +636,18 @@ mod tests {
         // so equality should hold.
         assert_eq!(recovered.id, plan.id);
         assert_eq!(recovered.intents, plan.intents);
-        assert_eq!(recovered.metadata.target_snapshot, plan.metadata.target_snapshot);
-        assert_eq!(recovered.metadata.pgevolve_version, plan.metadata.pgevolve_version);
-        assert_eq!(recovered.metadata.target_identity, plan.metadata.target_identity);
+        assert_eq!(
+            recovered.metadata.target_snapshot,
+            plan.metadata.target_snapshot
+        );
+        assert_eq!(
+            recovered.metadata.pgevolve_version,
+            plan.metadata.pgevolve_version
+        );
+        assert_eq!(
+            recovered.metadata.target_identity,
+            plan.metadata.target_identity
+        );
         assert_eq!(recovered.groups.len(), plan.groups.len());
         for (a, b) in recovered.groups.iter().zip(plan.groups.iter()) {
             assert_eq!(a.id, b.id);

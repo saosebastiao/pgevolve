@@ -34,7 +34,11 @@ pub fn should_rewrite_create(idx: &Index, target: &Catalog, policy: &PlannerPoli
 /// Mirrors `should_rewrite_create`: enabled by the same policy switch, and
 /// only valid for non-unique indexes that exist in the target catalog (so we
 /// can read `unique` from there).
-pub fn should_rewrite_drop(qname: &QualifiedName, target: &Catalog, policy: &PlannerPolicy) -> bool {
+pub fn should_rewrite_drop(
+    qname: &QualifiedName,
+    target: &Catalog,
+    policy: &PlannerPolicy,
+) -> bool {
     if !policy.create_index_concurrent() {
         return false;
     }

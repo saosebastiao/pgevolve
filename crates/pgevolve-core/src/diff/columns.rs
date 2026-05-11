@@ -104,7 +104,10 @@ fn diff_column(target: &Column, source: &Column, out: &mut Vec<TableOpEntry>) {
             Destructiveness::Safe
         } else {
             Destructiveness::RequiresApproval {
-                reason: format!("SET NOT NULL on {} may fail if column has NULL values", target.name),
+                reason: format!(
+                    "SET NOT NULL on {} may fail if column has NULL values",
+                    target.name
+                ),
             }
         };
         out.push(TableOpEntry {
@@ -312,27 +315,15 @@ mod tests {
 
     #[test]
     fn varchar_widening_is_safe() {
-        let target = tbl(vec![col(
-            "c",
-            ColumnType::Varchar { len: Some(50) },
-            true,
-        )]);
-        let source = tbl(vec![col(
-            "c",
-            ColumnType::Varchar { len: Some(100) },
-            true,
-        )]);
+        let target = tbl(vec![col("c", ColumnType::Varchar { len: Some(50) }, true)]);
+        let source = tbl(vec![col("c", ColumnType::Varchar { len: Some(100) }, true)]);
         let ops = diff_one(&target, &source);
         assert_eq!(ops[0].destructiveness, Destructiveness::Safe);
     }
 
     #[test]
     fn varchar_to_unbounded_is_safe() {
-        let target = tbl(vec![col(
-            "c",
-            ColumnType::Varchar { len: Some(50) },
-            true,
-        )]);
+        let target = tbl(vec![col("c", ColumnType::Varchar { len: Some(50) }, true)]);
         let source = tbl(vec![col("c", ColumnType::Varchar { len: None }, true)]);
         let ops = diff_one(&target, &source);
         assert_eq!(ops[0].destructiveness, Destructiveness::Safe);
@@ -340,11 +331,7 @@ mod tests {
 
     #[test]
     fn varchar_to_text_is_safe() {
-        let target = tbl(vec![col(
-            "c",
-            ColumnType::Varchar { len: Some(50) },
-            true,
-        )]);
+        let target = tbl(vec![col("c", ColumnType::Varchar { len: Some(50) }, true)]);
         let source = tbl(vec![col("c", ColumnType::Text, true)]);
         let ops = diff_one(&target, &source);
         assert_eq!(ops[0].destructiveness, Destructiveness::Safe);
@@ -352,16 +339,8 @@ mod tests {
 
     #[test]
     fn varchar_narrowing_is_data_loss() {
-        let target = tbl(vec![col(
-            "c",
-            ColumnType::Varchar { len: Some(100) },
-            true,
-        )]);
-        let source = tbl(vec![col(
-            "c",
-            ColumnType::Varchar { len: Some(50) },
-            true,
-        )]);
+        let target = tbl(vec![col("c", ColumnType::Varchar { len: Some(100) }, true)]);
+        let source = tbl(vec![col("c", ColumnType::Varchar { len: Some(50) }, true)]);
         let ops = diff_one(&target, &source);
         assert!(ops[0].destructiveness.data_loss_risk());
     }

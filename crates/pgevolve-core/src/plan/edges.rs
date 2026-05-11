@@ -114,10 +114,7 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
             };
             g.add_edge(constraint_node.clone(), NodeId::Table(t.qname.clone()));
             if let ConstraintKind::ForeignKey(fk) = &c.kind {
-                g.add_edge(
-                    constraint_node,
-                    NodeId::Table(fk.referenced_table.clone()),
-                );
+                g.add_edge(constraint_node, NodeId::Table(fk.referenced_table.clone()));
                 // Self-referential FKs don't induce a real table-level cycle
                 // (table can be created first, FK satisfied at row time).
                 if fk.referenced_table != t.qname {
@@ -530,7 +527,10 @@ mod tests {
                     comment: None,
                 },
             ],
-            constraints: vec![pk("tree_pk", &["id"]), fk("tree_parent_fk", qn("app", "tree"))],
+            constraints: vec![
+                pk("tree_pk", &["id"]),
+                fk("tree_parent_fk", qn("app", "tree")),
+            ],
             comment: None,
         });
         let g = build_create_graph(&c);

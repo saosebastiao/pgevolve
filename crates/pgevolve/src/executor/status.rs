@@ -91,9 +91,7 @@ pub async fn fetch_recent_applies(
             target_identity: r.get(4),
             actor: r.get(5),
             started_at: format_ts(r.get(6)),
-            finished_at: r
-                .get::<_, Option<OffsetDateTime>>(7)
-                .map(format_ts),
+            finished_at: r.get::<_, Option<OffsetDateTime>>(7).map(format_ts),
             status: r.get(8),
             error_message: r.get(9),
         });
@@ -126,12 +124,8 @@ pub async fn fetch_apply_steps(
             destructive: r.get(4),
             targets: r.get(5),
             sql_text: r.get(6),
-            started_at: r
-                .get::<_, Option<OffsetDateTime>>(7)
-                .map(format_ts),
-            finished_at: r
-                .get::<_, Option<OffsetDateTime>>(8)
-                .map(format_ts),
+            started_at: r.get::<_, Option<OffsetDateTime>>(7).map(format_ts),
+            finished_at: r.get::<_, Option<OffsetDateTime>>(8).map(format_ts),
             status: r.get(9),
             error_message: r.get(10),
         });

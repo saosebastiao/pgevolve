@@ -19,19 +19,21 @@ pub mod raw_step;
 pub mod rewrite;
 pub mod serialize;
 
-pub use edges::{build_create_graph, build_drop_graph, NodeId};
-pub use error::PlanError;
-pub use graph::{Cycle, Graph};
-pub use ordered::{DeferredFkAdd, OrderedChangeSet};
-pub use ordering::order;
-pub use policy::{OnlineRewrites, PlannerPolicy, Strategy};
-pub use raw_step::{RawStep, StepKind, TransactionConstraint};
-pub use grouping::{group_steps, TransactionGroup};
-pub use io_error::PlanIoError;
-pub use plan::{kind_name, parse_kind_name, DestructiveIntent, InvalidPlanHash, Plan, PlanId, PlanMetadata};
-pub use rewrite::rewrite;
 pub use deserialize::{
     read_intent_toml, read_manifest_toml, read_plan_dir, read_plan_sql, ParsedIntent,
     ParsedManifest, PartialPlan,
 };
+pub use edges::{build_create_graph, build_drop_graph, NodeId};
+pub use error::PlanError;
+pub use graph::{Cycle, Graph};
+pub use grouping::{group_steps, TransactionGroup};
+pub use io_error::PlanIoError;
+pub use ordered::{DeferredFkAdd, OrderedChangeSet};
+pub use ordering::order;
+pub use plan::{
+    kind_name, parse_kind_name, DestructiveIntent, InvalidPlanHash, Plan, PlanId, PlanMetadata,
+};
+pub use policy::{OnlineRewrites, PlannerPolicy, Strategy};
+pub use raw_step::{RawStep, StepKind, TransactionConstraint};
+pub use rewrite::rewrite;
 pub use serialize::{write_intent_toml, write_manifest_toml, write_plan_dir, write_plan_sql};

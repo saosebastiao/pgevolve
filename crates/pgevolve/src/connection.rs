@@ -69,9 +69,7 @@ pub fn resolve_db(
 
 /// Open a `tokio_postgres::Client` from `opts`, spawning the background
 /// connection task.
-pub async fn connect(
-    opts: &DbOptions,
-) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
+pub async fn connect(opts: &DbOptions) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
     let (client, connection) = tokio_postgres::connect(&opts.dsn, tokio_postgres::NoTls).await?;
     tokio::spawn(async move {
         if let Err(err) = connection.await {
@@ -130,7 +128,10 @@ mod tests {
     #[test]
     fn url_env_is_read_from_env() {
         let mut envs = BTreeMap::new();
-        envs.insert("dev".into(), env(None, Some("PGEVOLVE_TEST_DSN_FOR_RESOLVE")));
+        envs.insert(
+            "dev".into(),
+            env(None, Some("PGEVOLVE_TEST_DSN_FOR_RESOLVE")),
+        );
         let cfg = cfg_with(envs);
         // SAFETY: env access is exclusive to this test by variable name; no
         // cross-test contention.

@@ -87,16 +87,12 @@ mod tests {
         let mut a = ChangeSet::new();
         a.push(
             Change::DropSchema(id("a")),
-            Destructiveness::RequiresApproval {
-                reason: "x".into(),
-            },
+            Destructiveness::RequiresApproval { reason: "x".into() },
         );
         let mut b = ChangeSet::new();
         b.push(
             Change::DropSchema(id("b")),
-            Destructiveness::RequiresApproval {
-                reason: "x".into(),
-            },
+            Destructiveness::RequiresApproval { reason: "x".into() },
         );
         a.extend(b);
         assert_eq!(a.len(), 2);

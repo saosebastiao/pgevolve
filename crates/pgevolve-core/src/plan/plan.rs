@@ -42,10 +42,10 @@ impl PlanId {
         h.update(&planner_ruleset_version.to_be_bytes());
         h.update(&[0]);
         let cfg = bincode::config::standard();
-        let source_bytes = bincode::serde::encode_to_vec(source, cfg)
-            .expect("Catalog is bincode-serializable");
-        let target_bytes = bincode::serde::encode_to_vec(target, cfg)
-            .expect("Catalog is bincode-serializable");
+        let source_bytes =
+            bincode::serde::encode_to_vec(source, cfg).expect("Catalog is bincode-serializable");
+        let target_bytes =
+            bincode::serde::encode_to_vec(target, cfg).expect("Catalog is bincode-serializable");
         h.update(&source_bytes);
         h.update(&[0]);
         h.update(&target_bytes);
@@ -66,7 +66,9 @@ impl PlanId {
     /// Parse a full 64-char lowercase hex string.
     pub fn from_full_hex(s: &str) -> Result<Self, InvalidPlanHash> {
         let bytes = hex::decode(s).map_err(|_| InvalidPlanHash(s.to_string()))?;
-        let arr: [u8; 32] = bytes.try_into().map_err(|_| InvalidPlanHash(s.to_string()))?;
+        let arr: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| InvalidPlanHash(s.to_string()))?;
         Ok(Self(arr))
     }
 }
@@ -382,15 +384,17 @@ mod tests {
     #[test]
     fn from_grouped_assigns_step_numbers_contiguously() {
         let groups = vec![
-            group(1, vec![
-                step(StepKind::CreateSchema, false, vec![qn("app", "app")]),
-                step(StepKind::CreateTable, false, vec![qn("app", "users")]),
-            ]),
-            group(2, vec![step(
-                StepKind::DropColumn,
-                true,
-                vec![qn("app", "users")],
-            )]),
+            group(
+                1,
+                vec![
+                    step(StepKind::CreateSchema, false, vec![qn("app", "app")]),
+                    step(StepKind::CreateTable, false, vec![qn("app", "users")]),
+                ],
+            ),
+            group(
+                2,
+                vec![step(StepKind::DropColumn, true, vec![qn("app", "users")])],
+            ),
         ];
         let plan = Plan::from_grouped(
             groups,

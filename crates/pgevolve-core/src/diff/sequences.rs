@@ -261,7 +261,9 @@ mod tests {
         match &cs.entries[0].change {
             Change::AlterSequence { ops, .. } => {
                 assert_eq!(ops.len(), 4);
-                assert!(ops.iter().all(|o| o.destructiveness == Destructiveness::Safe));
+                assert!(ops
+                    .iter()
+                    .all(|o| o.destructiveness == Destructiveness::Safe));
             }
             other => panic!("got {other:?}"),
         }
@@ -297,7 +299,10 @@ mod tests {
         let source = Catalog::empty(); // sequence missing in source — would normally drop
         let mut cs = ChangeSet::new();
         diff_sequences(&target, &source, &mut cs);
-        assert!(cs.is_empty(), "owned sequences are driven by their owner column");
+        assert!(
+            cs.is_empty(),
+            "owned sequences are driven by their owner column"
+        );
     }
 
     #[test]

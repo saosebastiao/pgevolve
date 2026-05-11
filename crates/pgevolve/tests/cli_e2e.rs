@@ -71,7 +71,11 @@ async fn end_to_end_init_plan_apply_status() {
         .args(["plan", "--db", "dev"])
         .output()
         .expect("run plan");
-    assert!(out.status.success(), "plan stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "plan stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains("Wrote plan"), "got: {stdout}");
 

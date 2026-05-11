@@ -11,16 +11,11 @@ use crate::executor::status::{
 };
 
 /// Run `pgevolve status`.
-pub async fn run(
-    args: StatusArgs,
-    cfg: &PgevolveConfig,
-    format: OutputFormat,
-) -> Result<i32> {
+pub async fn run(args: StatusArgs, cfg: &PgevolveConfig, format: OutputFormat) -> Result<i32> {
     let opts = resolve_db(cfg, &args.db, args.url.as_deref())?;
     let client = connect(&opts).await?;
 
-    let recent =
-        fetch_recent_applies(&client, i64::from(args.limit.max(1))).await?;
+    let recent = fetch_recent_applies(&client, i64::from(args.limit.max(1))).await?;
 
     let target_id = args
         .apply_id
@@ -31,11 +26,16 @@ pub async fn run(
 
     if let Some(id) = target_id {
         let Some(rec) = recent.iter().find(|r| r.apply_id == id) else {
-            return Err(anyhow::anyhow!("no apply with id {id} in the most recent {}", args.limit));
+            return Err(anyhow::anyhow!(
+                "no apply with id {id} in the most recent {}",
+                args.limit
+            ));
         };
         let steps = fetch_apply_steps(&client, id).await?;
         match format {
-            OutputFormat::Human | OutputFormat::Sql => println!("{}", format_status_human(rec, &steps)),
+            OutputFormat::Human | OutputFormat::Sql => {
+                println!("{}", format_status_human(rec, &steps));
+            }
             OutputFormat::Json => println!("{}", format_status_json(rec, &steps)),
         }
         return Ok(0);

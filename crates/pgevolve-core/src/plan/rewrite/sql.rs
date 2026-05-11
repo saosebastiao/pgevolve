@@ -14,9 +14,7 @@ use crate::ir::constraint::{
     Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
 };
 use crate::ir::default_expr::{DefaultExpr, LiteralValue};
-use crate::ir::index::{
-    Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
-};
+use crate::ir::index::{Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder};
 use crate::ir::schema::Schema;
 use crate::ir::sequence::{Sequence, SequenceOwner};
 use crate::ir::table::Table;
@@ -223,7 +221,11 @@ pub fn alter_column_set_nullable(
     name: &Identifier,
     nullable: bool,
 ) -> String {
-    let action = if nullable { "DROP NOT NULL" } else { "SET NOT NULL" };
+    let action = if nullable {
+        "DROP NOT NULL"
+    } else {
+        "SET NOT NULL"
+    };
     format!(
         "ALTER TABLE {} ALTER COLUMN {} {};",
         qname.render_sql(),
@@ -311,11 +313,7 @@ pub fn alter_column_set_generated(
 }
 
 /// `COMMENT ON COLUMN qname.col IS '...';`
-pub fn comment_on_column(
-    qname: &QualifiedName,
-    col: &Identifier,
-    comment: Option<&str>,
-) -> String {
+pub fn comment_on_column(qname: &QualifiedName, col: &Identifier, comment: Option<&str>) -> String {
     format!(
         "COMMENT ON COLUMN {}.{} IS {};",
         qname.render_sql(),
@@ -343,10 +341,7 @@ pub fn alter_table_add_constraint_not_valid(qname: &QualifiedName, c: &Constrain
 }
 
 /// `ALTER TABLE qname VALIDATE CONSTRAINT name;`
-pub fn alter_table_validate_constraint(
-    qname: &QualifiedName,
-    cname: &Identifier,
-) -> String {
+pub fn alter_table_validate_constraint(qname: &QualifiedName, cname: &Identifier) -> String {
     format!(
         "ALTER TABLE {} VALIDATE CONSTRAINT {};",
         qname.render_sql(),
@@ -480,7 +475,11 @@ fn inline_constraint(c: &Constraint) -> String {
 
 /// `CONSTRAINT name <body>` — used for both inline and `ADD CONSTRAINT` forms.
 pub fn constraint_def_with_name(c: &Constraint) -> String {
-    let mut s = format!("CONSTRAINT {} {}", c.qname.name.render_sql(), constraint_body(&c.kind));
+    let mut s = format!(
+        "CONSTRAINT {} {}",
+        c.qname.name.render_sql(),
+        constraint_body(&c.kind)
+    );
     match c.deferrable {
         Deferrable::NotDeferrable => {}
         Deferrable::Deferrable {
@@ -709,11 +708,7 @@ fn render_idents(v: &[Identifier]) -> String {
 }
 
 fn render_owner(o: &SequenceOwner) -> String {
-    format!(
-        "{}.{}",
-        o.table.render_sql(),
-        o.column.render_sql(),
-    )
+    format!("{}.{}", o.table.render_sql(), o.column.render_sql(),)
 }
 
 fn render_comment(comment: Option<&str>) -> String {

@@ -32,8 +32,7 @@ const DEFAULT_CONFIG: &str = include_str!("../../templates/pgevolve.toml");
 fn append_gitignore(path: &Path) -> Result<()> {
     let entries = "\n# pgevolve\n# applied plan directories are not generated artifacts;\n# keep them under version control. Uncomment to ignore instead.\n# plans/\n";
     let existing = if path.exists() {
-        std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?
     } else {
         String::new()
     };

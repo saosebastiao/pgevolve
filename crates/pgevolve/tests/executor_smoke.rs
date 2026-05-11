@@ -199,10 +199,7 @@ async fn apply_succeeds_end_to_end_and_persists_audit_rows() {
 
     // The schema and table now exist.
     let row = client
-        .query_one(
-            "SELECT to_regclass('demo.widgets')::text IS NOT NULL",
-            &[],
-        )
+        .query_one("SELECT to_regclass('demo.widgets')::text IS NOT NULL", &[])
         .await
         .unwrap();
     let exists: bool = row.get(0);
@@ -299,7 +296,10 @@ async fn apply_rolls_back_transactional_group_on_failure() {
     )
     .await
     .expect_err("apply must fail");
-    assert!(matches!(err, pgevolve::executor::ApplyError::StepFailed { .. }));
+    assert!(matches!(
+        err,
+        pgevolve::executor::ApplyError::StepFailed { .. }
+    ));
 
     // The schema was rolled back: no `demo` schema in pg_namespace.
     let row = client
@@ -334,7 +334,10 @@ async fn apply_rolls_back_transactional_group_on_failure() {
         .await
         .unwrap();
     let states: Vec<(i32, String)> = rows.iter().map(|r| (r.get(0), r.get(1))).collect();
-    assert_eq!(states, vec![(1, "rolled_back".into()), (2, "failed".into())]);
+    assert_eq!(
+        states,
+        vec![(1, "rolled_back".into()), (2, "failed".into())]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 
-use pgevolve_core::catalog::CatalogFilter;
 use pgevolve_core::catalog::read_catalog;
+use pgevolve_core::catalog::CatalogFilter;
 use pgevolve_core::diff::diff;
 
 use crate::cli::{DiffArgs, OutputFormat};
@@ -122,10 +122,16 @@ fn print_sql(changes: &pgevolve_core::diff::ChangeSet) {
                 println!("{}", pgevolve_core::plan::rewrite::sql::drop_table(qname));
             }
             pgevolve_core::diff::change::Change::CreateIndex(i) => {
-                println!("{}", pgevolve_core::plan::rewrite::sql::create_index(i, false));
+                println!(
+                    "{}",
+                    pgevolve_core::plan::rewrite::sql::create_index(i, false)
+                );
             }
             pgevolve_core::diff::change::Change::DropIndex(q) => {
-                println!("{}", pgevolve_core::plan::rewrite::sql::drop_index(q, false));
+                println!(
+                    "{}",
+                    pgevolve_core::plan::rewrite::sql::drop_index(q, false)
+                );
             }
             pgevolve_core::diff::change::Change::CreateSequence(s) => {
                 println!("{}", pgevolve_core::plan::rewrite::sql::create_sequence(s));

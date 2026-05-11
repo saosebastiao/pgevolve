@@ -63,7 +63,6 @@ pub fn rewrite(
     out
 }
 
-
 fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
     let destructive_reason = destructive_reason(&entry.destructiveness);
     let destructive = entry.destructiveness.requires_approval();
@@ -238,34 +237,36 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             // Drop the old index, then create the new one. Each side runs
             // through the same concurrent-rewrite check as a top-level
             // Create/Drop so policy applies uniformly.
-            let drop_step = if concurrent_index::should_rewrite_drop(&from.qname, ctx.target, ctx.policy) {
-                concurrent_index::drop_step(&from.qname, false, None)
-            } else {
-                RawStep {
-                    step_no: 0,
-                    kind: StepKind::DropIndex,
-                    destructive: false,
-                    destructive_reason: None,
-                    intent_id: None,
-                    targets: vec![from.qname.clone()],
-                    sql: sql::drop_index(&from.qname, false),
-                    transactional: TransactionConstraint::InTransaction,
-                }
-            };
-            let create_step = if concurrent_index::should_rewrite_create(&to, ctx.target, ctx.policy) {
-                concurrent_index::create_step(&to, false, None)
-            } else {
-                RawStep {
-                    step_no: 0,
-                    kind: StepKind::CreateIndex,
-                    destructive: false,
-                    destructive_reason: None,
-                    intent_id: None,
-                    targets: vec![to.qname.clone(), to.table.clone()],
-                    sql: sql::create_index(&to, false),
-                    transactional: TransactionConstraint::InTransaction,
-                }
-            };
+            let drop_step =
+                if concurrent_index::should_rewrite_drop(&from.qname, ctx.target, ctx.policy) {
+                    concurrent_index::drop_step(&from.qname, false, None)
+                } else {
+                    RawStep {
+                        step_no: 0,
+                        kind: StepKind::DropIndex,
+                        destructive: false,
+                        destructive_reason: None,
+                        intent_id: None,
+                        targets: vec![from.qname.clone()],
+                        sql: sql::drop_index(&from.qname, false),
+                        transactional: TransactionConstraint::InTransaction,
+                    }
+                };
+            let create_step =
+                if concurrent_index::should_rewrite_create(&to, ctx.target, ctx.policy) {
+                    concurrent_index::create_step(&to, false, None)
+                } else {
+                    RawStep {
+                        step_no: 0,
+                        kind: StepKind::CreateIndex,
+                        destructive: false,
+                        destructive_reason: None,
+                        intent_id: None,
+                        targets: vec![to.qname.clone(), to.table.clone()],
+                        sql: sql::create_index(&to, false),
+                        transactional: TransactionConstraint::InTransaction,
+                    }
+                };
             out.push(drop_step);
             out.push(create_step);
         }
@@ -657,7 +658,10 @@ mod tests {
     #[test]
     fn create_schema_emits_single_step() {
         let mut cs = ChangeSet::new();
-        cs.push(Change::CreateSchema(Schema::new(id("app"))), Destructiveness::Safe);
+        cs.push(
+            Change::CreateSchema(Schema::new(id("app"))),
+            Destructiveness::Safe,
+        );
         let mut source = Catalog::empty();
         source.schemas.push(Schema::new(id("app")));
         let steps = rewrite_with_default(&Catalog::empty(), &source, cs);
@@ -732,7 +736,10 @@ mod tests {
     fn create_table_emits_full_create_with_columns_and_pk() {
         let t = Table {
             qname: qn("app", "users"),
-            columns: vec![col("id", ColumnType::BigInt, false), col("email", ColumnType::Text, true)],
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("email", ColumnType::Text, true),
+            ],
             constraints: vec![pk("users_pkey", &["id"])],
             comment: None,
         };
@@ -744,7 +751,9 @@ mod tests {
         assert!(steps[0].sql.starts_with("CREATE TABLE app.users ("));
         assert!(steps[0].sql.contains("id bigint NOT NULL"));
         assert!(steps[0].sql.contains("email text"));
-        assert!(steps[0].sql.contains("CONSTRAINT users_pkey PRIMARY KEY (id)"));
+        assert!(steps[0]
+            .sql
+            .contains("CONSTRAINT users_pkey PRIMARY KEY (id)"));
     }
 
     #[test]
@@ -783,7 +792,9 @@ mod tests {
         let steps = rewrite_changeset_only(cs);
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].kind, StepKind::CreateIndex);
-        assert!(steps[0].sql.starts_with("CREATE INDEX users_idx ON app.users USING btree (id)"));
+        assert!(steps[0]
+            .sql
+            .starts_with("CREATE INDEX users_idx ON app.users USING btree (id)"));
         assert_eq!(steps[0].transactional, TransactionConstraint::InTransaction);
     }
 
@@ -811,10 +822,7 @@ mod tests {
         let from = make_index("users_idx", qn("app", "users"), false);
         let to = make_index("users_idx", qn("app", "users"), true);
         let mut cs = ChangeSet::new();
-        cs.push(
-            Change::ReplaceIndex { from, to },
-            Destructiveness::Safe,
-        );
+        cs.push(Change::ReplaceIndex { from, to }, Destructiveness::Safe);
         let steps = rewrite(
             OrderedChangeSet {
                 modifies: cs.entries,
@@ -848,7 +856,9 @@ mod tests {
         let steps = rewrite_changeset_only(cs);
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].kind, StepKind::CreateSequence);
-        assert!(steps[0].sql.starts_with("CREATE SEQUENCE app.id_seq AS bigint"));
+        assert!(steps[0]
+            .sql
+            .starts_with("CREATE SEQUENCE app.id_seq AS bigint"));
         assert!(steps[0].sql.contains("INCREMENT BY 1"));
         assert!(steps[0].sql.contains("START WITH 1"));
         assert!(steps[0].sql.contains("NO CYCLE"));
@@ -1264,7 +1274,9 @@ mod tests {
     #[test]
     fn drop_index_on_existing_non_unique_rewrites_to_concurrent() {
         let mut target = Catalog::empty();
-        target.indexes.push(make_index("users_idx", qn("app", "users"), false));
+        target
+            .indexes
+            .push(make_index("users_idx", qn("app", "users"), false));
 
         let mut cs = ChangeSet::new();
         cs.push(
@@ -1280,13 +1292,18 @@ mod tests {
             &PlannerPolicy::default(),
         );
         assert_eq!(steps[0].kind, StepKind::DropIndexConcurrent);
-        assert_eq!(steps[0].transactional, TransactionConstraint::OutsideTransaction);
+        assert_eq!(
+            steps[0].transactional,
+            TransactionConstraint::OutsideTransaction
+        );
     }
 
     #[test]
     fn drop_unique_index_stays_inline() {
         let mut target = Catalog::empty();
-        target.indexes.push(make_index("users_idx", qn("app", "users"), true));
+        target
+            .indexes
+            .push(make_index("users_idx", qn("app", "users"), true));
 
         let mut cs = ChangeSet::new();
         cs.push(
@@ -1348,7 +1365,10 @@ mod tests {
         let mut target = Catalog::empty();
         target.tables.push(Table {
             qname: qn("app", "users"),
-            columns: vec![col("id", ColumnType::BigInt, false), col("ref_id", ColumnType::BigInt, false)],
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("ref_id", ColumnType::BigInt, false),
+            ],
             constraints: vec![],
             comment: None,
         });
@@ -1421,7 +1441,10 @@ mod tests {
         let mut target = Catalog::empty();
         target.tables.push(Table {
             qname: qn("app", "users"),
-            columns: vec![col("id", ColumnType::BigInt, false), col("ref_id", ColumnType::BigInt, false)],
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("ref_id", ColumnType::BigInt, false),
+            ],
             constraints: vec![],
             comment: None,
         });
@@ -1458,7 +1481,10 @@ mod tests {
         let mut target = Catalog::empty();
         target.tables.push(Table {
             qname: qn("app", "users"),
-            columns: vec![col("id", ColumnType::BigInt, false), col("email", ColumnType::Text, true)],
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("email", ColumnType::Text, true),
+            ],
             constraints: vec![],
             comment: None,
         });
@@ -1790,9 +1816,7 @@ mod tests {
         );
         cs.push(
             Change::DropSchema(id("legacy")),
-            Destructiveness::RequiresApproval {
-                reason: "x".into(),
-            },
+            Destructiveness::RequiresApproval { reason: "x".into() },
         );
 
         let mut target = Catalog::empty();
@@ -1801,6 +1825,13 @@ mod tests {
         let kinds: Vec<StepKind> = steps.iter().map(|s| s.kind).collect();
         // Creates first (schema, table), then modifies (alter table — produces no
         // child ops for empty `ops`), then drops (drop schema).
-        assert_eq!(kinds, vec![StepKind::CreateSchema, StepKind::CreateTable, StepKind::DropSchema]);
+        assert_eq!(
+            kinds,
+            vec![
+                StepKind::CreateSchema,
+                StepKind::CreateTable,
+                StepKind::DropSchema
+            ]
+        );
     }
 }

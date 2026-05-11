@@ -24,7 +24,12 @@ use crate::plan::rewrite::sql;
 /// 1. the policy enables `fk_not_valid_then_validate`,
 /// 2. the constraint is a foreign key, and
 /// 3. the target table already exists (i.e., not being created in this plan).
-pub fn should_rewrite(qname: &QualifiedName, c: &Constraint, target: &Catalog, policy: &PlannerPolicy) -> bool {
+pub fn should_rewrite(
+    qname: &QualifiedName,
+    c: &Constraint,
+    target: &Catalog,
+    policy: &PlannerPolicy,
+) -> bool {
     policy.fk_not_valid_then_validate()
         && matches!(c.kind, ConstraintKind::ForeignKey(_))
         && target.table_exists(qname)

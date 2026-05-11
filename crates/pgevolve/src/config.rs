@@ -250,14 +250,15 @@ mod tests {
         assert_eq!(cfg.project.name, "x");
         assert_eq!(cfg.project.schema_dir, PathBuf::from("schema"));
         assert_eq!(cfg.planner.strategy, ConfigStrategy::Online);
-        assert_eq!(cfg.environments["dev"].url.as_deref(), Some("postgres://localhost/x"));
+        assert_eq!(
+            cfg.environments["dev"].url.as_deref(),
+            Some("postgres://localhost/x")
+        );
     }
 
     #[test]
     fn rejects_invalid_strategy_via_toml() {
-        let f = write_tmp(
-            "[project]\nname=\"x\"\n[planner]\nstrategy=\"bogus\"\n",
-        );
+        let f = write_tmp("[project]\nname=\"x\"\n[planner]\nstrategy=\"bogus\"\n");
         assert!(matches!(load(f.path()), Err(ConfigError::Parse(_))));
     }
 

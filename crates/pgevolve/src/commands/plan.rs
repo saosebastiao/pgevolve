@@ -7,9 +7,7 @@ use anyhow::Result;
 
 use pgevolve_core::catalog::{read_catalog, CatalogFilter};
 use pgevolve_core::diff::diff;
-use pgevolve_core::plan::{
-    group_steps, order, rewrite, write_plan_dir, Plan, PlannerPolicy,
-};
+use pgevolve_core::plan::{group_steps, order, rewrite, write_plan_dir, Plan, PlannerPolicy};
 
 use crate::cli::PlanArgs;
 use crate::config::PgevolveConfig;
@@ -66,11 +64,7 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
 }
 
 fn default_plan_dir(cfg: &PgevolveConfig, plan: &Plan) -> PathBuf {
-    let date = plan
-        .metadata
-        .created_at
-        .date()
-        .to_string(); // YYYY-MM-DD per time crate Display
+    let date = plan.metadata.created_at.date().to_string(); // YYYY-MM-DD per time crate Display
     cfg.project
         .plan_dir
         .join(format!("{date}-{}", plan.id.short()))
