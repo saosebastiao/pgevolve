@@ -122,15 +122,41 @@ pub struct ExpectPlan {
     /// Rewrite identifiers expected in the plan.
     #[serde(default)]
     pub rewrites_used: Vec<String>,
-    /// Golden file path (relative to fixture dir). Missing in TOML →
-    /// default-on (`expected/plan.sql`). The opt-out `golden = false`
-    /// form is added in Task 8 via a custom deserializer.
-    #[serde(default = "default_golden")]
+    /// Golden file path. Accepts a string (custom path), `true`
+    /// (default `expected/plan.sql`), or `false` (opt out). Missing
+    /// key → default-on. See `deserialize_golden`.
+    #[serde(default = "default_golden", deserialize_with = "deserialize_golden")]
     pub golden: Option<String>,
 }
 
 fn default_golden() -> Option<String> {
     Some("expected/plan.sql".to_string())
+}
+
+fn deserialize_golden<'de, D>(d: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct GoldenVisitor;
+    impl Visitor<'_> for GoldenVisitor {
+        type Value = Option<String>;
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a string path, `true`, or `false`")
+        }
+        fn visit_bool<E: de::Error>(self, v: bool) -> Result<Option<String>, E> {
+            Ok(if v { default_golden() } else { None })
+        }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Option<String>, E> {
+            Ok(Some(v.to_string()))
+        }
+        fn visit_string<E: de::Error>(self, v: String) -> Result<Option<String>, E> {
+            Ok(Some(v))
+        }
+    }
+    d.deserialize_any(GoldenVisitor)
 }
 
 impl Default for ExpectPlan {
@@ -385,5 +411,59 @@ title = "no-before"
             FixtureError::Missing { file, .. } if file == "before.sql" => {}
             other => panic!("wrong error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn golden_opt_out_via_false() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_fixture(
+            tmp.path(),
+            r#"
+[meta]
+title = "opt-out"
+[expect.plan]
+golden = false
+"#,
+            "",
+            "",
+        );
+        let f = Fixture::load(tmp.path()).unwrap();
+        assert!(f.expect.plan.golden.is_none(), "false → None");
+    }
+
+    #[test]
+    fn golden_custom_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_fixture(
+            tmp.path(),
+            r#"
+[meta]
+title = "custom"
+[expect.plan]
+golden = "expected/custom.sql"
+"#,
+            "",
+            "",
+        );
+        let f = Fixture::load(tmp.path()).unwrap();
+        assert_eq!(f.expect.plan.golden.as_deref(), Some("expected/custom.sql"));
+    }
+
+    #[test]
+    fn golden_true_uses_default_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_fixture(
+            tmp.path(),
+            r#"
+[meta]
+title = "true-default"
+[expect.plan]
+golden = true
+"#,
+            "",
+            "",
+        );
+        let f = Fixture::load(tmp.path()).unwrap();
+        assert_eq!(f.expect.plan.golden.as_deref(), Some("expected/plan.sql"));
     }
 }

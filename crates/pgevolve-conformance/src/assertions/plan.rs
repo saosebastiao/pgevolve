@@ -88,6 +88,78 @@ fn parse_strategy(fixture: &Fixture) -> Option<Strategy> {
     }
 }
 
+/// Layer 3 result.
+#[derive(Debug)]
+pub struct GoldenOutcome {
+    /// Path of the golden compared against. `None` when goldening is
+    /// opted out for this fixture.
+    pub golden_path: Option<std::path::PathBuf>,
+    /// Normalized plan.sql produced from the in-process pipeline.
+    pub actual_normalized: String,
+    /// Normalized contents of the golden file. `None` when goldening
+    /// is opted out or the golden file is missing.
+    pub expected_normalized: Option<String>,
+    /// Set when actual ≠ expected, or when the golden file is missing.
+    pub mismatch: Option<String>,
+}
+
+impl GoldenOutcome {
+    /// True if the golden compare passed or was opted out.
+    pub const fn is_ok(&self) -> bool {
+        self.mismatch.is_none()
+    }
+}
+
+/// Compare the rendered plan.sql against the fixture's golden file.
+/// Uses `pg_major` to select `per-pg/pg<N>/plan.sql` when present.
+pub fn check_golden(
+    fixture: &crate::fixture::Fixture,
+    rendered_sql: &str,
+    pg_major: u32,
+) -> std::io::Result<GoldenOutcome> {
+    let golden_path = fixture.golden_path(pg_major);
+    let actual_normalized = crate::normalize::normalize(rendered_sql);
+
+    let Some(path) = golden_path else {
+        return Ok(GoldenOutcome {
+            golden_path: None,
+            actual_normalized,
+            expected_normalized: None,
+            mismatch: None,
+        });
+    };
+
+    if !path.exists() {
+        return Ok(GoldenOutcome {
+            golden_path: Some(path.clone()),
+            actual_normalized,
+            expected_normalized: None,
+            mismatch: Some(format!(
+                "golden file {} does not exist; run `cargo xtask bless --conformance` to create it",
+                path.display()
+            )),
+        });
+    }
+
+    let raw = std::fs::read_to_string(&path)?;
+    let expected_normalized = crate::normalize::normalize(&raw);
+    let mismatch = if actual_normalized == expected_normalized {
+        None
+    } else {
+        Some(format!(
+            "plan.sql mismatch vs {}. Run `cargo xtask bless --conformance` if intentional.",
+            path.display()
+        ))
+    };
+
+    Ok(GoldenOutcome {
+        golden_path: Some(path),
+        actual_normalized,
+        expected_normalized: Some(expected_normalized),
+        mismatch,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +225,77 @@ mod tests {
         let out = check(&f).unwrap();
         assert!(!out.is_ok());
         assert_eq!(out.missing_rewrites, vec!["totally_made_up_rewrite"]);
+    }
+}
+
+#[cfg(test)]
+mod golden_tests {
+    use super::*;
+    use crate::fixture::{
+        ExpectApply, ExpectDiff, ExpectPlan, FixtureExpect, FixtureMeta, FixturePassthrough,
+        FixturePg,
+    };
+    use std::path::PathBuf;
+
+    fn fixture_with_golden_in(dir: PathBuf, golden_body: &str) -> crate::fixture::Fixture {
+        std::fs::create_dir_all(dir.join("expected")).unwrap();
+        std::fs::write(dir.join("expected/plan.sql"), golden_body).unwrap();
+        crate::fixture::Fixture {
+            dir,
+            before_sql: String::new(),
+            after_sql: String::new(),
+            meta: FixtureMeta {
+                title: "g".into(),
+                spec_refs: vec![],
+                issue: None,
+            },
+            pg: FixturePg::default(),
+            passthrough: FixturePassthrough::default(),
+            expect: FixtureExpect {
+                diff: ExpectDiff::default(),
+                plan: ExpectPlan {
+                    steps: None,
+                    rewrites_used: vec![],
+                    golden: Some("expected/plan.sql".into()),
+                },
+                apply: ExpectApply::default(),
+            },
+        }
+    }
+
+    #[test]
+    fn passes_when_golden_matches() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = fixture_with_golden_in(tmp.path().to_path_buf(), "SELECT 1;\n");
+        let out = check_golden(&f, "SELECT 1;\n", 17).unwrap();
+        assert!(out.is_ok(), "{:?}", out.mismatch);
+    }
+
+    #[test]
+    fn fails_when_golden_differs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = fixture_with_golden_in(tmp.path().to_path_buf(), "SELECT 1;\n");
+        let out = check_golden(&f, "SELECT 2;\n", 17).unwrap();
+        assert!(!out.is_ok());
+        assert!(out.mismatch.unwrap().contains("bless"));
+    }
+
+    #[test]
+    fn missing_golden_is_flagged() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = fixture_with_golden_in(tmp.path().to_path_buf(), "SELECT 1;\n");
+        std::fs::remove_file(tmp.path().join("expected/plan.sql")).unwrap();
+        let out = check_golden(&f, "SELECT 1;\n", 17).unwrap();
+        assert!(!out.is_ok());
+    }
+
+    #[test]
+    fn opt_out_returns_ok() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut f = fixture_with_golden_in(tmp.path().to_path_buf(), "SELECT 1;\n");
+        f.expect.plan.golden = None;
+        let out = check_golden(&f, "anything", 17).unwrap();
+        assert!(out.is_ok());
+        assert!(out.golden_path.is_none());
     }
 }
