@@ -87,6 +87,11 @@ libpq env (`PGHOST`, `PGUSER`, ...).
 
 ## Documentation
 
+- [`docs/spec/`](./docs/spec/) — living capability catalogue. Every object
+  kind, column type, constraint kind, index option, CLI command, etc.
+  with its implementation status (Implemented / Partial / Planned /
+  Future / Not planned). Start here when you want to know whether
+  pgevolve does / will do a given thing.
 - [`docs/superpowers/specs/2026-05-09-pgevolve-design.md`](./docs/superpowers/specs/2026-05-09-pgevolve-design.md) — v0.1 design.
 - [`docs/superpowers/plans/`](./docs/superpowers/plans/) — phase-by-phase
   implementation plans.

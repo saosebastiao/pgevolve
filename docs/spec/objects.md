@@ -1,0 +1,116 @@
+# Object kinds
+
+Every top-level Postgres object kind pgevolve does, will, or won't
+manage. See [`../README.md`](./README.md) for the status legend.
+
+## Tables and schemas — core surface
+
+| Object | Status | Notes |
+|---|---|---|
+| `SCHEMA` | ✅ Implemented | `CREATE / DROP / COMMENT ON`. Schemas are listed in `[managed].schemas`; everything outside the list is ignored by the differ and lint. |
+| `TABLE` | ✅ Implemented | `CREATE / DROP / ALTER` for every v0.1 column / constraint operation. See [`column-types.md`](./column-types.md) and [`constraints.md`](./constraints.md) for nested capability. Column reorder is detected but not yet applied. |
+| `INDEX` | ✅ Implemented | Six access methods; partial, expression, INCLUDE, NULLS NOT DISTINCT, opclass, collation, tablespace. See [`indexes.md`](./indexes.md). |
+| `SEQUENCE` | ✅ Implemented | `CREATE / DROP / ALTER`. `OWNED BY` modeled. Identity-backing sequences derived from `SERIAL` / `GENERATED AS IDENTITY` columns. |
+| `COMMENT` | ✅ Implemented | On schemas, tables, columns, indexes, sequences, constraints. |
+| Inheritance (`INHERITS`) | ⛔ Not planned | Declarative partitioning supersedes inheritance for v0.1's target use cases. |
+
+## Partitioning
+
+| Feature | Status | Notes |
+|---|---|---|
+| Declarative partitioned table (`PARTITION BY`) | 📋 Planned, v0.2 | Range, list, hash partition strategies. Each partition is a `Table` with a `partition_of` parent. |
+| Partition attach / detach | 📋 Planned, v0.2 | `ATTACH PARTITION` / `DETACH PARTITION CONCURRENTLY` lands with declarative partitioning. |
+| Partition pruning at plan time | 🔮 Future | Plan can skip unaffected partitions when a change touches only the parent; v0.2 first ships the basic case. |
+
+## Views
+
+| Object | Status | Notes |
+|---|---|---|
+| `VIEW` | 📋 Planned, v0.2 | Stored SQL view. Normalized AST so cosmetically-different views diff equal. |
+| `MATERIALIZED VIEW` | 📋 Planned, v0.2 | Including `WITH NO DATA` initial state and the `REFRESH MATERIALIZED VIEW` step kind. `CONCURRENTLY` refresh as an online-rewrite path. |
+| `CREATE VIEW ... WITH CHECK OPTION` | 🔮 Future | Plumbed alongside views; defaults off. |
+
+## Functions, procedures, triggers
+
+| Object | Status | Notes |
+|---|---|---|
+| `FUNCTION` (SQL language body) | 📋 Planned, v0.2 | Source-side: function definitions live in `schema/<schema>/functions/<name>.sql`. Replace-on-change semantics. |
+| `FUNCTION` (PL/pgSQL body) | 📋 Planned, v0.2 | Same model as SQL functions; body is opaque text canonicalized to a normal form for diff. |
+| `FUNCTION` (other PL languages — PL/Python, PL/Perl, etc.) | 🔮 Future | Requires support for `CREATE EXTENSION` for the language first. |
+| `PROCEDURE` | 📋 Planned, v0.2 | Same shape as functions. |
+| `TRIGGER` | 📋 Planned, v0.2 | Both row- and statement-level; before/after/instead-of. Constraint triggers as a subkind. |
+| `EVENT TRIGGER` | 🔮 Future | Lower priority; intersects with admin/security tooling. |
+| `AGGREGATE` | 🔮 Future | Custom aggregates require user-defined functions; lands with PL languages. |
+
+## Custom types
+
+| Object | Status | Notes |
+|---|---|---|
+| `ENUM` (`CREATE TYPE ... AS ENUM`) | 📋 Planned, v0.2 | Including the `ALTER TYPE ... ADD VALUE` online rewrite (which has its own transactionality rules). |
+| `DOMAIN` (`CREATE DOMAIN`) | 📋 Planned, v0.2 | With `NOT NULL`, `CHECK`, default value. |
+| `COMPOSITE TYPE` (`CREATE TYPE ... AS (...)`) | 📋 Planned, v0.2 | Most common companion to user-defined functions. |
+| `RANGE TYPE` (`CREATE TYPE ... AS RANGE`) | 🔮 Future | Lands when range-typed columns become first-class. |
+| `BASE TYPE` (`CREATE TYPE ... ( INPUT = ..., OUTPUT = ... )`) | ⛔ Not planned | Requires C-language functions; out of scope. |
+
+## Extensions
+
+| Object | Status | Notes |
+|---|---|---|
+| `EXTENSION` | 📋 Planned, v0.2 | Source-side: extensions listed in `pgevolve.toml`'s `[extensions]` block with version pins. `CREATE EXTENSION IF NOT EXISTS`. The objects an extension creates are *not* managed by pgevolve — they're owned by the extension. |
+| Extension version upgrade (`ALTER EXTENSION ... UPDATE`) | 📋 Planned, v0.2 | Lands with extensions; respects per-version SQL scripts. |
+
+## Security and roles
+
+| Object | Status | Notes |
+|---|---|---|
+| `ROLE` (`CREATE ROLE / USER`) | 📋 Planned, v0.3 | Membership and inheritance modeled. `LOGIN` attribute kept. Passwords are *not* stored in source — set out-of-band. |
+| `GRANT` / `REVOKE` (object permissions) | 📋 Planned, v0.3 | Per-object grant lists in IR; diff produces minimal GRANT/REVOKE sequences. Default privileges (`ALTER DEFAULT PRIVILEGES`) included. |
+| Row-level security policies (`POLICY`) | 📋 Planned, v0.3 | Including `ENABLE ROW LEVEL SECURITY` toggle on tables. |
+| Security barriers / leakproof flags | 🔮 Future | Less commonly used; lands alongside fine-grained policy review. |
+| `SECURITY LABEL` | ⛔ Not planned | Used primarily by SE-Linux integration; out of scope. |
+
+## Replication and federation
+
+| Object | Status | Notes |
+|---|---|---|
+| `PUBLICATION` | 🔮 Future | Logical replication source-side metadata. |
+| `SUBSCRIPTION` | 🔮 Future | Logical replication consumer; connection strings introduce secrets-management questions. |
+| `FOREIGN DATA WRAPPER` (`FDW`) | 🔮 Future | First-class FDW lifecycle (`CREATE SERVER`, `USER MAPPING`, `IMPORT FOREIGN SCHEMA`). |
+| `FOREIGN TABLE` | 🔮 Future | Lands with FDWs. |
+
+## Storage and physical layout
+
+| Object | Status | Notes |
+|---|---|---|
+| `TABLESPACE` | 🔮 Future | The IR carries the `tablespace` attribute on tables and indexes, but pgevolve does not create / drop tablespaces — they're cluster-level admin objects outside the schema-management remit. |
+| `TABLE ... USING <access method>` | 🔮 Future | Custom table access methods (zheap, columnar, etc.). |
+| `WITH (storage_parameter = ...)` (table reloptions) | 🟡 Partial | The IR doesn't yet model `fillfactor`, autovacuum overrides, etc. Planned for v0.2. |
+| Toast options (`STORAGE EXTERNAL` / `EXTENDED` / `PLAIN` / `MAIN`) | 📋 Planned, v0.2 | Per-column toast strategy lands with extended `[storage]` modeling. |
+
+## Operators, casts, collations, text search
+
+| Object | Status | Notes |
+|---|---|---|
+| `OPERATOR` / `OPERATOR CLASS` / `OPERATOR FAMILY` | 🔮 Future | Heavy admin objects; lower priority than user-facing surface. |
+| `CAST` | 🔮 Future | Custom casts; lands with custom types. |
+| `COLLATION` | 🟡 Partial | Per-column collation **is** modeled in v0.1; `CREATE COLLATION` (defining new collations) is 🔮 Future. |
+| `TEXT SEARCH CONFIGURATION` / `DICTIONARY` / `PARSER` / `TEMPLATE` | 🔮 Future | Lands with full-text-search-aware index methods (`gin` is already supported as a method but text-search dictionaries are not modeled). |
+
+## Statistics, rules, and other helpers
+
+| Object | Status | Notes |
+|---|---|---|
+| `STATISTICS` (`CREATE STATISTICS`) | 📋 Planned, v0.3 | Multi-column statistics objects (`ndistinct`, `dependencies`, `mcv`). |
+| `RULE` | ⛔ Not planned | Largely superseded by triggers; pg_query already discourages new rules. |
+| `SERVER` (FDW server) | 🔮 Future | Lands with FDWs. |
+| `USER MAPPING` | 🔮 Future | Lands with FDWs. |
+
+## What `pgevolve` deliberately does not manage
+
+| Object | Status | Reason |
+|---|---|---|
+| `DATABASE` itself | ⛔ Not planned | Database creation is a cluster-admin step; pgevolve assumes the DB exists. |
+| `TABLESPACE` directories | ⛔ Not planned | Filesystem-level setup. |
+| Cluster-wide settings (`postgresql.conf`) | ⛔ Not planned | Different lifecycle and audit story. |
+| Backups, restores, and physical replication | ⛔ Not planned | Outside the schema-management remit. |
+| Data itself (row contents) | ⛔ Not planned | pgevolve plans never `INSERT` / `UPDATE` / `DELETE`. Data migrations are users' responsibility. |
