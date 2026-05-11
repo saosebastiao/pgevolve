@@ -1526,6 +1526,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "serde_json",
+ "tempfile",
  "testcontainers",
  "tokio",
  "tokio-postgres",

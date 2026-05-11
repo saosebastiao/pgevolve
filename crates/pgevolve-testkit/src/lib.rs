@@ -8,9 +8,11 @@
 
 pub mod catalog_snapshotter;
 pub mod ephemeral_pg;
+pub mod migration_fixture;
 pub mod pg_querier;
 
 pub use ephemeral_pg::{docker_available, EphemeralPostgres};
+pub use migration_fixture::MigrationFixture;
 pub use pg_querier::PgCatalogQuerier;
 
 #[cfg(test)]
