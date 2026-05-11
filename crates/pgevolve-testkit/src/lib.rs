@@ -14,7 +14,7 @@ pub mod ir_mutator;
 pub mod migration_fixture;
 pub mod pg_querier;
 
-pub use ephemeral_pg::{EphemeralPostgres, docker_available};
+pub use ephemeral_pg::{EphemeralPostgres, default_pg_version, docker_available};
 pub use equivalence_asserter::assert_canonical_eq;
 pub use ir_generator::{IRGeneratorConfig, arbitrary_catalog, arbitrary_column_type};
 pub use ir_mutator::arbitrary_mutation;

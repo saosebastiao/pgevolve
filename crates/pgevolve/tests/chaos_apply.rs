@@ -14,9 +14,8 @@ mod common;
 
 use anyhow::Result;
 use pgevolve::executor::ApplyError;
-use pgevolve_core::catalog::PgVersion;
 use pgevolve_core::ir::catalog::Catalog;
-use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
+use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, default_pg_version, docker_available};
 
 use common::{apply_diff, connect_and_bootstrap, introspect, schemas_of};
 
@@ -24,7 +23,7 @@ use common::{apply_diff, connect_and_bootstrap, introspect, schemas_of};
 /// from the partial live state and apply to completion. Verify the live
 /// state matches `final_`.
 async fn run_chaos(final_: &Catalog, abort_step: u32) -> Result<()> {
-    let pg = EphemeralPostgres::start(PgVersion::Pg16).await?;
+    let pg = EphemeralPostgres::start(default_pg_version()).await?;
     let managed = schemas_of(final_);
 
     let mut client = connect_and_bootstrap(&pg).await?;

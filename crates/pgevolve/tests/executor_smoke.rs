@@ -10,8 +10,7 @@
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::similar_names)]
 
-use pgevolve_core::catalog::PgVersion;
-use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
+use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, default_pg_version, docker_available};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bootstrap_is_idempotent() {
@@ -19,7 +18,7 @@ async fn bootstrap_is_idempotent() {
         eprintln!("skipping: docker unavailable");
         return;
     }
-    let pg = EphemeralPostgres::start(PgVersion::Pg16)
+    let pg = EphemeralPostgres::start(default_pg_version())
         .await
         .expect("start pg");
     let mut client = pg.connect().await.expect("connect");
@@ -62,7 +61,7 @@ async fn advisory_lock_contention() {
         eprintln!("skipping: docker unavailable");
         return;
     }
-    let pg = EphemeralPostgres::start(PgVersion::Pg16)
+    let pg = EphemeralPostgres::start(default_pg_version())
         .await
         .expect("start pg");
 
@@ -94,7 +93,7 @@ async fn target_identity_is_stable_across_reconnects() {
         eprintln!("skipping: docker unavailable");
         return;
     }
-    let pg = EphemeralPostgres::start(PgVersion::Pg16)
+    let pg = EphemeralPostgres::start(default_pg_version())
         .await
         .expect("start pg");
     let c1 = pg.connect().await.unwrap();
@@ -169,7 +168,9 @@ async fn apply_succeeds_end_to_end_and_persists_audit_rows() {
         eprintln!("skipping: docker unavailable");
         return;
     }
-    let pg = EphemeralPostgres::start(PgVersion::Pg16).await.unwrap();
+    let pg = EphemeralPostgres::start(default_pg_version())
+        .await
+        .unwrap();
     let mut client = pg.connect().await.unwrap();
 
     let identity = pgevolve::compute_target_identity(&client).await.unwrap();
@@ -240,7 +241,9 @@ async fn apply_rolls_back_transactional_group_on_failure() {
     use pgevolve_core::plan::grouping::TransactionGroup;
     use pgevolve_core::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
-    let pg = EphemeralPostgres::start(PgVersion::Pg16).await.unwrap();
+    let pg = EphemeralPostgres::start(default_pg_version())
+        .await
+        .unwrap();
     let mut client = pg.connect().await.unwrap();
     let identity = pgevolve::compute_target_identity(&client).await.unwrap();
 
@@ -346,7 +349,9 @@ async fn apply_rejects_target_identity_mismatch() {
         eprintln!("skipping: docker unavailable");
         return;
     }
-    let pg = EphemeralPostgres::start(PgVersion::Pg16).await.unwrap();
+    let pg = EphemeralPostgres::start(default_pg_version())
+        .await
+        .unwrap();
     let mut client = pg.connect().await.unwrap();
 
     let dir = tempfile::tempdir().unwrap();
@@ -377,7 +382,9 @@ async fn status_queries_return_recent_apply_with_steps() {
         eprintln!("skipping: docker unavailable");
         return;
     }
-    let pg = EphemeralPostgres::start(PgVersion::Pg16).await.unwrap();
+    let pg = EphemeralPostgres::start(default_pg_version())
+        .await
+        .unwrap();
     let mut client = pg.connect().await.unwrap();
     let identity = pgevolve::compute_target_identity(&client).await.unwrap();
 
@@ -430,8 +437,12 @@ async fn target_identity_differs_between_distinct_databases() {
         eprintln!("skipping: docker unavailable");
         return;
     }
-    let pg_a = EphemeralPostgres::start(PgVersion::Pg16).await.unwrap();
-    let pg_b = EphemeralPostgres::start(PgVersion::Pg16).await.unwrap();
+    let pg_a = EphemeralPostgres::start(default_pg_version())
+        .await
+        .unwrap();
+    let pg_b = EphemeralPostgres::start(default_pg_version())
+        .await
+        .unwrap();
     let id_a = pgevolve::compute_target_identity(&pg_a.connect().await.unwrap())
         .await
         .unwrap();

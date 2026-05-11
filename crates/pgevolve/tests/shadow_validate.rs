@@ -12,7 +12,7 @@ use std::path::Path;
 use std::process::Command;
 
 use pgevolve_core::catalog::PgVersion;
-use pgevolve_testkit::ephemeral_pg::docker_available;
+use pgevolve_testkit::ephemeral_pg::{default_pg_version, docker_available};
 
 fn cargo_bin() -> std::path::PathBuf {
     let mut p = std::path::PathBuf::from(env!("CARGO_BIN_EXE_pgevolve"));
@@ -68,7 +68,7 @@ fn shadow_round_trip_succeeds_on_clean_source() {
     let project_path = project.path();
     fs::write(
         project_path.join("pgevolve.toml"),
-        pgevolve_toml(PgVersion::Pg16),
+        pgevolve_toml(default_pg_version()),
     )
     .unwrap();
     write(

@@ -19,9 +19,8 @@ use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
 
-use pgevolve_core::catalog::PgVersion;
 use pgevolve_core::ir::catalog::Catalog;
-use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
+use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, default_pg_version, docker_available};
 use pgevolve_testkit::{
     IRGeneratorConfig, arbitrary_catalog, arbitrary_mutation, assert_canonical_eq,
 };
@@ -38,7 +37,7 @@ fn case_count(default: u32) -> u32 {
 
 /// Round-trip: applying a catalog and re-introspecting yields the same IR.
 async fn check_round_trip(catalog: &Catalog) -> Result<()> {
-    let pg = EphemeralPostgres::start(PgVersion::Pg16).await?;
+    let pg = EphemeralPostgres::start(default_pg_version()).await?;
     let managed = schemas_of(catalog);
     if managed.is_empty() {
         return Ok(()); // trivially round-trips
@@ -53,7 +52,7 @@ async fn check_round_trip(catalog: &Catalog) -> Result<()> {
 /// Idempotency: applying the same catalog twice is a no-op on the second
 /// pass (the diff is empty and the planner emits zero groups).
 async fn check_idempotency(catalog: &Catalog) -> Result<()> {
-    let pg = EphemeralPostgres::start(PgVersion::Pg16).await?;
+    let pg = EphemeralPostgres::start(default_pg_version()).await?;
     let managed = schemas_of(catalog);
     if managed.is_empty() {
         return Ok(());
@@ -78,7 +77,7 @@ async fn check_idempotency(catalog: &Catalog) -> Result<()> {
 /// mutation, then introspect and assert structural equality with the
 /// mutated IR.
 async fn check_end_to_end(initial: &Catalog, mutated: &Catalog) -> Result<()> {
-    let pg = EphemeralPostgres::start(PgVersion::Pg16).await?;
+    let pg = EphemeralPostgres::start(default_pg_version()).await?;
     // Use the union of schemas across both states; otherwise drop-schema
     // mutations skip the introspect.
     let mut managed: Vec<_> = schemas_of(initial);
@@ -105,7 +104,7 @@ async fn check_end_to_end(initial: &Catalog, mutated: &Catalog) -> Result<()> {
 /// Drift recovery: apply midway, abort, then re-plan from partial live
 /// state and complete the apply. End state must equal the target catalog.
 async fn check_drift_recovery(target: &Catalog, abort_step: u32) -> Result<()> {
-    let pg = EphemeralPostgres::start(PgVersion::Pg16).await?;
+    let pg = EphemeralPostgres::start(default_pg_version()).await?;
     let managed = schemas_of(target);
     if managed.is_empty() {
         return Ok(());

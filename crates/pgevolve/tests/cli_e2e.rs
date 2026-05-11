@@ -5,8 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use pgevolve_core::catalog::PgVersion;
-use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
+use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, default_pg_version, docker_available};
 
 fn cargo_bin() -> std::path::PathBuf {
     let mut p = std::path::PathBuf::from(env!("CARGO_BIN_EXE_pgevolve"));
@@ -27,7 +26,9 @@ async fn end_to_end_init_plan_apply_status() {
         eprintln!("skipping: docker unavailable");
         return;
     }
-    let pg = EphemeralPostgres::start(PgVersion::Pg16).await.unwrap();
+    let pg = EphemeralPostgres::start(default_pg_version())
+        .await
+        .unwrap();
 
     let project = tempfile::tempdir().unwrap();
     let project_path = project.path();
