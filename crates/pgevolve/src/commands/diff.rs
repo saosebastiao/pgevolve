@@ -30,6 +30,48 @@ pub async fn run(args: DiffArgs, cfg: &PgevolveConfig, format: OutputFormat) -> 
         OutputFormat::Json => print_json(&changes)?,
         OutputFormat::Sql => print_sql(&changes),
     }
+
+    if args.shadow_validate {
+        let shadow_cfg = cfg
+            .shadow
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--shadow-validate requires a [shadow] section in pgevolve.toml"))?;
+        let backend = crate::shadow::resolve(shadow_cfg)?;
+        // v0.1: default to PG 17. v0.2 will thread the real major from the
+        // live DB connection or from [shadow].postgres_version.
+        let major = shadow_cfg
+            .postgres_version
+            .as_deref()
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .unwrap_or(17);
+        let report = crate::shadow::validate::cross_check(
+            backend.as_ref(),
+            &source,
+            major,
+            args.shadow_strict,
+        )
+        .await?;
+        eprintln!(
+            "shadow-validate: {} structural edge(s) checked",
+            report.structural_edges_checked
+        );
+        if !report.warnings.is_empty() {
+            eprintln!("shadow-validate: {} warning(s):", report.warnings.len());
+            for w in &report.warnings {
+                eprintln!("  - {w}");
+            }
+            if args.shadow_strict {
+                anyhow::bail!("shadow-validate --strict: warnings treated as errors");
+            }
+        }
+        if !report.errors.is_empty() {
+            for e in &report.errors {
+                eprintln!("  - {e}");
+            }
+            anyhow::bail!("shadow-validate: {} error(s)", report.errors.len());
+        }
+    }
+
     // Spec §10.1: `diff` is informational — always exit 0 regardless of change count.
     Ok(0)
 }

@@ -131,6 +131,13 @@ pub struct ValidateArgs {
     /// Round-trip the source through an ephemeral PG. Phase 12 wires the logic.
     #[arg(long)]
     pub shadow: bool,
+    /// Cross-check the source IR against an ephemeral or DSN-supplied
+    /// shadow Postgres after apply. Optional; arch spec Decision 12.
+    #[arg(long)]
+    pub shadow_validate: bool,
+    /// When --shadow-validate is set, treat warnings as errors.
+    #[arg(long, requires = "shadow_validate")]
+    pub shadow_strict: bool,
 }
 
 /// `diff` arguments.
@@ -142,6 +149,13 @@ pub struct DiffArgs {
     /// Override the resolved DSN.
     #[arg(long)]
     pub url: Option<String>,
+    /// Cross-check the source IR against an ephemeral or DSN-supplied
+    /// shadow Postgres after apply. Optional; arch spec Decision 12.
+    #[arg(long)]
+    pub shadow_validate: bool,
+    /// When --shadow-validate is set, treat warnings as errors.
+    #[arg(long, requires = "shadow_validate")]
+    pub shadow_strict: bool,
 }
 
 /// `plan` arguments.
@@ -156,6 +170,13 @@ pub struct PlanArgs {
     /// Output plan directory. Defaults to `<plan_dir>/<YYYY-MM-DD>-<id>`.
     #[arg(short, long)]
     pub output: Option<PathBuf>,
+    /// Cross-check the source IR against an ephemeral or DSN-supplied
+    /// shadow Postgres after apply. Optional; arch spec Decision 12.
+    #[arg(long)]
+    pub shadow_validate: bool,
+    /// When --shadow-validate is set, treat warnings as errors.
+    #[arg(long, requires = "shadow_validate")]
+    pub shadow_strict: bool,
 }
 
 /// `apply` arguments.

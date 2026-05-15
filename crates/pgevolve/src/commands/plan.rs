@@ -114,7 +114,59 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
         plan.groups.iter().map(|g| g.steps.len()).sum::<usize>(),
         plan.intents.len(),
     );
+
+    if args.shadow_validate {
+        run_shadow_cross_check(&source, cfg, args.shadow_strict).await?;
+    }
+
     Ok(0)
+}
+
+/// Run the `--shadow-validate` cross-check (arch spec Decision 12).
+///
+/// Resolves the backend from the `[shadow]` config, calls [`cross_check`],
+/// and prints / propagates any warnings or errors.
+///
+/// [`cross_check`]: crate::shadow::validate::cross_check
+async fn run_shadow_cross_check(
+    source: &pgevolve_core::ir::catalog::Catalog,
+    cfg: &PgevolveConfig,
+    strict: bool,
+) -> anyhow::Result<()> {
+    let shadow_cfg = cfg
+        .shadow
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("--shadow-validate requires a [shadow] section in pgevolve.toml"))?;
+    let backend = crate::shadow::resolve(shadow_cfg)?;
+    // v0.1: default to PG 17. v0.2 will thread the real major from the
+    // live DB connection or from [shadow].postgres_version.
+    let major = shadow_cfg
+        .postgres_version
+        .as_deref()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .unwrap_or(17);
+    let report =
+        crate::shadow::validate::cross_check(backend.as_ref(), source, major, strict).await?;
+    eprintln!(
+        "shadow-validate: {} structural edge(s) checked",
+        report.structural_edges_checked
+    );
+    if !report.warnings.is_empty() {
+        eprintln!("shadow-validate: {} warning(s):", report.warnings.len());
+        for w in &report.warnings {
+            eprintln!("  - {w}");
+        }
+        if strict {
+            anyhow::bail!("shadow-validate --strict: warnings treated as errors");
+        }
+    }
+    if !report.errors.is_empty() {
+        for e in &report.errors {
+            eprintln!("  - {e}");
+        }
+        anyhow::bail!("shadow-validate: {} error(s)", report.errors.len());
+    }
+    Ok(())
 }
 
 /// Load `[[lint_waiver]]` rows from an existing `intent.toml` in `dir`, if

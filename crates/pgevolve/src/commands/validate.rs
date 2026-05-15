@@ -51,6 +51,52 @@ pub async fn run(args: &ValidateArgs, cfg: &PgevolveConfig) -> Result<i32> {
         return Ok(1);
     }
 
+    if args.shadow_validate {
+        let shadow_cfg = cfg
+            .shadow
+            .as_ref()
+            .ok_or_else(|| anyhow!("--shadow-validate requires a [shadow] section in pgevolve.toml"))?;
+        let backend = resolve(shadow_cfg)?;
+        // v0.1: default to PG 17. v0.2 will thread the real major from the
+        // live DB connection or from [shadow].postgres_version.
+        let major = shadow_cfg
+            .postgres_version
+            .as_deref()
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .unwrap_or(17);
+        let report = crate::shadow::validate::cross_check(
+            backend.as_ref(),
+            &source,
+            major,
+            args.shadow_strict,
+        )
+        .await?;
+        eprintln!(
+            "shadow-validate: {} structural edge(s) checked",
+            report.structural_edges_checked
+        );
+        if !report.warnings.is_empty() {
+            eprintln!("shadow-validate: {} warning(s):", report.warnings.len());
+            for w in &report.warnings {
+                eprintln!("  - {w}");
+            }
+            if args.shadow_strict {
+                anyhow::bail!("shadow-validate --strict: warnings treated as errors");
+            }
+        }
+        if !report.errors.is_empty() {
+            for e in &report.errors {
+                eprintln!("  - {e}");
+            }
+            anyhow::bail!("shadow-validate: {} error(s)", report.errors.len());
+        }
+        eprintln!(
+            "shadow-validate: ok ({} structural edge(s))",
+            report.structural_edges_checked
+        );
+        return Ok(0);
+    }
+
     println!(
         "pgevolve validate: source parses cleanly ({} schema(s), {} table(s)); 0 lint findings",
         source.schemas.len(),

@@ -11,6 +11,7 @@
 
 pub mod dsn;
 pub mod testcontainers;
+pub mod validate;
 
 use async_trait::async_trait;
 
