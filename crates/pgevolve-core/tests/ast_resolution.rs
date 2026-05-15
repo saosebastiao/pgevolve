@@ -115,3 +115,26 @@ fn all_unresolved_refs_accumulated_not_short_circuited() {
     assert!(msg.contains("app.a"), "error should name missing table app.a: {msg}");
     assert!(msg.contains("app.b"), "error should name missing table app.b: {msg}");
 }
+
+#[test]
+fn body_cycle_variant_renders_node_names() {
+    use pgevolve_core::identifier::{Identifier, QualifiedName};
+    use pgevolve_core::plan::edges::NodeId;
+    use pgevolve_core::plan::error::PlanError;
+
+    let nodes = vec![
+        NodeId::Table(QualifiedName::new(
+            Identifier::from_unquoted("app").unwrap(),
+            Identifier::from_unquoted("a").unwrap(),
+        )),
+        NodeId::Table(QualifiedName::new(
+            Identifier::from_unquoted("app").unwrap(),
+            Identifier::from_unquoted("b").unwrap(),
+        )),
+    ];
+    let err = PlanError::BodyCycle { nodes };
+    let msg = err.to_string();
+    assert!(msg.contains("body-derived"), "message should mention 'body-derived': {msg}");
+    assert!(msg.contains("app.a"), "should name 'app.a': {msg}");
+    assert!(msg.contains("app.b"), "should name 'app.b': {msg}");
+}
