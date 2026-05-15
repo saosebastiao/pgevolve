@@ -22,7 +22,6 @@
 //! DDL must itself be declared in source DDL.
 
 use std::collections::HashMap;
-use std::hash::BuildHasher;
 
 use crate::ir::catalog::Catalog;
 use crate::parse::error::SourceLocation;
@@ -55,9 +54,9 @@ impl std::fmt::Display for AstResolutionError {
 /// Returns `Ok(())` when every reference resolves. Returns `Err(Vec<...>)`
 /// listing every unresolved reference — errors are accumulated rather than
 /// short-circuited so the user sees the full picture in one pass.
-pub fn resolve<S: BuildHasher>(
+pub fn resolve(
     catalog: &Catalog,
-    locations: &HashMap<String, SourceLocation, S>,
+    locations: &HashMap<String, SourceLocation>,
 ) -> Result<(), Vec<AstResolutionError>> {
     let mut errors = Vec::new();
     resolve_fk_references(catalog, locations, &mut errors);
@@ -69,9 +68,9 @@ pub fn resolve<S: BuildHasher>(
     }
 }
 
-fn resolve_fk_references<S: BuildHasher>(
+fn resolve_fk_references(
     catalog: &Catalog,
-    locations: &HashMap<String, SourceLocation, S>,
+    locations: &HashMap<String, SourceLocation>,
     errors: &mut Vec<AstResolutionError>,
 ) {
     use crate::ir::constraint::ConstraintKind;
@@ -89,8 +88,8 @@ fn resolve_fk_references<S: BuildHasher>(
                     let location = locations.get(&table.qname.to_string()).cloned();
                     errors.push(AstResolutionError {
                         message: format!(
-                            "FK {} references {} which is not declared in source",
-                            constraint.qname.name, fk.referenced_table,
+                            "FK {}.{} references {} which is not declared in source",
+                            table.qname, constraint.qname.name, fk.referenced_table,
                         ),
                         location,
                     });
@@ -100,9 +99,9 @@ fn resolve_fk_references<S: BuildHasher>(
     }
 }
 
-fn resolve_default_sequence_references<S: BuildHasher>(
+fn resolve_default_sequence_references(
     catalog: &Catalog,
-    locations: &HashMap<String, SourceLocation, S>,
+    locations: &HashMap<String, SourceLocation>,
     errors: &mut Vec<AstResolutionError>,
 ) {
     use crate::ir::default_expr::DefaultExpr;

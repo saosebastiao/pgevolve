@@ -42,6 +42,10 @@ fn fk_to_undeclared_table_is_caught_at_ast_resolution() {
         msg.contains("fk_user"),
         "error should name the FK constraint: {msg}",
     );
+    assert!(
+        msg.contains("app.orders"),
+        "error should name the referencing table: {msg}",
+    );
 }
 
 #[test]

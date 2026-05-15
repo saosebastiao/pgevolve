@@ -4,7 +4,7 @@
 //! [`crate::ir::catalog::Catalog`]. Construction is I/O-free at the type level —
 //! the only I/O is performed by [`parse_directory`] on behalf of callers.
 
-pub mod ast_resolution;
+mod ast_resolution;
 pub mod builder;
 pub mod directives;
 pub mod error;
