@@ -8,7 +8,7 @@
 //!   matching `managed.schemas` entry, and vice versa.
 //! - **`closed_world_references`** — every FK target table exists in source.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::ManagedConfig;
 use super::finding::Finding;
@@ -181,12 +181,11 @@ pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
 /// Source is canonical; the lint says "your DB has columns in a different
 /// order." Severity is `LintAtPlan` — plan refuses unless the finding is
 /// waived in `intent.toml` (waiver mechanism in Task 8).
-pub fn column_position_drift_rule(
+fn column_position_drift_rule(
     source: &Catalog,
     target: &Catalog,
     out: &mut Vec<Finding>,
 ) {
-    use std::collections::BTreeMap;
     let target_tables: BTreeMap<_, _> =
         target.tables.iter().map(|t| (t.qname.clone(), t)).collect();
 
@@ -202,11 +201,9 @@ pub fn column_position_drift_rule(
         // Only compare columns that exist in both catalogs. Added or removed
         // columns do not constitute position drift — those are handled by the
         // planner.
-        let common: std::collections::BTreeSet<_> = source_names
-            .iter()
-            .filter(|n| target_names.contains(n))
-            .cloned()
-            .collect();
+        let source_set: BTreeSet<_> = source_names.iter().cloned().collect();
+        let target_set: BTreeSet<_> = target_names.iter().cloned().collect();
+        let common: BTreeSet<_> = source_set.intersection(&target_set).cloned().collect();
 
         let source_order: Vec<_> = source_names
             .iter()
