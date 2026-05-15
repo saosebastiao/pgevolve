@@ -155,3 +155,82 @@ fn drift_report_default_is_empty() {
     assert!(drift.pending_validation.is_empty());
     assert!(drift.invalid_indexes.is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn invalid_index_produces_drop_and_create_in_plan() {
+    use pgevolve_core::diff::diff;
+    use pgevolve_core::plan::{PlannerPolicy, group_steps, order, rewrite_with_source};
+
+    if !docker_available() {
+        eprintln!("skipping catalog_drift::invalid_index_produces_drop_and_create_in_plan: Docker unavailable");
+        return;
+    }
+
+    let pg = EphemeralPostgres::start(PgVersion::Pg17)
+        .await
+        .expect("start PG17");
+
+    pg.exec_sql(
+        "CREATE SCHEMA app;
+         CREATE TABLE app.users (id bigint PRIMARY KEY, email text);
+         CREATE INDEX users_email_idx ON app.users (email);",
+    )
+    .await
+    .expect("setup tables and index");
+
+    pg.exec_sql(
+        "UPDATE pg_index SET indisvalid = false
+             WHERE indexrelid = 'app.users_email_idx'::regclass;",
+    )
+    .await
+    .expect("mark index invalid");
+
+    let client = pg.connect().await.expect("connect");
+    let querier = PgCatalogQuerier::new(client).expect("querier");
+    let filter = app_filter();
+
+    let (live, drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+        .await
+        .expect("join")
+        .expect("read_catalog");
+
+    // Source declares the same schema, table, and index.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let dir = tmp.path();
+    std::fs::create_dir_all(dir.join("app")).expect("create dir");
+    std::fs::write(
+        dir.join("app/schema.sql"),
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    )
+    .expect("write schema.sql");
+    std::fs::write(
+        dir.join("app/users.sql"),
+        "-- @pgevolve schema=app\n\
+         CREATE TABLE app.users (id bigint PRIMARY KEY, email text);\n\
+         CREATE INDEX users_email_idx ON app.users (email);\n",
+    )
+    .expect("write users.sql");
+    let source = pgevolve_core::parse::parse_directory(dir, &[]).expect("parse");
+
+    // Diff + order + rewrite_with_source.
+    let changes = diff(&live, &source, &drift);
+    let ordered = order(&live, &source, changes).expect("order");
+    let policy = PlannerPolicy::default();
+    let steps = rewrite_with_source(ordered, &live, &source, &policy);
+    let _groups = group_steps(steps.clone());
+
+    // Expect both DROP INDEX and CREATE INDEX in the plan.
+    let combined: String = steps.iter().map(|s| s.sql.as_str()).collect::<Vec<_>>().join("\n");
+    assert!(
+        combined.to_uppercase().contains("DROP INDEX"),
+        "expected DROP INDEX in plan:\n{combined}"
+    );
+    assert!(
+        combined.to_uppercase().contains("CREATE INDEX"),
+        "expected CREATE INDEX in plan:\n{combined}"
+    );
+    assert!(
+        combined.contains("users_email_idx"),
+        "should name the index; got:\n{combined}"
+    );
+}

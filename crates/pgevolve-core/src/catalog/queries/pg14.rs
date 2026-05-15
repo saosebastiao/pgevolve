@@ -14,6 +14,7 @@ SELECT
   tn.nspname                 AS table_schema,
   am.amname                  AS method,
   i.indisunique              AS unique,
+  i.indisvalid               AS indisvalid,
   false                      AS nulls_not_distinct,
   i.indkey::int2[]::int8[]   AS column_attnums,
   i.indnatts::bigint         AS total_columns,

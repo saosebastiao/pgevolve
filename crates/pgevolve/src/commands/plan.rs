@@ -7,7 +7,7 @@ use anyhow::Result;
 
 use pgevolve_core::catalog::{CatalogFilter, read_catalog};
 use pgevolve_core::diff::diff;
-use pgevolve_core::plan::{Plan, PlannerPolicy, group_steps, order, rewrite, write_plan_dir};
+use pgevolve_core::plan::{Plan, PlannerPolicy, group_steps, order, rewrite_with_source, write_plan_dir};
 
 use crate::cli::PlanArgs;
 use crate::config::PgevolveConfig;
@@ -38,7 +38,7 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
         online: PlannerPolicy::default().online,
         ..PlannerPolicy::default()
     };
-    let steps = rewrite(ordered, &target, &policy);
+    let steps = rewrite_with_source(ordered, &target, &source, &policy);
     let groups = group_steps(steps);
     let plan = Plan::from_grouped(
         groups,
