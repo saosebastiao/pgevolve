@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use super::ManagedConfig;
 use super::finding::Finding;
 use super::source_tree::{ObjectKey, SourceTree};
+use crate::ir::catalog::Catalog;
 use crate::ir::constraint::ConstraintKind;
 
 /// Run every universal rule.
@@ -160,6 +161,82 @@ fn closed_world_references(tree: &SourceTree) -> Vec<Finding> {
     }
 
     out
+}
+
+/// Run all drift-detection rules that compare `source` against a `target`
+/// catalog (e.g. the live database). Returns a list of [`Finding`]s.
+///
+/// This is the entry point for lint rules that need both the source and target
+/// catalogs, as opposed to [`check_universal`] which only needs the source tree.
+pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
+    let mut out = Vec::new();
+    column_position_drift_rule(source, target, &mut out);
+    out
+}
+
+/// `column-position-drift` — fires when a table's column order in source
+/// disagrees with the target catalog's column order, with no other structural
+/// change accompanying that column.
+///
+/// Source is canonical; the lint says "your DB has columns in a different
+/// order." Severity is `LintAtPlan` — plan refuses unless the finding is
+/// waived in `intent.toml` (waiver mechanism in Task 8).
+pub fn column_position_drift_rule(
+    source: &Catalog,
+    target: &Catalog,
+    out: &mut Vec<Finding>,
+) {
+    use std::collections::BTreeMap;
+    let target_tables: BTreeMap<_, _> =
+        target.tables.iter().map(|t| (t.qname.clone(), t)).collect();
+
+    for source_table in &source.tables {
+        let Some(target_table) = target_tables.get(&source_table.qname) else {
+            continue;
+        };
+        let source_names: Vec<_> =
+            source_table.columns.iter().map(|c| c.name.clone()).collect();
+        let target_names: Vec<_> =
+            target_table.columns.iter().map(|c| c.name.clone()).collect();
+
+        // Only compare columns that exist in both catalogs. Added or removed
+        // columns do not constitute position drift — those are handled by the
+        // planner.
+        let common: std::collections::BTreeSet<_> = source_names
+            .iter()
+            .filter(|n| target_names.contains(n))
+            .cloned()
+            .collect();
+
+        let source_order: Vec<_> = source_names
+            .iter()
+            .filter(|n| common.contains(n))
+            .collect();
+        let target_order: Vec<_> = target_names
+            .iter()
+            .filter(|n| common.contains(n))
+            .collect();
+
+        if source_order != target_order {
+            out.push(Finding::lint_at_plan(
+                "column-position-drift",
+                format!(
+                    "{}: column position drift. source order [{}] vs catalog order [{}]",
+                    source_table.qname,
+                    source_order
+                        .iter()
+                        .map(|n| n.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    target_order
+                        .iter()
+                        .map(|n| n.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+            ));
+        }
+    }
 }
 
 #[cfg(test)]
