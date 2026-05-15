@@ -148,6 +148,31 @@ where
         v.reverse();
         Ok(v)
     }
+
+    /// Iterate all edges as `(from, to)` pairs in deterministic order.
+    ///
+    /// Pairs are yielded in `(from Ord, to Ord)` order because the underlying
+    /// storage is a `BTreeMap<N, BTreeSet<N>>`.
+    pub fn edges(&self) -> impl Iterator<Item = (&N, &N)> {
+        self.edges
+            .iter()
+            .flat_map(|(from, targets)| targets.iter().map(move |to| (from, to)))
+    }
+}
+
+impl crate::plan::graph::Graph<crate::plan::edges::NodeId> {
+    /// Iterate edges as [`DepEdge`](crate::plan::edges::DepEdge) records.
+    ///
+    /// Every v0.1 edge is tagged [`DepSource::Structural`](crate::plan::edges::DepSource::Structural).
+    /// v0.2 sub-specs will populate `AstExtracted` and `AstDeclared` via
+    /// `add_dep_edge` (added in Task 2).
+    pub fn dep_edges(&self) -> impl Iterator<Item = crate::plan::edges::DepEdge> + '_ {
+        self.edges().map(|(from, to)| crate::plan::edges::DepEdge {
+            from: from.clone(),
+            to: to.clone(),
+            source: crate::plan::edges::DepSource::Structural,
+        })
+    }
 }
 
 #[cfg(test)]

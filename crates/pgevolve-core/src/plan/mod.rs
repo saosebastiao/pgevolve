@@ -23,7 +23,7 @@ pub use deserialize::{
     ParsedIntent, ParsedManifest, PartialPlan, read_intent_toml, read_manifest_toml, read_plan_dir,
     read_plan_sql,
 };
-pub use edges::{NodeId, build_create_graph, build_drop_graph};
+pub use edges::{DepEdge, DepSource, NodeId, build_create_graph, build_drop_graph};
 pub use error::PlanError;
 pub use graph::{Cycle, Graph};
 pub use grouping::{TransactionGroup, group_steps};
