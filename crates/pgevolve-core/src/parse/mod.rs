@@ -8,6 +8,7 @@ mod ast_resolution;
 pub mod builder;
 pub mod directives;
 pub mod error;
+pub mod normalize_body;
 pub mod normalize_expr;
 pub mod statement;
 

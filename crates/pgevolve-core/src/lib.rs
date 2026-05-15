@@ -15,6 +15,8 @@ pub mod lint;
 pub mod parse;
 pub mod plan;
 
+pub use crate::parse::normalize_body::{BodyError, NormalizedBody};
+
 /// Crate version, exposed for embedding in plan manifests.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
