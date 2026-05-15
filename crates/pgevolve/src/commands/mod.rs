@@ -7,6 +7,7 @@
 pub mod apply;
 pub mod bootstrap;
 pub mod diff;
+pub mod graph;
 pub mod init;
 pub mod lint;
 pub mod plan;

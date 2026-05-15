@@ -50,6 +50,30 @@ pub enum Command {
     Dump(DumpArgs),
     /// Install or upgrade the `pgevolve` metadata schema.
     Bootstrap(BootstrapArgs),
+    /// Render the dep graph (name-derived + AST-derived edges).
+    Graph {
+        /// Graph output format (dot or mermaid). Note: the global `--format`
+        /// flag is for human/json/sql output; this flag controls the graph
+        /// renderer.
+        #[arg(long = "graph-format", value_enum, default_value_t = GraphFormat::Dot)]
+        graph_format: GraphFormat,
+        /// Write to file instead of stdout.
+        #[arg(short = 'o', long)]
+        out: Option<PathBuf>,
+        /// Plan directory to render the post-plan dep graph. When absent,
+        /// renders the current source graph.
+        #[arg(long)]
+        plan: Option<PathBuf>,
+    },
+}
+
+/// Output format for `pgevolve graph`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum GraphFormat {
+    /// DOT format (for use with graphviz).
+    Dot,
+    /// Mermaid graph format.
+    Mermaid,
 }
 
 /// Top-level output format.
