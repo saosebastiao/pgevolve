@@ -104,7 +104,7 @@ async fn run_one(version: PgVersion, source_sql: &Path) -> Result<String> {
         managed.push(Identifier::from_unquoted("billing").map_err(|e| anyhow!(e))?);
     }
     let filter = CatalogFilter::new(managed, vec![]).map_err(|e| anyhow!(e.to_string()))?;
-    let catalog = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+    let (catalog, _drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
         .await?
         .map_err(|e| anyhow!(e.to_string()))?;
     catalog_snapshotter::to_canonical_json(&catalog)

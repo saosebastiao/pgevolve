@@ -20,11 +20,11 @@ pub async fn run(args: DiffArgs, cfg: &PgevolveConfig, format: OutputFormat) -> 
     let client = connect(&opts).await?;
     let querier = PgCatalogQuerier::new(client)?;
     let filter = CatalogFilter::new(opts.managed_schemas.clone(), opts.ignore_objects.clone())?;
-    let target = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+    let (target, drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
         .await
         .map_err(|e| anyhow::anyhow!("join error: {e}"))??;
 
-    let changes = diff(&target, &source);
+    let changes = diff(&target, &source, &drift);
     match format {
         OutputFormat::Human => print_human(&changes),
         OutputFormat::Json => print_json(&changes)?,
@@ -86,6 +86,12 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
             }
             pgevolve_core::diff::change::Change::AlterSchema { name, .. } => {
                 println!("      alter schema {name}");
+            }
+            pgevolve_core::diff::change::Change::ValidateConstraint { table, constraint } => {
+                println!("      validate constraint {constraint} on {table}");
+            }
+            pgevolve_core::diff::change::Change::RecreateIndex { qname } => {
+                println!("      recreate invalid index {qname}");
             }
         }
     }
@@ -160,5 +166,7 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::CreateSequence(_) => "CreateSequence",
         Change::DropSequence(_) => "DropSequence",
         Change::AlterSequence { .. } => "AlterSequence",
+        Change::ValidateConstraint { .. } => "ValidateConstraint",
+        Change::RecreateIndex { .. } => "RecreateIndex",
     }
 }

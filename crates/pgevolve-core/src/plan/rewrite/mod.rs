@@ -34,6 +34,7 @@ use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 /// Context passed to every emitter — read-only.
 struct Ctx<'a> {
     target: &'a Catalog,
+    source: &'a Catalog,
     policy: &'a PlannerPolicy,
 }
 
@@ -46,7 +47,22 @@ pub fn rewrite(
     target: &Catalog,
     policy: &PlannerPolicy,
 ) -> Vec<RawStep> {
-    let ctx = Ctx { target, policy };
+    rewrite_with_source(ordered, target, &Catalog::empty(), policy)
+}
+
+/// Like [`rewrite`] but also accepts the source catalog for drift-recovery
+/// changes that need to look up source-side IR (e.g., `RecreateIndex`).
+pub fn rewrite_with_source(
+    ordered: OrderedChangeSet,
+    target: &Catalog,
+    source: &Catalog,
+    policy: &PlannerPolicy,
+) -> Vec<RawStep> {
+    let ctx = Ctx {
+        target,
+        source,
+        policy,
+    };
     let mut out = Vec::new();
     for entry in ordered.creates_and_adds {
         emit_change(entry, &ctx, &mut out);
@@ -313,6 +329,62 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         Change::AlterSequence { qname, ops } => {
             for op in ops {
                 emit_sequence_op(&qname, op, out);
+            }
+        }
+
+        // Drift-recovery changes emitted from the DriftReport.
+        Change::ValidateConstraint { table, constraint } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::ValidateConstraint,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![table.clone()],
+                sql: sql::alter_table_validate_constraint(&table, &constraint),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        Change::RecreateIndex { qname } => {
+            // Drop the invalid index then re-create it from the source IR.
+            // If the index is unknown in the source (e.g., it was dropped in the
+            // same migration), emit only the drop so we don't fail the plan.
+            let source_idx = ctx.source.indexes.iter().find(|i| i.qname == qname);
+            // Drop step — use concurrent rewrite if policy allows and target
+            // index exists (we know it does because the drift report saw it).
+            let drop_step =
+                if concurrent_index::should_rewrite_drop(&qname, ctx.target, ctx.policy) {
+                    concurrent_index::drop_step(&qname, false, None)
+                } else {
+                    RawStep {
+                        step_no: 0,
+                        kind: StepKind::DropIndex,
+                        destructive: false,
+                        destructive_reason: None,
+                        intent_id: None,
+                        targets: vec![qname.clone()],
+                        sql: sql::drop_index(&qname, false),
+                        transactional: TransactionConstraint::InTransaction,
+                    }
+                };
+            out.push(drop_step);
+            if let Some(idx) = source_idx {
+                let create_step =
+                    if concurrent_index::should_rewrite_create(idx, ctx.target, ctx.policy) {
+                        concurrent_index::create_step(idx, false, None)
+                    } else {
+                        RawStep {
+                            step_no: 0,
+                            kind: StepKind::CreateIndex,
+                            destructive: false,
+                            destructive_reason: None,
+                            intent_id: None,
+                            targets: vec![idx.qname.clone(), idx.table.clone()],
+                            sql: sql::create_index(idx, false),
+                            transactional: TransactionConstraint::InTransaction,
+                        }
+                    };
+                out.push(create_step);
             }
         }
     }

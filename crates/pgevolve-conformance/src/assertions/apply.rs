@@ -260,6 +260,7 @@ async fn introspect(pg: &EphemeralPostgres, fixture: &Fixture) -> anyhow::Result
     let filter = CatalogFilter::new(managed, vec![])?;
     tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
         .await?
+        .map(|(catalog, _drift)| catalog)
         .map_err(Into::into)
 }
 

@@ -93,6 +93,23 @@ pub enum Change {
         /// Per-sequence operations.
         ops: Vec<SequenceOpEntry>,
     },
+
+    /// A constraint exists in the catalog but is `NOT VALID`
+    /// (`pg_constraint.convalidated = false`). Planner emits
+    /// `VALIDATE CONSTRAINT`. Non-destructive.
+    ValidateConstraint {
+        /// Qualified name of the table owning the constraint.
+        table: QualifiedName,
+        /// Constraint name.
+        constraint: Identifier,
+    },
+    /// An index exists in the catalog but is `INVALID`
+    /// (`pg_index.indisvalid = false`). Planner emits `DROP INDEX + CREATE
+    /// INDEX` to rebuild it. Non-destructive.
+    RecreateIndex {
+        /// Qualified name of the invalid index.
+        qname: QualifiedName,
+    },
 }
 
 #[cfg(test)]

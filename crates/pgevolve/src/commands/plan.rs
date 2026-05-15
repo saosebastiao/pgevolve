@@ -26,11 +26,11 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
 
     let querier = PgCatalogQuerier::new(client)?;
     let filter = CatalogFilter::new(opts.managed_schemas.clone(), opts.ignore_objects.clone())?;
-    let target = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+    let (target, drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
         .await
         .map_err(|e| anyhow::anyhow!("join error: {e}"))??;
 
-    let changes = diff(&target, &source);
+    let changes = diff(&target, &source, &drift);
     let ordered = order(&target, &source, changes)?;
 
     let policy = PlannerPolicy {

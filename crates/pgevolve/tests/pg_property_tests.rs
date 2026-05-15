@@ -67,7 +67,7 @@ async fn check_idempotency(catalog: &Catalog) -> Result<()> {
 
     // Second pass: diff against the catalog we just applied; the plan must
     // have no groups (no work to do).
-    let second_diff = pgevolve_core::diff::diff(catalog, catalog);
+    let second_diff = pgevolve_core::diff::diff(catalog, catalog, &pgevolve_core::catalog::DriftReport::default());
     if !second_diff.is_empty() {
         return Err(anyhow::anyhow!(
             "diff(catalog, catalog) was non-empty: {} entries",

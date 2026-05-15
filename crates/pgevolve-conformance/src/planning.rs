@@ -7,6 +7,7 @@
 //! timestamp on the rendered plan.sql is normalized at compare time
 //! (see `crate::normalize`).
 
+use pgevolve_core::catalog::DriftReport;
 use pgevolve_core::diff::{ChangeSet, diff};
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::parse::{ParseError, parse_directory};
@@ -59,7 +60,8 @@ pub fn compute_changes(
 ) -> Result<(Catalog, Catalog, ChangeSet), PipelineError> {
     let target = parse_sql(before_sql, "before")?;
     let source = parse_sql(after_sql, "after")?;
-    let changes = diff(&target, &source);
+    // Source-vs-source diff: no live-catalog drift, pass empty report.
+    let changes = diff(&target, &source, &DriftReport::default());
     Ok((target, source, changes))
 }
 

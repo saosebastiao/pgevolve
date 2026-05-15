@@ -5,7 +5,7 @@
 use anyhow::{Result, anyhow};
 use tempfile::TempDir;
 
-use pgevolve_core::catalog::{CatalogFilter, PgVersion, read_catalog};
+use pgevolve_core::catalog::{CatalogFilter, DriftReport, PgVersion, read_catalog};
 use pgevolve_core::identifier::Identifier;
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::ir::difference::Difference;
@@ -109,7 +109,7 @@ async fn run_shadow_validation(source: &Catalog, cfg: &PgevolveConfig) -> Result
     // Re-introspect.
     let querier = PgCatalogQuerier::new(client)?;
     let filter = CatalogFilter::new(managed, vec![]).map_err(|e| anyhow!(e))?;
-    let shadow_catalog = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+    let (shadow_catalog, _drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
         .await
         .map_err(|e| anyhow!("join: {e}"))?
         .map_err(|e| anyhow!("read_catalog: {e}"))?;
@@ -119,7 +119,7 @@ async fn run_shadow_validation(source: &Catalog, cfg: &PgevolveConfig) -> Result
 
 fn build_plan_for_shadow(source: &Catalog, target_identity: String) -> Result<Plan> {
     let empty = Catalog::empty();
-    let changes = pgevolve_core::diff::diff(&empty, source);
+    let changes = pgevolve_core::diff::diff(&empty, source, &DriftReport::default());
     let ordered = order(&empty, source, changes).map_err(|e| anyhow!("plan order: {e}"))?;
     let policy = PlannerPolicy {
         strategy: Strategy::Online,

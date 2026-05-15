@@ -35,5 +35,5 @@ pub use plan::{
 };
 pub use policy::{OnlineRewrites, PlannerPolicy, Strategy};
 pub use raw_step::{RawStep, StepKind, TransactionConstraint};
-pub use rewrite::rewrite;
+pub use rewrite::{rewrite, rewrite_with_source};
 pub use serialize::{write_intent_toml, write_manifest_toml, write_plan_dir, write_plan_sql};

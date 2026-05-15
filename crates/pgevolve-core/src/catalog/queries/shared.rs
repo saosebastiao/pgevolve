@@ -123,6 +123,7 @@ SELECT
   c.confmatchtype::text      AS match_type,
   c.connoinherit             AS no_inherit,
   c.conindid::bigint         AS conindid,
+  c.convalidated             AS convalidated,
   pg_catalog.pg_get_constraintdef(c.oid, true) AS constraint_def,
   d.description              AS comment
 FROM pg_catalog.pg_constraint c
@@ -150,6 +151,7 @@ SELECT
   tn.nspname                 AS table_schema,
   am.amname                  AS method,
   i.indisunique              AS unique,
+  i.indisvalid               AS indisvalid,
   i.indnullsnotdistinct      AS nulls_not_distinct,
   i.indkey::int2[]::int8[]   AS column_attnums,
   i.indnatts::bigint         AS total_columns,

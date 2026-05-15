@@ -29,14 +29,41 @@ pub use destructiveness::Destructiveness;
 pub use sequence_op::{SequenceOp, SequenceOpEntry};
 pub use table_op::{TableOp, TableOpEntry};
 
+use crate::catalog::DriftReport;
 use crate::ir::catalog::Catalog;
 
 /// Compute the changes needed to converge `target` toward `source`.
 ///
+/// `drift` captures any NOT VALID constraints or INVALID indexes found in the
+/// live database (from [`crate::catalog::read_catalog`]). Pass
+/// `&DriftReport::default()` when diffing two source-side catalogs (no live
+/// database involved).
+///
 /// The returned [`ChangeSet`] is unordered; ordering / dependency analysis is
 /// the planner's responsibility (phase 5).
-pub fn diff(target: &Catalog, source: &Catalog) -> ChangeSet {
+pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSet {
     let mut out = ChangeSet::new();
+
+    // Emit recovery changes for any drift in the live database before the
+    // structural diff, so the planner can schedule them appropriately.
+    for (table_qname, constraint_name) in &drift.pending_validation {
+        out.push(
+            Change::ValidateConstraint {
+                table: table_qname.clone(),
+                constraint: constraint_name.clone(),
+            },
+            Destructiveness::Safe,
+        );
+    }
+    for qname in &drift.invalid_indexes {
+        out.push(
+            Change::RecreateIndex {
+                qname: qname.clone(),
+            },
+            Destructiveness::Safe,
+        );
+    }
+
     schemas::diff_schemas(target, source, &mut out);
     tables::diff_tables(target, source, &mut out);
     indexes::diff_indexes(target, source, &mut out);
@@ -47,6 +74,7 @@ pub fn diff(target: &Catalog, source: &Catalog) -> ChangeSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::DriftReport;
     use crate::identifier::{Identifier, QualifiedName};
     use crate::ir::column::Column;
     use crate::ir::column_type::ColumnType;
@@ -191,12 +219,19 @@ mod tests {
     #[test]
     fn diff_against_empty_self_is_empty() {
         let c = Catalog::empty();
-        assert!(diff(&c, &c).is_empty());
+        assert!(diff(&c, &c, &DriftReport::default()).is_empty());
     }
 
     #[test]
     fn diff_against_single_table_self_is_empty() {
-        assert!(diff(&catalog_with_one_table(), &catalog_with_one_table()).is_empty());
+        assert!(
+            diff(
+                &catalog_with_one_table(),
+                &catalog_with_one_table(),
+                &DriftReport::default()
+            )
+            .is_empty()
+        );
     }
 
     /// Property-style: `diff(c, c)` is empty for every hand-built catalog.
@@ -210,7 +245,7 @@ mod tests {
         ];
         for c in &catalogs {
             assert!(
-                diff(c, c).is_empty(),
+                diff(c, c, &DriftReport::default()).is_empty(),
                 "diff(c, c) was not empty for catalog: {c:?}"
             );
         }

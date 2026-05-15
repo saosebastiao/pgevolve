@@ -3,7 +3,7 @@
 
 use tokio_postgres::Client;
 
-use pgevolve_core::catalog::CatalogFilter;
+use pgevolve_core::catalog::{CatalogFilter, DriftReport};
 use pgevolve_core::plan::Plan;
 
 use super::error::ApplyError;
@@ -38,7 +38,11 @@ pub async fn run_preflight(
     //    planner captured.
     if !overrides.allow_drift {
         let live_catalog = read_live_catalog(client, filter)?;
-        let drift = pgevolve_core::diff::diff(&plan.metadata.target_snapshot, &live_catalog);
+        let drift = pgevolve_core::diff::diff(
+            &plan.metadata.target_snapshot,
+            &live_catalog,
+            &DriftReport::default(),
+        );
         if !drift.is_empty() {
             return Err(ApplyError::DriftDetected(drift.len()));
         }

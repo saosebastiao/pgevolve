@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use pg_query::NodeEnum;
 
 use crate::catalog::CatalogQuery;
+use crate::catalog::DriftReport;
 use crate::catalog::error::CatalogError;
 use crate::catalog::filter::CatalogFilter;
 use crate::catalog::rows::Row;
@@ -55,9 +56,12 @@ pub struct RawRows {
     pub dependencies: Vec<Row>,
 }
 
-/// Convert raw rows into a [`Catalog`]. Caller is responsible for
-/// canonicalization.
-pub fn assemble(raw: RawRows, filter: &CatalogFilter) -> Result<Catalog, CatalogError> {
+/// Convert raw rows into a [`Catalog`] and a [`DriftReport`]. Caller is
+/// responsible for canonicalization.
+pub fn assemble(
+    raw: RawRows,
+    filter: &CatalogFilter,
+) -> Result<(Catalog, DriftReport), CatalogError> {
     let RawRows {
         version,
         schemas,
@@ -70,15 +74,16 @@ pub fn assemble(raw: RawRows, filter: &CatalogFilter) -> Result<Catalog, Catalog
     } = raw;
 
     let mut catalog = Catalog::empty();
+    let mut drift = DriftReport::default();
 
     catalog.schemas = build_schemas(&schemas, filter)?;
 
-    // Attach constraints to their tables.
+    // Attach constraints to their tables. Also collect drift from NOT VALID constraints.
     let mut tables_mut: HashMap<i64, Table> = build_tables(tables, &columns, filter)?;
-    apply_constraints(&mut tables_mut, &constraints, filter)?;
+    apply_constraints(&mut tables_mut, &constraints, filter, &mut drift)?;
 
-    // Build indexes (re-parsing pg_get_indexdef).
-    catalog.indexes = build_indexes(&indexes, version, filter)?;
+    // Build indexes (re-parsing pg_get_indexdef). Also collect drift from INVALID indexes.
+    catalog.indexes = build_indexes(&indexes, version, filter, &mut drift)?;
 
     // Build sequences.
     let mut sequence_by_qname: HashMap<String, Sequence> = HashMap::new();
@@ -96,7 +101,7 @@ pub fn assemble(raw: RawRows, filter: &CatalogFilter) -> Result<Catalog, Catalog
     catalog.tables = tables_mut.into_values().collect();
     catalog.sequences = sequence_by_qname.into_values().collect();
 
-    Ok(catalog)
+    Ok((catalog, drift))
 }
 
 fn build_schemas(rows: &[Row], filter: &CatalogFilter) -> Result<Vec<Schema>, CatalogError> {
@@ -242,6 +247,7 @@ fn apply_constraints(
     tables: &mut HashMap<i64, Table>,
     rows: &[Row],
     filter: &CatalogFilter,
+    drift: &mut DriftReport,
 ) -> Result<(), CatalogError> {
     let q = CatalogQuery::Constraints;
 
@@ -264,6 +270,18 @@ fn apply_constraints(
         else {
             continue;
         };
+
+        // Check for NOT VALID state before building the constraint IR.
+        // `convalidated` defaults to true for most constraint types; false means
+        // the constraint was added NOT VALID and has not been validated yet.
+        let convalidated = r.get_bool(q, "convalidated").unwrap_or(true);
+        if !convalidated {
+            let constraint_name = ident_required(&r.get_text(q, "name")?)?;
+            drift
+                .pending_validation
+                .push((table_qname.clone(), constraint_name));
+        }
+
         let cons = build_constraint(r, attnum_map.get(&oid))?;
         if let Some(c) = cons {
             tables
@@ -553,6 +571,7 @@ fn build_indexes(
     rows: &[Row],
     _version: PgVersion,
     filter: &CatalogFilter,
+    drift: &mut DriftReport,
 ) -> Result<Vec<Index>, CatalogError> {
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
@@ -562,6 +581,14 @@ fn build_indexes(
         if !filter.allows(&qname) || !filter.allows(&table_qname) {
             continue;
         }
+
+        // Check for INVALID state. `indisvalid` is false when a concurrent
+        // index build failed and left an INVALID index behind.
+        let indisvalid = r.get_bool(q, "indisvalid").unwrap_or(true);
+        if !indisvalid {
+            drift.invalid_indexes.push(qname.clone());
+        }
+
         let indexdef = r.get_text(q, "indexdef")?;
         let mut idx = parse_index_def(&indexdef)?;
         // `pg_get_indexdef` always returns fully-qualified names; trust them.
