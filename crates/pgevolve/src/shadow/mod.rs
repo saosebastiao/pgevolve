@@ -80,7 +80,7 @@ pub fn docker_available() -> bool {
 
 /// Install Postgres extensions into the database at `url`.
 ///
-/// Every name is validated against `[a-zA-Z_][a-zA-Z0-9_]*` before being
+/// Every name is validated against `[a-zA-Z_][a-zA-Z0-9_-]*` before being
 /// formatted into SQL, eliminating the SQL-injection surface that would
 /// otherwise exist when names come from user config.
 pub(super) async fn install_extensions(
@@ -108,13 +108,13 @@ fn validate_extension_name(name: &str) -> anyhow::Result<()> {
         if i == 0 {
             c.is_ascii_alphabetic() || c == '_'
         } else {
-            c.is_ascii_alphanumeric() || c == '_'
+            c.is_ascii_alphanumeric() || c == '_' || c == '-'
         }
     });
     if !valid {
         anyhow::bail!(
             "[shadow].extensions: {name:?} is not a valid extension identifier \
-             (expected [a-zA-Z_][a-zA-Z0-9_]*)"
+             (expected [a-zA-Z_][a-zA-Z0-9_-]*)",
         );
     }
     Ok(())
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn validate_accepts_valid_names() {
-        for valid in &["pg_trgm", "uuid_ossp", "vector", "_underscore_first", "p"] {
+        for valid in &["pg_trgm", "uuid-ossp", "vector", "_underscore_first", "p"] {
             assert!(validate_extension_name(valid).is_ok(), "{valid} should validate");
         }
     }
@@ -136,9 +136,9 @@ mod tests {
         for bad in &[
             "",
             "1leading_digit",
+            "-leading_hyphen",
             "has space",
             "semicolon;here",
-            "dash-separated",
             "pg_trgm; DROP TABLE x",
         ] {
             assert!(validate_extension_name(bad).is_err(), "{bad:?} should reject");
