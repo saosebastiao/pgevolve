@@ -48,3 +48,29 @@ fn dep_source_ordering_is_structural_first() {
         vec![DepSource::Structural, DepSource::AstExtracted, DepSource::AstDeclared]
     );
 }
+
+#[test]
+fn add_dep_edge_round_trips_source() {
+    use pgevolve_core::identifier::Identifier;
+    use pgevolve_core::plan::edges::{DepEdge, DepSource, NodeId};
+    use pgevolve_core::plan::graph::Graph;
+
+    let mut g: Graph<NodeId> = Graph::new();
+    let a = NodeId::Schema(Identifier::from_unquoted("a").unwrap());
+    let b = NodeId::Schema(Identifier::from_unquoted("b").unwrap());
+    let c = NodeId::Schema(Identifier::from_unquoted("c").unwrap());
+    g.add_node(a.clone());
+    g.add_node(b.clone());
+    g.add_node(c.clone());
+
+    g.add_dep_edge(a.clone(), b.clone(), DepSource::Structural);
+    g.add_dep_edge(a, c.clone(), DepSource::AstExtracted);
+
+    let mut edges: Vec<DepEdge> = g.dep_edges().collect();
+    edges.sort();
+    assert_eq!(edges.len(), 2);
+    let by_target: std::collections::BTreeMap<_, _> =
+        edges.iter().map(|e| (e.to.clone(), e.source)).collect();
+    assert_eq!(by_target[&b], DepSource::Structural);
+    assert_eq!(by_target[&c], DepSource::AstExtracted);
+}
