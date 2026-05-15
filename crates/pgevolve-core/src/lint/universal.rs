@@ -163,6 +163,13 @@ fn closed_world_references(tree: &SourceTree) -> Vec<Finding> {
     out
 }
 
+/// All rule IDs that carry [`Severity::LintAtPlan`].
+///
+/// Preflight uses this to warn about waivers that reference unknown rule IDs
+/// (typos, stale waivers for renamed rules). Add new `LintAtPlan` rule IDs
+/// here when introducing them; remove stale ones when a rule is deleted.
+pub const LINT_AT_PLAN_RULES: &[&str] = &["column-position-drift"];
+
 /// Run all drift-detection rules that compare `source` against a `target`
 /// catalog (e.g. the live database). Returns a list of [`Finding`]s.
 ///

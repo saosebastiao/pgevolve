@@ -149,9 +149,12 @@ pub struct Plan {
     pub intents: Vec<DestructiveIntent>,
     /// Lint waivers loaded from `[[lint_waiver]]` rows in `intent.toml`.
     ///
-    /// At plan-write time this is always empty (the plan writes an empty
-    /// `[[lint_waiver]]` section for the user to fill in). The field is
-    /// populated when reading back a plan directory that already has waivers.
+    /// When `pgevolve plan` detects unwaived `LintAtPlan` findings, it prints
+    /// an example `[[lint_waiver]]` row to stderr for the user to copy into
+    /// `intent.toml`; the field is omitted from serialized output when empty
+    /// (`skip_serializing_if = "Vec::is_empty"`). The field is populated when
+    /// reading back a plan directory whose `intent.toml` already contains
+    /// `[[lint_waiver]]` rows.
     pub lint_waivers: Vec<LintWaiver>,
     /// Plan metadata.
     pub metadata: PlanMetadata,
