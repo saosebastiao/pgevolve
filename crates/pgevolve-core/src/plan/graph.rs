@@ -75,6 +75,12 @@ where
     }
 
     /// Remove an edge `from -> to`. No-op if absent.
+    ///
+    /// **Does not** touch `edge_sources`. If the edge was inserted via
+    /// [`Graph::add_dep_edge`] on a `Graph<NodeId>`, the stale provenance entry
+    /// will survive and be returned by [`Graph::dep_edges`] if the edge is
+    /// re-added later. Use [`Graph::remove_dep_edge`] instead when provenance
+    /// correctness matters.
     pub fn remove_edge(&mut self, from: &N, to: &N) {
         if let Some(set) = self.edges.get_mut(from) {
             set.remove(to);
@@ -164,9 +170,7 @@ where
         Ok(v)
     }
 
-    /// Iterate all edges as `(from, to)` pairs in deterministic order.
-    ///
-    /// Pairs are yielded in deterministic `(from, to)` order.
+    /// Iterate all edges as `(from, to)` pairs in ascending `(from, to)` order by `Ord`.
     pub fn edges(&self) -> impl Iterator<Item = (&N, &N)> {
         self.edges
             .iter()
@@ -187,6 +191,17 @@ impl Graph<NodeId> {
     pub fn add_dep_edge(&mut self, from: NodeId, to: NodeId, source: DepSource) {
         self.add_edge_internal(from.clone(), to.clone());
         self.edge_sources.insert((from, to), source);
+    }
+
+    /// Remove an edge `from -> to` and its [`DepSource`] from the source map.
+    /// No-op if the adjacency (or source entry) is absent.
+    ///
+    /// Prefer this over [`Graph::remove_edge`] whenever the edge may have been
+    /// inserted via [`Self::add_dep_edge`]; it prevents stale provenance from
+    /// surviving a remove-then-re-add cycle.
+    pub fn remove_dep_edge(&mut self, from: &NodeId, to: &NodeId) {
+        self.remove_edge(from, to);
+        self.edge_sources.remove(&(from.clone(), to.clone()));
     }
 
     /// Iterate edges as [`DepEdge`] records with per-edge provenance.
@@ -346,14 +361,13 @@ mod tests {
 
     #[test]
     fn edges_yields_correct_pair_for_single_edge() {
-        // Build a Graph<NodeId> with two schema nodes and one edge, then assert
-        // that edges() returns exactly that (from, to) pair.
+        // Build a Graph<NodeId> with one edge and assert that edges() returns
+        // exactly that (from, to) pair. add_edge registers both endpoints as
+        // nodes, so no prior add_node calls are needed.
         use crate::identifier::Identifier;
         let mut g: Graph<NodeId> = Graph::new();
         let schema_a = NodeId::Schema(Identifier::from_unquoted("a").unwrap());
         let schema_b = NodeId::Schema(Identifier::from_unquoted("b").unwrap());
-        g.add_node(schema_a.clone());
-        g.add_node(schema_b.clone());
         g.add_edge(schema_a.clone(), schema_b.clone());
         let pairs: Vec<(&NodeId, &NodeId)> = g.edges().collect();
         assert_eq!(pairs, vec![(&schema_a, &schema_b)]);

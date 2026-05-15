@@ -50,6 +50,30 @@ fn dep_source_ordering_is_structural_first() {
 }
 
 #[test]
+fn remove_dep_edge_clears_source_map() {
+    use pgevolve_core::identifier::Identifier;
+    use pgevolve_core::plan::edges::{DepEdge, DepSource, NodeId};
+    use pgevolve_core::plan::graph::Graph;
+
+    let mut g: Graph<NodeId> = Graph::new();
+    let a = NodeId::Schema(Identifier::from_unquoted("a").unwrap());
+    let b = NodeId::Schema(Identifier::from_unquoted("b").unwrap());
+    g.add_node(a.clone());
+    g.add_node(b.clone());
+
+    g.add_dep_edge(a.clone(), b.clone(), DepSource::AstExtracted);
+    g.remove_dep_edge(&a, &b);
+    // Re-add via plain add_edge: should now report Structural,
+    // proving the stale AstExtracted source was actually removed.
+    g.add_edge(a.clone(), b.clone());
+
+    let edges: Vec<DepEdge> = g.dep_edges().collect();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].source, DepSource::Structural,
+        "remove_dep_edge should have cleared the AstExtracted source");
+}
+
+#[test]
 fn add_dep_edge_round_trips_source() {
     use pgevolve_core::identifier::Identifier;
     use pgevolve_core::plan::edges::{DepEdge, DepSource, NodeId};
