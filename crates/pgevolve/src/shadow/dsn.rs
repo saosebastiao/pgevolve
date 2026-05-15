@@ -69,7 +69,7 @@ impl ShadowBackend for DsnBackend {
         };
         guard.reset_now().await?;
         if !self.extensions.is_empty() {
-            install_extensions(&guard.url, &self.extensions).await?;
+            super::install_extensions(&guard.url, &self.extensions).await?;
         }
         Ok(Box::new(guard))
     }
@@ -120,12 +120,3 @@ impl ShadowGuard for DsnGuard {
     }
 }
 
-async fn install_extensions(url: &str, extensions: &[String]) -> Result<()> {
-    let (client, conn) = tokio_postgres::connect(url, NoTls).await?;
-    tokio::spawn(conn);
-    for ext in extensions {
-        let stmt = format!("CREATE EXTENSION IF NOT EXISTS {ext}");
-        client.batch_execute(&stmt).await?;
-    }
-    Ok(())
-}

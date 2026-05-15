@@ -64,7 +64,7 @@ impl ShadowBackend for TestcontainersBackend {
         wait_until_ready(&dsn).await?;
 
         if !self.config.extensions.is_empty() {
-            install_extensions(&dsn, &self.config.extensions).await?;
+            super::install_extensions(&dsn, &self.config.extensions).await?;
         }
 
         Ok(Box::new(TestcontainersGuard {
@@ -132,12 +132,3 @@ async fn wait_until_ready(dsn: &str) -> Result<()> {
     Err(last_err.unwrap_or_else(|| anyhow!("timed out waiting for shadow Postgres")))
 }
 
-async fn install_extensions(url: &str, extensions: &[String]) -> Result<()> {
-    let (client, conn) = tokio_postgres::connect(url, NoTls).await?;
-    tokio::spawn(conn);
-    for ext in extensions {
-        let stmt = format!("CREATE EXTENSION IF NOT EXISTS {ext}");
-        client.batch_execute(&stmt).await?;
-    }
-    Ok(())
-}
