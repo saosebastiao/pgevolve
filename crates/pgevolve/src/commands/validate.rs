@@ -100,6 +100,7 @@ async fn run_shadow_validation(source: &Catalog, cfg: &PgevolveConfig) -> Result
         ApplyOverrides {
             allow_different_target: false,
             allow_drift: true,
+            allow_unwaived_lint: true,
             actor: Some("shadow-validate".into()),
             abort_after_step: None,
         },

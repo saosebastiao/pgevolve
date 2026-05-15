@@ -9,7 +9,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::ir::catalog::Catalog;
 use crate::plan::io_error::PlanIoError;
-use crate::plan::plan::{Plan, kind_name};
+use crate::plan::plan::{LintWaiver, Plan, kind_name};
 use crate::plan::raw_step::RawStep;
 
 // ---------------------------------------------------------------------------
@@ -97,6 +97,11 @@ struct IntentDoc<'a> {
     plan_id: String,
     #[serde(rename = "intent")]
     intents: Vec<IntentRow<'a>>,
+    /// `[[lint_waiver]]` rows; the field is omitted from TOML when empty.
+    /// When the plan is freshly written, this slice comes from
+    /// `plan.lint_waivers` (empty on first write; populated by the user).
+    #[serde(rename = "lint_waiver", skip_serializing_if = "Vec::is_empty")]
+    lint_waivers: Vec<&'a LintWaiver>,
 }
 
 #[derive(Serialize)]
@@ -111,6 +116,10 @@ struct IntentRow<'a> {
 
 /// Write `intent.toml` to `w`. Every row's `approved` field starts as `false`;
 /// the user must flip it explicitly before applying.
+///
+/// If `plan.lint_waivers` is non-empty (because the plan was loaded from a
+/// directory that already had waivers), those waivers are preserved in the
+/// output under `[[lint_waiver]]`.
 pub fn write_intent_toml(plan: &Plan, w: &mut dyn Write) -> Result<(), PlanIoError> {
     let doc = IntentDoc {
         plan_id: plan.id.short(),
@@ -126,6 +135,7 @@ pub fn write_intent_toml(plan: &Plan, w: &mut dyn Write) -> Result<(), PlanIoErr
                 approved: false,
             })
             .collect(),
+        lint_waivers: plan.lint_waivers.iter().collect(),
     };
     let s = toml::to_string_pretty(&doc)?;
     w.write_all(s.as_bytes())

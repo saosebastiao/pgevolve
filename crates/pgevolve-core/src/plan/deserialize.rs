@@ -16,7 +16,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::plan::grouping::TransactionGroup;
 use crate::plan::io_error::PlanIoError;
-use crate::plan::plan::{DestructiveIntent, Plan, PlanId, PlanMetadata, parse_kind_name};
+use crate::plan::plan::{DestructiveIntent, LintWaiver, Plan, PlanId, PlanMetadata, parse_kind_name};
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
 // ---------------------------------------------------------------------------
@@ -293,6 +293,8 @@ pub struct ParsedIntent {
     pub plan_id: String,
     /// The intent rows (one per destructive step).
     pub intents: Vec<DestructiveIntent>,
+    /// Lint waivers from `[[lint_waiver]]` rows.
+    pub lint_waivers: Vec<LintWaiver>,
 }
 
 #[derive(Deserialize)]
@@ -300,6 +302,8 @@ struct IntentDocDe {
     plan_id: String,
     #[serde(default, rename = "intent")]
     intents: Vec<IntentRowDe>,
+    #[serde(default, rename = "lint_waiver")]
+    lint_waivers: Vec<LintWaiver>,
 }
 
 #[derive(Deserialize)]
@@ -332,6 +336,7 @@ pub fn read_intent_toml(s: &str) -> Result<ParsedIntent, PlanIoError> {
                 reason: r.reason,
             })
             .collect(),
+        lint_waivers: doc.lint_waivers,
     })
 }
 
@@ -450,6 +455,7 @@ pub fn read_plan_dir(dir: &Path) -> Result<Plan, PlanIoError> {
         id,
         groups,
         intents: intent.intents,
+        lint_waivers: intent.lint_waivers,
         metadata,
     })
 }

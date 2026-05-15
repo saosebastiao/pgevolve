@@ -7,7 +7,9 @@ use anyhow::Result;
 
 use pgevolve_core::catalog::{CatalogFilter, read_catalog};
 use pgevolve_core::diff::diff;
-use pgevolve_core::plan::{Plan, PlannerPolicy, group_steps, order, rewrite_with_source, write_plan_dir};
+use pgevolve_core::lint::Severity;
+use pgevolve_core::lint::universal::run_drift_lints;
+use pgevolve_core::plan::{LintWaiver, Plan, PlannerPolicy, group_steps, order, rewrite_with_source, write_plan_dir};
 
 use crate::cli::PlanArgs;
 use crate::config::PgevolveConfig;
@@ -50,7 +52,59 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
         policy.planner_ruleset_version,
     );
 
+    // Determine the output directory before writing so we can check for
+    // pre-existing waivers in case this is a re-run after the user edited
+    // intent.toml.
     let out_dir = args.output.unwrap_or_else(|| default_plan_dir(cfg, &plan));
+
+    // --- Drift-lint gate (spec §12 / arch Decision 14) ---
+    //
+    // Run drift lints that compare source against target. Any `LintAtPlan`
+    // finding must have a matching `[[lint_waiver]]` row in intent.toml (which
+    // the user adds in a second pass after reading the error message).
+    //
+    // We load pre-existing waivers from an intent.toml that may already exist
+    // in `out_dir` from a previous run — this is how the user provides waivers.
+    let existing_waivers = load_existing_waivers(&out_dir);
+    let drift_findings = run_drift_lints(&source, &target);
+    let lint_at_plan: Vec<_> = drift_findings
+        .iter()
+        .filter(|f| matches!(f.severity, Severity::LintAtPlan))
+        .collect();
+
+    if !lint_at_plan.is_empty() {
+        let unwaived: Vec<_> = lint_at_plan
+            .iter()
+            .filter(|f| !waiver_matches(f, &existing_waivers))
+            .collect();
+        if !unwaived.is_empty() {
+            eprintln!("pgevolve plan: refusing to plan due to unwaived LintAtPlan findings:");
+            for f in &unwaived {
+                eprintln!("  - [{}] ({}): {}", f.rule, f.severity, f.message);
+            }
+            eprintln!();
+            eprintln!(
+                "Resolve by correcting the source schema, or add a `[[lint_waiver]]` row to"
+            );
+            eprintln!("  {}", out_dir.join("intent.toml").display());
+            eprintln!("and re-run `pgevolve plan`. Example waiver:");
+            eprintln!();
+            eprintln!("  [[lint_waiver]]");
+            eprintln!("  rule   = \"{}\"", unwaived[0].rule);
+            // Extract a plausible target from the beginning of the message
+            // (findings always lead with "schema.table: …").
+            let target_hint = unwaived[0]
+                .message
+                .split(':')
+                .next()
+                .unwrap_or("schema.table")
+                .trim();
+            eprintln!("  target = \"{target_hint}\"");
+            eprintln!("  reason = \"<explain why this drift is acceptable>\"");
+            return Ok(2);
+        }
+    }
+
     write_plan_dir(&plan, &out_dir)?;
     println!(
         "Wrote plan {} to {} ({} group(s), {} step(s), {} intent(s))",
@@ -61,6 +115,30 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
         plan.intents.len(),
     );
     Ok(0)
+}
+
+/// Load `[[lint_waiver]]` rows from an existing `intent.toml` in `dir`, if
+/// one exists. Returns an empty vec if the file is absent or unparseable.
+fn load_existing_waivers(dir: &std::path::Path) -> Vec<LintWaiver> {
+    let path = dir.join("intent.toml");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    match pgevolve_core::plan::read_intent_toml(&text) {
+        Ok(parsed) => parsed.lint_waivers,
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Return `true` when `finding` is covered by at least one waiver in `waivers`.
+///
+/// A waiver matches when its `rule` equals the finding's rule AND its `target`
+/// appears as a substring of the finding's message (findings always lead with
+/// the qualified name of the affected object, e.g. `"app.users: …"`).
+fn waiver_matches(finding: &pgevolve_core::lint::Finding, waivers: &[LintWaiver]) -> bool {
+    waivers
+        .iter()
+        .any(|w| w.rule == finding.rule && finding.message.contains(&w.target))
 }
 
 fn default_plan_dir(cfg: &PgevolveConfig, plan: &Plan) -> PathBuf {

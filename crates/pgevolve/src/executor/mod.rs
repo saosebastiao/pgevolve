@@ -33,6 +33,9 @@ pub struct ApplyOverrides {
     /// Skip the drift recheck. Use only when intentionally re-applying after
     /// out-of-band changes.
     pub allow_drift: bool,
+    /// Skip the lint-waiver structural check. Use only in tests or emergency
+    /// apply scenarios.
+    pub allow_unwaived_lint: bool,
     /// Override the actor string written to `pgevolve.apply_log`.
     pub actor: Option<String>,
     /// Testkit / chaos hook: if `Some(n)`, the executor aborts cleanly after
@@ -82,6 +85,7 @@ pub async fn apply(
     let preflight = PreflightOverrides {
         allow_different_target: overrides.allow_different_target,
         allow_drift: overrides.allow_drift,
+        allow_unwaived_lint: overrides.allow_unwaived_lint,
     };
     let preflight_result = run_preflight(client, &plan, filter, preflight).await;
     if let Err(e) = preflight_result {
