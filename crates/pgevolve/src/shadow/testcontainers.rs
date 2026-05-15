@@ -1,49 +1,40 @@
-//! Ephemeral Postgres provisioning for `validate --shadow`.
+//! `testcontainers`-backed shadow Postgres.
 //!
-//! Spec §10. Spins up a `postgres:<major>-alpine` container, waits for the
-//! database to accept connections, and exposes a connection-string DSN.
-//!
-//! Mirrors `pgevolve-testkit::EphemeralPostgres` (which is dev-only) so the
-//! production binary can run shadow validation without depending on the
-//! testkit crate.
+//! Starts a `postgres:<major>-alpine` container, waits for it to be
+//! ready, and exposes the DSN via [`ShadowGuard::url`].  The container
+//! is removed when [`TestcontainersGuard`] drops.
 
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
+use async_trait::async_trait;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 use tokio_postgres::NoTls;
 
-use pgevolve_core::catalog::PgVersion;
+use crate::config::ShadowConfig;
 
-/// `postgres:<major>-alpine` running in a one-shot container.
-///
-/// The container is removed when this struct drops (via `testcontainers`).
-pub struct ShadowPostgres {
-    _container: ContainerAsync<GenericImage>,
-    dsn: String,
-    version: PgVersion,
+use super::{PgMajor, ShadowBackend, ShadowGuard};
+
+/// Backend that spins up a one-shot Docker container per checkout.
+pub struct TestcontainersBackend {
+    config: ShadowConfig,
 }
 
-impl std::fmt::Debug for ShadowPostgres {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ShadowPostgres")
-            .field("version", &self.version)
-            .field("dsn", &self.dsn)
-            .finish_non_exhaustive()
+impl TestcontainersBackend {
+    /// Construct from the `[shadow]` config section.
+    pub fn new(config: &ShadowConfig) -> Self {
+        Self {
+            config: config.clone(),
+        }
     }
 }
 
-impl ShadowPostgres {
-    /// Start a fresh Postgres container of the given major version.
-    pub async fn start(version: PgVersion) -> Result<Self> {
-        let tag = match version {
-            PgVersion::Pg14 => "14-alpine",
-            PgVersion::Pg15 => "15-alpine",
-            PgVersion::Pg16 => "16-alpine",
-            PgVersion::Pg17 => "17-alpine",
-        };
+#[async_trait]
+impl ShadowBackend for TestcontainersBackend {
+    async fn checkout(&self, major: PgMajor) -> Result<Box<dyn ShadowGuard>> {
+        let tag = major_to_tag(major)?;
 
         let image = GenericImage::new("postgres", tag)
             .with_exposed_port(5432.tcp())
@@ -72,23 +63,47 @@ impl ShadowPostgres {
 
         wait_until_ready(&dsn).await?;
 
-        Ok(Self {
+        if !self.config.extensions.is_empty() {
+            install_extensions(&dsn, &self.config.extensions).await?;
+        }
+
+        Ok(Box::new(TestcontainersGuard {
             _container: container,
             dsn,
-            version,
-        })
+        }))
     }
+}
 
-    /// DSN consumable by `tokio_postgres::connect`.
-    #[must_use]
-    pub fn dsn(&self) -> &str {
+/// Live handle to a running container.  Dropped when the caller is done.
+struct TestcontainersGuard {
+    _container: ContainerAsync<GenericImage>,
+    dsn: String,
+}
+
+#[async_trait]
+impl ShadowGuard for TestcontainersGuard {
+    fn url(&self) -> &str {
         &self.dsn
     }
 
-    /// Major version of the running container.
-    #[must_use]
-    pub const fn version(&self) -> PgVersion {
-        self.version
+    async fn reset(&mut self) -> Result<()> {
+        // testcontainers backend: the container is destroyed at Drop, so
+        // reset is a no-op.  Pool-reuse with DROP SCHEMA CASCADE can be
+        // added here later.
+        Ok(())
+    }
+}
+
+/// Convert a numeric PG major to the Docker image tag.
+fn major_to_tag(major: PgMajor) -> Result<&'static str> {
+    match major {
+        14 => Ok("14-alpine"),
+        15 => Ok("15-alpine"),
+        16 => Ok("16-alpine"),
+        17 => Ok("17-alpine"),
+        other => Err(anyhow!(
+            "unsupported Postgres major version: {other}; expected 14–17"
+        )),
     }
 }
 
@@ -117,18 +132,12 @@ async fn wait_until_ready(dsn: &str) -> Result<()> {
     Err(last_err.unwrap_or_else(|| anyhow!("timed out waiting for shadow Postgres")))
 }
 
-/// Quick check: is Docker available on this host?
-///
-/// Returns `false` if `PGEVOLVE_DISABLE_DOCKER_TESTS` is set, or if
-/// `docker info` fails. `pgevolve validate --shadow` calls this and prints
-/// a clear error rather than failing inside testcontainers.
-#[must_use]
-pub fn docker_available() -> bool {
-    if std::env::var_os("PGEVOLVE_DISABLE_DOCKER_TESTS").is_some() {
-        return false;
+async fn install_extensions(url: &str, extensions: &[String]) -> Result<()> {
+    let (client, conn) = tokio_postgres::connect(url, NoTls).await?;
+    tokio::spawn(conn);
+    for ext in extensions {
+        let stmt = format!("CREATE EXTENSION IF NOT EXISTS {ext}");
+        client.batch_execute(&stmt).await?;
     }
-    std::process::Command::new("docker")
-        .arg("info")
-        .output()
-        .is_ok_and(|o| o.status.success())
+    Ok(())
 }

@@ -187,13 +187,30 @@ pub struct EnvironmentConfig {
     pub strategy: Option<ConfigStrategy>,
 }
 
-/// `[shadow]` section. Used only by `validate --shadow` in Phase 12.
-#[derive(Debug, Deserialize)]
+/// `[shadow]` section. Used by `validate --shadow`.
+///
+/// Backend selection (in order of precedence):
+/// - `backend = "testcontainers"` — always use a Docker container.
+/// - `backend = "dsn"` — always use the supplied DSN.
+/// - `backend = "auto"` (default) — prefer `dsn` if `url`/`url_env` is set,
+///   otherwise fall back to `testcontainers` when Docker is available.
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ShadowConfig {
-    /// Shadow-DB provider (currently `testcontainers`).
-    pub provider: String,
-    /// Postgres major version to use, as a string (e.g., `"16"`).
-    pub postgres_version: String,
+    /// Backend name: `"auto"` | `"testcontainers"` | `"dsn"`.
+    pub backend: Option<String>,
+    /// Postgres major version to use with the `testcontainers` backend
+    /// (e.g. `"17"`).  Ignored by the `dsn` backend.
+    pub postgres_version: Option<String>,
+    /// Literal DSN for the `dsn` backend.
+    pub url: Option<String>,
+    /// Name of the environment variable holding the DSN for the `dsn` backend.
+    pub url_env: Option<String>,
+    /// Reset policy between checkouts: `"drop_schema_cascade"` (default) or
+    /// `"none"`.
+    pub reset: Option<String>,
+    /// Extensions to install in the shadow DB before applying the source IR.
+    #[serde(default)]
+    pub extensions: Vec<String>,
 }
 
 impl PgevolveConfig {

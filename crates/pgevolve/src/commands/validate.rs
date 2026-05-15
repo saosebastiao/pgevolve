@@ -5,7 +5,7 @@
 use anyhow::{Result, anyhow};
 use tempfile::TempDir;
 
-use pgevolve_core::catalog::{CatalogFilter, DriftReport, PgVersion, read_catalog};
+use pgevolve_core::catalog::{CatalogFilter, DriftReport, read_catalog};
 use pgevolve_core::identifier::Identifier;
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::ir::difference::Difference;
@@ -18,7 +18,7 @@ use crate::cli::ValidateArgs;
 use crate::config::PgevolveConfig;
 use crate::executor::{ApplyOverrides, apply};
 use crate::pg_querier::PgCatalogQuerier;
-use crate::shadow_pg::{ShadowPostgres, docker_available};
+use crate::shadow::{docker_available, resolve};
 
 /// Run `pgevolve validate`.
 pub async fn run(args: &ValidateArgs, cfg: &PgevolveConfig) -> Result<i32> {
@@ -62,19 +62,31 @@ pub async fn run(args: &ValidateArgs, cfg: &PgevolveConfig) -> Result<i32> {
 /// Spin up a shadow PG of the configured version, apply the source IR,
 /// introspect, and return any source-vs-shadow diffs.
 async fn run_shadow_validation(source: &Catalog, cfg: &PgevolveConfig) -> Result<Vec<Difference>> {
-    if !docker_available() {
-        return Err(anyhow!(
-            "--shadow requires Docker. Install Docker or run without --shadow.",
-        ));
-    }
     let shadow_cfg = cfg
         .shadow
         .as_ref()
         .ok_or_else(|| anyhow!("--shadow requires a [shadow] section in pgevolve.toml"))?;
-    let pg_version = parse_pg_version(&shadow_cfg.postgres_version)?;
 
-    let shadow = ShadowPostgres::start(pg_version).await?;
-    let mut client = tokio_postgres::connect(shadow.dsn(), tokio_postgres::NoTls)
+    // For the testcontainers backend we still need to know the PG major; for
+    // the dsn backend the major is ignored.  Default to 17 if not specified.
+    let pg_major = parse_pg_major(shadow_cfg.postgres_version.as_deref())?;
+
+    // Validate Docker is available when no DSN is configured (auto/testcontainers).
+    let backend_name = shadow_cfg.backend.as_deref().unwrap_or("auto");
+    let needs_docker = backend_name == "testcontainers"
+        || (backend_name == "auto"
+            && shadow_cfg.url.is_none()
+            && shadow_cfg.url_env.is_none());
+    if needs_docker && !docker_available() {
+        return Err(anyhow!(
+            "--shadow requires Docker. Install Docker, or configure [shadow].url / [shadow].url_env.",
+        ));
+    }
+
+    let backend = resolve(shadow_cfg)?;
+    let guard = backend.checkout(pg_major).await?;
+
+    let mut client = tokio_postgres::connect(guard.url(), tokio_postgres::NoTls)
         .await
         .map(|(c, conn)| {
             tokio::spawn(async move {
@@ -139,13 +151,17 @@ fn build_plan_for_shadow(source: &Catalog, target_identity: String) -> Result<Pl
     ))
 }
 
-fn parse_pg_version(s: &str) -> Result<PgVersion> {
-    match s.trim() {
-        "14" => Ok(PgVersion::Pg14),
-        "15" => Ok(PgVersion::Pg15),
-        "16" => Ok(PgVersion::Pg16),
-        "17" => Ok(PgVersion::Pg17),
-        other => Err(anyhow!(
+/// Parse an optional `postgres_version` string into a `PgMajor`.
+///
+/// Defaults to `17` when `None` is supplied (testcontainers auto-selects
+/// the latest stable; the dsn backend ignores the major entirely).
+fn parse_pg_major(s: Option<&str>) -> Result<crate::shadow::PgMajor> {
+    match s.map(str::trim) {
+        None | Some("17") => Ok(17),
+        Some("16") => Ok(16),
+        Some("15") => Ok(15),
+        Some("14") => Ok(14),
+        Some(other) => Err(anyhow!(
             "[shadow].postgres_version must be one of 14/15/16/17; got `{other}`",
         )),
     }
