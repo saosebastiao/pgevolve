@@ -111,4 +111,22 @@ pub enum ParseError {
         /// Second definition location.
         second: SourceLocation,
     },
+
+    /// One or more structural references could not be resolved in source IR.
+    #[error("AST resolution failed:\n{}", format_resolution_errors(.0))]
+    AstResolution(Vec<crate::parse::ast_resolution::AstResolutionError>),
+}
+
+fn format_resolution_errors(
+    errs: &[crate::parse::ast_resolution::AstResolutionError],
+) -> String {
+    let mut s = String::new();
+    for (i, e) in errs.iter().enumerate() {
+        if i > 0 {
+            s.push('\n');
+        }
+        s.push_str("  - ");
+        s.push_str(&e.to_string());
+    }
+    s
 }

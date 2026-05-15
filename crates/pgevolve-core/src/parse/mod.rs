@@ -4,6 +4,7 @@
 //! [`crate::ir::catalog::Catalog`]. Construction is I/O-free at the type level —
 //! the only I/O is performed by [`parse_directory`] on behalf of callers.
 
+pub mod ast_resolution;
 pub mod builder;
 pub mod directives;
 pub mod error;
@@ -112,6 +113,11 @@ pub fn parse_directory_with_locations(
             })?;
         table.constraints.push(pending.constraint);
     }
+
+    // AST resolution pass: validate that all structural references (FKs,
+    // sequence defaults) resolve against the declared IR, before any DB touch.
+    ast_resolution::resolve(&catalog, &locations)
+        .map_err(ParseError::AstResolution)?;
 
     let canonical = catalog
         .canonicalize()
