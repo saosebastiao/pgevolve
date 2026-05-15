@@ -7,9 +7,11 @@
 pub mod apply;
 pub mod bootstrap;
 pub mod diff;
+pub mod doctor;
 pub mod graph;
 pub mod init;
 pub mod lint;
 pub mod plan;
+pub mod rewrite_table;
 pub mod status;
 pub mod validate;

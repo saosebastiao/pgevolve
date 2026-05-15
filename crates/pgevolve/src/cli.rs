@@ -29,7 +29,7 @@ pub struct Cli {
     pub cmd: Command,
 }
 
-/// One of the nine v0.1 commands.
+/// The full set of pgevolve commands (v0.1 surface + v0.2 readiness additions).
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Scaffold a new pgevolve project.
@@ -50,6 +50,29 @@ pub enum Command {
     Dump(DumpArgs),
     /// Install or upgrade the `pgevolve` metadata schema.
     Bootstrap(BootstrapArgs),
+    /// Report project health: bootstrap status, drift, recent failures.
+    Doctor {
+        /// Environment name (looked up in `[environments.<name>]`).
+        #[arg(long)]
+        db: String,
+        /// Override the resolved DSN.
+        #[arg(long)]
+        url: Option<String>,
+    },
+    /// Destructive table rewrite (v0.2 skeleton; implementation lands later).
+    RewriteTable {
+        /// Qualified table name (e.g., `app.users`).
+        qname: String,
+        /// Environment name.
+        #[arg(long)]
+        db: String,
+        /// Override the resolved DSN.
+        #[arg(long)]
+        url: Option<String>,
+        /// Required confirmation — without it the command refuses to run.
+        #[arg(long)]
+        confirm_rewrite: bool,
+    },
     /// Render the dep graph (name-derived + AST-derived edges).
     Graph {
         /// Graph output format (dot or mermaid). Note: the global `--format`
