@@ -87,6 +87,12 @@ pub fn extract_file_directives(sql: &str, file: &Path) -> Result<FileDirectives,
         // target value, rather than using the `key=value` tokenization.
         if let Some(target_raw) = payload.strip_prefix("dep:") {
             let target = target_raw.trim().to_string();
+            if target.is_empty() {
+                return Err(ParseError::InvalidDirective {
+                    location: SourceLocation::new(file.into(), line_no + 1, 1),
+                    message: "dep: requires a non-empty target".into(),
+                });
+            }
             out.deps.push(DepDirective { target });
             continue;
         }
@@ -280,5 +286,16 @@ mod tests {
         let sql = "SELECT 1;\n-- @pgevolve dep: app.foo\n";
         let d = parse(sql).unwrap();
         assert!(d.deps.is_empty());
+    }
+
+    #[test]
+    fn dep_directive_with_empty_target_is_rejected() {
+        let err = parse("-- @pgevolve dep:\n").unwrap_err();
+        match err {
+            ParseError::InvalidDirective { message, .. } => {
+                assert!(message.contains("non-empty target"), "got: {message}");
+            }
+            other => panic!("expected InvalidDirective, got {other:?}"),
+        }
     }
 }

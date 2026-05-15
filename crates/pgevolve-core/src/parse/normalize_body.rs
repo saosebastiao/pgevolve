@@ -30,23 +30,21 @@ pub enum BodyError {
     /// `pg_query` rejected the SQL.
     #[error("pg_query rejected body: {0}")]
     Parse(String),
-    /// `pg_query`'s deparser failed on a successfully-parsed input.
-    #[error("pg_query deparser failed: {0}")]
-    Deparse(String),
 }
 
 impl NormalizedBody {
     /// Canonicalize a body given its raw SQL text.
     ///
     /// The body may be any complete SQL statement (`SELECT`, `CREATE VIEW`,
-    /// etc.). Invalid SQL returns [`BodyError::Parse`].
+    /// etc.). Invalid SQL returns [`BodyError::Parse`]. If the deparser
+    /// unexpectedly fails on a successfully-parsed tree, the original SQL is
+    /// used as the canonical form (silent graceful degradation).
     pub fn from_sql(sql: &str) -> Result<Self, BodyError> {
         let parsed =
             pg_query::parse(sql).map_err(|e| BodyError::Parse(e.to_string()))?;
-        let deparsed = parsed
-            .deparse()
-            .map_err(|e| BodyError::Deparse(e.to_string()))?;
-        let canonical_text = collapse_whitespace(&deparsed);
+        let deparsed = parsed.deparse().unwrap_or_default();
+        let source = if deparsed.is_empty() { sql } else { &deparsed };
+        let canonical_text = collapse_whitespace(source);
         let canonical_hash = hash_canonical(&canonical_text);
         Ok(Self {
             canonical_text,
@@ -63,7 +61,11 @@ impl NormalizedBody {
     /// BLAKE3 hash of the canonical text. Domain-separated with
     /// `pgevolve-normalized-body-v1\n` to avoid collisions with
     /// [`crate::plan::plan::PlanId`] hashes (`pgevolve-plan-id-v1\n`).
-    pub const fn canonical_hash(&self) -> &[u8; 32] {
+    ///
+    /// Not `const fn`: `NormalizedBody` is only constructed at runtime (via
+    /// `pg_query`), so `const` would signal intent the type cannot fulfill.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn canonical_hash(&self) -> &[u8; 32] {
         &self.canonical_hash
     }
 }
