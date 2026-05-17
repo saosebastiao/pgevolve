@@ -48,7 +48,7 @@ fn run(cli: Cli) -> Result<u8, anyhow::Error> {
     let code: i32 = runtime.block_on(async move {
         match cli.cmd {
             Command::Init(_) => unreachable!("handled above"),
-            Command::Lint(args) => commands::lint::run(args, &cfg),
+            Command::Lint(args) => commands::lint::run(args, &cfg, cli.format),
             Command::Validate(args) => commands::validate::run(&args, &cfg).await,
             Command::Diff(args) => commands::diff::run(args, &cfg, cli.format).await,
             Command::Plan(args) => commands::plan::run(args, &cfg).await,

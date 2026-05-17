@@ -37,12 +37,18 @@ section if one doesn't exist yet. Refuses to overwrite an existing
 ## `pgevolve lint`
 
 ```
-USAGE: pgevolve lint
+USAGE: pgevolve lint [--format human|json]
 ```
 
 Parses the source tree, runs the universal rules and the configured
 layout-profile rules, and prints any findings. Exit `0` on no errors;
 exit `1` on any error-severity finding.
+
+The `--format` flag is the top-level `pgevolve --format ...` flag and
+must precede the subcommand. `--format sql` is rejected for `lint`
+(only meaningful for `diff`).
+
+### Human format (default)
 
 Layout violations look like:
 
@@ -50,6 +56,28 @@ Layout violations look like:
 error: [schema_mirror_path] table should be at `app/tables/users.sql`; found at `schema/oops/users.sql` (schema/oops/users.sql:1:1)
 pgevolve lint: 1 finding(s), 1 error(s)
 ```
+
+### JSON format
+
+`pgevolve --format json lint` emits a stable structured document:
+
+```json
+{
+  "findings": [
+    {
+      "severity": "error",
+      "rule": "schema_mirror_path",
+      "message": "table should be at `app/tables/users.sql`; found at `schema/oops/users.sql`",
+      "location": { "file": "schema/oops/users.sql", "line": 1, "column": 1 }
+    }
+  ],
+  "total": 1,
+  "errors": 1
+}
+```
+
+Severity values are stringified (`"error"`, `"warning"`, `"lint-at-plan"`).
+Findings without a known source location omit the `location` field.
 
 Universal rules (e.g., `closed_world_references`, `managed_schemas_match`)
 are listed in the [spec](../spec/lint-and-layout.md).

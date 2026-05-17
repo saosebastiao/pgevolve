@@ -93,4 +93,4 @@ A user-defined profile loaded from a TOML path passed in
 | Source location (`file:line:column`) on every finding | ✅ Implemented | When available; some findings (e.g., aggregated profile rules) don't have a single location. |
 | `--explain <rule>` to print the rule's rationale + example fix | 🔮 Future | Lands when there are enough rules to make explanations valuable. |
 | `--deny <rule>` / `--allow <rule>` overrides | 🔮 Future | Configurable per-rule severity. |
-| `--format json` lint output | 📋 Planned, v0.1.1 | The lint command currently emits text only; the JSON path is the natural next polish. |
+| `--format json` lint output | ✅ Implemented | `pgevolve lint --format json` emits a stable structured document with `findings[]`, `total`, and `errors`. Severity values are stringified (`"error"`, `"warning"`, `"lint-at-plan"`). `--format sql` is rejected for lint (sql output is meaningful only for `diff`). |
