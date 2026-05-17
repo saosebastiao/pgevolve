@@ -11,7 +11,7 @@ This sub-spec adds `VIEW` and `MATERIALIZED VIEW` (MV) management to pgevolve. v
 
 The design leans on three v0.1 invariants:
 
-1. **The IR is what Postgres says it is.** Both source and catalog sides produce identical `View` / `MaterializedView` IR records by routing the source side through an ephemeral Postgres ("shadow PG") and reading back the same catalog functions the catalog reader uses (`pg_get_viewdef`, `pg_depend`, `pg_class.reloptions`).
+1. **The IR is what both sides canonicalize to.** Both source and catalog sides produce identical `View` / `MaterializedView` IR records by running their respective body text through the same `NormalizedBody::from_sql` canonicalizer. Source reads the original `CREATE VIEW` body; the catalog reader reads `pg_get_viewdef(oid, true)` from the live DB. Both pass through the same canonicalizer and produce byte-equal `canonical_text`.
 2. **No data loss without explicit approval.** `DROP VIEW` is destructive (it removes a queryable surface); `DROP MATERIALIZED VIEW` is *not* destructive (MV rows are derived from base tables).
 3. **Every plan step is reviewable.** Dependent-view recreations are emitted as explicit `DROP VIEW` + `CREATE VIEW` sequences rather than `DROP ... CASCADE`, so every view that gets recreated appears by name in `plan.sql`.
 
@@ -51,14 +51,14 @@ The design leans on three v0.1 invariants:
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| **Body canonicalization** | Round-trip through shadow PG; both sides read `pg_get_viewdef(oid, true)`. | PG is the authoritative rewriter; equivalence becomes byte-equality on the canonical form. Avoids reimplementing PG's rewriter. |
+| **Body canonicalization** | `NormalizedBody::from_sql` on both source and catalog sides. Source parses the raw `CREATE VIEW` body; catalog re-parses `pg_get_viewdef(oid, true)`. Both produce byte-equal `canonical_text`. | Canonicalization is pgevolve-side, not PG-side. No shadow round-trip required for normal `diff`/`plan` runs. Plans are reproducible without Docker. |
 | **OR-REPLACE strategy** | Emit `CREATE OR REPLACE VIEW` when the new column list is a superset of the old; else drop+create. | Eliminates unnecessary churn (and permission churn under future GRANT support) for the common "add a column to a view" case without doubling the planner's test matrix. |
 | **MV data is derived** | `DROP MATERIALIZED VIEW` is not destructive; recreations don't require `intent.toml` approval. | Matches how every team treats MVs in practice and avoids friction during routine MV iteration. |
 | **MV refresh** | Always emit a `REFRESH MATERIALIZED VIEW` step after `CREATE MATERIALIZED VIEW`. Auto-prefer CONCURRENTLY under `strategy = "online"` when a unique index exists; otherwise emit plain `REFRESH` plus a lint warning. | Predictable plans; matches the opportunistic online-rewrite pattern used by other v0.1 rewrites. |
-| **Dependency tracking source** | Source side uses shadow `pg_depend`, same as the catalog reader. | Aligns with the body-canonicalization decision; no in-process name resolution. |
-| **Dependency tracking granularity** | Column-level (uses `pg_depend.refobjsubid`). | Avoids recreating unrelated dependent views when a sibling column changes. |
+| **Dependency tracking source** | Source side walks the parsed view body AST. `FromClause` nodes give relation refs; `FuncCall` nodes give function refs; `TypeCast`/`ColumnRef` give type/column refs. Each produces a `DepEdge { source: DepSource::AstExtracted }`. | Compiler-like diagnostics (missing column errors point at source lines), reproducible without containers, no bootstrap circularity. Aligns with arch readiness Decisions 9 and 10. |
+| **Dependency tracking granularity** | Column-level (via `ColumnRef` AST nodes). | Avoids recreating unrelated dependent views when a sibling column changes. |
 | **Dependent recreation in plan** | Emitted as explicit `DROP VIEW` + `CREATE VIEW` for each affected view, in topo order — never `DROP ... CASCADE`. | Every recreated view is visible by name in `plan.sql` for review. |
-| **Shadow cost gating** | Shadow pass runs only when the source tree contains at least one view or MV; result is cached keyed by `(source_ir_hash, pg_major)`. | Projects without views pay nothing; projects with views amortize the shadow boot across repeated `diff` / `plan` runs on unchanged source. |
+| **Shadow validation** | `--shadow-validate` flag boots a shadow PG, applies, reads `pg_depend`, and cross-checks against AST-derived edges. Mismatches are warnings (or errors under `--shadow-strict`). Shadow is opt-in; the normal `diff`/`plan` path requires no container. | Opt-in cross-check for canonicalizer correctness and coverage of edge cases, without making Docker mandatory. Aligns with arch readiness Decision 12. |
 
 ## 4. IR additions
 
@@ -69,8 +69,8 @@ pub struct View {
     pub schema: SchemaName,
     pub name: ObjectName,
     pub columns: Vec<ViewColumn>,            // ordered; reflects CREATE VIEW v (a, b) ... if aliased
-    pub body_canonical: CanonicalViewBody,   // output of pg_get_viewdef(oid, true) from shadow or catalog
-    pub body_dependencies: Vec<DepEdge>,     // column-level edges
+    pub body_canonical: NormalizedBody,      // produced by NormalizedBody::from_sql on both source and catalog sides
+    pub body_dependencies: Vec<DepEdge>,     // AST-extracted; column-level edges
     pub security_barrier: Option<bool>,      // None = not set; PG default applies
     pub security_invoker: Option<bool>,      // None = not set; PG 15+ only
     pub comment: Option<String>,
@@ -80,7 +80,7 @@ pub struct MaterializedView {
     pub schema: SchemaName,
     pub name: ObjectName,
     pub columns: Vec<ViewColumn>,
-    pub body_canonical: CanonicalViewBody,
+    pub body_canonical: NormalizedBody,
     pub body_dependencies: Vec<DepEdge>,
     pub comment: Option<String>,
 }
@@ -94,10 +94,13 @@ pub struct DepEdge {
     pub kind: DepKind,                       // Column | Function | Type | Sequence
     pub target: ObjectRef,
     pub subobject: Option<ColumnName>,       // populated when kind = Column
+    pub source: DepSource,                   // AstExtracted | AstDeclared (via @pgevolve dep: directive)
 }
-
-pub struct CanonicalViewBody(String);        // newtype; never constructed except by the shadow-load or catalog-read paths
 ```
+
+`NormalizedBody` is the type from `crates/pgevolve-core/src/parse/normalize_body.rs` (landed in v0.2-readiness). It carries `canonical_text: String` and `canonical_hash: [u8; 32]` (BLAKE3). The `NormalizedBody::from_sql` constructor walks the `pg_query` AST and emits the canonical form. Both the source pipeline and the catalog pipeline call `NormalizedBody::from_sql`; they never construct `NormalizedBody` from raw strings.
+
+`DepEdge` uses the type from `crates/pgevolve-core/src/plan/edges` (landed in v0.2-readiness), which already carries `DepSource`. There is no restricted constructor: both source and catalog paths call `DepEdge { source: DepSource::AstExtracted, .. }` directly.
 
 The existing `Index::on` field gains an `ObjectRef::Mv(_)` variant alongside `ObjectRef::Table(_)`. No other index changes are required — partial, expression, INCLUDE, opclass, collation, etc., all work identically on MV indexes.
 
@@ -105,29 +108,34 @@ There is no `populated: bool` field on `MaterializedView`. Whether an MV holds r
 
 ## 5. Source and catalog pipelines
 
-### 5.1 Source pipeline (with shadow round-trip)
+### 5.1 Source pipeline (AST-first)
 
 1. The existing source loader parses every `.sql` file with `pg_query`. For each `CreateViewStmt` and `CreateTableAsStmt` (MV) it produces a *provisional* IR record with empty `body_canonical` and empty `body_dependencies`.
-2. After all non-view IR (schemas, types, tables, indexes, constraints, sequences, functions) is in the source IR, the loader runs a **shadow-load pass**:
-   1. Boot an ephemeral PG matching the configured target version (reuse `pgevolve-testkit::EphemeralPostgres`).
-   2. Apply the source IR in dependency-correct order (schemas → types → tables/indexes/constraints/sequences → functions → views/MVs → MV indexes). This path already exists for `validate --shadow`; this design promotes it from an optional check to the *normal* path whenever views or MVs are present.
-   3. For each view/MV, query `pg_get_viewdef(oid, true)` → fill `body_canonical`; query `pg_depend` filtered to `refclassid IN (pg_class, pg_proc, pg_type)` → fill `body_dependencies` (column-level via `refobjsubid`).
-   4. Tear down the shadow container.
-3. The shadow result is cached keyed by `(source_ir_hash, pg_major)`. Cache directory: `.pgevolve/cache/shadow/`. The directory is added to the default `init`-generated `.gitignore`. Cache invalidates automatically when any source file changes (the hash includes every parsed source IR record).
-4. If the source tree contains zero views and zero MVs, the shadow pass is skipped entirely.
+2. After all non-view IR (schemas, types, tables, indexes, constraints, sequences, functions) is in the source IR, the loader runs an **AST canonicalization pass** over each view and MV:
+   1. For each view/MV, take the raw SELECT body text from the parsed `CreateViewStmt` / `CreateTableAsStmt`.
+   2. Re-parse the body with `pg_query` (it was already parsed in step 1; this uses the cached AST).
+   3. Call `NormalizedBody::from_sql` on the body AST → fills `body_canonical` with a `NormalizedBody` carrying `canonical_text` and `canonical_hash`.
+   4. Walk the body AST: `FromClause` nodes → relation `DepEdge`s; `FuncCall` nodes → function `DepEdge`s; `TypeCast` nodes → type `DepEdge`s; `ColumnRef` nodes → column-level `DepEdge`s. Each edge carries `source: DepSource::AstExtracted`. Fills `body_dependencies`.
+   5. Resolve each dep edge target against the provisional IR. An unresolved reference (e.g., view body references a column that doesn't exist) produces an **AST resolution error** with source location, before any DB touch.
+3. No shadow round-trip is performed during normal `diff`/`plan` runs. The AST canonicalization pass is fast enough that caching is not required.
+4. If a view or MV body contains `-- @pgevolve dep:` directives (recognized by `crates/pgevolve-core/src/parse/directives.rs`, landed in v0.2-readiness), those directives contribute additional `DepEdge { source: DepSource::AstDeclared }` entries alongside the AST-extracted ones.
 
 ### 5.2 Catalog pipeline
 
 Two new readers are added to `crates/pgevolve-core/src/catalog/`:
 
-- `read_views`: pulls `pg_class` rows with `relkind = 'v'`, joins `pg_get_viewdef`, `pg_attribute`, `pg_class.reloptions`, and `pg_depend`. Produces `Vec<View>`.
+- `read_views`: pulls `pg_class` rows with `relkind = 'v'`, joins `pg_get_viewdef(oid, true)`, `pg_attribute`, `pg_class.reloptions`, and `pg_depend`. For each row, calls `NormalizedBody::from_sql` on the `pg_get_viewdef` output. Produces `Vec<View>`.
 - `read_materialized_views`: same shape, `relkind = 'm'`. Produces `Vec<MaterializedView>`.
+
+The catalog reader also walks the parsed `pg_get_viewdef` AST to produce dep edges (same walk as §5.1 step 2.4), producing `DepEdge { source: DepSource::AstExtracted }`. These are used for the dep graph; the raw `pg_depend` rows are not consumed for canonicalization.
 
 The existing index reader is extended to accept `relkind IN ('r', 'm')` as valid index parents, so indexes on MVs flow through the same machinery.
 
 ### 5.3 Why the two sides are byte-equal
 
-Both `body_canonical` strings come from the same Postgres function (`pg_get_viewdef`) executed against an actual PG instance. Both `body_dependencies` sets come from the same catalog table (`pg_depend`) read the same way. Equality is therefore byte-equality on canonical bodies and set-equality on dep edges — no second canonicalizer to maintain.
+Both sides parse their input with `pg_query` and pass the resulting AST through `NormalizedBody::from_sql`. Equality is therefore byte-equality on `canonical_text` — the diff predicate is `source.body_canonical.canonical_hash == catalog.body_canonical.canonical_hash`. Because both sides use the same canonicalizer, a source body like `SELECT id, email FROM app.users` and a catalog body like ` SELECT users.id, users.email\n   FROM app.users;` converge to the same canonical form.
+
+The invariant to uphold: `NormalizedBody::from_sql(body).canonical_text == NormalizedBody::from_sql(pg_get_viewdef(apply(body))).canonical_text` for any well-formed view body. This is validated by the fuzz property test in §10.3.
 
 ## 6. Diff and planner
 
@@ -276,7 +284,7 @@ Catalog read-back fixtures for views and MVs added for PG 14, 15, 16, 17 (securi
 
 Two new generators in `pgevolve-testkit`:
 
-- `arb_view_body` — generates random SELECT bodies over a generated table corpus. Used to fuzz canonicalization: parse → shadow load → `pg_get_viewdef` → parse → assert canonical form is idempotent under a second round-trip.
+- `arb_view_body` — generates random SELECT bodies over a generated table corpus. Used to fuzz canonicalization: parse body → `NormalizedBody::from_sql` → assert the round-trip invariant holds: `NormalizedBody::from_sql(body).canonical_text == NormalizedBody::from_sql(pg_get_viewdef(apply(body))).canonical_text`. This confirms `NormalizedBody::from_sql` is closed under the PG rewrite: applying a view body to PG and reading it back through the same canonicalizer produces the same `canonical_text` as canonicalizing the original source. Runs against a real PG via the `docker-tests` feature gate.
 - `arb_view_dependency_graph` — generates view dependency DAGs (up to N levels of nesting) and asserts that an arbitrary column rename on a leaf table produces a plan that recreates exactly the transitively-affected views, in valid topo order, with no spurious recreations.
 
 Property tests stay `#[ignore]` and run nightly per the policy established in [`2026-05-11-conformance-test-suite-design.md`](./2026-05-11-conformance-test-suite-design.md).
@@ -290,7 +298,7 @@ Property tests stay `#[ignore]` and run nightly per the policy established in [`
 - **Source view depends on a column being added in the same plan.** Existing topo sort handles this — the column-add step precedes the view-create step.
 - **A view exists in the live DB on a schema *not* in `[managed].schemas`.** Ignored, matching v0.1's schema-scoping model.
 - **Two views with the same name in different schemas.** Each is identified by `(schema, name)`; no conflict.
-- **A view that selects `*` from a table.** PG expands `*` to an explicit column list at parse time; `pg_get_viewdef` reflects the expanded form. Adding a column to the underlying table changes the canonical body and produces a `View::ReplaceBody` diff — which is the correct user-facing behavior (the view's column set just grew).
+- **A view that selects `*` from a table.** PG expands `*` to an explicit column list at parse time; `pg_get_viewdef` reflects the expanded form. When the catalog reader calls `NormalizedBody::from_sql` on the `pg_get_viewdef` output, the expanded form becomes canonical. The source body's `*` also expands via AST resolution against the source IR. Adding a column to the underlying table changes the canonical body on both sides and produces a `View::ReplaceBody` diff — which is the correct user-facing behavior.
 
 ## 12. Documentation updates
 
@@ -306,11 +314,12 @@ When this work ships:
 
 ## 13. Rollout
 
-Phasing is left to the implementation plan. The natural ordering is: IR types → source parser → shadow-load pass with dep extraction → catalog readers → differ change kinds → planner step kinds and OR-REPLACE predicate → online-rewrite policy → lints → conformance fixtures → documentation. Each forms a reviewable PR.
+Phasing is left to the implementation plan. The natural ordering is: IR types → source parser → AST canonicalization pass with dep extraction → catalog readers → differ change kinds → planner step kinds and OR-REPLACE predicate → online-rewrite policy → lints → conformance fixtures → documentation. Each forms a reviewable PR.
 
 ## 14. Open questions
 
-None blocking. Two implementation-time decisions that don't need answering now:
+None blocking. Three implementation-time decisions that don't need answering now:
 
-- The exact cache-eviction policy for `.pgevolve/cache/shadow/` (LRU on size? TTL? "never evict, user clears manually"?). Defaults to "never evict" until evidence shows it matters.
-- Whether to expose a `--no-shadow` flag on `pgevolve diff` that errors when views are present (rather than spawning a container). Can be added later if user feedback demands it.
+- How aggressively to deepen `NormalizedBody::canonicalize` for view-specific shapes: `RECURSIVE` views (body is `WITH RECURSIVE ...`; does the canonicalizer handle CTE name normalization?), `LATERAL` joins (do we normalize join order within LATERAL?), set-returning functions in `SELECT` (e.g., `generate_series` — do we strip redundant casts on arguments?). These can be added incrementally; the canonicalizer's test suite is the right venue.
+- Whether MV bodies need any special canonicalization beyond what views need. An MV body is structurally identical to a view body; the same `NormalizedBody::from_sql` path handles both. The question is whether there are any MV-specific AST shapes (e.g., `WITH NO DATA` at the statement level) that need explicit canonicalization rules. Likely not — the `WITH NO DATA` clause is a statement-level option, not part of the body SELECT; `pg_get_viewdef` doesn't include it.
+- Whether `--shadow-validate` should emit a machine-readable diff of AST-extracted edges vs `pg_depend` edges, to aid canonicalizer development. Can be added later if feedback from early users suggests it.

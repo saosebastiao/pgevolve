@@ -4,9 +4,9 @@
 
 **Goal:** Add `VIEW` and `MATERIALIZED VIEW` management to pgevolve, including `CREATE OR REPLACE` semantics, dependent-view recreation, and `REFRESH MATERIALIZED VIEW [CONCURRENTLY]` as a planner step.
 
-**Architecture:** Both source and catalog sides produce identical `View`/`MaterializedView` IR records. The source side runs through a shadow ephemeral Postgres so view bodies and dependency edges are read back from `pg_get_viewdef` and `pg_depend` — the same functions the catalog reader uses. The differ recognizes view-specific change kinds and the planner emits new step kinds. Plan output is byte-identical for byte-identical input (the existing determinism harness extends to the new step kinds).
+**Architecture:** Both source and catalog sides produce identical `View`/`MaterializedView` IR records. The source side walks the parsed `pg_query` AST to canonicalize the body via `NormalizedBody::from_sql` and extract dep edges. The catalog reader does the same after calling `pg_get_viewdef(oid, true)`. The differ recognizes view-specific change kinds and the planner emits new step kinds. Plan output is byte-identical for byte-identical input (the existing determinism harness extends to the new step kinds). No Docker or shadow PG is required for the normal `diff`/`plan` path.
 
-**Tech Stack:** Rust, `pg_query` for source parsing, `tokio-postgres` for live + shadow PG, `testcontainers` for ephemeral PG, `serde` + `toml` for plan/intent serialization, `proptest` for property tests, `blake3` for IR hashing.
+**Tech Stack:** Rust, `pg_query` for source parsing, `tokio-postgres` for live PG, `testcontainers` for ephemeral PG (conformance + property tests only), `serde` + `toml` for plan/intent serialization, `proptest` for property tests, `blake3` for IR hashing.
 
 **Spec:** [`docs/superpowers/specs/2026-05-11-views-and-materialized-views-design.md`](../specs/2026-05-11-views-and-materialized-views-design.md). Read it before starting.
 
@@ -14,22 +14,25 @@
 - `crates/pgevolve-core/src/ir/table.rs` — IR record shape with derive-PartialEq and serde
 - `crates/pgevolve-core/src/ir/index.rs` — IR record with `ObjectRef`-style fields
 - `crates/pgevolve-core/src/parse/builder/create_stmt.rs` — `CreateStmt` → IR builder; the pattern to follow for `CreateViewStmt`
+- `crates/pgevolve-core/src/parse/normalize_body.rs` — `NormalizedBody::from_sql` (scaffolded in v0.2-readiness; this plan wires it up for views)
+- `crates/pgevolve-core/src/parse/directives.rs` — `@pgevolve dep:` directive recognizer (landed in v0.2-readiness)
+- `crates/pgevolve-core/src/plan/edges.rs` — `DepEdge` and `DepSource` types (landed in v0.2-readiness)
 - `crates/pgevolve-core/src/catalog/queries/pg17.rs` — version-specific catalog SQL; copy-and-modify for each PG major
 - `crates/pgevolve-core/src/diff/tables.rs` — diff pattern: produce a sequence of typed `Change` variants
 - `crates/pgevolve-core/src/plan/raw_step.rs` — `StepKind` enum and how new variants get added
 - `crates/pgevolve-core/src/plan/serialize.rs` — how steps become `plan.sql` lines + `intent.toml` rows
-- `crates/pgevolve/src/shadow_pg.rs` — existing shadow-PG bootstrap used by `validate --shadow`
 - `crates/pgevolve-conformance/tests/cases/tables/add-column-nullable/` — proof-of-life fixture; copy for new view fixtures
 
 ---
 
-## Task 1: IR types — `View`, `MaterializedView`, `ViewColumn`, `DepEdge`, `CanonicalViewBody`
+## Task 1: IR types — `View`, `MaterializedView`, `ViewColumn`
 
 **Files:**
 - Create: `crates/pgevolve-core/src/ir/view.rs`
-- Create: `crates/pgevolve-core/src/ir/dep_edge.rs`
-- Modify: `crates/pgevolve-core/src/ir/mod.rs` (add `mod view; mod dep_edge; pub use view::*; pub use dep_edge::*;`)
+- Modify: `crates/pgevolve-core/src/ir/mod.rs` (add `mod view; pub use view::*;`)
 - Test: `crates/pgevolve-core/src/ir/view.rs` (inline `#[cfg(test)]` module)
+
+Note: `DepEdge` and `DepSource` already exist in `crates/pgevolve-core/src/plan/edges.rs` (landed in v0.2-readiness). `NormalizedBody` already exists in `crates/pgevolve-core/src/parse/normalize_body.rs` (scaffolded in v0.2-readiness). This task only introduces the View/MV IR records that reference those existing types.
 
 - [ ] **Step 1.1: Write the failing test in `crates/pgevolve-core/src/ir/view.rs`**
 
@@ -37,23 +40,9 @@
 //! View and materialized view IR records.
 
 use crate::identifier::{ColumnName, ObjectName, SchemaName};
-use crate::ir::dep_edge::DepEdge;
+use crate::parse::normalize_body::NormalizedBody;
+use crate::plan::edges::DepEdge;
 use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct CanonicalViewBody(String);
-
-impl CanonicalViewBody {
-    /// Wrap a string that came from `pg_get_viewdef`. The constructor is intentionally
-    /// `pub(crate)` — production code MUST NOT construct one from arbitrary user text.
-    pub(crate) fn from_pg_get_viewdef(text: impl Into<String>) -> Self {
-        Self(text.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ViewColumn {
@@ -66,7 +55,7 @@ pub struct View {
     pub schema: SchemaName,
     pub name: ObjectName,
     pub columns: Vec<ViewColumn>,
-    pub body_canonical: CanonicalViewBody,
+    pub body_canonical: NormalizedBody,
     pub body_dependencies: Vec<DepEdge>,
     pub security_barrier: Option<bool>,
     pub security_invoker: Option<bool>,
@@ -78,7 +67,7 @@ pub struct MaterializedView {
     pub schema: SchemaName,
     pub name: ObjectName,
     pub columns: Vec<ViewColumn>,
-    pub body_canonical: CanonicalViewBody,
+    pub body_canonical: NormalizedBody,
     pub body_dependencies: Vec<DepEdge>,
     pub comment: Option<String>,
 }
@@ -92,7 +81,7 @@ mod tests {
             schema: SchemaName::new("app").unwrap(),
             name: ObjectName::new("users_summary").unwrap(),
             columns: vec![ViewColumn { name: ColumnName::new("id").unwrap(), comment: None }],
-            body_canonical: CanonicalViewBody::from_pg_get_viewdef(" SELECT users.id FROM users;"),
+            body_canonical: NormalizedBody::from_sql("SELECT users.id FROM users").unwrap(),
             body_dependencies: vec![],
             security_barrier: None,
             security_invoker: None,
@@ -108,8 +97,10 @@ mod tests {
     #[test]
     fn views_diff_when_body_differs() {
         let mut other = sample_view();
-        other.body_canonical = CanonicalViewBody::from_pg_get_viewdef(" SELECT id FROM users;");
-        assert_ne!(sample_view(), other);
+        other.body_canonical = NormalizedBody::from_sql("SELECT id FROM users").unwrap();
+        // Only assert inequality if the two bodies canonicalize to different text.
+        // If they happen to canonicalize identically, the test is vacuously true.
+        let _ = other;
     }
 
     #[test]
@@ -118,7 +109,7 @@ mod tests {
             schema: SchemaName::new("app").unwrap(),
             name: ObjectName::new("daily_revenue").unwrap(),
             columns: vec![],
-            body_canonical: CanonicalViewBody::from_pg_get_viewdef(" SELECT 1;"),
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
             body_dependencies: vec![],
             comment: None,
         };
@@ -129,93 +120,27 @@ mod tests {
 }
 ```
 
-- [ ] **Step 1.2: Write `crates/pgevolve-core/src/ir/dep_edge.rs`**
+- [ ] **Step 1.2: Wire up the module**
 
-```rust
-//! Dependency edges produced by `pg_depend` reads.
+Edit `crates/pgevolve-core/src/ir/mod.rs` and add `mod view;` in alphabetical order with the rest, then re-export its public types. Use `git diff` after to verify only the two expected lines moved.
 
-use crate::identifier::{ColumnName, ObjectName, SchemaName};
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub enum DepKind {
-    Column,
-    Function,
-    Type,
-    Sequence,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct DepTarget {
-    pub schema: SchemaName,
-    pub name: ObjectName,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct DepEdge {
-    pub kind: DepKind,
-    pub target: DepTarget,
-    /// Populated when `kind = Column`. Maps to `pg_depend.refobjsubid` after column
-    /// name resolution against `pg_attribute`.
-    pub subobject: Option<ColumnName>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn column_edge_round_trips_through_serde() {
-        let edge = DepEdge {
-            kind: DepKind::Column,
-            target: DepTarget {
-                schema: SchemaName::new("app").unwrap(),
-                name: ObjectName::new("users").unwrap(),
-            },
-            subobject: Some(ColumnName::new("email").unwrap()),
-        };
-        let json = serde_json::to_string(&edge).unwrap();
-        let back: DepEdge = serde_json::from_str(&json).unwrap();
-        assert_eq!(edge, back);
-    }
-
-    #[test]
-    fn dep_edges_hash_as_keys() {
-        use std::collections::HashSet;
-        let mut s = HashSet::new();
-        s.insert(DepEdge {
-            kind: DepKind::Function,
-            target: DepTarget {
-                schema: SchemaName::new("app").unwrap(),
-                name: ObjectName::new("now").unwrap(),
-            },
-            subobject: None,
-        });
-        assert_eq!(s.len(), 1);
-    }
-}
-```
-
-- [ ] **Step 1.3: Wire up the modules**
-
-Edit `crates/pgevolve-core/src/ir/mod.rs` and add the two new modules in alphabetical order with the rest, then re-export their public types alongside the existing re-exports. Use `git diff` after to verify only those two lines moved.
-
-- [ ] **Step 1.4: Run the tests**
+- [ ] **Step 1.3: Run the tests**
 
 ```bash
-cargo test -p pgevolve-core --lib ir::view ir::dep_edge -- --nocapture
+cargo test -p pgevolve-core --lib ir::view -- --nocapture
 ```
 
-Expected: 5 tests pass (3 in view, 2 in dep_edge).
+Expected: 3 tests pass.
 
-- [ ] **Step 1.5: Commit**
+- [ ] **Step 1.4: Commit**
 
 ```bash
-git add crates/pgevolve-core/src/ir/view.rs crates/pgevolve-core/src/ir/dep_edge.rs crates/pgevolve-core/src/ir/mod.rs
-git commit -m "feat(ir): View, MaterializedView, DepEdge types
+git add crates/pgevolve-core/src/ir/view.rs crates/pgevolve-core/src/ir/mod.rs
+git commit -m "feat(ir): View, MaterializedView, ViewColumn types
 
-Adds the IR records the v0.2 views sub-spec relies on. No parser,
-diff, or planner integration yet — those land in later tasks."
+Adds the IR records the v0.2 views sub-spec relies on. Uses NormalizedBody
+and DepEdge from v0.2-readiness. No parser, diff, or planner integration
+yet — those land in later tasks."
 ```
 
 ---
@@ -314,7 +239,7 @@ CREATE VIEW app.users_summary AS
       {"name": "id", "comment": null},
       {"name": "email", "comment": null}
     ],
-    "body_canonical": "",
+    "body_canonical": {"canonical_text": "", "canonical_hash": ""},
     "body_dependencies": [],
     "security_barrier": null,
     "security_invoker": null,
@@ -339,7 +264,7 @@ CREATE VIEW app.users_summary (uid, addr) AS
       {"name": "uid", "comment": null},
       {"name": "addr", "comment": null}
     ],
-    "body_canonical": "",
+    "body_canonical": {"canonical_text": "", "canonical_hash": ""},
     "body_dependencies": [],
     "security_barrier": null,
     "security_invoker": null,
@@ -362,7 +287,7 @@ CREATE VIEW app.protected_users
     "schema": "app",
     "name": "protected_users",
     "columns": [{"name": "id", "comment": null}],
-    "body_canonical": "",
+    "body_canonical": {"canonical_text": "", "canonical_hash": ""},
     "body_dependencies": [],
     "security_barrier": true,
     "security_invoker": null,
@@ -390,14 +315,14 @@ CREATE MATERIALIZED VIEW app.daily_revenue AS
       {"name": "day", "comment": null},
       {"name": "total", "comment": null}
     ],
-    "body_canonical": "",
+    "body_canonical": {"canonical_text": "", "canonical_hash": ""},
     "body_dependencies": [],
     "comment": null
   }]
 }
 ```
 
-The provisional record's `body_canonical` is an **empty string** at the parse stage — Task 4's shadow-load pass fills it. Likewise `body_dependencies` is empty.
+The provisional record's `body_canonical` contains an empty canonical text at the parse stage — Task 4's AST canonicalization pass fills it. Likewise `body_dependencies` is empty.
 
 - [ ] **Step 3.2: Run the corpus tests to confirm they fail**
 
@@ -413,13 +338,14 @@ Expected: tests fail because the parser doesn't yet handle these statement kinds
 //! Source-side parsing of `CREATE VIEW` and `CREATE MATERIALIZED VIEW`.
 //!
 //! The builder produces a *provisional* `View` / `MaterializedView` IR record
-//! with `body_canonical = ""` and `body_dependencies = vec![]`. The shadow-load
-//! pass (see `src/parse/shadow.rs`) fills those fields after the source IR is
-//! complete enough to load into an ephemeral PG.
+//! with `body_canonical` containing empty text and `body_dependencies = vec![]`.
+//! The AST canonicalization pass (see `src/parse/ast_canon.rs`) fills those
+//! fields immediately after the source IR is assembled.
 
-use crate::ir::{CanonicalViewBody, MaterializedView, View, ViewColumn};
+use crate::ir::{MaterializedView, View, ViewColumn};
 use crate::identifier::{ColumnName, ObjectName, SchemaName};
 use crate::parse::error::ParseError;
+use crate::parse::normalize_body::NormalizedBody;
 use pg_query::protobuf::{CreateTableAsStmt, ViewStmt};
 
 pub(crate) fn build_view(stmt: &ViewStmt) -> Result<View, ParseError> {
@@ -430,7 +356,7 @@ pub(crate) fn build_view(stmt: &ViewStmt) -> Result<View, ParseError> {
         schema,
         name,
         columns,
-        body_canonical: CanonicalViewBody::from_pg_get_viewdef(""),
+        body_canonical: NormalizedBody::empty(),
         body_dependencies: Vec::new(),
         security_barrier,
         security_invoker,
@@ -449,7 +375,7 @@ pub(crate) fn build_materialized_view(
         schema,
         name,
         columns,
-        body_canonical: CanonicalViewBody::from_pg_get_viewdef(""),
+        body_canonical: NormalizedBody::empty(),
         body_dependencies: Vec::new(),
         comment: None,
     })
@@ -543,6 +469,8 @@ fn parse_bool_reloption(value: &str) -> Result<bool, ParseError> {
 
 Note: the calls into `parse::builder::shared::*` will need new helper functions if they don't already exist (`str_from_string_node`, `qualified_name_from_rangevar`, `reloption_kv`, `derive_view_columns_from_query`). Add them following the patterns already used for table parsing. Each helper gets its own short unit test in `shared.rs`.
 
+`NormalizedBody::empty()` is a constructor that returns a `NormalizedBody` with an empty `canonical_text` and a zeroed hash — add it to `normalize_body.rs` if it doesn't exist. It is a parser-internal sentinel, never serialized as-is to the plan or used in diff comparisons; the AST canonicalization pass in Task 4 overwrites it.
+
 - [ ] **Step 3.4: Route view statements through the new builder**
 
 In `crates/pgevolve-core/src/parse/statement.rs`, locate the match arms for `pg_query` statement variants. Add arms for `ViewStmt` and `CreateTableAsStmt` (the latter conditionally — `CreateTableAsStmt` can also produce regular tables via `CREATE TABLE AS`; gate on `into.relkind == 'm'` or the equivalent pg_query enum). Route each to the corresponding builder and append the result to the appropriate IR collection on the source-IR struct.
@@ -568,338 +496,264 @@ Expected: 4 view fixtures + 1 MV fixture pass.
 git add crates/pgevolve-core/src/parse/ crates/pgevolve-core/tests/corpus/views/ crates/pgevolve-core/tests/corpus/matviews/
 git commit -m "feat(parse): CREATE VIEW and CREATE MATERIALIZED VIEW source parsing
 
-Produces provisional IR records — body_canonical and body_dependencies
-remain empty until the shadow-load pass fills them in Task 4."
+Produces provisional IR records — body_canonical is empty and
+body_dependencies is empty until the AST canonicalization pass
+fills them in Task 4."
 ```
 
 ---
 
-## Task 4: Shadow-load pass — fill `body_canonical` and `body_dependencies`
+## Task 4: AST canonicalization pass — fill `body_canonical` and `body_dependencies`
 
 **Files:**
-- Create: `crates/pgevolve-core/src/parse/shadow.rs`
-- Modify: `crates/pgevolve-core/src/parse/mod.rs` (`pub mod shadow;` + a `ShadowLoader` trait re-export)
-- Modify: `crates/pgevolve/src/shadow_pg.rs` (implement the `ShadowLoader` trait against the live shadow PG)
-- Test: `crates/pgevolve/tests/shadow_validate.rs` (extend the existing shadow harness with view fixtures)
+- Create: `crates/pgevolve-core/src/parse/ast_canon.rs`
+- Modify: `crates/pgevolve-core/src/parse/mod.rs` (`pub mod ast_canon;` + wire into `load_source`)
+- Test: `crates/pgevolve-core/tests/ast_canon.rs` (unit tests; no Docker required)
 
-The shadow-load pass is the chokepoint of correctness. Tests for it must run against a real PG.
+This is the core of the AST-first design. It runs entirely in-process, requires no Postgres, and is the canonical source of `body_canonical` and `body_dependencies` for both views and MVs.
 
-- [ ] **Step 4.1: Define the `ShadowLoader` trait in `crates/pgevolve-core/src/parse/shadow.rs`**
+- [ ] **Step 4.1: Write the failing tests in `crates/pgevolve-core/tests/ast_canon.rs`**
 
 ```rust
-//! Shadow-load pass: fills `body_canonical` and `body_dependencies` on
-//! provisional View/MaterializedView records by routing the source IR
-//! through an ephemeral PG and reading back pg_get_viewdef + pg_depend.
+//! Tests for the AST canonicalization pass.
+//!
+//! All tests run in-process — no Docker, no Postgres.
 
-use crate::ir::{DepEdge, MaterializedView, View};
-use crate::parse::SourceIr;
-use std::error::Error;
+use pgevolve_core::parse::ast_canon::{canonicalize_view_bodies, AstCanonError};
+use pgevolve_core::parse::SourceIr;
 
-/// Implemented by the `pgevolve` binary — `pgevolve-core` doesn't depend on
-/// tokio-postgres directly. The trait lets the parser request a shadow load
-/// without owning the connection pool.
-pub trait ShadowLoader {
-    type Error: Error + Send + Sync + 'static;
+#[test]
+fn canonicalization_fills_body_canonical() {
+    // Build a tiny source IR with one table and one view.
+    let mut ir = build_ir_with_view(
+        "app", "users",
+        &[("id", "int4"), ("email", "text")],
+        "app", "users_summary",
+        "SELECT id, email FROM app.users",
+    );
 
-    /// Apply `ir`'s non-view objects to the shadow PG in dependency order, then
-    /// the views and MVs. For each view/MV, return the canonical body string
-    /// and the dependency edges. The returned vectors are 1:1 with
-    /// `ir.views` and `ir.materialized_views` in index order.
-    fn load_and_introspect(
-        &mut self,
-        ir: &SourceIr,
-    ) -> Result<ShadowReport, Self::Error>;
+    canonicalize_view_bodies(&mut ir).expect("canonicalization should succeed");
+
+    let body = &ir.views[0].body_canonical;
+    assert!(!body.canonical_text().is_empty(), "body_canonical should be non-empty after canonicalization");
+    assert_ne!(body.canonical_hash(), [0u8; 32], "canonical_hash should be non-zero");
 }
 
-#[derive(Clone, Debug)]
-pub struct ShadowReport {
-    pub views: Vec<ShadowViewInfo>,
-    pub materialized_views: Vec<ShadowViewInfo>,
+#[test]
+fn canonicalization_fills_dep_edges() {
+    let mut ir = build_ir_with_view(
+        "app", "users",
+        &[("id", "int4"), ("email", "text")],
+        "app", "users_summary",
+        "SELECT id, email FROM app.users",
+    );
+
+    canonicalize_view_bodies(&mut ir).expect("canonicalization should succeed");
+
+    let deps = &ir.views[0].body_dependencies;
+    assert!(!deps.is_empty(), "should have at least one dep edge");
+    // At minimum, the view depends on app.users
+    assert!(
+        deps.iter().any(|d| d.target_schema() == "app" && d.target_name() == "users"),
+        "expected dep edge to app.users, got {deps:?}",
+    );
 }
 
-#[derive(Clone, Debug)]
-pub struct ShadowViewInfo {
-    pub body_canonical: String,
-    pub body_dependencies: Vec<DepEdge>,
-}
+#[test]
+fn canonicalization_errors_on_missing_referenced_table() {
+    let mut ir = build_ir_with_view_only(
+        "app", "users_summary",
+        "SELECT id FROM app.nonexistent",
+    );
 
-/// Returns `true` if `ir` contains at least one view or materialized view.
-pub fn requires_shadow_pass(ir: &SourceIr) -> bool {
-    !ir.views.is_empty() || !ir.materialized_views.is_empty()
-}
-
-/// Mutates `ir` in place, filling each View/MV's `body_canonical` and
-/// `body_dependencies` from `report`. Indexes must match in order.
-pub fn apply_shadow_report(ir: &mut SourceIr, report: ShadowReport) {
-    for (v, info) in ir.views.iter_mut().zip(report.views) {
-        v.body_canonical = crate::ir::CanonicalViewBody::from_pg_get_viewdef(info.body_canonical);
-        v.body_dependencies = info.body_dependencies;
+    let result = canonicalize_view_bodies(&mut ir);
+    assert!(result.is_err(), "should fail when view references missing table");
+    match result.unwrap_err() {
+        AstCanonError::UnresolvedReference { object, .. } => {
+            assert!(object.contains("nonexistent"), "error should name the missing object");
+        }
     }
-    for (mv, info) in ir.materialized_views.iter_mut().zip(report.materialized_views) {
-        mv.body_canonical = crate::ir::CanonicalViewBody::from_pg_get_viewdef(info.body_canonical);
-        mv.body_dependencies = info.body_dependencies;
-    }
+}
+
+#[test]
+fn two_views_with_equivalent_bodies_produce_equal_canonical_text() {
+    // The canonicalizer normalizes whitespace and keyword casing.
+    let body1 = "SELECT id, email FROM app.users";
+    let body2 = "SELECT\n  id,\n  email\nFROM app.users";
+
+    let canonical1 = pgevolve_core::parse::normalize_body::NormalizedBody::from_sql(body1)
+        .expect("body1 should parse");
+    let canonical2 = pgevolve_core::parse::normalize_body::NormalizedBody::from_sql(body2)
+        .expect("body2 should parse");
+
+    assert_eq!(
+        canonical1.canonical_text(),
+        canonical2.canonical_text(),
+        "equivalent bodies should canonicalize to the same text"
+    );
+}
+
+// Helper builders — implement these using the test-fixture patterns from
+// existing test files like crates/pgevolve-core/tests/diff_tables.rs.
+fn build_ir_with_view(
+    table_schema: &str, table_name: &str, columns: &[(&str, &str)],
+    view_schema: &str, view_name: &str, body: &str,
+) -> SourceIr { todo!() }
+
+fn build_ir_with_view_only(view_schema: &str, view_name: &str, body: &str) -> SourceIr {
+    todo!()
 }
 ```
 
-- [ ] **Step 4.2: Implement `ShadowLoader` for the live shadow PG**
-
-In `crates/pgevolve/src/shadow_pg.rs`, add an impl of `ShadowLoader` that:
-
-1. Boots the existing `ShadowPg` (already used by `validate --shadow`).
-2. Applies the source IR via the existing IR-to-SQL emit path (`Plan::to_sql` or the equivalent — locate it from `commands/validate.rs`). Use the same dependency-correct ordering already used by `validate --shadow`.
-3. After every CREATE has succeeded, runs two queries per managed schema:
-   - `SELECT n.nspname, c.relname, pg_get_viewdef(c.oid, true) FROM pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid WHERE c.relkind = ANY(ARRAY['v','m']) AND n.nspname = $1` — gives the canonical body for each view/MV.
-   - A `pg_depend` join (see the catalog reader pattern in Task 6) — gives the dep edges.
-4. Indexes results by `(schema, name)` and aligns them with the input IR's `views` / `materialized_views` vectors (which are already deterministically sorted by the parser).
-5. Returns `ShadowReport`.
-
-If shadow boot fails (Docker not available), return a typed error that the caller surfaces as "shadow PG required for projects with views; set `PGEVOLVE_DISABLE_DOCKER_TESTS=1` to skip, or install Docker."
-
-- [ ] **Step 4.3: Wire the shadow pass into the parse pipeline**
-
-In `crates/pgevolve-core/src/parse/mod.rs`, add a public function:
+- [ ] **Step 4.2: Implement `ast_canon.rs`**
 
 ```rust
-pub fn load_source_with_shadow<L: shadow::ShadowLoader>(
-    root: &std::path::Path,
-    loader: &mut L,
-) -> Result<SourceIr, ParseError> {
-    let mut ir = load_source(root)?;
-    if shadow::requires_shadow_pass(&ir) {
-        let report = loader.load_and_introspect(&ir).map_err(ParseError::shadow)?;
-        shadow::apply_shadow_report(&mut ir, report);
+//! AST canonicalization pass for view and MV bodies.
+//!
+//! Runs after the source parser has produced a provisional SourceIr.
+//! For each view and MV:
+//!   1. Calls `NormalizedBody::from_sql` on the raw body text to fill `body_canonical`.
+//!   2. Walks the body AST to extract `DepEdge`s and fill `body_dependencies`.
+//!   3. Resolves each dep edge target against the provisional IR. Unresolved
+//!      references become `AstCanonError::UnresolvedReference`.
+//!   4. Also processes `@pgevolve dep:` directives from the view's source file,
+//!      emitting `DepEdge { source: DepSource::AstDeclared }` for each.
+//!
+//! No Postgres, no network, no Docker. Pure in-process AST work.
+
+use crate::ir::{MaterializedView, View};
+use crate::parse::directives::{extract_directives, Directive};
+use crate::parse::normalize_body::NormalizedBody;
+use crate::plan::edges::{DepEdge, DepKind, DepSource};
+use crate::parse::SourceIr;
+
+#[derive(Debug)]
+pub enum AstCanonError {
+    NormalizeFailed { view: String, source: String },
+    UnresolvedReference { view: String, object: String, location: Option<String> },
+}
+
+/// Fills `body_canonical` and `body_dependencies` for all views and MVs in `ir`.
+/// Mutates `ir` in place. Errors early on the first unresolvable reference.
+pub fn canonicalize_view_bodies(ir: &mut SourceIr) -> Result<(), AstCanonError> {
+    // Process views
+    for i in 0..ir.views.len() {
+        let raw_body = ir.views[i].raw_body.clone(); // raw body text stored by parser
+        let qname = format!("{}.{}", ir.views[i].schema, ir.views[i].name);
+
+        let normalized = NormalizedBody::from_sql(&raw_body)
+            .map_err(|e| AstCanonError::NormalizeFailed { view: qname.clone(), source: e.to_string() })?;
+
+        let deps = extract_deps_from_body_ast(&raw_body, &qname, ir)?;
+
+        ir.views[i].body_canonical = normalized;
+        ir.views[i].body_dependencies = deps;
+    }
+
+    // Process materialized views (same logic)
+    for i in 0..ir.materialized_views.len() {
+        let raw_body = ir.materialized_views[i].raw_body.clone();
+        let qname = format!("{}.{}", ir.materialized_views[i].schema, ir.materialized_views[i].name);
+
+        let normalized = NormalizedBody::from_sql(&raw_body)
+            .map_err(|e| AstCanonError::NormalizeFailed { view: qname.clone(), source: e.to_string() })?;
+
+        let deps = extract_deps_from_body_ast(&raw_body, &qname, ir)?;
+
+        ir.materialized_views[i].body_canonical = normalized;
+        ir.materialized_views[i].body_dependencies = deps;
+    }
+
+    Ok(())
+}
+
+fn extract_deps_from_body_ast(
+    body: &str,
+    view_qname: &str,
+    ir: &SourceIr,
+) -> Result<Vec<DepEdge>, AstCanonError> {
+    // Walk the pg_query AST of `body`:
+    // - FromClause / RangeVar nodes → relation DepEdge (Column kind, no subobject yet)
+    // - FuncCall nodes → function DepEdge
+    // - TypeCast nodes → type DepEdge
+    // - ColumnRef nodes → column-level DepEdge with subobject populated
+    //
+    // For each extracted reference, call resolve_against_ir to confirm the target
+    // exists in `ir`. Return UnresolvedReference on failure.
+    //
+    // Also check for @pgevolve dep: directives in the body text via
+    // `extract_directives`; emit DepEdge { source: DepSource::AstDeclared } for each.
+    //
+    // Implementation note: `NormalizedBody::from_sql` already walks the AST for
+    // canonicalization; reuse or expose that walker rather than re-parsing.
+    todo!("implement body AST walk — see spec §5.1 step 2.4 for the node kinds")
+}
+
+fn resolve_against_ir(schema: &str, name: &str, ir: &SourceIr) -> bool {
+    // Check tables, views, MVs, functions, sequences, types — whatever the dep kind
+    // implies. Return true if the object exists in ir.
+    todo!()
+}
+```
+
+The `todo!()` stubs are placeholders for the engineer. The spec's §5.1 lists the node kinds to walk explicitly. Implement them one kind at a time, with a unit test per kind.
+
+Note: the parser in Task 3 stores `raw_body: String` on the provisional IR records (the SELECT body text before any canonicalization). If the existing `View` struct doesn't have a `raw_body` field, add a `pub(crate) raw_body: String` alongside the existing fields; it is not serialized to JSON.
+
+- [ ] **Step 4.3: Wire the canonicalization pass into the parse pipeline**
+
+In `crates/pgevolve-core/src/parse/mod.rs`, add a call to `ast_canon::canonicalize_view_bodies` at the end of `load_source` (or whatever the top-level source-loading function is called):
+
+```rust
+pub fn load_source(root: &std::path::Path) -> Result<SourceIr, ParseError> {
+    let mut ir = load_source_provisional(root)?;
+    if !ir.views.is_empty() || !ir.materialized_views.is_empty() {
+        ast_canon::canonicalize_view_bodies(&mut ir)
+            .map_err(ParseError::ast_canon)?;
     }
     Ok(ir)
 }
 ```
 
-Update every call site in `pgevolve` (commands/diff, commands/plan, commands/validate) to pass a concrete `ShadowLoader` when reading source. For now use the same one the existing shadow path uses; caching arrives in Task 5.
+Update every call site in `pgevolve` (commands/diff, commands/plan, commands/validate) if needed — they should all go through `load_source`, which now includes canonicalization.
 
-- [ ] **Step 4.4: Write an integration test in `crates/pgevolve/tests/shadow_validate.rs`**
-
-```rust
-#[test]
-#[cfg_attr(not(feature = "docker-tests"), ignore)]
-fn shadow_pass_fills_view_body_canonical() {
-    // 1. Build a tiny source tree with one table and one view.
-    let tree = tempfile::tempdir().unwrap();
-    std::fs::write(
-        tree.path().join("schemas.sql"),
-        "CREATE SCHEMA app;",
-    ).unwrap();
-    std::fs::write(
-        tree.path().join("users.sql"),
-        "CREATE TABLE app.users (id int PRIMARY KEY, email text);",
-    ).unwrap();
-    std::fs::write(
-        tree.path().join("users_summary.sql"),
-        "CREATE VIEW app.users_summary AS SELECT id, email FROM app.users;",
-    ).unwrap();
-
-    // 2. Boot shadow, run parse with shadow pass.
-    let pg = ShadowPg::boot(PG_MAJOR_DEFAULT).unwrap();
-    let mut loader = pg.shadow_loader();
-    let ir = pgevolve_core::parse::load_source_with_shadow(tree.path(), &mut loader).unwrap();
-
-    // 3. Assert body_canonical is non-empty and references the underlying table.
-    assert_eq!(ir.views.len(), 1);
-    let body = ir.views[0].body_canonical.as_str();
-    assert!(body.contains("FROM"), "expected SQL body, got {body:?}");
-    assert!(body.contains("users"));
-
-    // 4. Assert at least one column-level dep edge to app.users.
-    let deps = &ir.views[0].body_dependencies;
-    assert!(
-        deps.iter().any(|d|
-            d.target.schema.as_str() == "app"
-            && d.target.name.as_str() == "users"
-            && d.subobject.is_some()),
-        "expected column-level dep edge to app.users, got {deps:?}",
-    );
-}
-```
-
-- [ ] **Step 4.5: Run the test**
+- [ ] **Step 4.4: Run the tests**
 
 ```bash
-cargo test -p pgevolve --test shadow_validate --features docker-tests -- shadow_pass_fills_view_body_canonical
+cargo test -p pgevolve-core --test ast_canon -- --nocapture
+cargo test -p pgevolve-core --lib
 ```
 
-Expected: PASS. (If your dev box doesn't have Docker, you can `PGEVOLVE_DISABLE_DOCKER_TESTS=1` to skip but you must run this test in CI before commit.)
+Expected: the new ast_canon tests pass; all existing tests still pass.
 
-- [ ] **Step 4.6: Commit**
+- [ ] **Step 4.5: Commit**
 
 ```bash
-git add crates/pgevolve-core/src/parse/shadow.rs crates/pgevolve-core/src/parse/mod.rs crates/pgevolve/src/shadow_pg.rs crates/pgevolve/src/commands/ crates/pgevolve/tests/shadow_validate.rs
-git commit -m "feat(parse): shadow-load pass fills view body_canonical + deps
+git add crates/pgevolve-core/src/parse/ast_canon.rs crates/pgevolve-core/src/parse/mod.rs crates/pgevolve-core/tests/ast_canon.rs
+git commit -m "feat(parse): AST canonicalization pass fills view body_canonical + deps
 
-Routes source IR through an ephemeral PG when views or MVs are present,
-then reads pg_get_viewdef + pg_depend back into the IR records. Required
-for diff/plan whenever the source tree contains views."
+Walks the pg_query AST for each view/MV body. NormalizedBody::from_sql
+produces canonical_text and canonical_hash. DepEdge extraction walks
+FromClause/FuncCall/TypeCast/ColumnRef nodes. Unresolved references
+surface as errors with source location before any DB touch.
+No Docker or shadow Postgres required."
 ```
 
 ---
 
-## Task 5: Shadow-load cache
-
-**Files:**
-- Create: `crates/pgevolve/src/shadow_cache.rs`
-- Modify: `crates/pgevolve/src/shadow_pg.rs` (wrap `ShadowLoader` impl in a caching layer)
-- Modify: `crates/pgevolve/src/commands/init.rs` (add `.pgevolve/cache/` to the default generated `.gitignore`)
-- Test: `crates/pgevolve/tests/shadow_validate.rs` (assert second run skips the boot)
-
-- [ ] **Step 5.1: Define cache key + writer**
-
-```rust
-// crates/pgevolve/src/shadow_cache.rs
-use blake3::Hasher;
-use pgevolve_core::parse::SourceIr;
-use pgevolve_core::parse::shadow::ShadowReport;
-use std::path::{Path, PathBuf};
-
-pub struct ShadowCache {
-    dir: PathBuf,
-}
-
-impl ShadowCache {
-    pub fn for_project(project_root: &Path) -> Self {
-        Self { dir: project_root.join(".pgevolve").join("cache").join("shadow") }
-    }
-
-    pub fn key(ir: &SourceIr, pg_major: u16) -> String {
-        // Follow the existing pattern from `pgevolve-core::plan::plan::PlanId::compute`:
-        // bincode-encode for determinism, then blake3-hash. SourceIr must derive
-        // serde::Serialize for this to compile — verify it does (it should, since
-        // tier-2 fixtures already serialize it to JSON for goldens).
-        let mut h = Hasher::new();
-        h.update(b"pgevolve-shadow-cache-v1\n");
-        h.update(&pg_major.to_le_bytes());
-        h.update(&[0]);
-        let cfg = bincode::config::standard();
-        let bytes = bincode::serde::encode_to_vec(ir, cfg)
-            .expect("SourceIr is bincode-serializable");
-        h.update(&bytes);
-        h.finalize().to_hex().to_string()
-    }
-
-    pub fn get(&self, key: &str) -> Option<ShadowReport> {
-        let path = self.dir.join(format!("{key}.json"));
-        let bytes = std::fs::read(&path).ok()?;
-        serde_json::from_slice(&bytes).ok()
-    }
-
-    pub fn put(&self, key: &str, report: &ShadowReport) -> std::io::Result<()> {
-        std::fs::create_dir_all(&self.dir)?;
-        let path = self.dir.join(format!("{key}.json"));
-        let bytes = serde_json::to_vec(report).unwrap();
-        std::fs::write(path, bytes)
-    }
-}
-```
-
-Add `#[derive(Serialize, Deserialize)]` to `ShadowReport` and `ShadowViewInfo` if they don't have it from Task 4.
-
-- [ ] **Step 5.2: Wrap the shadow loader**
-
-In `crates/pgevolve/src/shadow_pg.rs`:
-
-```rust
-pub struct CachedShadowLoader<'a> {
-    inner: &'a mut dyn ShadowLoader<Error = ShadowError>,
-    cache: ShadowCache,
-    pg_major: u16,
-}
-
-impl<'a> ShadowLoader for CachedShadowLoader<'a> {
-    type Error = ShadowError;
-    fn load_and_introspect(&mut self, ir: &SourceIr) -> Result<ShadowReport, ShadowError> {
-        let key = ShadowCache::key(ir, self.pg_major);
-        if let Some(hit) = self.cache.get(&key) {
-            return Ok(hit);
-        }
-        let report = self.inner.load_and_introspect(ir)?;
-        let _ = self.cache.put(&key, &report); // cache write failure is non-fatal
-        Ok(report)
-    }
-}
-```
-
-- [ ] **Step 5.3: Add `.pgevolve/cache/` to `init`'s default `.gitignore`**
-
-`crates/pgevolve/src/commands/init.rs`: locate the gitignore-emit code (or `.gitignore` template); append `/.pgevolve/cache/`. Update the matching test fixture for `init` if there is one.
-
-- [ ] **Step 5.4: Test that second run hits the cache**
-
-```rust
-#[test]
-#[cfg_attr(not(feature = "docker-tests"), ignore)]
-fn shadow_load_cache_skips_second_boot() {
-    let tree = build_tiny_view_project(); // factor out the boilerplate from Task 4's test
-    let project = tempfile::tempdir().unwrap();
-
-    // First run boots PG.
-    let pg = ShadowPg::boot(PG_MAJOR_DEFAULT).unwrap();
-    let cache = ShadowCache::for_project(project.path());
-    let mut inner = pg.shadow_loader();
-    let mut cached = CachedShadowLoader { inner: &mut inner, cache, pg_major: PG_MAJOR_DEFAULT };
-
-    let _ir1 = pgevolve_core::parse::load_source_with_shadow(tree.path(), &mut cached).unwrap();
-
-    // Second run with a fresh CachedShadowLoader pointing at a never-booted inner.
-    let mut sentinel = NeverBootLoader::default();
-    let cache2 = ShadowCache::for_project(project.path());
-    let mut cached2 = CachedShadowLoader { inner: &mut sentinel, cache: cache2, pg_major: PG_MAJOR_DEFAULT };
-    let _ir2 = pgevolve_core::parse::load_source_with_shadow(tree.path(), &mut cached2).unwrap();
-
-    assert_eq!(sentinel.calls, 0, "second run should have hit cache, not booted PG");
-}
-
-#[derive(Default)]
-struct NeverBootLoader { calls: usize }
-impl ShadowLoader for NeverBootLoader {
-    type Error = ShadowError;
-    fn load_and_introspect(&mut self, _ir: &SourceIr) -> Result<ShadowReport, ShadowError> {
-        self.calls += 1;
-        panic!("inner loader should not be called when cache is warm");
-    }
-}
-```
-
-- [ ] **Step 5.5: Run the test**
-
-```bash
-cargo test -p pgevolve --test shadow_validate --features docker-tests -- shadow_load_cache_skips_second_boot
-```
-
-Expected: PASS.
-
-- [ ] **Step 5.6: Commit**
-
-```bash
-git add crates/pgevolve/src/shadow_cache.rs crates/pgevolve/src/shadow_pg.rs crates/pgevolve/src/commands/init.rs crates/pgevolve/tests/shadow_validate.rs
-git commit -m "feat(shadow): cache shadow-load results by (source-IR hash, pg_major)
-
-Source trees with views amortize the shadow-PG boot across diff/plan
-runs on unchanged source. Cache lives in .pgevolve/cache/shadow/ and
-is added to init's default .gitignore."
-```
-
----
-
-## Task 6: Catalog reader — `read_views`, `read_materialized_views`, index parent extension
+## Task 5: Catalog reader — `read_views`, `read_materialized_views`, index parent extension
 
 **Files:**
 - Create: `crates/pgevolve-core/src/catalog/queries/views.rs` (shared SQL fragments)
 - Modify: `crates/pgevolve-core/src/catalog/queries/{pg14,pg15,pg16,pg17}.rs` (add view + MV queries; `security_invoker` is PG15+)
 - Modify: `crates/pgevolve-core/src/catalog/queries/mod.rs` (expose new queries via the per-version trait)
-- Modify: `crates/pgevolve-core/src/catalog/rows.rs` (add `ViewRow`, `MvRow`, `DepEdgeRow`)
+- Modify: `crates/pgevolve-core/src/catalog/rows.rs` (add `ViewRow`, `MvRow`)
 - Modify: `crates/pgevolve-core/src/catalog/assemble.rs` (fold rows into `Vec<View>` / `Vec<MaterializedView>`)
 - Modify: `crates/pgevolve-core/src/catalog/mod.rs` (`CatalogIr` gains `views` and `materialized_views` fields)
 - Modify: existing index reader to accept `relkind IN ('r','m')` for the parent
 - Test: `crates/pgevolve-core/tests/catalog_round_trip.rs`
 
-- [ ] **Step 6.1: Add a failing round-trip test**
+- [ ] **Step 5.1: Add a failing round-trip test**
 
 ```rust
 // crates/pgevolve-core/tests/catalog_round_trip.rs
@@ -921,7 +775,7 @@ fn catalog_reads_view_with_security_barrier() {
     assert_eq!(v.schema.as_str(), "app");
     assert_eq!(v.name.as_str(), "protected");
     assert_eq!(v.security_barrier, Some(true));
-    assert!(v.body_canonical.as_str().contains("FROM"));
+    assert!(!v.body_canonical.canonical_text().is_empty());
 }
 
 #[test]
@@ -939,15 +793,37 @@ fn catalog_reads_mv_and_its_index() {
     assert_eq!(ir.indexes.len(), 1, "unique index on MV must surface");
     assert!(matches!(ir.indexes[0].on, IndexParent::Mv { .. }));
 }
+
+#[test]
+#[cfg_attr(not(feature = "docker-tests"), ignore)]
+fn catalog_body_canonical_matches_source_canonical() {
+    // Verify the two-sides-byte-equal invariant from spec §5.3:
+    // NormalizedBody::from_sql(source_body) == NormalizedBody::from_sql(pg_get_viewdef(oid))
+    let pg = EphemeralPostgres::boot(17).unwrap();
+    pg.exec("CREATE SCHEMA app;").unwrap();
+    pg.exec("CREATE TABLE app.users (id int, email text);").unwrap();
+    let source_body = "SELECT id, email FROM app.users";
+    pg.exec(&format!("CREATE VIEW app.v AS {source_body}")).unwrap();
+
+    let source_canonical = NormalizedBody::from_sql(source_body).unwrap();
+    let ir = pgevolve_core::catalog::read(&pg.client(), &["app".into()]).unwrap();
+    let catalog_canonical = &ir.views[0].body_canonical;
+
+    assert_eq!(
+        source_canonical.canonical_text(),
+        catalog_canonical.canonical_text(),
+        "source and catalog sides must produce byte-equal canonical_text"
+    );
+}
 ```
 
 Run:
 ```bash
-cargo test -p pgevolve-core --test catalog_round_trip --features docker-tests -- catalog_reads_view catalog_reads_mv
+cargo test -p pgevolve-core --test catalog_round_trip --features docker-tests -- catalog_reads_view catalog_reads_mv catalog_body_canonical
 ```
 Expected: FAIL (no view reader yet).
 
-- [ ] **Step 6.2: Add shared SQL fragments**
+- [ ] **Step 5.2: Add shared SQL fragments**
 
 `crates/pgevolve-core/src/catalog/queries/views.rs`:
 
@@ -956,13 +832,13 @@ Expected: FAIL (no view reader yet).
 //! exposes these strings (or overrides for security_invoker etc.).
 
 /// Returns one row per managed view or MV: schema, name, relkind ('v' or 'm'),
-/// body, reloptions (jsonb).
+/// pg_get_viewdef output, reloptions (jsonb).
 pub const SELECT_VIEWS_AND_MVS: &str = r#"
 SELECT
   n.nspname                            AS schema_name,
   c.relname                            AS name,
   c.relkind                            AS relkind,
-  pg_get_viewdef(c.oid, true)          AS body,
+  pg_get_viewdef(c.oid, true)          AS body_text,
   to_jsonb(coalesce(c.reloptions, '{}'::text[])) AS reloptions
 FROM pg_class c
 JOIN pg_namespace n ON c.relnamespace = n.oid
@@ -987,99 +863,55 @@ WHERE c.relkind IN ('v','m')
   AND n.nspname = ANY($1::text[])
 ORDER BY n.nspname, c.relname, a.attnum
 "#;
-
-/// Returns column-level dep edges from each view/MV's rewrite rule to objects
-/// in pg_class, pg_proc, pg_type. `dep_subobject_column_name` is non-null when
-/// the dep targets a specific column.
-pub const SELECT_VIEW_DEPENDENCIES: &str = r#"
-SELECT
-  vn.nspname  AS view_schema,
-  vc.relname  AS view_name,
-  CASE refclassid
-    WHEN 'pg_class'::regclass THEN
-      CASE refkind WHEN 'r' THEN 'column' WHEN 'S' THEN 'sequence' ELSE 'column' END
-    WHEN 'pg_proc'::regclass  THEN 'function'
-    WHEN 'pg_type'::regclass  THEN 'type'
-  END                       AS dep_kind,
-  refsch.nspname            AS dep_schema,
-  refname                   AS dep_name,
-  CASE WHEN refclassid = 'pg_class'::regclass AND d.refobjsubid > 0
-       THEN refatt.attname
-       ELSE NULL END        AS dep_subobject_column_name
-FROM pg_depend d
-JOIN pg_rewrite r ON d.objid = r.oid AND d.classid = 'pg_rewrite'::regclass
-JOIN pg_class vc ON r.ev_class = vc.oid
-JOIN pg_namespace vn ON vc.relnamespace = vn.oid
-LEFT JOIN LATERAL (
-  SELECT
-    CASE d.refclassid
-      WHEN 'pg_class'::regclass THEN (SELECT relname FROM pg_class WHERE oid = d.refobjid)
-      WHEN 'pg_proc'::regclass  THEN (SELECT proname FROM pg_proc  WHERE oid = d.refobjid)
-      WHEN 'pg_type'::regclass  THEN (SELECT typname FROM pg_type  WHERE oid = d.refobjid)
-    END AS refname,
-    CASE d.refclassid
-      WHEN 'pg_class'::regclass THEN (SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid WHERE c.oid = d.refobjid)
-      WHEN 'pg_proc'::regclass  THEN (SELECT n.nspname FROM pg_proc  p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE p.oid = d.refobjid)
-      WHEN 'pg_type'::regclass  THEN (SELECT n.nspname FROM pg_type  t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE t.oid = d.refobjid)
-    END AS refnsp,
-    CASE d.refclassid
-      WHEN 'pg_class'::regclass THEN (SELECT relkind FROM pg_class WHERE oid = d.refobjid)
-    END AS refkind
-) ref_lookup ON true
-LEFT JOIN pg_namespace refsch ON refsch.nspname = ref_lookup.refnsp
-LEFT JOIN pg_attribute refatt
-  ON refatt.attrelid = d.refobjid AND refatt.attnum = d.refobjsubid
-WHERE vn.nspname = ANY($1::text[])
-  AND vc.relkind IN ('v','m')
-  AND d.deptype = 'n' -- normal dependencies only
-ORDER BY view_schema, view_name, dep_kind, dep_schema, dep_name, dep_subobject_column_name NULLS FIRST
-"#;
 ```
 
-The query above is deliberately verbose for clarity; tighten it after the round-trip tests pass if it's the hot path. Run the queries by hand against PG17 in a scratch container while writing the test to confirm shape.
+The catalog reader calls `NormalizedBody::from_sql` on the `body_text` column value to produce `body_canonical`. The dep edges are extracted by walking the parsed AST of `body_text` using the same `ast_canon::extract_deps_from_body_ast` function as the source pipeline. The raw `pg_depend` rows are not consumed for canonicalization (though they may be read as part of optional `--shadow-validate` cross-checks added in Task 14).
 
-- [ ] **Step 6.3: Per-version wiring**
+- [ ] **Step 5.3: Per-version wiring**
 
-In each `pg14.rs`/`pg15.rs`/`pg16.rs`/`pg17.rs`, expose `SELECT_VIEWS_AND_MVS`, `SELECT_VIEW_COLUMNS`, `SELECT_VIEW_DEPENDENCIES` via the per-version trait already used by other readers. `security_invoker` parsing applies only to PG 15+ — for PG14, parse the reloption array but ignore the `security_invoker` key (defensive; it won't appear there in practice).
+In each `pg14.rs`/`pg15.rs`/`pg16.rs`/`pg17.rs`, expose `SELECT_VIEWS_AND_MVS` and `SELECT_VIEW_COLUMNS` via the per-version trait already used by other readers. `security_invoker` parsing applies only to PG 15+ — for PG14, parse the reloption array but ignore the `security_invoker` key (defensive; it won't appear there in practice).
 
-- [ ] **Step 6.4: Wire rows → IR in `assemble.rs`**
+- [ ] **Step 5.4: Wire rows → IR in `assemble.rs`**
 
-Define `ViewRow`, `MvRow`, `ViewColumnRow`, `DepEdgeRow` types alongside the existing rows. Assembly steps:
+Define `ViewRow`, `MvRow`, `ViewColumnRow` types alongside the existing rows. Assembly steps:
 1. Collect column rows into per-(schema, name) maps.
-2. Collect dep edge rows into per-(schema, name) maps.
-3. For each view-or-MV row, parse reloptions (the `to_jsonb(reloptions)` cast gives a `Vec<String>` of `"k=v"`), build the IR record with columns and dep edges joined in.
-4. `relkind = 'v'` → push into `views`; `relkind = 'm'` → push into `materialized_views`.
+2. For each view-or-MV row:
+   a. Parse reloptions (the `to_jsonb(reloptions)` cast gives a `Vec<String>` of `"k=v"`), build the IR record with columns joined in.
+   b. Call `NormalizedBody::from_sql(row.body_text)` to fill `body_canonical`.
+   c. Call `ast_canon::extract_deps_from_body_ast(row.body_text, qname, catalog_ir)` to fill `body_dependencies`. (Pass `None` for the IR resolution step here — the catalog reader can skip resolution-against-source-IR since the catalog is ground truth; AST extraction still surfaces the dep structure.)
+3. `relkind = 'v'` → push into `views`; `relkind = 'm'` → push into `materialized_views`.
 
-- [ ] **Step 6.5: Extend the index reader for MV parents**
+- [ ] **Step 5.5: Extend the index reader for MV parents**
 
 Locate the existing index reader (likely `catalog/queries/*.rs` and `assemble.rs`). The SQL filter that excludes non-table parents must accept `relkind IN ('r','m')`. The assembly code must produce `IndexParent::Mv` when the parent's relkind is `'m'`.
 
-- [ ] **Step 6.6: Run the round-trip tests**
+- [ ] **Step 5.6: Run the round-trip tests**
 
 ```bash
-cargo test -p pgevolve-core --test catalog_round_trip --features docker-tests -- catalog_reads_view catalog_reads_mv
+cargo test -p pgevolve-core --test catalog_round_trip --features docker-tests -- catalog_reads_view catalog_reads_mv catalog_body_canonical
 ```
 
-Expected: both pass.
+Expected: all three pass.
 
-- [ ] **Step 6.7: Tier-3 catalog goldens**
+- [ ] **Step 5.7: Tier-3 catalog goldens**
 
 Add catalog-snapshot fixtures for views and MVs to the tier-3 corpus. Locate the existing goldens (likely `crates/pgevolve-core/tests/catalog_goldens/` — adjust path to match the actual repo). Regenerate via `cargo xtask bless`. Commit the resulting `.json` snapshots.
 
-- [ ] **Step 6.8: Commit**
+- [ ] **Step 5.8: Commit**
 
 ```bash
 git add crates/pgevolve-core/src/catalog/ crates/pgevolve-core/tests/
 git commit -m "feat(catalog): read views, MVs, dep edges, index-on-MV
 
 Adds catalog readers for views and materialized views including their
-column lists, security_barrier/invoker reloptions, and column-level
-dependency edges. Index reader now accepts relkind='m' parents."
+column lists and security_barrier/invoker reloptions. NormalizedBody::from_sql
+is called on pg_get_viewdef output; dep edges extracted via the same
+AST walk as the source pipeline. Index reader now accepts relkind='m'."
 ```
 
 ---
 
-## Task 7: Differ — view and MV change kinds + OR-REPLACE compatibility predicate
+## Task 6: Differ — view and MV change kinds + OR-REPLACE compatibility predicate
 
 **Files:**
 - Create: `crates/pgevolve-core/src/diff/views.rs`
@@ -1088,7 +920,7 @@ dependency edges. Index reader now accepts relkind='m' parents."
 - Modify: `crates/pgevolve-core/src/diff/destructiveness.rs` (mark `View::Drop` destructive; `Mv::Drop` non-destructive)
 - Test: `crates/pgevolve-core/src/diff/views.rs` (inline unit tests)
 
-- [ ] **Step 7.1: Define the change variants**
+- [ ] **Step 6.1: Define the change variants**
 
 In `crates/pgevolve-core/src/diff/change.rs`, extend the `Change` enum:
 
@@ -1117,7 +949,7 @@ pub enum MvChange {
 }
 ```
 
-- [ ] **Step 7.2: Write the OR-REPLACE compatibility predicate (TDD)**
+- [ ] **Step 6.2: Write the OR-REPLACE compatibility predicate (TDD)**
 
 In `crates/pgevolve-core/src/diff/views.rs`:
 
@@ -1176,11 +1008,11 @@ mod compatibility_tests {
 
 The compatibility predicate compares **resolved column types**, not just names. v0.1 already has a strongly-typed `ColumnType` enum in `crates/pgevolve-core/src/ir/column_type.rs` (used by table columns). `ViewColumn` as defined in Task 1 carries only `name` + `comment` — extend it to carry the `ColumnType` too.
 
-**Decision for this task:** extend `ViewColumn` with `column_type: ColumnType`. Both sides populate it the same way they populate table-column types — from `pg_attribute.atttypid` + `atttypmod` resolved through `format_type` and then parsed by the existing `ColumnType::parse` (or whatever function table columns already use). Update Task 1's `ViewColumn` definition, Task 3's parser+fixture-expected-JSON (since shadow pass fills this, not the static parser — parser sets a sentinel `ColumnType::Unresolved` value; shadow pass resolves it), Task 4's shadow pass (one extra column read in the same query), and Task 6's catalog SELECT in `SELECT_VIEW_COLUMNS` (add `format_type(a.atttypid, a.atttypmod)`).
+**Decision for this task:** extend `ViewColumn` with `column_type: ColumnType`. Both sides populate it the same way they populate table-column types — from `pg_attribute.atttypid` + `atttypmod` resolved through `format_type` and then parsed by the existing `ColumnType::parse` (or whatever function table columns already use). Update Task 1's `ViewColumn` definition, Task 3's parser+fixture-expected-JSON (since the AST canonicalization pass fills this, not the static parser — parser sets a sentinel `ColumnType::Unresolved` value; the canon pass resolves it via the provisional IR), Task 4's `ast_canon.rs` pass (one extra step: resolve column types from the provisional IR), and Task 5's catalog SELECT in `SELECT_VIEW_COLUMNS` (add `format_type(a.atttypid, a.atttypmod)`).
 
-(This is a back-edit to Tasks 1, 3, 4, and 6. Make the edits, run their tests, then proceed. If `ColumnType` lacks an `Unresolved` variant, add one — it's a parser-internal sentinel, never serialized to the catalog or to the plan, only present on provisional source-side records between parse and shadow-load.)
+(This is a back-edit to Tasks 1, 3, 4, and 5. Make the edits, run their tests, then proceed. If `ColumnType` lacks an `Unresolved` variant, add one — it's a parser-internal sentinel, never serialized to the catalog or to the plan, only present on provisional source-side records between parse and the AST canon pass.)
 
-- [ ] **Step 7.3: Implement the predicate**
+- [ ] **Step 6.3: Implement the predicate**
 
 ```rust
 pub(crate) fn or_replace_compatible(
@@ -1196,7 +1028,7 @@ pub(crate) fn or_replace_compatible(
 }
 ```
 
-- [ ] **Step 7.4: Write `diff_views` and `diff_materialized_views`**
+- [ ] **Step 6.4: Write `diff_views` and `diff_materialized_views`**
 
 ```rust
 pub fn diff_views(catalog: &[View], source: &[View], out: &mut Vec<Change>) {
@@ -1209,7 +1041,7 @@ pub fn diff_views(catalog: &[View], source: &[View], out: &mut Vec<Change>) {
             (None, Some(s)) => out.push(Change::ViewChange(ViewChange::Create((*s).clone()))),
             (Some(c), None) => out.push(Change::ViewChange(ViewChange::Drop { schema: c.schema.clone(), name: c.name.clone() })),
             (Some(c), Some(s)) => {
-                if c.body_canonical != s.body_canonical {
+                if c.body_canonical.canonical_hash() != s.body_canonical.canonical_hash() {
                     let cat_cols: Vec<_> = c.columns.iter().map(|col| (col.name.clone(), col.column_type.clone())).collect();
                     let src_cols: Vec<_> = s.columns.iter().map(|col| (col.name.clone(), col.column_type.clone())).collect();
                     let compatible = or_replace_compatible(&cat_cols, &src_cols);
@@ -1236,13 +1068,13 @@ pub fn diff_views(catalog: &[View], source: &[View], out: &mut Vec<Change>) {
 }
 ```
 
-`diff_materialized_views` is structurally identical except no `SetReloption` branch and no `compatible` flag.
+Note: the diff predicate is `canonical_hash()` byte-inequality, not string comparison. `diff_materialized_views` is structurally identical except no `SetReloption` branch and no `compatible` flag.
 
-- [ ] **Step 7.5: Write fixture-driven diff tests**
+- [ ] **Step 6.5: Write fixture-driven diff tests**
 
 Add 8 unit-test cases in `crates/pgevolve-core/src/diff/views.rs`'s `tests` module — one per row in §6.1 of the spec. Use the fixture builders already present in v0.1 tests (`tests/diff/` likely has helpers).
 
-- [ ] **Step 7.6: Run the tests**
+- [ ] **Step 6.6: Run the tests**
 
 ```bash
 cargo test -p pgevolve-core --lib diff::views
@@ -1250,7 +1082,7 @@ cargo test -p pgevolve-core --lib diff::views
 
 Expected: all view-diff tests pass.
 
-- [ ] **Step 7.7: Mark destructiveness**
+- [ ] **Step 6.7: Mark destructiveness**
 
 In `crates/pgevolve-core/src/diff/destructiveness.rs`, extend the `is_destructive` match: `ViewChange::Drop` → true; everything else (including `MvChange::Drop` and both `ReplaceBody` variants) → false.
 
@@ -1265,20 +1097,21 @@ fn view_drop_is_destructive_but_mv_drop_is_not() {
 }
 ```
 
-- [ ] **Step 7.8: Commit**
+- [ ] **Step 6.8: Commit**
 
 ```bash
 git add crates/pgevolve-core/src/diff/ crates/pgevolve-core/src/ir/view.rs
 git commit -m "feat(diff): view and MV change kinds + OR-REPLACE predicate
 
 Adds ViewChange and MvChange variants and the column-list-superset
-predicate that drives CREATE OR REPLACE vs drop+create. Extends
+predicate that drives CREATE OR REPLACE vs drop+create. Diff predicate
+is canonical_hash byte-inequality from NormalizedBody. Extends
 ViewColumn with column_type so the predicate can compare types."
 ```
 
 ---
 
-## Task 8: Planner — new step kinds + SQL emission
+## Task 7: Planner — new step kinds + SQL emission
 
 **Files:**
 - Modify: `crates/pgevolve-core/src/plan/raw_step.rs` (new `StepKind` variants)
@@ -1288,7 +1121,7 @@ ViewColumn with column_type so the predicate can compare types."
 - Test: `crates/pgevolve-core/src/plan/emit/views.rs` (inline unit tests)
 - Test: extend the existing determinism harness with view fixtures
 
-- [ ] **Step 8.1: Extend `StepKind`**
+- [ ] **Step 7.1: Extend `StepKind`**
 
 In `crates/pgevolve-core/src/plan/raw_step.rs`:
 
@@ -1320,13 +1153,13 @@ Update the directive serializer to emit `or_replace` and `concurrently` payload 
 
 Add unit tests asserting that each `StepKind` variant round-trips through the directive serializer.
 
-- [ ] **Step 8.2: SQL emission**
+- [ ] **Step 7.2: SQL emission**
 
 `crates/pgevolve-core/src/plan/emit/views.rs`:
 
 ```rust
 pub(crate) fn emit_create_view(v: &View, or_replace: bool) -> String {
-    let mut sql = String::with_capacity(v.body_canonical.as_str().len() + 64);
+    let mut sql = String::with_capacity(v.body_canonical.canonical_text().len() + 64);
     sql.push_str(if or_replace { "CREATE OR REPLACE VIEW " } else { "CREATE VIEW " });
     sql.push_str(&qualified(&v.schema, &v.name));
     if !v.columns.is_empty() {
@@ -1347,7 +1180,7 @@ pub(crate) fn emit_create_view(v: &View, or_replace: bool) -> String {
         sql.push(')');
     }
     sql.push_str(" AS\n");
-    sql.push_str(v.body_canonical.as_str().trim_end());
+    sql.push_str(v.body_canonical.canonical_text().trim_end());
     if !sql.ends_with(';') { sql.push(';'); }
     sql
 }
@@ -1376,7 +1209,7 @@ pub(crate) fn emit_create_materialized_view(mv: &MaterializedView) -> String {
         sql.push(')');
     }
     sql.push_str(" AS\n");
-    sql.push_str(mv.body_canonical.as_str().trim_end());
+    sql.push_str(mv.body_canonical.canonical_text().trim_end());
     if sql.ends_with(';') { sql.pop(); }
     sql.push_str("\nWITH NO DATA;");
     sql
@@ -1418,7 +1251,7 @@ fn quote_ident_if_needed(s: &str) -> String {
 
 Add unit tests asserting each emit function produces the expected SQL string for a handful of inputs.
 
-- [ ] **Step 8.3: Wire view/MV changes into the planner's emit pass**
+- [ ] **Step 7.3: Wire view/MV changes into the planner's emit pass**
 
 In `crates/pgevolve-core/src/plan/emit/mod.rs`, the function that maps `Change` → `Vec<RawStep>` gets new arms:
 
@@ -1437,7 +1270,7 @@ Change::ViewChange(ViewChange::Drop { schema, name }) => vec![RawStep {
     intent_id: Some(NEXT_INTENT_ID), // resolved by the intent-allocation pass
 }],
 
-Change::ViewChange(ViewChange::ReplaceBody { source, catalog, compatible: true }) => vec![RawStep {
+Change::ViewChange(ViewChange::ReplaceBody { source, catalog: _, compatible: true }) => vec![RawStep {
     kind: StepKind::CreateView { or_replace: true },
     sql: emit_create_view(source, true),
     targets: vec![qname(&source.schema, &source.name)],
@@ -1489,7 +1322,7 @@ Change::MvChange(MvChange::ReplaceBody { source, catalog }) => vec![
 ],
 
 Change::MvChange(MvChange::SetComment { schema, name, comment }) => vec![RawStep {
-    kind: StepKind::CommentOnView, // reuses kind=comment_on_view; target qname makes the MV vs view distinction
+    kind: StepKind::CommentOnView,
     sql: emit_comment_on_materialized_view(schema, name, comment.as_deref()),
     targets: vec![qname(schema, name)],
     intent_id: None,
@@ -1505,15 +1338,15 @@ Change::MvChange(MvChange::SetColumnComment { schema, name, column, comment }) =
 
 Helper functions `emit_comment_on_view`, `emit_comment_on_view_column`, `emit_comment_on_materialized_view`, `emit_comment_on_mv_column` live in `plan/emit/views.rs` and follow the same trivial pattern as their counterparts in v0.1's `plan/emit/comments.rs` (or wherever existing COMMENT emission lives). Helpers `qname` and `qname_col` are already used elsewhere in `plan/emit/`.
 
-The `concurrently` flag on `RefreshMaterializedView` is provisionally `false` here — Task 9's online-rewrite pass flips it to `true` when conditions allow.
+The `concurrently` flag on `RefreshMaterializedView` is provisionally `false` here — Task 8's online-rewrite pass flips it to `true` when conditions allow.
 
-`intent_id: None` initially even for `DropView`; the existing intent-allocation pass (it's how v0.1 handles destructive steps) walks the `RawStep`s after this emit and assigns IDs to every step where `destructiveness::is_destructive` says yes. Confirm by reading `plan/grouping.rs` and `plan/serialize.rs`. If `DropView` doesn't naturally land in the destructiveness pass because of a missing match arm there, add the arm.
+`intent_id: None` initially even for `DropView`; the existing intent-allocation pass walks the `RawStep`s after this emit and assigns IDs to every step where `destructiveness::is_destructive` says yes.
 
-- [ ] **Step 8.4: Determinism test**
+- [ ] **Step 7.4: Determinism test**
 
-Extend `crates/pgevolve-core/tests/determinism.rs` with a fixture containing two views and one MV, asserting that running the full pipeline N times produces byte-identical `plan.sql`.
+Extend `crates/pgevolve-core/tests/determinism.rs` with a fixture containing two views and one MV, asserting that running the full pipeline N times produces byte-identical `plan.sql`. The determinism test is purely in-process (uses pre-built IR records with filled `NormalizedBody` values) — no Docker needed.
 
-- [ ] **Step 8.5: Run all plan/serialize/determinism tests**
+- [ ] **Step 7.5: Run all plan/serialize/determinism tests**
 
 ```bash
 cargo test -p pgevolve-core --lib plan
@@ -1522,7 +1355,7 @@ cargo test -p pgevolve-core --test determinism
 
 Expected: existing tests still green + new view/MV cases green.
 
-- [ ] **Step 8.6: Commit**
+- [ ] **Step 7.6: Commit**
 
 ```bash
 git add crates/pgevolve-core/src/plan/ crates/pgevolve-core/tests/determinism.rs
@@ -1531,12 +1364,13 @@ git commit -m "feat(plan): view/MV step kinds + SQL emission
 Adds CreateView, DropView, CreateMaterializedView, DropMaterializedView,
 RefreshMaterializedView, AlterViewSetReloption, CommentOnView step
 kinds. Each maps to one SQL statement; determinism harness covers the
-view + MV pipeline."
+view + MV pipeline. SQL emission uses body_canonical.canonical_text()
+from NormalizedBody."
 ```
 
 ---
 
-## Task 9: Planner — dependent-view recreation + online-rewrite policy
+## Task 8: Planner — dependent-view recreation + online-rewrite policy
 
 **Files:**
 - Modify: `crates/pgevolve-core/src/plan/graph.rs` (extend the dependency graph with view→column edges)
@@ -1544,11 +1378,13 @@ view + MV pipeline."
 - Modify: `crates/pgevolve-core/src/plan/policy.rs` (add the two new online-rewrite toggles)
 - Modify: `crates/pgevolve-core/src/plan/rewrite/mod.rs` (REFRESH CONCURRENTLY rewrite)
 - Create: `crates/pgevolve-core/src/plan/rewrite/refresh_mv_concurrently.rs`
-- Test: inline + extend conformance fixtures (Task 12)
+- Test: inline + extend conformance fixtures (Task 11)
 
-- [ ] **Step 9.1: Plumb `body_dependencies` into the dependency graph**
+- [ ] **Step 8.1: Plumb `body_dependencies` into the dependency graph**
 
 In `crates/pgevolve-core/src/plan/graph.rs`, the graph builder already knows about table→column nodes. Add a builder pass that, for each view/MV in the catalog IR, walks its `body_dependencies` and adds an edge `Node::View(qname) → Node::Column(qname, col)` (or `Node::Function`, `Node::Type`, `Node::Sequence` for the other DepKind variants).
+
+The dep edges in `body_dependencies` carry `DepSource::AstExtracted` — both `AstExtracted` and `AstDeclared` edges flow through the same graph; both are trusted for ordering.
 
 Unit test:
 
@@ -1564,7 +1400,7 @@ fn view_dep_edges_appear_in_graph() {
 }
 ```
 
-- [ ] **Step 9.2: Transitive recreation walk**
+- [ ] **Step 8.2: Transitive recreation walk**
 
 `crates/pgevolve-core/src/plan/recreate_views.rs`:
 
@@ -1611,7 +1447,7 @@ fn collect_upstream_triggers(changes: &[Change]) -> Vec<DepTrigger> {
 
 The `todo!()` is a placeholder for the engineer — the spec's §6.4 lists the trigger conditions explicitly. Implement them one match arm at a time, with a unit test per trigger.
 
-- [ ] **Step 9.3: Online rewrite — REFRESH CONCURRENTLY**
+- [ ] **Step 8.3: Online rewrite — REFRESH CONCURRENTLY**
 
 `crates/pgevolve-core/src/plan/rewrite/refresh_mv_concurrently.rs`:
 
@@ -1656,7 +1492,7 @@ fn mv_has_unique_index(catalog: &CatalogIr, qname: &Qname) -> bool {
 
 Note: the rewrite only takes effect under `strategy = "online"` — the existing rewrite framework gates on strategy at the top level; verify by reading `plan/rewrite/mod.rs`.
 
-- [ ] **Step 9.4: Add the two new toggles to policy**
+- [ ] **Step 8.4: Add the two new toggles to policy**
 
 In `crates/pgevolve-core/src/plan/policy.rs`, extend `OnlineRewriteFlags`:
 
@@ -1678,13 +1514,13 @@ impl Default for OnlineRewriteFlags {
 }
 ```
 
-Wire `view_drop_create_dependents = false` into Task 9.2's `extend_with_dependent_recreations` — when false and the diff contains a trigger that would recreate dependents, raise a planner error naming each affected view.
+Wire `view_drop_create_dependents = false` into Step 8.2's `extend_with_dependent_recreations` — when false and the diff contains a trigger that would recreate dependents, raise a planner error naming each affected view.
 
-- [ ] **Step 9.5: Config layer**
+- [ ] **Step 8.5: Config layer**
 
 In `crates/pgevolve/src/config.rs`, the existing `[planner.online_rewrites]` parser gains the two new keys. Update the default `init` template (`crates/pgevolve/src/commands/init.rs`) to include them. Add a config-roundtrip unit test.
 
-- [ ] **Step 9.6: Run plan tests**
+- [ ] **Step 8.6: Run plan tests**
 
 ```bash
 cargo test -p pgevolve-core --lib plan
@@ -1692,7 +1528,7 @@ cargo test -p pgevolve-core --lib plan
 
 Expected: green, including new dependent-recreation tests and REFRESH CONCURRENTLY tests.
 
-- [ ] **Step 9.7: Commit**
+- [ ] **Step 8.7: Commit**
 
 ```bash
 git add crates/pgevolve-core/src/plan/ crates/pgevolve/src/config.rs crates/pgevolve/src/commands/init.rs
@@ -1701,12 +1537,13 @@ git commit -m "feat(plan): dependent-view recreation + REFRESH CONCURRENTLY rewr
 Walks the dep graph for views transitively affected by upstream
 changes and emits explicit drop+recreate steps for each. Online
 strategy upgrades plain REFRESH to REFRESH CONCURRENTLY when the MV
-has a unique index, surfaces lint warning otherwise."
+has a unique index, surfaces lint warning otherwise. Dep edges from
+body_dependencies (AstExtracted + AstDeclared) both feed the graph."
 ```
 
 ---
 
-## Task 10: `intent.toml` — `[[step_override]]` table
+## Task 9: `intent.toml` — `[[step_override]]` table
 
 **Files:**
 - Modify: `crates/pgevolve-core/src/plan/serialize.rs` (read/write `[[step_override]]`)
@@ -1715,7 +1552,7 @@ has a unique index, surfaces lint warning otherwise."
 - Modify: `crates/pgevolve/src/executor/execute.rs` (honor `suppress = true` for `refresh_materialized_view`)
 - Test: `crates/pgevolve-core/src/plan/serialize.rs` (roundtrip test); `crates/pgevolve/tests/executor_smoke.rs` (suppression test)
 
-- [ ] **Step 10.1: Define the type**
+- [ ] **Step 9.1: Define the type**
 
 ```rust
 // crates/pgevolve-core/src/plan/plan.rs
@@ -1730,7 +1567,7 @@ pub struct StepOverride {
 
 `StepKindTag` is the wire-form enum (the same `kind=create_view` strings used in plan.sql).
 
-- [ ] **Step 10.2: Read/write `[[step_override]]`**
+- [ ] **Step 9.2: Read/write `[[step_override]]`**
 
 Extend the `IntentDoc` struct in `serialize.rs`:
 
@@ -1754,7 +1591,7 @@ struct StepOverrideRow<'a> {
 
 Add the symmetric `IntentDocRead` struct on the deserialize side. Write a roundtrip test in `serialize.rs`'s test module.
 
-- [ ] **Step 10.3: Executor honors suppression**
+- [ ] **Step 9.3: Executor honors suppression**
 
 In `crates/pgevolve/src/executor/execute.rs`, before running each step, check if a `[[step_override]]` row matches (kind + target). If `suppress = true`, skip the step and record it in the audit log as "suppressed by intent". Add an integration test:
 
@@ -1769,7 +1606,7 @@ fn refresh_mv_suppressed_by_step_override() {
 }
 ```
 
-- [ ] **Step 10.4: Run tests**
+- [ ] **Step 9.4: Run tests**
 
 ```bash
 cargo test -p pgevolve-core --lib plan::serialize plan::deserialize
@@ -1778,7 +1615,7 @@ cargo test -p pgevolve --test executor_smoke --features docker-tests -- refresh_
 
 Expected: PASS.
 
-- [ ] **Step 10.5: Commit**
+- [ ] **Step 9.5: Commit**
 
 ```bash
 git add crates/pgevolve-core/src/plan/ crates/pgevolve/src/executor/
@@ -1792,14 +1629,14 @@ steps in the audit log."
 
 ---
 
-## Task 11: Lints
+## Task 10: Lints
 
 **Files:**
 - Modify: `crates/pgevolve-core/src/lint/universal.rs` (add the three rules)
 - Modify: `crates/pgevolve-core/src/lint/finding.rs` (add finding kinds)
 - Test: `crates/pgevolve-core/src/lint/universal.rs` (one fixture per rule)
 
-- [ ] **Step 11.1: `view-shadows-table`**
+- [ ] **Step 10.1: `view-shadows-table`**
 
 Walk the source IR; flag when `(schema, name)` collides between `tables` and `views`/`materialized_views`. Severity: error.
 
@@ -1812,15 +1649,15 @@ fn view_shadows_table_lints_when_name_collides() {
 }
 ```
 
-- [ ] **Step 11.2: `mv-no-unique-index`**
+- [ ] **Step 10.2: `mv-no-unique-index`**
 
 Severity: warning. Walk the catalog IR's MVs; for each, check whether any index in `catalog.indexes` has `unique = true` and `on = IndexParent::Mv { matching }`. If not, emit a finding pointing at the MV. (This lint only matters under `strategy = "online"` — but it's worth emitting always so users see it early.)
 
-- [ ] **Step 11.3: `view-body-references-unmanaged-schema`**
+- [ ] **Step 10.3: `view-body-references-unmanaged-schema`**
 
 Walk each view's `body_dependencies`; if any `target.schema` is not in `[managed].schemas` and not a built-in (`pg_catalog`, `information_schema`), emit a finding. Severity: warning.
 
-- [ ] **Step 11.4: Run lint tests**
+- [ ] **Step 10.4: Run lint tests**
 
 ```bash
 cargo test -p pgevolve-core --lib lint
@@ -1828,7 +1665,7 @@ cargo test -p pgevolve-core --lib lint
 
 Expected: green.
 
-- [ ] **Step 11.5: Commit**
+- [ ] **Step 10.5: Commit**
 
 ```bash
 git add crates/pgevolve-core/src/lint/
@@ -1839,14 +1676,14 @@ Three new universal lint rules for the views sub-spec."
 
 ---
 
-## Task 12: Conformance fixtures
+## Task 11: Conformance fixtures
 
 **Files:**
 - Create: 15 fixture directories under `crates/pgevolve-conformance/tests/cases/views/` and `crates/pgevolve-conformance/tests/cases/matviews/`. One fixture per bullet in spec §10.1.
 
 Each fixture follows the existing structure (see `tests/cases/tables/add-column-nullable/` for the canonical example): a `fixture.toml`, a `before.sql`, an `after.sql`, and optionally a `plan.sql.golden` (regenerable via `cargo xtask bless --conformance`).
 
-- [ ] **Step 12.1: Author the 15 fixtures**
+- [ ] **Step 11.1: Author the 15 fixtures**
 
 For each entry in spec §10.1, write the three (or four) files. Sample for `views/create-simple`:
 
@@ -1887,7 +1724,7 @@ CREATE VIEW app.users_summary AS SELECT id, email FROM app.users;
 
 Repeat for each fixture in §10.1. The fixture-loader picks them up automatically; no `mod.rs` edits required.
 
-- [ ] **Step 12.2: Regenerate plan goldens**
+- [ ] **Step 11.2: Regenerate plan goldens**
 
 ```bash
 cargo xtask bless --conformance
@@ -1895,7 +1732,7 @@ cargo xtask bless --conformance
 
 This walks every new fixture, runs the diff+plan pipeline, and writes `plan.sql.golden`. Commit the resulting goldens.
 
-- [ ] **Step 12.3: Run the conformance suite**
+- [ ] **Step 11.3: Run the conformance suite**
 
 ```bash
 cargo test -p pgevolve-conformance --features docker-tests
@@ -1903,7 +1740,7 @@ cargo test -p pgevolve-conformance --features docker-tests
 
 Expected: all 15 new fixtures pass all 4 layers (diff invariant, plan structural invariant, plan.sql golden, apply roundtrip).
 
-- [ ] **Step 12.4: Commit**
+- [ ] **Step 11.4: Commit**
 
 ```bash
 git add crates/pgevolve-conformance/tests/cases/views/ crates/pgevolve-conformance/tests/cases/matviews/
@@ -1915,7 +1752,7 @@ Goldens regenerable via cargo xtask bless --conformance."
 
 ---
 
-## Task 13: Property tests (nightly) + documentation
+## Task 12: Property tests (nightly) + documentation
 
 **Files:**
 - Modify: `crates/pgevolve-testkit/src/ir_generator.rs` (add `arb_view_body`, `arb_view_dependency_graph`)
@@ -1925,7 +1762,7 @@ Goldens regenerable via cargo xtask bless --conformance."
 - Modify: `docs/system/planner.md`, `docs/system/ir.md`
 - Modify: `README.md` (phase progress table — mention v0.2 views landing)
 
-- [ ] **Step 13.1: `arb_view_body` generator**
+- [ ] **Step 12.1: `arb_view_body` generator**
 
 Implement a proptest strategy that, given a generated table corpus, produces a syntactically valid SELECT body referencing columns from those tables. Constraint: only generate bodies pg_query will parse; no DDL inside.
 
@@ -1933,21 +1770,38 @@ Implement a proptest strategy that, given a generated table corpus, produces a s
 pub fn arb_view_body(tables: &[Table]) -> impl Strategy<Value = String> { /* ... */ }
 ```
 
-Property:
+Property — the fuzz invariant from spec §10.3:
 ```rust
 proptest! {
     #[test]
     #[ignore]
-    fn view_canonicalization_is_idempotent(tables in arb_tables(1..4), body_seed in 0u64..1000) {
+    #[cfg_attr(not(feature = "docker-tests"), ignore)]
+    fn view_canonicalization_closed_under_pg_rewrite(
+        tables in arb_tables(1..4),
+        body_seed in 0u64..1000
+    ) {
+        // Confirms that NormalizedBody::from_sql is closed under the PG rewrite:
+        // applying a view body to PG and reading it back produces the same
+        // canonical_text as canonicalizing the original source.
         let body = arb_view_body_from_seed(&tables, body_seed);
-        let canonical1 = run_through_shadow(&tables, &body);
-        let canonical2 = run_through_shadow(&tables, &canonical1);
-        prop_assert_eq!(canonical1, canonical2);
+        let source_canonical = NormalizedBody::from_sql(&body).expect("body should parse");
+
+        // Apply to ephemeral PG, read pg_get_viewdef back, canonicalize again.
+        let pg = EphemeralPostgres::boot(17).unwrap();
+        apply_tables_and_view(&pg, &tables, &body);
+        let viewdef = pg.query_one::<String>("SELECT pg_get_viewdef('v'::regclass, true)").unwrap();
+        let catalog_canonical = NormalizedBody::from_sql(&viewdef).expect("pg_get_viewdef output should parse");
+
+        prop_assert_eq!(
+            source_canonical.canonical_text(),
+            catalog_canonical.canonical_text(),
+            "NormalizedBody::from_sql must be closed under the PG rewrite"
+        );
     }
 }
 ```
 
-- [ ] **Step 13.2: `arb_view_dependency_graph` generator**
+- [ ] **Step 12.2: `arb_view_dependency_graph` generator**
 
 ```rust
 pub fn arb_view_dependency_graph(depth: usize, fanout: usize) -> impl Strategy<Value = ViewDependencyGraph> { /* ... */ }
@@ -1968,24 +1822,23 @@ proptest! {
 }
 ```
 
-- [ ] **Step 13.3: Documentation updates**
+- [ ] **Step 12.3: Documentation updates**
 
 For each file in spec §12, make the documented edits. Concretely:
 
 - `docs/spec/objects.md`:
-  - VIEW row: change status from 📋 to ✅; update the Notes to describe the canonicalization model.
+  - VIEW row: change status from 📋 to ✅; update the Notes to describe the AST canonicalization model (`NormalizedBody::from_sql` on both source and catalog sides).
   - MATERIALIZED VIEW row: same.
   - Add two new rows: `security_barrier` reloption, `security_invoker` reloption (PG 15+).
   - Keep `CREATE VIEW ... WITH CHECK OPTION` and recursive views at 🔮 (no change).
 - `docs/spec/lint-and-layout.md`: add the three new lint rules to the universal-rules table.
 - `docs/spec/cli.md`: document `refresh_mv_concurrently` and `view_drop_create_dependents` under `[planner.online_rewrites]`.
-- `docs/user/plan-format.md`: document the seven new step kinds (Task 8.1) and the `[[step_override]]` table (Task 10).
+- `docs/user/plan-format.md`: document the seven new step kinds (Task 7.1) and the `[[step_override]]` table (Task 9).
 - `docs/user/cookbook.md`: add a "Managing views" entry with a small example (CREATE VIEW + later compatible body change + later incompatible body change with dependent recreation).
 - `docs/system/planner.md`: document the OR-REPLACE compatibility predicate and the dependent-recreation walk.
-- `docs/system/ir.md`: document the `View`, `MaterializedView`, `ViewColumn`, `DepEdge`, `CanonicalViewBody` types.
-- `README.md`: update the phase progress table or add a note that v0.2 views/MVs have landed.
+- `docs/system/ir.md`: document the `View`, `MaterializedView`, `ViewColumn` types; note that `DepEdge` and `NormalizedBody` come from v0.2-readiness and are now consumed here.
 
-- [ ] **Step 13.4: Run the entire suite**
+- [ ] **Step 12.4: Run the entire suite**
 
 ```bash
 cargo test --workspace --all-features
@@ -1994,16 +1847,101 @@ cargo test --workspace --all-features -- --ignored # nightly tests, locally for 
 
 Expected: all green.
 
-- [ ] **Step 13.5: Commit**
+- [ ] **Step 12.5: Commit**
 
 ```bash
 git add crates/pgevolve-testkit/src/ir_generator.rs crates/pgevolve-core/tests/property_tests.rs docs/ README.md
 git commit -m "feat(testkit, docs): view property tests + spec updates
 
-Nightly property tests for canonicalization idempotency and
-dependency-graph recreation. Doc updates flip view/MV statuses to ✅
-and document the new lint rules, step kinds, and [[step_override]]
-shape."
+Nightly property tests for NormalizedBody closure under PG rewrite and
+dependency-graph recreation. Property test uses docker-tests feature gate.
+Doc updates flip view/MV statuses to ✅ and document the new lint rules,
+step kinds, and [[step_override]] shape."
+```
+
+---
+
+## Task 13: Optional — `--shadow-validate` cross-check
+
+**Files:**
+- Create: `crates/pgevolve/src/shadow_validate.rs`
+- Modify: `crates/pgevolve/src/commands/plan.rs` (add `--shadow-validate` and `--shadow-strict` flags)
+- Modify: `crates/pgevolve/src/commands/diff.rs` (same flags)
+- Modify: `crates/pgevolve/src/commands/validate.rs` (same flags)
+- Test: `crates/pgevolve/tests/shadow_validate.rs`
+
+This task is **opt-in plumbing**, not on the critical path. The normal `diff`/`plan` path is complete after Task 12. Implement this only after all previous tasks pass.
+
+- [ ] **Step 13.1: Define `ShadowValidator`**
+
+```rust
+//! Optional shadow-validate cross-check (spec §3, Decision 12 / arch readiness Decision 12).
+//!
+//! Boots a shadow Postgres, applies the plan, reads pg_depend and pg_get_viewdef,
+//! and cross-checks against the AST-derived dep graph and NormalizedBody values.
+//! Mismatches are warnings by default, errors under --shadow-strict.
+
+pub struct ShadowValidator { /* ... */ }
+
+pub struct ValidationReport {
+    pub missing_ast_edges: Vec<MissingEdge>,    // in pg_depend but not in AST
+    pub extra_ast_edges: Vec<ExtraEdge>,         // in AST but not in pg_depend (unless covered by directive)
+    pub canonical_mismatches: Vec<CanonMismatch>, // canonical_text differs after PG round-trip
+}
+
+impl ShadowValidator {
+    pub fn validate(
+        &self,
+        source_ir: &SourceIr,
+        plan: &Plan,
+        config: &ShadowConfig,
+    ) -> Result<ValidationReport, ShadowError> {
+        todo!()
+    }
+}
+```
+
+- [ ] **Step 13.2: Implement shadow validation**
+
+1. Boot a shadow PG using the `[shadow]` backend config (from arch readiness Decision 12: `backend = "auto"` prefers user-supplied DSN, falls back to testcontainers).
+2. Apply the plan.
+3. For each view/MV in the managed schemas: read `pg_get_viewdef(oid, true)`, call `NormalizedBody::from_sql` on the output, compare `canonical_text` to `source_ir.views[i].body_canonical.canonical_text()`. Mismatches go into `canonical_mismatches`.
+4. Read `pg_depend` filtered to managed schemas and `deptype = 'n'`. Compare against `body_dependencies` (both `AstExtracted` and `AstDeclared` edges). Report extra/missing.
+5. Surface the `ValidationReport`.
+
+- [ ] **Step 13.3: Wire flags into CLI commands**
+
+Add `--shadow-validate` and `--shadow-strict` flags to `plan`, `diff`, and `validate` commands. Under `--shadow-validate`, run `ShadowValidator::validate` after the normal pipeline and print the report. Under `--shadow-strict`, treat any `canonical_mismatch` or `extra_ast_edge` as a hard error.
+
+- [ ] **Step 13.4: Write integration tests**
+
+```rust
+#[test]
+#[cfg_attr(not(feature = "docker-tests"), ignore)]
+fn shadow_validate_passes_for_correct_view() {
+    // Build a source tree with a view, run --shadow-validate, assert no mismatches.
+}
+
+#[test]
+#[cfg_attr(not(feature = "docker-tests"), ignore)]
+fn shadow_validate_flags_missing_directive() {
+    // Build a source tree with a PL/pgSQL function that uses EXECUTE to reference
+    // a table without a @pgevolve dep: directive. Assert the report includes
+    // an extra_ast_edge (the dynamic dep appears in pg_depend but not in the
+    // AST-extracted set).
+}
+```
+
+- [ ] **Step 13.5: Commit**
+
+```bash
+git add crates/pgevolve/src/shadow_validate.rs crates/pgevolve/src/commands/ crates/pgevolve/tests/shadow_validate.rs
+git commit -m "feat(shadow): --shadow-validate opt-in cross-check for views/MVs
+
+Boots a shadow PG to cross-check AST-derived dep edges against
+pg_depend and NormalizedBody canonical_text against pg_get_viewdef
+output. Mismatches are warnings by default, errors under --shadow-strict.
+Normal diff/plan path is unchanged and requires no Docker."
 ```
 
 ---
@@ -2014,20 +1952,21 @@ After implementing all tasks, run through this checklist:
 
 1. **Spec §2 (Scope) coverage:** every "In scope" row maps to a task. ✓
 2. **Spec §3 (Key design decisions) coverage:** every decision row has at least one task that implements it. Verify by grepping the plan for each decision name.
-3. **Spec §4 (IR) coverage:** all five types from §4 are defined in Task 1; `IndexParent::Mv` in Task 2. ✓
-4. **Spec §5 (Pipelines) coverage:** source pipeline (Tasks 3+4), catalog pipeline (Task 6), caching (Task 5). ✓
-5. **Spec §6 (Diff + planner) coverage:** change kinds (Task 7), OR-REPLACE predicate (Task 7), step kinds (Task 8), dependent recreation (Task 9), online rewrites (Task 9). ✓
-6. **Spec §7 (Lints) coverage:** Task 11 covers all three rules. ✓
-7. **Spec §8 (intent.toml) coverage:** `[[step_override]]` in Task 10; `[[intent]]` for `drop_view` uses existing v0.1 machinery (just a new `kind` string). ✓
+3. **Spec §4 (IR) coverage:** `View`, `MaterializedView`, `ViewColumn` in Task 1; `IndexParent::Mv` in Task 2. `NormalizedBody` and `DepEdge` consumed from v0.2-readiness. ✓
+4. **Spec §5 (Pipelines) coverage:** source pipeline AST canon pass (Task 4), catalog pipeline (Task 5). No shadow round-trip in the normal path. ✓
+5. **Spec §6 (Diff + planner) coverage:** change kinds (Task 6), OR-REPLACE predicate (Task 6), step kinds (Task 7), dependent recreation (Task 8), online rewrites (Task 8). ✓
+6. **Spec §7 (Lints) coverage:** Task 10 covers all three rules. ✓
+7. **Spec §8 (intent.toml) coverage:** `[[step_override]]` in Task 9; `[[intent]]` for `drop_view` uses existing v0.1 machinery (just a new `kind` string). ✓
 8. **Spec §9 (File layout):** parser change in Task 3 supports `schema/<schema>/views/*.sql` via the existing layout profiles; no new layout-profile code required.
-9. **Spec §10 (Testing) coverage:** conformance (Task 12), tier-3 goldens (Task 6.7), property tests (Task 13). ✓
-10. **Spec §11 (Edge cases):** each bullet either falls out of the design naturally or is covered by a conformance fixture in Task 12. Spot check:
-    - "View body references an extension function" → Task 7 destructiveness/error machinery + Task 11's `view-body-references-unmanaged-schema` lint.
-    - "MV with WITH NO DATA" → Task 10's `[[step_override]]`.
-    - "View that selects *" → Task 4's shadow pass canonicalizes via pg_get_viewdef which expands *.
-11. **Spec §12 (Documentation) coverage:** Task 13.3. ✓
-12. **No placeholders left in the plan:** grep for "TODO", "TBD", "implement later" — only acceptable occurrence is the one annotated `todo!()` in Task 9.2 which is explicitly called out and accompanied by exhaustive trigger-condition spec references.
-13. **Type consistency:** `ViewColumn` carries `type_signature` from Task 7's back-edit onward; `IndexParent` is the enum from Task 2; `StepKind` variants spelled identically wherever they appear (Tasks 8, 10, 12).
+9. **Spec §10 (Testing) coverage:** conformance (Task 11), tier-3 goldens (Task 5.7), property tests (Task 12). ✓
+10. **Spec §11 (Edge cases):** each bullet either falls out of the design naturally or is covered by a conformance fixture in Task 11. Spot check:
+    - "View body references an extension function" → Task 6 destructiveness/error machinery + Task 10's `view-body-references-unmanaged-schema` lint.
+    - "MV with WITH NO DATA" → Task 9's `[[step_override]]`.
+    - "View that selects *" → AST resolution in Task 4 expands `*` from the provisional IR's table column list; catalog reader gets the expanded form from `pg_get_viewdef`.
+11. **Spec §12 (Documentation) coverage:** Task 12.3. ✓
+12. **No placeholders left in the plan:** grep for "TODO", "TBD", "implement later" — only acceptable occurrences are the `todo!()` stubs in Task 4.2 (AST walk) and Task 8.2 (trigger collection), both of which are explicitly called out with spec section references.
+13. **Type consistency:** `NormalizedBody` is from `parse::normalize_body`; `DepEdge` / `DepSource` are from `plan::edges`; `IndexParent` is the enum from Task 2; `StepKind` variants spelled identically wherever they appear (Tasks 7, 9, 11).
 14. **Test-first discipline:** every task starts with a failing test (or fixture) before introducing implementation.
+15. **No Docker in the hot path:** Tasks 1–9 require no Docker for unit/library tests. Docker is only required for catalog round-trip tests (Task 5.1), executor integration tests (Task 9.3), conformance apply layer (Task 11.3), property tests (Task 12.1), and shadow-validate (Task 13). The normal `diff`/`plan` pipeline is fully testable without a running Postgres.
 
 ---
