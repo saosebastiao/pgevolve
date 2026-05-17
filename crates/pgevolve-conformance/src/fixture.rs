@@ -136,6 +136,10 @@ pub struct ExpectPlan {
     /// key → default-on. See `deserialize_golden`.
     #[serde(default = "default_golden", deserialize_with = "deserialize_golden")]
     pub golden: Option<String>,
+    /// L5 opt-out. Default true. Set to false for fixtures whose change
+    /// is itself a no-op (rare).
+    #[serde(default = "default_true")]
+    pub minimality: bool,
 }
 
 fn default_golden() -> Option<String> {
@@ -174,6 +178,7 @@ impl Default for ExpectPlan {
             steps: None,
             rewrites_used: Vec::new(),
             golden: default_golden(),
+            minimality: default_true(),
         }
     }
 }

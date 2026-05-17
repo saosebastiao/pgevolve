@@ -26,6 +26,18 @@ use pgevolve_testkit::{IRGeneratorConfig, arbitrary_catalog};
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
+    /// Property: planning C → C for any random catalog C produces an
+    /// empty change set. Pure; no Docker.
+    #[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
+    #[test]
+    fn plan_minimality_under_no_op_mutations(
+        catalog in arbitrary_catalog(IRGeneratorConfig::default()),
+    ) {
+        let drift = pgevolve_core::catalog::DriftReport::default();
+        let changes = pgevolve_core::diff::diff(&catalog, &catalog, &drift);
+        prop_assert!(changes.is_empty(), "C → C produced {:?}", changes);
+    }
+
     /// PlanId is deterministic across re-runs.
     #[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
     #[test]

@@ -1,0 +1,11 @@
+[meta]
+title     = "no-op fixture exercises L5 opt-out"
+authoring = "objects"
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+minimality = false
+steps      = 0
+golden     = false

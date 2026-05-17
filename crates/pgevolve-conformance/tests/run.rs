@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use pgevolve_conformance::assertions::{apply, diff, plan};
+use pgevolve_conformance::assertions::{apply, diff, minimality, plan};
 use pgevolve_conformance::walk::{self, Authoring};
 
 fn cases_root() -> PathBuf {
@@ -131,23 +131,44 @@ async fn conformance_suite() {
                 }
 
                 // Layer 4.
-                match apply::check(fixture, pg_major).await {
-                    Ok(o) if o.is_ok() => {}
-                    Ok(apply::ApplyOutcome::ApplyFailed { stderr, stage }) => {
+                let apply_outcome = match apply::check(fixture, pg_major).await {
+                    Ok(o) => o,
+                    Err(e) => {
+                        report.fail(dir, "apply", e.to_string());
+                        continue;
+                    }
+                };
+                match &apply_outcome {
+                    apply::ApplyOutcome::Ok(_)
+                    | apply::ApplyOutcome::OkExpectedFailure
+                    | apply::ApplyOutcome::Skipped => {}
+                    apply::ApplyOutcome::ApplyFailed { stderr, stage } => {
                         report.fail(dir, "apply", format!("{stage} failed:\n{stderr}"));
                     }
-                    Ok(apply::ApplyOutcome::IrMismatch(diff_str)) => {
+                    apply::ApplyOutcome::IrMismatch(diff_str) => {
                         report.fail(dir, "apply", format!("post-apply IR diverged:\n{diff_str}"));
                     }
-                    Ok(apply::ApplyOutcome::UnexpectedSuccess) => {
+                    apply::ApplyOutcome::UnexpectedSuccess => {
                         report.fail(
                             dir,
                             "apply",
                             "fixture expected apply.succeeds=false but apply succeeded",
                         );
                     }
-                    Ok(apply::ApplyOutcome::Ok | apply::ApplyOutcome::Skipped) => {}
-                    Err(e) => report.fail(dir, "apply", e.to_string()),
+                }
+
+                // Layer 5: minimality.
+                if fixture.expect.plan.minimality
+                    && let apply::ApplyOutcome::Ok(state) = &apply_outcome
+                {
+                    let input = minimality::MinimalityInput {
+                        post_apply_catalog: &state.catalog,
+                        post_apply_drift: &state.drift,
+                        after_source: &state.after_source,
+                    };
+                    if let Err(e) = minimality::assert_minimal(&input) {
+                        report.fail(dir, "minimality", e.to_string());
+                    }
                 }
             }
 

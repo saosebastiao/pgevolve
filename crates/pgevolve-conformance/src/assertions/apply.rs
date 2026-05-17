@@ -22,13 +22,27 @@ use pgevolve_testkit::pg_querier::PgCatalogQuerier;
 
 use crate::fixture::Fixture;
 
+/// Post-apply state available for downstream assertions (e.g. L5 minimality).
+#[derive(Debug)]
+pub struct PostApplyState {
+    /// Introspected catalog immediately after apply succeeded.
+    pub catalog: pgevolve_core::ir::catalog::Catalog,
+    /// Drift report from the same introspection.
+    pub drift: pgevolve_core::catalog::DriftReport,
+    /// Parsed `after.sql` (or `post_apply_equals_to`) catalog — the source IR.
+    pub after_source: pgevolve_core::ir::catalog::Catalog,
+}
+
 /// Outcome of an apply roundtrip.
 #[derive(Debug)]
 pub enum ApplyOutcome {
     /// Docker unavailable; layer skipped.
     Skipped,
-    /// Apply succeeded; IRs were equal.
-    Ok,
+    /// Apply succeeded; IRs were equal. Carries post-apply state for L5.
+    Ok(PostApplyState),
+    /// Apply was expected to fail, and it did fail with matching substrings.
+    /// No post-apply state is available.
+    OkExpectedFailure,
     /// Apply succeeded but introspected IR diverged from after.sql.
     IrMismatch(String),
     /// `pgevolve plan` or `pgevolve apply` failed.
@@ -45,7 +59,7 @@ pub enum ApplyOutcome {
 impl ApplyOutcome {
     /// True for any non-failure variant the runner should treat as pass.
     pub const fn is_ok(&self) -> bool {
-        matches!(self, Self::Ok | Self::Skipped)
+        matches!(self, Self::Ok(_) | Self::OkExpectedFailure | Self::Skipped)
     }
 }
 
@@ -86,11 +100,15 @@ pub async fn check(fixture: &Fixture, pg_major: u32) -> anyhow::Result<ApplyOutc
         return Ok(ApplyOutcome::UnexpectedSuccess);
     }
 
-    let post_apply_ir = introspect(&pg, fixture).await?;
+    let (post_apply_ir, post_apply_drift) = introspect_with_drift(&pg, fixture).await?;
     let expected_ir = parse_post_apply_target(fixture)?;
 
     if post_apply_ir.canonical_eq(&expected_ir) {
-        Ok(ApplyOutcome::Ok)
+        Ok(ApplyOutcome::Ok(PostApplyState {
+            catalog: post_apply_ir,
+            drift: post_apply_drift,
+            after_source: expected_ir,
+        }))
     } else {
         let diffs = expected_ir.diff(&post_apply_ir);
         let rendered = diffs
@@ -237,7 +255,7 @@ fn check_failure_expectation(
         .iter()
         .all(|s| stderr.contains(s.as_str()));
     if all_match {
-        ApplyOutcome::Ok
+        ApplyOutcome::OkExpectedFailure
     } else {
         ApplyOutcome::ApplyFailed {
             stderr: format!(
@@ -249,7 +267,10 @@ fn check_failure_expectation(
     }
 }
 
-async fn introspect(pg: &EphemeralPostgres, fixture: &Fixture) -> anyhow::Result<Catalog> {
+async fn introspect_with_drift(
+    pg: &EphemeralPostgres,
+    fixture: &Fixture,
+) -> anyhow::Result<(Catalog, pgevolve_core::catalog::DriftReport)> {
     let client = pg.connect().await?;
     let querier = PgCatalogQuerier::new(client)?;
     let schemas = collect_managed_schemas(&fixture.after_sql);
@@ -260,7 +281,6 @@ async fn introspect(pg: &EphemeralPostgres, fixture: &Fixture) -> anyhow::Result
     let filter = CatalogFilter::new(managed, vec![])?;
     tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
         .await?
-        .map(|(catalog, _drift)| catalog)
         .map_err(Into::into)
 }
 
