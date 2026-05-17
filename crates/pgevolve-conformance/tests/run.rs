@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use pgevolve_conformance::assertions::{apply, dep_graph, diff, minimality, plan, topological_order, touches_only};
+use pgevolve_conformance::assertions::{apply, dep_graph, diff, intent_shape, minimality, plan, topological_order, touches_only};
 use pgevolve_conformance::planning::parse_sql;
 use pgevolve_conformance::walk::{self, Authoring};
 
@@ -112,6 +112,14 @@ async fn conformance_suite() {
                         "plan",
                         format!("missing rewrites {:?}", plan_outcome.missing_rewrites),
                     );
+                }
+
+                // Layer 7: intent-shape (mandatory on destructive).
+                if let Err(e) = intent_shape::assert_intent_shape(
+                    &plan_outcome.plan,
+                    &fixture.expect.intent,
+                ) {
+                    report.fail(dir, "intent_shape", e.to_string());
                 }
 
                 // Layer 6: no-collateral-damage (opt-in via touches_only).
@@ -233,6 +241,14 @@ async fn conformance_suite() {
                     );
                 }
 
+                // Layer 7: intent-shape (mandatory on destructive).
+                if let Err(e) = intent_shape::assert_intent_shape(
+                    &plan_outcome.plan,
+                    &fixture.expect.intent,
+                ) {
+                    report.fail(dir, "intent_shape", e.to_string());
+                }
+
                 // Layer 8: dep-graph golden (opt-out via
                 // expect.dep_graph.enabled = false).
                 if fixture.expect.dep_graph.enabled {
@@ -259,7 +275,63 @@ async fn conformance_suite() {
                 }
             }
 
-            Authoring::Intent | Authoring::Failure | Authoring::Regressions => {
+            Authoring::Intent => {
+                if !fixture.applies_to(pg_major) {
+                    skipped += 1;
+                    continue;
+                }
+                ran += 1;
+
+                // Layer 1: diff substrings.
+                match diff::check(fixture) {
+                    Ok(out) if out.is_ok() => {}
+                    Ok(out) => report.fail(
+                        dir,
+                        "diff",
+                        format!(
+                            "missing substrings {:?}; rendered diff:\n{}",
+                            out.missing, out.rendered
+                        ),
+                    ),
+                    Err(e) => report.fail(dir, "diff", e.to_string()),
+                }
+
+                // Layer 2: plan structural invariants.
+                let plan_outcome = match plan::check(fixture) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        report.fail(dir, "plan", e.to_string());
+                        continue;
+                    }
+                };
+                if let Some(expected) = plan_outcome.step_mismatch {
+                    report.fail(
+                        dir,
+                        "plan",
+                        format!(
+                            "expected {} step(s), got {}",
+                            expected, plan_outcome.actual_steps
+                        ),
+                    );
+                }
+
+                // Layer 7: intent-shape (mandatory on destructive).
+                if let Err(e) = intent_shape::assert_intent_shape(
+                    &plan_outcome.plan,
+                    &fixture.expect.intent,
+                ) {
+                    report.fail(dir, "intent_shape", e.to_string());
+                }
+
+                // Layer 4: apply — deferred for intent/ fixtures until runner-side
+                // intent auto-approval is wired. The plan has unapproved destructive
+                // intents, so apply would fail. L1 + L7 fire above; L4 success for
+                // intent/ fixtures is a stretch goal.
+                // TODO(T3-followup): set approved=true on each generated intent row
+                // before invoking apply::check so that L4 also passes for intent/ fixtures.
+            }
+
+            Authoring::Failure | Authoring::Regressions => {
                 // T0: subtrees discovered but not yet wired; skip cleanly.
                 eprintln!(
                     "skip {}: authoring {:?} not yet wired",

@@ -100,6 +100,21 @@ impl Default for FixturePg {
     }
 }
 
+/// One `[[expect.intent]]` row.
+///
+/// Matches against a generated [`DestructiveIntent`] row in the plan.
+/// The assertion is mandatory for destructive fixtures (see L7).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExpectIntentRow {
+    /// Intent kind to match (e.g., `"drop_column"`). Case-insensitive substring match.
+    pub kind: String,
+    /// Fully-qualified target to match (e.g., `"app.users.legacy_id"`).
+    pub target: String,
+    /// Each string must appear as a substring in the generated intent's reason.
+    #[serde(default)]
+    pub reason_contains: Vec<String>,
+}
+
 /// `[expect]` block.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct FixtureExpect {
@@ -115,6 +130,14 @@ pub struct FixtureExpect {
     /// `[expect.dep_graph]` — L8 dep-graph golden. Default-on.
     #[serde(default)]
     pub dep_graph: ExpectDepGraph,
+    /// `[[expect.intent]]` rows — L7 intent-shape assertion.
+    ///
+    /// Note: the top-level `[intent]` table in fixture.toml is a passthrough
+    /// written into the plan's `intent.toml`. These `[[expect.intent]]` rows
+    /// live under `[expect]` and are at a different TOML nesting level — no
+    /// collision.
+    #[serde(default, rename = "intent")]
+    pub intent: Vec<ExpectIntentRow>,
 }
 
 /// `[expect.dep_graph]` — L8 dep-graph golden.

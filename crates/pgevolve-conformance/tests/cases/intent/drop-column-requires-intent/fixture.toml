@@ -1,0 +1,20 @@
+[meta]
+title = "DROP COLUMN requires an approved intent"
+authoring = "intent"
+
+[expect.diff]
+contains = ["legacy_id"]
+
+[expect.plan]
+steps = 1
+minimality = false   # intent/ fixtures opt out of L5 — applying a destructive
+                     # plan requires runner-side approval threading not yet in place
+golden = false       # intent/ fixtures opt out of L3 golden
+
+[expect.dep_graph]
+enabled = false      # intent/ fixtures opt out of L8
+
+[[expect.intent]]
+kind = "drop_column"
+target = "app.users"
+reason_contains = []

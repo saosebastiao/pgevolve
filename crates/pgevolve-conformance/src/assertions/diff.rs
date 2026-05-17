@@ -85,6 +85,7 @@ mod tests {
                 plan: ExpectPlan::default(),
                 apply: ExpectApply::default(),
                 dep_graph: crate::fixture::ExpectDepGraph::default(),
+                intent: Vec::new(),
             },
         }
     }
