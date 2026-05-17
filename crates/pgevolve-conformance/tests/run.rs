@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use pgevolve_conformance::assertions::{apply, diff, minimality, plan};
+use pgevolve_conformance::assertions::{apply, diff, minimality, plan, touches_only};
 use pgevolve_conformance::walk::{self, Authoring};
 
 fn cases_root() -> PathBuf {
@@ -111,6 +111,15 @@ async fn conformance_suite() {
                         "plan",
                         format!("missing rewrites {:?}", plan_outcome.missing_rewrites),
                     );
+                }
+
+                // Layer 6: no-collateral-damage (opt-in via touches_only).
+                // assert_touches_only is a no-op when the list is empty.
+                if let Err(e) = touches_only::assert_touches_only(
+                    &plan_outcome.plan,
+                    &fixture.expect.plan.touches_only,
+                ) {
+                    report.fail(dir, "touches_only", e.to_string());
                 }
 
                 // Layer 3.

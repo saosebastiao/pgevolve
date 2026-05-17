@@ -204,6 +204,7 @@ mod tests {
                 rewrites_used: vec![],
                 golden: None,
                 minimality: true,
+                touches_only: vec![],
             },
         );
         let out = check(&f).unwrap();
@@ -223,6 +224,7 @@ mod tests {
                 rewrites_used: vec!["totally_made_up_rewrite".into()],
                 golden: None,
                 minimality: true,
+                touches_only: vec![],
             },
         );
         let out = check(&f).unwrap();
@@ -262,6 +264,7 @@ mod golden_tests {
                     rewrites_used: vec![],
                     golden: Some("expected/plan.sql".into()),
                     minimality: true,
+                    touches_only: vec![],
                 },
                 apply: ExpectApply::default(),
             },

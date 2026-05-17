@@ -140,6 +140,9 @@ pub struct ExpectPlan {
     /// is itself a no-op (rare).
     #[serde(default = "default_true")]
     pub minimality: bool,
+    /// L6 input. Absent / empty = layer skipped.
+    #[serde(default)]
+    pub touches_only: Vec<String>,
 }
 
 fn default_golden() -> Option<String> {
@@ -179,6 +182,7 @@ impl Default for ExpectPlan {
             rewrites_used: Vec::new(),
             golden: default_golden(),
             minimality: default_true(),
+            touches_only: Vec::new(),
         }
     }
 }

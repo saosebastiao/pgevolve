@@ -6,3 +6,4 @@ pub mod apply;
 pub mod diff;
 pub mod minimality;
 pub mod plan;
+pub mod touches_only;

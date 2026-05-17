@@ -1,0 +1,10 @@
+[meta]
+title     = "ADD COLUMN touches only the target table"
+authoring = "objects"
+
+[expect.diff]
+contains = ["email"]
+
+[expect.plan]
+steps       = 1
+touches_only = ["app.users"]
