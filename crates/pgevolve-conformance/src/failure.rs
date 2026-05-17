@@ -80,15 +80,57 @@ fn run_order_stage(fixture: &Fixture, exp: &ExpectFailure) -> Result<()> {
     assert_substrings(&msg, &exp.stderr_contains)
 }
 
-fn run_lint_at_plan_stage(_fixture: &Fixture, _exp: &ExpectFailure) -> Result<()> {
-    // The lint-at-plan failure path requires running the binary because
-    // gating happens in the `pgevolve plan` command, not in core. This
-    // is deferred — for v0.2-readiness T4, lint-at-plan failure fixtures
-    // are not yet wired. See failure/lint-at-plan/README.md.
-    anyhow::bail!(
-        "lint-at-plan failure stage is not wired in T4 — requires CLI orchestration; \
-         consider running pgevolve plan as a subprocess and checking exit/stderr"
-    )
+fn run_lint_at_plan_stage(fixture: &Fixture, exp: &ExpectFailure) -> Result<()> {
+    // In-process implementation: stage source (after.sql) and target
+    // (before.sql), parse both, run run_drift_lints, and assert that at
+    // least one LintAtPlan finding fires. The fixture's `stderr_contains`
+    // substrings are matched against finding messages (for this stage the
+    // field name is reused to avoid a fixture-schema change — callers
+    // document that for `lint_at_plan` the substrings match finding messages,
+    // not CLI stderr).
+    use pgevolve_core::lint::Severity;
+    use pgevolve_core::lint::universal::run_drift_lints;
+
+    // Stage source (after.sql).
+    let source_tmp = stage_source(fixture)?;
+    let source = pgevolve_core::parse::parse_directory(source_tmp.path(), &[])
+        .map_err(|e| anyhow::anyhow!("parse source (after.sql): {e}"))?;
+
+    // Stage target (before.sql). An empty before.sql means an empty catalog.
+    let target = {
+        let target_tmp = stage_target(fixture)?;
+        let text = std::fs::read_to_string(target_tmp.path().join("schema/app/0001.sql"))
+            .unwrap_or_default();
+        if text.trim().is_empty() {
+            pgevolve_core::ir::catalog::Catalog::empty()
+        } else {
+            pgevolve_core::parse::parse_directory(target_tmp.path(), &[])
+                .map_err(|e| anyhow::anyhow!("parse target (before.sql): {e}"))?
+        }
+    };
+
+    let findings = run_drift_lints(&source, &target);
+    let lint_at_plan: Vec<_> = findings
+        .iter()
+        .filter(|f| matches!(f.severity, Severity::LintAtPlan))
+        .collect();
+
+    if lint_at_plan.is_empty() {
+        anyhow::bail!(
+            "expected lint-at-plan-stage failure (at least one LintAtPlan finding), \
+             but run_drift_lints produced none",
+        );
+    }
+
+    // Build a combined string that includes each finding's rule ID and message
+    // so that fixture `stderr_contains` can match against either:
+    //   "[column-position-drift] app.users: column position drift. …"
+    let combined = lint_at_plan
+        .iter()
+        .map(|f| format!("[{}] {}", f.rule, f.message))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_substrings(&combined, &exp.stderr_contains)
 }
 
 /// Stage the fixture's `after.sql` into a temp directory that `parse_directory`
@@ -98,6 +140,16 @@ fn stage_source(fixture: &Fixture) -> Result<tempfile::TempDir> {
     let dir = tmp.path().join("schema").join("app");
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("0001.sql"), &fixture.after_sql)?;
+    Ok(tmp)
+}
+
+/// Stage the fixture's `before.sql` into a temp directory that `parse_directory`
+/// can walk.
+fn stage_target(fixture: &Fixture) -> Result<tempfile::TempDir> {
+    let tmp = tempfile::tempdir()?;
+    let dir = tmp.path().join("schema").join("app");
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("0001.sql"), &fixture.before_sql)?;
     Ok(tmp)
 }
 

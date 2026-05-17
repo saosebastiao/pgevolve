@@ -63,8 +63,28 @@ impl ApplyOutcome {
     }
 }
 
+/// Options for Layer 4.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ApplyOptions {
+    /// When `true`, patch the plan's `intent.toml` after `pgevolve plan`
+    /// runs to flip every `approved` field to `true` before calling
+    /// `pgevolve apply`. This allows the intent runner to exercise the real
+    /// approval path without requiring the fixture to pre-supply a hand-authored
+    /// `intent.toml` — the runner auto-approves on behalf of the user.
+    pub auto_approve_intents: bool,
+}
+
 /// Run Layer 4.
 pub async fn check(fixture: &Fixture, pg_major: u32) -> anyhow::Result<ApplyOutcome> {
+    check_with_options(fixture, pg_major, ApplyOptions::default()).await
+}
+
+/// Run Layer 4 with explicit options.
+pub async fn check_with_options(
+    fixture: &Fixture,
+    pg_major: u32,
+    opts: ApplyOptions,
+) -> anyhow::Result<ApplyOutcome> {
     if !docker_available() {
         return Ok(ApplyOutcome::Skipped);
     }
@@ -88,6 +108,14 @@ pub async fn check(fixture: &Fixture, pg_major: u32) -> anyhow::Result<ApplyOutc
             return Ok(check_failure_expectation(fixture, &stderr, "plan"));
         }
     };
+
+    // If the caller requested auto-approval, patch every `approved = false`
+    // to `approved = true` in the plan dir's `intent.toml`. This exercises
+    // the real preflight approval path without requiring a hand-authored
+    // `intent.toml` in the fixture.
+    if opts.auto_approve_intents {
+        patch_intent_toml_approve_all(&plan_dir)?;
+    }
 
     if let Err(stderr) = run_pgevolve(
         project_path,
@@ -203,6 +231,22 @@ fn cargo_bin() -> PathBuf {
             let manifest_dir = env!("CARGO_MANIFEST_DIR");
             PathBuf::from(manifest_dir).join("../../target/debug/pgevolve")
         })
+}
+
+/// Patch the `intent.toml` in `plan_dir` to flip every `approved = false`
+/// line to `approved = true`.
+///
+/// Uses a simple text substitution rather than a full TOML round-trip so that
+/// the file's layout (comments, ordering) is preserved and the patch is
+/// obviously correct. The only line that needs changing is:
+/// `approved = false` → `approved = true`.
+fn patch_intent_toml_approve_all(plan_dir: &Path) -> anyhow::Result<()> {
+    let path = plan_dir.join("intent.toml");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| anyhow::anyhow!("read {}: {e}", path.display()))?;
+    let patched = text.replace("approved = false", "approved = true");
+    std::fs::write(&path, patched).map_err(|e| anyhow::anyhow!("write {}: {e}", path.display()))?;
+    Ok(())
 }
 
 fn run_pgevolve(cwd: &Path, args: &[&str]) -> Result<(), String> {

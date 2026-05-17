@@ -7,8 +7,9 @@ contains = ["legacy_id"]
 
 [expect.plan]
 steps = 1
-minimality = false   # intent/ fixtures opt out of L5 — applying a destructive
-                     # plan requires runner-side approval threading not yet in place
+minimality = false   # intent/ fixtures opt out of L5 minimality — a DROP COLUMN
+                     # is irreversible; the post-apply re-plan is empty but we
+                     # do not assert it here to keep the fixture focused on L4.
 golden = false       # intent/ fixtures opt out of L3 golden
 
 [expect.dep_graph]

@@ -1,0 +1,9 @@
+[meta]
+title = "column-position-drift fires at plan time when no waiver is present"
+authoring = "failure"
+
+[expect.failure]
+stage = "lint_at_plan"
+# For the lint_at_plan stage, stderr_contains is matched against finding
+# messages produced by run_drift_lints, not CLI stderr.
+stderr_contains = ["column-position-drift"]

@@ -354,7 +354,7 @@ fn run_scenarios(fixture: &Fixture, pg_major: u32) -> FixtureResult {
 }
 
 /// Run one fixture through assertion layers for `Intent` authoring.
-fn run_intent(fixture: &Fixture, pg_major: u32) -> FixtureResult {
+async fn run_intent(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     if !fixture.applies_to(pg_major) {
         return FixtureResult::Skipped;
     }
@@ -404,12 +404,55 @@ fn run_intent(fixture: &Fixture, pg_major: u32) -> FixtureResult {
         failures.push(("intent_shape".into(), e.to_string()));
     }
 
-    // Layer 4: apply — deferred for intent/ fixtures until runner-side
-    // intent auto-approval is wired. The plan has unapproved destructive
-    // intents, so apply would fail. L1 + L7 fire above; L4 success for
-    // intent/ fixtures is a stretch goal.
-    // TODO(T3-followup): set approved=true on each generated intent row
-    // before invoking apply::check so that L4 also passes for intent/ fixtures.
+    // Layer 4: apply — auto-approve all generated DestructiveIntent rows so
+    // that the intent approval path is exercised end-to-end. The runner
+    // patches the plan's intent.toml (flipping approved=false → true) after
+    // `pgevolve plan` writes it and before `pgevolve apply` reads it.
+    let apply_opts = apply::ApplyOptions {
+        auto_approve_intents: true,
+    };
+    let apply_outcome = match apply::check_with_options(fixture, pg_major, apply_opts).await {
+        Ok(o) => o,
+        Err(e) => {
+            failures.push(("apply".into(), e.to_string()));
+            return FixtureResult::Ran { failures };
+        }
+    };
+    match &apply_outcome {
+        apply::ApplyOutcome::Ok(_)
+        | apply::ApplyOutcome::OkExpectedFailure
+        | apply::ApplyOutcome::Skipped => {}
+        apply::ApplyOutcome::ApplyFailed { stderr, stage } => {
+            failures.push(("apply".into(), format!("{stage} failed:\n{stderr}")));
+        }
+        apply::ApplyOutcome::IrMismatch(diff_str) => {
+            failures.push((
+                "apply".into(),
+                format!("post-apply IR diverged:\n{diff_str}"),
+            ));
+        }
+        apply::ApplyOutcome::UnexpectedSuccess => {
+            failures.push((
+                "apply".into(),
+                "fixture expected apply.succeeds=false but apply succeeded".into(),
+            ));
+        }
+    }
+
+    // Layer 5: minimality — only when the fixture opts in (default off for
+    // intent/ because the destructive step intentionally removes objects).
+    if effective_plan.minimality
+        && let apply::ApplyOutcome::Ok(state) = &apply_outcome
+    {
+        let input = minimality::MinimalityInput {
+            post_apply_catalog: &state.catalog,
+            post_apply_drift: &state.drift,
+            after_source: &state.after_source,
+        };
+        if let Err(e) = minimality::assert_minimal(&input) {
+            failures.push(("minimality".into(), e.to_string()));
+        }
+    }
 
     FixtureResult::Ran { failures }
 }
@@ -455,7 +498,7 @@ async fn conformance_suite() {
             match discovered.authoring {
                 Authoring::Objects => run_objects(fixture, pg_major).await,
                 Authoring::Scenarios => run_scenarios(fixture, pg_major),
-                Authoring::Intent => run_intent(fixture, pg_major),
+                Authoring::Intent => run_intent(fixture, pg_major).await,
                 Authoring::Failure => {
                     let failures = pgevolve_conformance::failure::run_failure_fixture(fixture)
                         .err()
