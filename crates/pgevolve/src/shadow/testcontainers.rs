@@ -131,4 +131,3 @@ async fn wait_until_ready(dsn: &str) -> Result<()> {
     }
     Err(last_err.unwrap_or_else(|| anyhow!("timed out waiting for shadow Postgres")))
 }
-

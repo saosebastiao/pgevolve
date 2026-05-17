@@ -188,11 +188,7 @@ pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
 /// Source is canonical; the lint says "your DB has columns in a different
 /// order." Severity is `LintAtPlan` — plan refuses unless the finding is
 /// waived in `intent.toml` (waiver mechanism in Task 8).
-fn column_position_drift_rule(
-    source: &Catalog,
-    target: &Catalog,
-    out: &mut Vec<Finding>,
-) {
+fn column_position_drift_rule(source: &Catalog, target: &Catalog, out: &mut Vec<Finding>) {
     let target_tables: BTreeMap<_, _> =
         target.tables.iter().map(|t| (t.qname.clone(), t)).collect();
 
@@ -200,10 +196,16 @@ fn column_position_drift_rule(
         let Some(target_table) = target_tables.get(&source_table.qname) else {
             continue;
         };
-        let source_names: Vec<_> =
-            source_table.columns.iter().map(|c| c.name.clone()).collect();
-        let target_names: Vec<_> =
-            target_table.columns.iter().map(|c| c.name.clone()).collect();
+        let source_names: Vec<_> = source_table
+            .columns
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+        let target_names: Vec<_> = target_table
+            .columns
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
 
         // Only compare columns that exist in both catalogs. Added or removed
         // columns do not constitute position drift — those are handled by the
@@ -212,14 +214,8 @@ fn column_position_drift_rule(
         let target_set: BTreeSet<_> = target_names.iter().cloned().collect();
         let common: BTreeSet<_> = source_set.intersection(&target_set).cloned().collect();
 
-        let source_order: Vec<_> = source_names
-            .iter()
-            .filter(|n| common.contains(n))
-            .collect();
-        let target_order: Vec<_> = target_names
-            .iter()
-            .filter(|n| common.contains(n))
-            .collect();
+        let source_order: Vec<_> = source_names.iter().filter(|n| common.contains(n)).collect();
+        let target_order: Vec<_> = target_names.iter().filter(|n| common.contains(n)).collect();
 
         if source_order != target_order {
             out.push(Finding::lint_at_plan(

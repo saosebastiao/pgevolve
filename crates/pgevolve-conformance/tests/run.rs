@@ -15,7 +15,9 @@
 
 use std::path::{Path, PathBuf};
 
-use pgevolve_conformance::assertions::{apply, dep_graph, diff, intent_shape, minimality, plan, topological_order, touches_only};
+use pgevolve_conformance::assertions::{
+    apply, dep_graph, diff, intent_shape, minimality, plan, topological_order, touches_only,
+};
 use pgevolve_conformance::fixture::{ExpectPlan, Fixture};
 use pgevolve_conformance::planning::parse_sql;
 use pgevolve_conformance::walk::{self, Authoring};
@@ -44,7 +46,13 @@ enum PgExpect {
 
 /// Consult `[pg.expect]` for the given major.
 fn pg_expect_for_major(fixture: &Fixture, major: u32) -> PgExpect {
-    match fixture.pg.expect.0.get(&major.to_string()).map(String::as_str) {
+    match fixture
+        .pg
+        .expect
+        .0
+        .get(&major.to_string())
+        .map(String::as_str)
+    {
         Some("skip") => PgExpect::Skip,
         Some("failure") => PgExpect::ExpectFailure,
         _ => PgExpect::Success,
@@ -135,10 +143,13 @@ async fn run_objects(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     // Layer 1.
     match diff::check(fixture) {
         Ok(out) if out.is_ok() => {}
-        Ok(out) => failures.push(("diff".into(), format!(
-            "missing substrings {:?}; rendered diff:\n{}",
-            out.missing, out.rendered
-        ))),
+        Ok(out) => failures.push((
+            "diff".into(),
+            format!(
+                "missing substrings {:?}; rendered diff:\n{}",
+                out.missing, out.rendered
+            ),
+        )),
         Err(e) => failures.push(("diff".into(), e.to_string())),
     }
 
@@ -153,10 +164,13 @@ async fn run_objects(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     if let Some(expected) = effective_plan.steps
         && expected != plan_outcome.actual_steps
     {
-        failures.push(("plan".into(), format!(
-            "expected {} step(s), got {}",
-            expected, plan_outcome.actual_steps
-        )));
+        failures.push((
+            "plan".into(),
+            format!(
+                "expected {} step(s), got {}",
+                expected, plan_outcome.actual_steps
+            ),
+        ));
     }
     // Check rewrites from the effective plan.
     // When per_pg overrides the rewrite list, recheck against rendered SQL.
@@ -173,23 +187,22 @@ async fn run_objects(fixture: &Fixture, pg_major: u32) -> FixtureResult {
                 .collect()
         };
     if !effective_missing_rewrites.is_empty() {
-        failures.push(("plan".into(), format!("missing rewrites {effective_missing_rewrites:?}")));
+        failures.push((
+            "plan".into(),
+            format!("missing rewrites {effective_missing_rewrites:?}"),
+        ));
     }
 
     // Layer 7: intent-shape (mandatory on destructive).
-    if let Err(e) = intent_shape::assert_intent_shape(
-        &plan_outcome.plan,
-        &fixture.expect.intent,
-    ) {
+    if let Err(e) = intent_shape::assert_intent_shape(&plan_outcome.plan, &fixture.expect.intent) {
         failures.push(("intent_shape".into(), e.to_string()));
     }
 
     // Layer 6: no-collateral-damage (opt-in via touches_only).
     // assert_touches_only is a no-op when the list is empty.
-    if let Err(e) = touches_only::assert_touches_only(
-        &plan_outcome.plan,
-        &effective_plan.touches_only,
-    ) {
+    if let Err(e) =
+        touches_only::assert_touches_only(&plan_outcome.plan, &effective_plan.touches_only)
+    {
         failures.push(("touches_only".into(), e.to_string()));
     }
 
@@ -226,10 +239,16 @@ async fn run_objects(fixture: &Fixture, pg_major: u32) -> FixtureResult {
             failures.push(("apply".into(), format!("{stage} failed:\n{stderr}")));
         }
         apply::ApplyOutcome::IrMismatch(diff_str) => {
-            failures.push(("apply".into(), format!("post-apply IR diverged:\n{diff_str}")));
+            failures.push((
+                "apply".into(),
+                format!("post-apply IR diverged:\n{diff_str}"),
+            ));
         }
         apply::ApplyOutcome::UnexpectedSuccess => {
-            failures.push(("apply".into(), "fixture expected apply.succeeds=false but apply succeeded".into()));
+            failures.push((
+                "apply".into(),
+                "fixture expected apply.succeeds=false but apply succeeded".into(),
+            ));
         }
     }
 
@@ -265,10 +284,7 @@ async fn run_objects(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     }
 
     // Layer 9: topological order (opt-in via expect.plan.order).
-    if let Err(e) = topological_order::assert_order(
-        &plan_outcome.plan,
-        &effective_plan.order,
-    ) {
+    if let Err(e) = topological_order::assert_order(&plan_outcome.plan, &effective_plan.order) {
         failures.push(("topological_order".into(), e.to_string()));
     }
 
@@ -299,17 +315,17 @@ fn run_scenarios(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     if let Some(expected) = effective_plan.steps
         && expected != plan_outcome.actual_steps
     {
-        failures.push(("plan".into(), format!(
-            "expected {} step(s), got {}",
-            expected, plan_outcome.actual_steps
-        )));
+        failures.push((
+            "plan".into(),
+            format!(
+                "expected {} step(s), got {}",
+                expected, plan_outcome.actual_steps
+            ),
+        ));
     }
 
     // Layer 7: intent-shape (mandatory on destructive).
-    if let Err(e) = intent_shape::assert_intent_shape(
-        &plan_outcome.plan,
-        &fixture.expect.intent,
-    ) {
+    if let Err(e) = intent_shape::assert_intent_shape(&plan_outcome.plan, &fixture.expect.intent) {
         failures.push(("intent_shape".into(), e.to_string()));
     }
 
@@ -330,10 +346,7 @@ fn run_scenarios(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     }
 
     // Layer 9: topological order (opt-in via expect.plan.order).
-    if let Err(e) = topological_order::assert_order(
-        &plan_outcome.plan,
-        &effective_plan.order,
-    ) {
+    if let Err(e) = topological_order::assert_order(&plan_outcome.plan, &effective_plan.order) {
         failures.push(("topological_order".into(), e.to_string()));
     }
 
@@ -356,10 +369,13 @@ fn run_intent(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     // Layer 1: diff substrings.
     match diff::check(fixture) {
         Ok(out) if out.is_ok() => {}
-        Ok(out) => failures.push(("diff".into(), format!(
-            "missing substrings {:?}; rendered diff:\n{}",
-            out.missing, out.rendered
-        ))),
+        Ok(out) => failures.push((
+            "diff".into(),
+            format!(
+                "missing substrings {:?}; rendered diff:\n{}",
+                out.missing, out.rendered
+            ),
+        )),
         Err(e) => failures.push(("diff".into(), e.to_string())),
     }
 
@@ -374,17 +390,17 @@ fn run_intent(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     if let Some(expected) = effective_plan.steps
         && expected != plan_outcome.actual_steps
     {
-        failures.push(("plan".into(), format!(
-            "expected {} step(s), got {}",
-            expected, plan_outcome.actual_steps
-        )));
+        failures.push((
+            "plan".into(),
+            format!(
+                "expected {} step(s), got {}",
+                expected, plan_outcome.actual_steps
+            ),
+        ));
     }
 
     // Layer 7: intent-shape (mandatory on destructive).
-    if let Err(e) = intent_shape::assert_intent_shape(
-        &plan_outcome.plan,
-        &fixture.expect.intent,
-    ) {
+    if let Err(e) = intent_shape::assert_intent_shape(&plan_outcome.plan, &fixture.expect.intent) {
         failures.push(("intent_shape".into(), e.to_string()));
     }
 
@@ -411,8 +427,8 @@ async fn conformance_suite() {
         .unwrap_or(300);
 
     // Timings TSV — written to target/ at the workspace root.
-    let timings_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/conformance-timings.tsv");
+    let timings_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/conformance-timings.tsv");
 
     let fixtures = walk::discover(&root).expect("fixture discovery failed");
     assert!(

@@ -9,7 +9,9 @@ use pgevolve_core::catalog::{CatalogFilter, read_catalog};
 use pgevolve_core::diff::diff;
 use pgevolve_core::lint::Severity;
 use pgevolve_core::lint::universal::run_drift_lints;
-use pgevolve_core::plan::{LintWaiver, Plan, PlannerPolicy, group_steps, order, rewrite_with_source, write_plan_dir};
+use pgevolve_core::plan::{
+    LintWaiver, Plan, PlannerPolicy, group_steps, order, rewrite_with_source, write_plan_dir,
+};
 
 use crate::cli::PlanArgs;
 use crate::config::PgevolveConfig;
@@ -83,9 +85,7 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
                 eprintln!("  - [{}] ({}): {}", f.rule, f.severity, f.message);
             }
             eprintln!();
-            eprintln!(
-                "Resolve by correcting the source schema, or add a `[[lint_waiver]]` row to"
-            );
+            eprintln!("Resolve by correcting the source schema, or add a `[[lint_waiver]]` row to");
             eprintln!("  {}", out_dir.join("intent.toml").display());
             eprintln!("and re-run `pgevolve plan`. Example waiver:");
             eprintln!();
@@ -133,10 +133,9 @@ async fn run_shadow_cross_check(
     cfg: &PgevolveConfig,
     strict: bool,
 ) -> anyhow::Result<()> {
-    let shadow_cfg = cfg
-        .shadow
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("--shadow-validate requires a [shadow] section in pgevolve.toml"))?;
+    let shadow_cfg = cfg.shadow.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("--shadow-validate requires a [shadow] section in pgevolve.toml")
+    })?;
     let backend = crate::shadow::resolve(shadow_cfg)?;
     // v0.1: default to PG 17. v0.2 will thread the real major from the
     // live DB connection or from [shadow].postgres_version.

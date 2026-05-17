@@ -15,7 +15,11 @@ fn write(dir: &std::path::Path, rel: &str, contents: &str) {
 fn fk_to_undeclared_table_is_caught_at_ast_resolution() {
     let tmp = tempdir().unwrap();
     let dir = tmp.path();
-    write(dir, "app/schema.sql", "-- @pgevolve schema=app\nCREATE SCHEMA app;\n");
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
     write(
         dir,
         "app/orders.sql",
@@ -52,7 +56,11 @@ fn fk_to_undeclared_table_is_caught_at_ast_resolution() {
 fn fk_to_declared_table_resolves() {
     let tmp = tempdir().unwrap();
     let dir = tmp.path();
-    write(dir, "app/schema.sql", "-- @pgevolve schema=app\nCREATE SCHEMA app;\n");
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
     write(
         dir,
         "app/users.sql",
@@ -76,7 +84,11 @@ fn fk_to_declared_table_resolves() {
 fn default_nextval_on_undeclared_sequence_is_caught() {
     let tmp = tempdir().unwrap();
     let dir = tmp.path();
-    write(dir, "app/schema.sql", "-- @pgevolve schema=app\nCREATE SCHEMA app;\n");
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
     write(
         dir,
         "app/widgets.sql",
@@ -89,14 +101,21 @@ fn default_nextval_on_undeclared_sequence_is_caught() {
 
     let err = parse_directory(dir, &[]).unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("widget_id_seq"), "error should name the missing sequence: {msg}");
+    assert!(
+        msg.contains("widget_id_seq"),
+        "error should name the missing sequence: {msg}"
+    );
 }
 
 #[test]
 fn all_unresolved_refs_accumulated_not_short_circuited() {
     let tmp = tempdir().unwrap();
     let dir = tmp.path();
-    write(dir, "app/schema.sql", "-- @pgevolve schema=app\nCREATE SCHEMA app;\n");
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
     write(
         dir,
         "app/t.sql",
@@ -112,8 +131,14 @@ fn all_unresolved_refs_accumulated_not_short_circuited() {
 
     let err = parse_directory(dir, &[]).unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("app.a"), "error should name missing table app.a: {msg}");
-    assert!(msg.contains("app.b"), "error should name missing table app.b: {msg}");
+    assert!(
+        msg.contains("app.a"),
+        "error should name missing table app.a: {msg}"
+    );
+    assert!(
+        msg.contains("app.b"),
+        "error should name missing table app.b: {msg}"
+    );
 }
 
 #[test]
@@ -134,7 +159,10 @@ fn body_cycle_variant_renders_node_names() {
     ];
     let err = PlanError::BodyCycle { nodes };
     let msg = err.to_string();
-    assert!(msg.contains("body-derived"), "message should mention 'body-derived': {msg}");
+    assert!(
+        msg.contains("body-derived"),
+        "message should mention 'body-derived': {msg}"
+    );
     assert!(msg.contains("app.a"), "should name 'app.a': {msg}");
     assert!(msg.contains("app.b"), "should name 'app.b': {msg}");
 }

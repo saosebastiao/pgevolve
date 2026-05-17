@@ -163,9 +163,7 @@ impl TestPgBackend for ComposeBackend {
     async fn checkout(&self, version: PgVersion) -> Result<Box<dyn TestPgGuard>> {
         let major = version.major();
         let url = self.urls.get(&major).ok_or_else(|| {
-            anyhow::anyhow!(
-                "no PGEVOLVE_TEST_PG_{major}_URL configured for compose mode"
-            )
+            anyhow::anyhow!("no PGEVOLVE_TEST_PG_{major}_URL configured for compose mode")
         })?;
         let mut guard = DsnGuard { url: url.clone() };
         guard.reset().await?;
@@ -204,9 +202,7 @@ impl TestPgBackend for DsnBackend {
     async fn checkout(&self, version: PgVersion) -> Result<Box<dyn TestPgGuard>> {
         let major = version.major();
         let url = self.urls.get(&major).ok_or_else(|| {
-            anyhow::anyhow!(
-                "no PGEVOLVE_TEST_PG_{major}_URL configured for dsn mode"
-            )
+            anyhow::anyhow!("no PGEVOLVE_TEST_PG_{major}_URL configured for dsn mode")
         })?;
         let mut guard = DsnGuard { url: url.clone() };
         guard.reset().await?;
@@ -229,8 +225,7 @@ impl TestPgGuard for DsnGuard {
     }
 
     async fn reset(&mut self) -> Result<()> {
-        let (client, conn) =
-            tokio_postgres::connect(&self.url, tokio_postgres::NoTls).await?;
+        let (client, conn) = tokio_postgres::connect(&self.url, tokio_postgres::NoTls).await?;
         let conn_handle = tokio::spawn(conn);
         let result = client
             .batch_execute(

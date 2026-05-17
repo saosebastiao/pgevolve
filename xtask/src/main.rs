@@ -204,8 +204,8 @@ fn bless_conformance() -> Result<()> {
             .parent()
             .ok_or_else(|| anyhow!("fixture.toml has no parent"))?
             .to_path_buf();
-        let fixture = Fixture::load(&dir)
-            .with_context(|| format!("load fixture {}", dir.display()))?;
+        let fixture =
+            Fixture::load(&dir).with_context(|| format!("load fixture {}", dir.display()))?;
 
         // --- plan.sql golden ---
         if let Some(rel) = fixture.expect.plan.golden.as_ref() {

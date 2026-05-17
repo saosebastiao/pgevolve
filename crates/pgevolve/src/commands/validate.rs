@@ -52,10 +52,9 @@ pub async fn run(args: &ValidateArgs, cfg: &PgevolveConfig) -> Result<i32> {
     }
 
     if args.shadow_validate {
-        let shadow_cfg = cfg
-            .shadow
-            .as_ref()
-            .ok_or_else(|| anyhow!("--shadow-validate requires a [shadow] section in pgevolve.toml"))?;
+        let shadow_cfg = cfg.shadow.as_ref().ok_or_else(|| {
+            anyhow!("--shadow-validate requires a [shadow] section in pgevolve.toml")
+        })?;
         let backend = resolve(shadow_cfg)?;
         // v0.1: default to PG 17. v0.2 will thread the real major from the
         // live DB connection or from [shadow].postgres_version.
@@ -120,9 +119,7 @@ async fn run_shadow_validation(source: &Catalog, cfg: &PgevolveConfig) -> Result
     // Validate Docker is available when no DSN is configured (auto/testcontainers).
     let backend_name = shadow_cfg.backend.as_deref().unwrap_or("auto");
     let needs_docker = backend_name == "testcontainers"
-        || (backend_name == "auto"
-            && shadow_cfg.url.is_none()
-            && shadow_cfg.url_env.is_none());
+        || (backend_name == "auto" && shadow_cfg.url.is_none() && shadow_cfg.url_env.is_none());
     if needs_docker && !docker_available() {
         return Err(anyhow!(
             "--shadow requires Docker. Install Docker, or configure [shadow].url / [shadow].url_env.",
@@ -168,10 +165,11 @@ async fn run_shadow_validation(source: &Catalog, cfg: &PgevolveConfig) -> Result
     // Re-introspect.
     let querier = PgCatalogQuerier::new(client)?;
     let filter = CatalogFilter::new(managed, vec![]).map_err(|e| anyhow!(e))?;
-    let (shadow_catalog, _drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
-        .await
-        .map_err(|e| anyhow!("join: {e}"))?
-        .map_err(|e| anyhow!("read_catalog: {e}"))?;
+    let (shadow_catalog, _drift) =
+        tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+            .await
+            .map_err(|e| anyhow!("join: {e}"))?
+            .map_err(|e| anyhow!("read_catalog: {e}"))?;
 
     Ok(source.diff(&shadow_catalog))
 }

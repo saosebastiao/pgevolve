@@ -32,10 +32,9 @@ pub async fn run(args: DiffArgs, cfg: &PgevolveConfig, format: OutputFormat) -> 
     }
 
     if args.shadow_validate {
-        let shadow_cfg = cfg
-            .shadow
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("--shadow-validate requires a [shadow] section in pgevolve.toml"))?;
+        let shadow_cfg = cfg.shadow.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("--shadow-validate requires a [shadow] section in pgevolve.toml")
+        })?;
         let backend = crate::shadow::resolve(shadow_cfg)?;
         // v0.1: default to PG 17. v0.2 will thread the real major from the
         // live DB connection or from [shadow].postgres_version.

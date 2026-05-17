@@ -46,12 +46,8 @@ pub fn assert_minimal(input: &MinimalityInput<'_>) -> Result<()> {
     // 2. Planner pipeline check.
     // `changes` is empty here; we pass it through the full pipeline to ensure
     // the planner also produces no groups (v0.2 may add drift-driven steps).
-    let ordered = order(
-        input.post_apply_catalog,
-        input.after_source,
-        changes,
-    )
-    .map_err(|e| anyhow::anyhow!("L5 minimality: planner ordering failed: {e}"))?;
+    let ordered = order(input.post_apply_catalog, input.after_source, changes)
+        .map_err(|e| anyhow::anyhow!("L5 minimality: planner ordering failed: {e}"))?;
 
     let steps = rewrite_with_source(
         ordered,

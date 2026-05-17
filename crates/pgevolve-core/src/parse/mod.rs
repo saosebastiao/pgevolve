@@ -117,8 +117,7 @@ pub fn parse_directory_with_locations(
 
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
-    ast_resolution::resolve(&catalog, &locations)
-        .map_err(ParseError::AstResolution)?;
+    ast_resolution::resolve(&catalog, &locations).map_err(ParseError::AstResolution)?;
 
     let canonical = catalog
         .canonicalize()

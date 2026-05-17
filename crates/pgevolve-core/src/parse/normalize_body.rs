@@ -40,8 +40,7 @@ impl NormalizedBody {
     /// unexpectedly fails on a successfully-parsed tree, the original SQL is
     /// used as the canonical form (silent graceful degradation).
     pub fn from_sql(sql: &str) -> Result<Self, BodyError> {
-        let parsed =
-            pg_query::parse(sql).map_err(|e| BodyError::Parse(e.to_string()))?;
+        let parsed = pg_query::parse(sql).map_err(|e| BodyError::Parse(e.to_string()))?;
         let deparsed = parsed.deparse().unwrap_or_default();
         let source = if deparsed.is_empty() { sql } else { &deparsed };
         let canonical_text = collapse_whitespace(source);

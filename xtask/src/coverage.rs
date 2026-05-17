@@ -40,10 +40,16 @@ pub enum CoverageMode {
 /// Entry point: run the coverage check or gap report.
 pub fn run(mode: CoverageMode, workspace_root: &Path) -> Result<()> {
     let rows = parse_spec_rows(workspace_root)?;
-    eprintln!("coverage: parsed {} capability row(s) with change_kinds annotations", rows.len());
+    eprintln!(
+        "coverage: parsed {} capability row(s) with change_kinds annotations",
+        rows.len()
+    );
 
     let fixtures = scan_fixtures(workspace_root)?;
-    eprintln!("coverage: scanned {} (object, change-kind, pg-major) fixture cell(s)", fixtures.len());
+    eprintln!(
+        "coverage: scanned {} (object, change-kind, pg-major) fixture cell(s)",
+        fixtures.len()
+    );
 
     let matrix = build_matrix(&rows, &fixtures);
     eprintln!("coverage: matrix has {} required cell(s)", matrix.len());
@@ -145,14 +151,7 @@ fn scan_fixtures(workspace_root: &Path) -> Result<BTreeMap<(String, String, u32)
             let change_kind = segs[segs.len() - 1].to_string();
             for major in fixture.pg.min..=fixture.pg.max {
                 let key_str = major.to_string();
-                if fixture
-                    .pg
-                    .expect
-                    .0
-                    .get(&key_str)
-                    .map(String::as_str)
-                    == Some("skip")
-                {
+                if fixture.pg.expect.0.get(&key_str).map(String::as_str) == Some("skip") {
                     continue;
                 }
                 out.insert(
@@ -201,7 +200,11 @@ fn check_matrix(matrix: &BTreeMap<(String, String, u32), Option<String>>) -> Res
     for ((obj, change, pg), _) in &gaps {
         eprintln!("  - {obj} / {change} on PG {pg}");
     }
-    anyhow::bail!("coverage gaps detected ({} of {} cells uncovered)", gaps.len(), matrix.len())
+    anyhow::bail!(
+        "coverage gaps detected ({} of {} cells uncovered)",
+        gaps.len(),
+        matrix.len()
+    )
 }
 
 /// Gaps mode: print uncovered cells as a TSV authoring queue.

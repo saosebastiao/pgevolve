@@ -255,11 +255,11 @@ reason = \"column order drift acknowledged; rewrite-table pending\"\n";
 #[test]
 fn lint_waiver_survives_intent_toml_round_trip() {
     use pgevolve_core::catalog::DriftReport;
-    use pgevolve_core::plan::{
-        LintWaiver, Plan, PlannerPolicy, group_steps, order, rewrite,
-        write_intent_toml, read_intent_toml,
-    };
     use pgevolve_core::ir::catalog::Catalog;
+    use pgevolve_core::plan::{
+        LintWaiver, Plan, PlannerPolicy, group_steps, order, read_intent_toml, rewrite,
+        write_intent_toml,
+    };
 
     // Build a trivial empty plan.
     let source = Catalog::empty();
@@ -304,5 +304,8 @@ fn lint_waiver_survives_intent_toml_round_trip() {
     assert_eq!(parsed.lint_waivers.len(), 1);
     assert_eq!(parsed.lint_waivers[0].rule, "column-position-drift");
     assert_eq!(parsed.lint_waivers[0].target, "app.users");
-    assert_eq!(parsed.lint_waivers[0].reason, "acknowledged; rewrite pending");
+    assert_eq!(
+        parsed.lint_waivers[0].reason,
+        "acknowledged; rewrite pending"
+    );
 }

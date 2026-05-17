@@ -43,9 +43,7 @@ pub trait ShadowBackend: Send + Sync {
 /// 3. Error
 pub fn resolve(config: &crate::config::ShadowConfig) -> anyhow::Result<Box<dyn ShadowBackend>> {
     match config.backend.as_deref().unwrap_or("auto") {
-        "testcontainers" => Ok(Box::new(
-            testcontainers::TestcontainersBackend::new(config),
-        )),
+        "testcontainers" => Ok(Box::new(testcontainers::TestcontainersBackend::new(config))),
         "dsn" => Ok(Box::new(dsn::DsnBackend::new(config)?)),
         "auto" => {
             if config.url.is_some() || config.url_env.is_some() {
@@ -84,10 +82,7 @@ pub fn docker_available() -> bool {
 /// Every name is validated against `[a-zA-Z_][a-zA-Z0-9_-]*` before being
 /// formatted into SQL, eliminating the SQL-injection surface that would
 /// otherwise exist when names come from user config.
-pub(super) async fn install_extensions(
-    url: &str,
-    extensions: &[String],
-) -> anyhow::Result<()> {
+pub(super) async fn install_extensions(url: &str, extensions: &[String]) -> anyhow::Result<()> {
     for ext in extensions {
         validate_extension_name(ext)?;
     }
@@ -95,7 +90,10 @@ pub(super) async fn install_extensions(
     tokio::spawn(conn);
     for ext in extensions {
         // Validated above; safe to format.  Double-quoting is belt-and-suspenders.
-        let stmt = format!("CREATE EXTENSION IF NOT EXISTS \"{}\"", ext.replace('"', "\"\""));
+        let stmt = format!(
+            "CREATE EXTENSION IF NOT EXISTS \"{}\"",
+            ext.replace('"', "\"\"")
+        );
         client.batch_execute(&stmt).await?;
     }
     Ok(())
@@ -128,7 +126,10 @@ mod tests {
     #[test]
     fn validate_accepts_valid_names() {
         for valid in &["pg_trgm", "uuid-ossp", "vector", "_underscore_first", "p"] {
-            assert!(validate_extension_name(valid).is_ok(), "{valid} should validate");
+            assert!(
+                validate_extension_name(valid).is_ok(),
+                "{valid} should validate"
+            );
         }
     }
 
@@ -142,7 +143,10 @@ mod tests {
             "semicolon;here",
             "pg_trgm; DROP TABLE x",
         ] {
-            assert!(validate_extension_name(bad).is_err(), "{bad:?} should reject");
+            assert!(
+                validate_extension_name(bad).is_err(),
+                "{bad:?} should reject"
+            );
         }
     }
 }

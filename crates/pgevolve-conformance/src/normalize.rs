@@ -50,8 +50,7 @@ mod tests {
         let s = "-- @pgevolve plan id=abc created=2026-05-11T12:00:00Z foo=bar\nSELECT 1;\n";
         let n = normalize(s);
         assert_eq!(
-            n,
-            "-- @pgevolve plan id=abc foo=bar\nSELECT 1;\n",
+            n, "-- @pgevolve plan id=abc foo=bar\nSELECT 1;\n",
             "only the created= token is stripped"
         );
     }

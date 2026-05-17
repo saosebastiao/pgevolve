@@ -34,16 +34,9 @@ impl DsnBackend {
         let base_url = config
             .url
             .clone()
-            .or_else(|| {
-                config
-                    .url_env
-                    .as_ref()
-                    .and_then(|k| std::env::var(k).ok())
-            })
+            .or_else(|| config.url_env.as_ref().and_then(|k| std::env::var(k).ok()))
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "[shadow].url or [shadow].url_env required for dsn backend"
-                )
+                anyhow::anyhow!("[shadow].url or [shadow].url_env required for dsn backend")
             })?;
 
         let reset = match config.reset.as_deref().unwrap_or("drop_schema_cascade") {
@@ -119,4 +112,3 @@ impl ShadowGuard for DsnGuard {
         self.reset_now().await
     }
 }
-

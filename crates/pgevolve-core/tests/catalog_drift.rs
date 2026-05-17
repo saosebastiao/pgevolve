@@ -3,11 +3,11 @@
 //! Docker-gated: only runs when an ephemeral Postgres can boot. Skipped
 //! (not failed) when Docker is unavailable.
 
+use pgevolve_core::catalog::PgVersion;
 use pgevolve_core::catalog::{CatalogFilter, DriftReport, read_catalog};
 use pgevolve_core::identifier::Identifier;
 use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
 use pgevolve_testkit::pg_querier::PgCatalogQuerier;
-use pgevolve_core::catalog::PgVersion;
 
 /// Build a `CatalogFilter` that manages the `app` schema.
 fn app_filter() -> CatalogFilter {
@@ -48,11 +48,10 @@ async fn not_valid_constraint_surfaces_as_pending_validation() {
     let querier = PgCatalogQuerier::new(client).expect("querier");
     let filter = app_filter();
 
-    let (_catalog, drift) =
-        tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
-            .await
-            .expect("join")
-            .expect("read_catalog");
+    let (_catalog, drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+        .await
+        .expect("join")
+        .expect("read_catalog");
 
     assert!(
         drift
@@ -95,11 +94,10 @@ async fn invalid_index_surfaces_as_invalid_indexes() {
     let querier = PgCatalogQuerier::new(client).expect("querier");
     let filter = app_filter();
 
-    let (_catalog, drift) =
-        tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
-            .await
-            .expect("join")
-            .expect("read_catalog");
+    let (_catalog, drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+        .await
+        .expect("join")
+        .expect("read_catalog");
 
     assert!(
         drift
@@ -137,11 +135,10 @@ async fn validated_constraint_does_not_appear_in_drift() {
     let querier = PgCatalogQuerier::new(client).expect("querier");
     let filter = app_filter();
 
-    let (_catalog, drift) =
-        tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
-            .await
-            .expect("join")
-            .expect("read_catalog");
+    let (_catalog, drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+        .await
+        .expect("join")
+        .expect("read_catalog");
 
     assert!(
         drift.pending_validation.is_empty(),
@@ -162,7 +159,9 @@ async fn invalid_index_produces_drop_and_create_in_plan() {
     use pgevolve_core::plan::{PlannerPolicy, group_steps, order, rewrite_with_source};
 
     if !docker_available() {
-        eprintln!("skipping catalog_drift::invalid_index_produces_drop_and_create_in_plan: Docker unavailable");
+        eprintln!(
+            "skipping catalog_drift::invalid_index_produces_drop_and_create_in_plan: Docker unavailable"
+        );
         return;
     }
 
@@ -220,7 +219,11 @@ async fn invalid_index_produces_drop_and_create_in_plan() {
     let _groups = group_steps(steps.clone());
 
     // Expect both DROP INDEX and CREATE INDEX in the plan.
-    let combined: String = steps.iter().map(|s| s.sql.as_str()).collect::<Vec<_>>().join("\n");
+    let combined: String = steps
+        .iter()
+        .map(|s| s.sql.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
         combined.to_uppercase().contains("DROP INDEX"),
         "expected DROP INDEX in plan:\n{combined}"

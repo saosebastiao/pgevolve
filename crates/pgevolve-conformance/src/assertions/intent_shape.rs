@@ -40,8 +40,7 @@ pub fn assert_intent_shape(plan: &Plan, expected: &[ExpectIntentRow]) -> Result<
     for (i, exp) in expected.iter().enumerate() {
         let matched = generated.iter().find(|g| {
             // kind is already a String (snake_case), so lowercase-contains is safe.
-            g.kind.to_lowercase().contains(&exp.kind.to_lowercase())
-                && g.target == exp.target
+            g.kind.to_lowercase().contains(&exp.kind.to_lowercase()) && g.target == exp.target
         });
         let matched = matched.ok_or_else(|| {
             anyhow::anyhow!(

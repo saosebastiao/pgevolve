@@ -16,7 +16,9 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::plan::grouping::TransactionGroup;
 use crate::plan::io_error::PlanIoError;
-use crate::plan::plan::{DestructiveIntent, LintWaiver, Plan, PlanId, PlanMetadata, parse_kind_name};
+use crate::plan::plan::{
+    DestructiveIntent, LintWaiver, Plan, PlanId, PlanMetadata, parse_kind_name,
+};
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
 // ---------------------------------------------------------------------------

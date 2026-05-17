@@ -164,7 +164,10 @@ fn write_project(project_path: &Path, dsn: &str, fixture: &Fixture) -> anyhow::R
     std::fs::write(project_path.join("pgevolve.toml"), cfg)?;
 
     std::fs::create_dir_all(project_path.join("schema"))?;
-    std::fs::write(project_path.join("schema/0001-fixture.sql"), &fixture.after_sql)?;
+    std::fs::write(
+        project_path.join("schema/0001-fixture.sql"),
+        &fixture.after_sql,
+    )?;
 
     if !fixture.passthrough.intent.is_empty() {
         let body = toml::to_string(&fixture.passthrough.intent)?;
@@ -198,8 +201,7 @@ fn cargo_bin() -> PathBuf {
             // CARGO_MANIFEST_DIR is the crate root of pgevolve-conformance.
             // The workspace root is two levels up (../../).
             let manifest_dir = env!("CARGO_MANIFEST_DIR");
-            PathBuf::from(manifest_dir)
-                .join("../../target/debug/pgevolve")
+            PathBuf::from(manifest_dir).join("../../target/debug/pgevolve")
         })
 }
 
@@ -237,11 +239,7 @@ fn plan_and_locate(cwd: &Path) -> Result<PathBuf, String> {
     Ok(cwd.join(rel))
 }
 
-fn check_failure_expectation(
-    fixture: &Fixture,
-    stderr: &str,
-    stage: &'static str,
-) -> ApplyOutcome {
+fn check_failure_expectation(fixture: &Fixture, stderr: &str, stage: &'static str) -> ApplyOutcome {
     if fixture.expect.apply.succeeds {
         return ApplyOutcome::ApplyFailed {
             stderr: stderr.to_string(),

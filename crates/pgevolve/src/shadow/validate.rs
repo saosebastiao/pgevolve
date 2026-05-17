@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use pgevolve_core::ir::catalog::Catalog;
-use pgevolve_core::plan::edges::{build_create_graph, DepSource};
+use pgevolve_core::plan::edges::{DepSource, build_create_graph};
 
 use crate::shadow::ShadowBackend;
 

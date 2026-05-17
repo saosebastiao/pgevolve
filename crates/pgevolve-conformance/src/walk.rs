@@ -52,7 +52,10 @@ impl Authoring {
 /// A mismatch is an error — it prevents silently running the wrong layers.
 pub fn discover(cases_root: &Path) -> Result<Vec<DiscoveredFixture>> {
     let mut out = Vec::new();
-    for entry in WalkDir::new(cases_root).into_iter().filter_map(std::result::Result::ok) {
+    for entry in WalkDir::new(cases_root)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+    {
         if entry.file_name() != "fixture.toml" {
             continue;
         }
@@ -61,8 +64,9 @@ pub fn discover(cases_root: &Path) -> Result<Vec<DiscoveredFixture>> {
         let authoring = Authoring::from_meta(&fixture.meta.authoring)
             .map_err(|e| anyhow::anyhow!("{}: {e}", dir.display()))?;
         // Cross-check: subtree location matches declared authoring key.
-        let inferred = infer_authoring(&dir, cases_root)
-            .ok_or_else(|| anyhow::anyhow!("{}: cannot infer authoring from path", dir.display()))?;
+        let inferred = infer_authoring(&dir, cases_root).ok_or_else(|| {
+            anyhow::anyhow!("{}: cannot infer authoring from path", dir.display())
+        })?;
         if inferred != authoring {
             anyhow::bail!(
                 "{}: declared authoring {:?} but lives under {:?} subtree",

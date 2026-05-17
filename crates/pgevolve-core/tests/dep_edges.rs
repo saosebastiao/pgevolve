@@ -1,7 +1,7 @@
 //! `DepEdge` attaches metadata to existing graph edges.
 
-use pgevolve_core::plan::edges::{build_create_graph, DepEdge, DepSource};
 use pgevolve_core::parse::parse_directory;
+use pgevolve_core::plan::edges::{DepEdge, DepSource, build_create_graph};
 use tempfile::tempdir;
 
 #[test]
@@ -24,7 +24,10 @@ fn every_edge_in_v01_graph_has_dep_source_structural() {
     let catalog = parse_directory(dir, &[]).unwrap();
     let graph = build_create_graph(&catalog);
     let edges: Vec<DepEdge> = graph.dep_edges().collect();
-    assert!(!edges.is_empty(), "v0.1 catalog should produce at least one edge");
+    assert!(
+        !edges.is_empty(),
+        "v0.1 catalog should produce at least one edge"
+    );
     for edge in &edges {
         assert!(
             matches!(edge.source, DepSource::Structural),
@@ -45,7 +48,11 @@ fn dep_source_ordering_is_structural_first() {
     sources.sort();
     assert_eq!(
         sources,
-        vec![DepSource::Structural, DepSource::AstExtracted, DepSource::AstDeclared]
+        vec![
+            DepSource::Structural,
+            DepSource::AstExtracted,
+            DepSource::AstDeclared
+        ]
     );
 }
 
@@ -69,8 +76,11 @@ fn remove_dep_edge_clears_source_map() {
 
     let edges: Vec<DepEdge> = g.dep_edges().collect();
     assert_eq!(edges.len(), 1);
-    assert_eq!(edges[0].source, DepSource::Structural,
-        "remove_dep_edge should have cleared the AstExtracted source");
+    assert_eq!(
+        edges[0].source,
+        DepSource::Structural,
+        "remove_dep_edge should have cleared the AstExtracted source"
+    );
 }
 
 #[test]

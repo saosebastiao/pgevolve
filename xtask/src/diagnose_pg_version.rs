@@ -53,22 +53,27 @@ pub fn run(fixture_dir: &Path, pg_major: u32) -> Result<()> {
     }
     // stdout may also have relevant output
     if !stdout.is_empty() {
-        for line in stdout.lines().rev().take(10).collect::<Vec<_>>().iter().rev() {
+        for line in stdout
+            .lines()
+            .rev()
+            .take(10)
+            .collect::<Vec<_>>()
+            .iter()
+            .rev()
+        {
             println!("  {line}");
         }
     }
     println!();
     println!("Suggested fixture.toml edits:");
-    println!("  - If L3 mismatch:    run `cargo xtask bless --conformance` to regenerate plan.sql goldens");
     println!(
-        "  - If L2 step count:  add `[expect.plan.per_pg.pg{pg_major}] steps = N`"
+        "  - If L3 mismatch:    run `cargo xtask bless --conformance` to regenerate plan.sql goldens"
     );
+    println!("  - If L2 step count:  add `[expect.plan.per_pg.pg{pg_major}] steps = N`");
     println!(
         "  - If L4 apply fail:  add `[pg.expect]\\n\"{pg_major}\" = \"failure\"` with `[expect.failure]` block"
     );
     println!();
-    println!(
-        "Full output saved by cargo at target/debug/deps/run-*.stderr"
-    );
+    println!("Full output saved by cargo at target/debug/deps/run-*.stderr");
     Ok(())
 }

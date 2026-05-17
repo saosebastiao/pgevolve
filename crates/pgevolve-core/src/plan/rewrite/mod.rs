@@ -352,21 +352,21 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             let source_idx = ctx.source.indexes.iter().find(|i| i.qname == qname);
             // Drop step — use concurrent rewrite if policy allows and target
             // index exists (we know it does because the drift report saw it).
-            let drop_step =
-                if concurrent_index::should_rewrite_drop(&qname, ctx.target, ctx.policy) {
-                    concurrent_index::drop_step(&qname, false, None)
-                } else {
-                    RawStep {
-                        step_no: 0,
-                        kind: StepKind::DropIndex,
-                        destructive: false,
-                        destructive_reason: None,
-                        intent_id: None,
-                        targets: vec![qname.clone()],
-                        sql: sql::drop_index(&qname, false),
-                        transactional: TransactionConstraint::InTransaction,
-                    }
-                };
+            let drop_step = if concurrent_index::should_rewrite_drop(&qname, ctx.target, ctx.policy)
+            {
+                concurrent_index::drop_step(&qname, false, None)
+            } else {
+                RawStep {
+                    step_no: 0,
+                    kind: StepKind::DropIndex,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: sql::drop_index(&qname, false),
+                    transactional: TransactionConstraint::InTransaction,
+                }
+            };
             out.push(drop_step);
             if let Some(idx) = source_idx {
                 let create_step =

@@ -106,8 +106,11 @@ fn resolve_default_sequence_references(
 ) {
     use crate::ir::default_expr::DefaultExpr;
 
-    let known_sequences: std::collections::BTreeSet<_> =
-        catalog.sequences.iter().map(|s| s.qname.to_string()).collect();
+    let known_sequences: std::collections::BTreeSet<_> = catalog
+        .sequences
+        .iter()
+        .map(|s| s.qname.to_string())
+        .collect();
 
     for table in &catalog.tables {
         for column in &table.columns {

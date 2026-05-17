@@ -203,9 +203,7 @@ fn change_node(change: &Change) -> NodeId {
         }
         Change::CreateIndex(i) => NodeId::Index(i.qname.clone()),
         // RecreateIndex maps to the same index node as DropIndex.
-        Change::DropIndex(qname) | Change::RecreateIndex { qname } => {
-            NodeId::Index(qname.clone())
-        }
+        Change::DropIndex(qname) | Change::RecreateIndex { qname } => NodeId::Index(qname.clone()),
         Change::ReplaceIndex { to, .. } => NodeId::Index(to.qname.clone()),
         Change::CreateSequence(s) => NodeId::Sequence(s.qname.clone()),
         Change::DropSequence(qname) | Change::AlterSequence { qname, .. } => {

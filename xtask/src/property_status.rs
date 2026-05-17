@@ -65,10 +65,7 @@ pub fn run(max_age_days: u64) -> Result<()> {
         } else {
             "ok   "
         };
-        println!(
-            "{status} #{:5} {} ({age_days} days old)",
-            i.number, i.title,
-        );
+        println!("{status} #{:5} {} ({age_days} days old)", i.number, i.title);
         if age_days > max_age_days {
             stale.push(i.number);
         }
@@ -109,10 +106,8 @@ fn parse_rfc3339_to_unix_secs(s: &str) -> Option<u64> {
     let doy: i64 = (153 * m + 2) / 5 + i64::from(day) - 1; // 0..=365
     let doe: i64 = yoe * 365 + yoe / 4 - yoe / 100 + doy; // 0..=146096
     let days: i64 = era * 146_097 + doe - 719_468;
-    let secs: i64 = days * 86_400
-        + i64::from(hour) * 3_600
-        + i64::from(minute) * 60
-        + i64::from(second);
+    let secs: i64 =
+        days * 86_400 + i64::from(hour) * 3_600 + i64::from(minute) * 60 + i64::from(second);
     if secs < 0 {
         None
     } else {

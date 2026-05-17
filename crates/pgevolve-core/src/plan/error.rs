@@ -46,7 +46,11 @@ pub enum PlanError {
 }
 
 fn format_node_chain(nodes: &[crate::plan::edges::NodeId]) -> String {
-    nodes.iter().map(render_node).collect::<Vec<_>>().join(" \u{2192} ")
+    nodes
+        .iter()
+        .map(render_node)
+        .collect::<Vec<_>>()
+        .join(" \u{2192} ")
 }
 
 fn render_node(n: &crate::plan::edges::NodeId) -> String {

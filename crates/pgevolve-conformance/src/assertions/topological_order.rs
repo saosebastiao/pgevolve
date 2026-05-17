@@ -20,7 +20,11 @@ pub fn assert_order(plan: &Plan, declared: &[String]) -> Result<()> {
     let step_targets: Vec<String> = plan
         .groups
         .iter()
-        .flat_map(|g| g.steps.iter().flat_map(|s| s.targets.iter().map(std::string::ToString::to_string)))
+        .flat_map(|g| {
+            g.steps
+                .iter()
+                .flat_map(|s| s.targets.iter().map(std::string::ToString::to_string))
+        })
         .collect();
 
     let position = |target: &str| step_targets.iter().position(|t| t == target);

@@ -105,10 +105,7 @@ fn graph_mermaid_renders() {
         output.status.code(),
         stderr
     );
-    assert!(
-        stdout.starts_with("graph LR\n"),
-        "stdout:\n{stdout}"
-    );
+    assert!(stdout.starts_with("graph LR\n"), "stdout:\n{stdout}");
     assert!(
         stdout.contains("-->"),
         "stdout should contain --> arrows:\n{stdout}"

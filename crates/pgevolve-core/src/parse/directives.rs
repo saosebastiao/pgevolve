@@ -264,18 +264,21 @@ mod tests {
         let sql = "-- @pgevolve dep: app.foo\n-- @pgevolve dep: app.bar\nSELECT 1;\n";
         let d = parse(sql).unwrap();
         let targets: Vec<&str> = d.deps.iter().map(|dep| dep.target.as_str()).collect();
-        assert!(targets.contains(&"app.foo"), "expected app.foo in {targets:?}");
-        assert!(targets.contains(&"app.bar"), "expected app.bar in {targets:?}");
+        assert!(
+            targets.contains(&"app.foo"),
+            "expected app.foo in {targets:?}"
+        );
+        assert!(
+            targets.contains(&"app.bar"),
+            "expected app.bar in {targets:?}"
+        );
     }
 
     #[test]
     fn dep_directive_coexists_with_schema_directive() {
         let sql = "-- @pgevolve schema=app\n-- @pgevolve dep: app.audit_log\n";
         let d = parse(sql).unwrap();
-        assert_eq!(
-            d.schema.as_ref().map(Identifier::as_str),
-            Some("app")
-        );
+        assert_eq!(d.schema.as_ref().map(Identifier::as_str), Some("app"));
         assert_eq!(d.deps.len(), 1);
         assert_eq!(d.deps[0].target, "app.audit_log");
     }

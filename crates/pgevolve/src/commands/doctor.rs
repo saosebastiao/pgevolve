@@ -6,7 +6,7 @@
 //! bootstrapped). Decision 21 in the arch spec.
 
 use anyhow::Result;
-use pgevolve_core::catalog::{read_catalog, CatalogFilter};
+use pgevolve_core::catalog::{CatalogFilter, read_catalog};
 
 use crate::config::PgevolveConfig;
 use crate::connection::{connect, resolve_db};
@@ -23,10 +23,7 @@ pub async fn run(cfg: &PgevolveConfig, env: &str, url: Option<&str>) -> Result<i
     // Probe for the `pgevolve` schema; avoid calling bootstrap_metadata which
     // would create it. A pg_namespace query is sufficient.
     let bootstrap_ok = client
-        .query_opt(
-            "SELECT 1 FROM pg_namespace WHERE nspname = 'pgevolve'",
-            &[],
-        )
+        .query_opt("SELECT 1 FROM pg_namespace WHERE nspname = 'pgevolve'", &[])
         .await
         .is_ok_and(|r| r.is_some());
 
@@ -113,8 +110,12 @@ fn print_object_counts(cfg: &PgevolveConfig, catalog: &pgevolve_core::ir::catalo
 /// Print recent apply failures section.
 async fn report_recent_failures(cfg: &PgevolveConfig, env: &str, url: Option<&str>) {
     // Re-connect because the original client was moved into spawn_blocking.
-    let Ok(opts2) = resolve_db(cfg, env, url) else { return };
-    let Ok(client2) = connect(&opts2).await else { return };
+    let Ok(opts2) = resolve_db(cfg, env, url) else {
+        return;
+    };
+    let Ok(client2) = connect(&opts2).await else {
+        return;
+    };
     let rows = client2
         .query(
             "SELECT apply_id::text, started_at::text \

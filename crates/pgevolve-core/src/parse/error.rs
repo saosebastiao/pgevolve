@@ -117,9 +117,7 @@ pub enum ParseError {
     AstResolution(Vec<crate::parse::ast_resolution::AstResolutionError>),
 }
 
-fn format_resolution_errors(
-    errs: &[crate::parse::ast_resolution::AstResolutionError],
-) -> String {
+fn format_resolution_errors(errs: &[crate::parse::ast_resolution::AstResolutionError]) -> String {
     let mut s = String::new();
     for (i, e) in errs.iter().enumerate() {
         if i > 0 {

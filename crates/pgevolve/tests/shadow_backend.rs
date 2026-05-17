@@ -24,7 +24,9 @@ async fn auto_with_no_config_errors_when_docker_unavailable() {
         return;
     }
     let cfg = ShadowConfig::default();
-    let err = resolve(&cfg).err().expect("should error when Docker unavailable and no DSN");
+    let err = resolve(&cfg)
+        .err()
+        .expect("should error when Docker unavailable and no DSN");
     assert!(
         err.to_string().contains("no shadow backend"),
         "expected 'no shadow backend' in error, got: {err}",

@@ -421,12 +421,11 @@ impl Fixture {
                 }
             }
         })?;
-        let raw: RawFixtureToml = toml::from_str(&toml_bytes).map_err(|source| {
-            FixtureError::Toml {
+        let raw: RawFixtureToml =
+            toml::from_str(&toml_bytes).map_err(|source| FixtureError::Toml {
                 path: toml_path,
                 source,
-            }
-        })?;
+            })?;
 
         if raw.pg.min > raw.pg.max {
             return Err(FixtureError::BadVersionRange {
@@ -546,7 +545,9 @@ max = 14
         );
         let err = Fixture::load(tmp.path()).unwrap_err();
         match err {
-            FixtureError::BadVersionRange { min: 17, max: 14, .. } => {}
+            FixtureError::BadVersionRange {
+                min: 17, max: 14, ..
+            } => {}
             other => panic!("wrong error: {other:?}"),
         }
     }
@@ -655,11 +656,7 @@ max = 17
             Some("failure"),
             "pg16 → failure"
         );
-        assert_eq!(
-            f.pg.expect.0.get("14"),
-            None,
-            "pg14 missing → None"
-        );
+        assert_eq!(f.pg.expect.0.get("14"), None, "pg14 missing → None");
     }
 
     #[test]
