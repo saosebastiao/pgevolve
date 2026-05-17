@@ -20,14 +20,11 @@ pub async fn run(args: ApplyArgs, cfg: &PgevolveConfig) -> Result<i32> {
     let opts = resolve_db(cfg, &args.db, args.url.as_deref())?;
     let mut client = connect(&opts).await?;
     let filter = CatalogFilter::new(opts.managed_schemas.clone(), opts.ignore_objects.clone())?;
-    // Phase 8's drift recheck is a stub; until Phase 9.x ties the binary-side
-    // catalog reader into preflight, force-allow drift so apply runs
-    // end-to-end. Once preflight reads the live catalog, remove this override.
-    let _ = args.allow_drift;
     let overrides = ApplyOverrides {
         allow_different_target: args.allow_different_target,
-        allow_drift: true,
+        allow_drift: args.allow_drift,
         allow_unwaived_lint: false,
+        allow_unapproved_intents: false,
         actor: None,
         abort_after_step: None,
     };

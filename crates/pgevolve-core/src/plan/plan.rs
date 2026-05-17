@@ -18,6 +18,23 @@ use time::OffsetDateTime;
 use crate::ir::catalog::Catalog;
 use crate::plan::grouping::TransactionGroup;
 
+/// A `LintAtPlan` finding captured at plan time for apply-time replay.
+///
+/// Persisted in `manifest.toml` under `lint_at_plan_findings`. At apply time,
+/// preflight checks that each recorded finding still has a matching
+/// `[[lint_waiver]]` row, catching the case where a waiver is removed from
+/// `intent.toml` between plan and apply.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordedFinding {
+    /// The lint rule ID that fired, e.g. `"column-position-drift"`.
+    pub rule: String,
+    /// The qualified target the finding pointed at, e.g. `"app.users"`.
+    /// Extracted from the leading `"<qname>: …"` of the finding message.
+    pub target: String,
+    /// Full finding message, used for substring matching against waiver targets.
+    pub message: String,
+}
+
 /// 32-byte plan identity. See module docs and [`PlanId::compute`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlanId(pub [u8; 32]);
@@ -116,6 +133,12 @@ pub struct DestructiveIntent {
     pub target: String,
     /// Human-readable reason copied from the diff `Destructiveness`.
     pub reason: String,
+    /// Whether the user has set `approved = true` in `intent.toml`.
+    ///
+    /// Populated by `read_plan_dir` / `read_intent_toml`. Defaults to `false`
+    /// (every newly written `intent.toml` starts with `approved = false`).
+    #[serde(default)]
+    pub approved: bool,
 }
 
 /// Metadata produced alongside a `Plan` and embedded into `manifest.toml`.
@@ -135,6 +158,10 @@ pub struct PlanMetadata {
     pub target_snapshot: Catalog,
     /// UTC timestamp when the plan was constructed.
     pub created_at: OffsetDateTime,
+    /// `LintAtPlan` findings present at plan time. Populated by `pgevolve plan`
+    /// whenever drift lints fire. Empty when no `LintAtPlan` findings exist.
+    /// Used by apply-time preflight to detect waiver removal between plan and apply.
+    pub lint_at_plan_findings: Vec<RecordedFinding>,
 }
 
 /// The canonical in-memory representation of a plan.
@@ -201,6 +228,7 @@ impl Plan {
                             .destructive_reason
                             .clone()
                             .unwrap_or_else(|| "destructive".to_string()),
+                        approved: false,
                     });
                 }
             }
@@ -213,6 +241,7 @@ impl Plan {
             target_identity,
             target_snapshot: target.clone(),
             created_at: OffsetDateTime::now_utc(),
+            lint_at_plan_findings: Vec::new(),
         };
         Self {
             id,

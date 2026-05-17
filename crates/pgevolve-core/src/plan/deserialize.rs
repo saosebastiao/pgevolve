@@ -17,7 +17,7 @@ use crate::ir::catalog::Catalog;
 use crate::plan::grouping::TransactionGroup;
 use crate::plan::io_error::PlanIoError;
 use crate::plan::plan::{
-    DestructiveIntent, LintWaiver, Plan, PlanId, PlanMetadata, parse_kind_name,
+    DestructiveIntent, LintWaiver, Plan, PlanId, PlanMetadata, RecordedFinding, parse_kind_name,
 };
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
@@ -315,10 +315,10 @@ struct IntentRowDe {
     kind: String,
     target: String,
     reason: String,
-    // `approved` is read but not retained on the `Plan`; the executor consults
-    // it separately when applying.
+    /// `approved = true/false` in `intent.toml`. Defaults to `false` (the
+    /// writer always emits `approved = false`; the user flips it manually).
+    /// Retained on `DestructiveIntent` so preflight can enforce approval.
     #[serde(default)]
-    #[allow(dead_code)]
     approved: bool,
 }
 
@@ -336,6 +336,7 @@ pub fn read_intent_toml(s: &str) -> Result<ParsedIntent, PlanIoError> {
                 kind: r.kind,
                 target: r.target,
                 reason: r.reason,
+                approved: r.approved,
             })
             .collect(),
         lint_waivers: doc.lint_waivers,
@@ -365,6 +366,9 @@ pub struct ParsedManifest {
     pub created_at: OffsetDateTime,
     /// Recovered target catalog snapshot.
     pub target_snapshot: Catalog,
+    /// `LintAtPlan` findings captured at plan time. Empty on older plans that
+    /// predate this field (`#[serde(default)]` on the de side).
+    pub lint_at_plan_findings: Vec<RecordedFinding>,
 }
 
 #[derive(Deserialize)]
@@ -377,6 +381,8 @@ struct ManifestDocDe {
     target_identity: String,
     created_at: String,
     target_snapshot_json: String,
+    #[serde(default)]
+    lint_at_plan_findings: Vec<RecordedFinding>,
 }
 
 /// Parse `manifest.toml` from a string.
@@ -395,6 +401,7 @@ pub fn read_manifest_toml(s: &str) -> Result<ParsedManifest, PlanIoError> {
         target_identity: doc.target_identity,
         created_at,
         target_snapshot,
+        lint_at_plan_findings: doc.lint_at_plan_findings,
     })
 }
 
@@ -451,6 +458,7 @@ pub fn read_plan_dir(dir: &Path) -> Result<Plan, PlanIoError> {
         target_identity: manifest.target_identity,
         target_snapshot: manifest.target_snapshot,
         created_at: manifest.created_at,
+        lint_at_plan_findings: manifest.lint_at_plan_findings,
     };
 
     Ok(Plan {

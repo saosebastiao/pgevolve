@@ -9,7 +9,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::ir::catalog::Catalog;
 use crate::plan::io_error::PlanIoError;
-use crate::plan::plan::{LintWaiver, Plan, kind_name};
+use crate::plan::plan::{LintWaiver, Plan, RecordedFinding, kind_name};
 use crate::plan::raw_step::RawStep;
 
 // ---------------------------------------------------------------------------
@@ -161,6 +161,10 @@ struct ManifestDoc<'a> {
     /// `serde_yaml` crate. The field is still a TOML string — only the
     /// payload format inside it changed.)
     target_snapshot_json: String,
+    /// `LintAtPlan` findings captured at plan time. Omitted from TOML when
+    /// empty so older manifest.toml files are unchanged.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    lint_at_plan_findings: Vec<&'a RecordedFinding>,
 }
 
 /// Write `manifest.toml` to `w`.
@@ -168,6 +172,8 @@ struct ManifestDoc<'a> {
 /// The `target_snapshot_json` field embeds the pre-image `Catalog` as
 /// pretty-printed JSON — recoverable by
 /// [`read_manifest_toml`](crate::plan::deserialize::read_manifest_toml).
+///
+/// `lint_at_plan_findings` is omitted when empty (`skip_serializing_if`).
 pub fn write_manifest_toml(plan: &Plan, w: &mut dyn Write) -> Result<(), PlanIoError> {
     let created = plan
         .metadata
@@ -184,6 +190,7 @@ pub fn write_manifest_toml(plan: &Plan, w: &mut dyn Write) -> Result<(), PlanIoE
         target_identity: &plan.metadata.target_identity,
         created_at: created,
         target_snapshot_json: snapshot_json,
+        lint_at_plan_findings: plan.metadata.lint_at_plan_findings.iter().collect(),
     };
     let s = toml::to_string_pretty(&doc)?;
     w.write_all(s.as_bytes())

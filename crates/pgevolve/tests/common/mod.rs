@@ -86,8 +86,9 @@ pub async fn apply_diff(
     let filter = catalog_filter(managed_schemas)?;
     let overrides = ApplyOverrides {
         allow_different_target: false,
-        allow_drift: true,         // preflight drift recheck stub bypasses
-        allow_unwaived_lint: true, // test plans have no lint waivers
+        allow_drift: true,              // preflight drift recheck bypassed in tests
+        allow_unwaived_lint: true,      // test plans have no lint waivers
+        allow_unapproved_intents: true, // test plans are built programmatically
         actor: Some("chaos-harness".into()),
         abort_after_step,
     };

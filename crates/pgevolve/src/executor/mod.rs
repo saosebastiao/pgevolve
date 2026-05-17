@@ -25,6 +25,10 @@ pub use lock::{release_lock, try_acquire_lock};
 pub use preflight::{PreflightOverrides, run_preflight};
 
 /// Caller-supplied overrides for the apply flow.
+// The struct intentionally aggregates boolean flags that map 1:1 to preflight
+// checks; grouping them into sub-structs would reduce clarity without adding
+// type safety. Clippy's struct_excessive_bools is suppressed here.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default)]
 pub struct ApplyOverrides {
     /// Skip the target-identity match check. Use only when intentionally
@@ -42,6 +46,14 @@ pub struct ApplyOverrides {
     /// If you find yourself needing one, the right answer is probably to
     /// re-plan with an appropriate `[[lint_waiver]]` rather than bypass.
     pub allow_unwaived_lint: bool,
+    /// When true, the apply path bypasses the `check_intent_approval` preflight.
+    /// Set internally by:
+    /// - `validate --shadow` (shadow plans have no destructive intents to approve)
+    /// - test harnesses that build plans programmatically (no real `intent.toml`)
+    ///
+    /// User-facing apply does NOT set this flag — every unapproved
+    /// `DestructiveIntent` must be explicitly approved in `intent.toml`.
+    pub allow_unapproved_intents: bool,
     /// Override the actor string written to `pgevolve.apply_log`.
     pub actor: Option<String>,
     /// Testkit / chaos hook: if `Some(n)`, the executor aborts cleanly after
@@ -92,6 +104,7 @@ pub async fn apply(
         allow_different_target: overrides.allow_different_target,
         allow_drift: overrides.allow_drift,
         allow_unwaived_lint: overrides.allow_unwaived_lint,
+        allow_unapproved_intents: overrides.allow_unapproved_intents,
     };
     let preflight_result = run_preflight(client, &plan, filter, preflight).await;
     if let Err(e) = preflight_result {

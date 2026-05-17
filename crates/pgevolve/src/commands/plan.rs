@@ -10,7 +10,8 @@ use pgevolve_core::diff::diff;
 use pgevolve_core::lint::Severity;
 use pgevolve_core::lint::universal::run_drift_lints;
 use pgevolve_core::plan::{
-    LintWaiver, Plan, PlannerPolicy, group_steps, order, rewrite_with_source, write_plan_dir,
+    LintWaiver, Plan, PlannerPolicy, RecordedFinding, group_steps, order, rewrite_with_source,
+    write_plan_dir,
 };
 
 use crate::cli::PlanArgs;
@@ -44,7 +45,7 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
     };
     let steps = rewrite_with_source(ordered, &target, &source, &policy);
     let groups = group_steps(steps);
-    let plan = Plan::from_grouped(
+    let mut plan = Plan::from_grouped(
         groups,
         &source,
         &target,
@@ -103,6 +104,20 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
             eprintln!("  reason = \"<explain why this drift is acceptable>\"");
             return Ok(2);
         }
+
+        // Persist all LintAtPlan findings (waived or not) in manifest.toml so
+        // apply-time preflight can detect waiver removal between plan and apply.
+        plan.metadata.lint_at_plan_findings = lint_at_plan
+            .iter()
+            .map(|f| {
+                let target = f.message.split(':').next().unwrap_or("").trim().to_string();
+                RecordedFinding {
+                    rule: f.rule.to_string(),
+                    target,
+                    message: f.message.clone(),
+                }
+            })
+            .collect();
     }
 
     write_plan_dir(&plan, &out_dir)?;

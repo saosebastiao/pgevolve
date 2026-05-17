@@ -31,8 +31,8 @@ pub use io_error::PlanIoError;
 pub use ordered::{DeferredFkAdd, OrderedChangeSet};
 pub use ordering::order;
 pub use plan::{
-    DestructiveIntent, InvalidPlanHash, LintWaiver, Plan, PlanId, PlanMetadata, kind_name,
-    parse_kind_name,
+    DestructiveIntent, InvalidPlanHash, LintWaiver, Plan, PlanId, PlanMetadata, RecordedFinding,
+    kind_name, parse_kind_name,
 };
 pub use policy::{OnlineRewrites, PlannerPolicy, Strategy};
 pub use raw_step::{RawStep, StepKind, TransactionConstraint};

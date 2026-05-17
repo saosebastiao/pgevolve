@@ -42,6 +42,18 @@ impl PgCatalogQuerier {
         })
     }
 
+    /// Wrap a shared `Arc<Client>`. Used by callers (e.g. preflight) that hold
+    /// the client behind a shared reference and cannot transfer ownership.
+    pub fn from_arc(client: Arc<tokio_postgres::Client>) -> anyhow::Result<Self> {
+        Ok(Self {
+            client,
+            runtime: Handle::try_current().with_context(
+                || "PgCatalogQuerier::from_arc must be called from a Tokio runtime",
+            )?,
+            version: Mutex::new(None),
+        })
+    }
+
     /// Detect the major version once and cache it.
     pub fn version(&self) -> Result<PgVersion, CatalogError> {
         let cached = *self.version.lock().expect("poisoned");
