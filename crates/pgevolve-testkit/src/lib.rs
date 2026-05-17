@@ -13,6 +13,7 @@ pub mod ir_generator;
 pub mod ir_mutator;
 pub mod migration_fixture;
 pub mod pg_querier;
+pub mod test_pg_backend;
 
 pub use ephemeral_pg::{EphemeralPostgres, default_pg_version, docker_available};
 pub use equivalence_asserter::assert_canonical_eq;
