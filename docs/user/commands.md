@@ -206,19 +206,49 @@ Installs or upgrades the `pgevolve` metadata schema (the
 tables). Other commands auto-bootstrap, so this is mostly useful for
 pre-bootstrapping a fresh DB before the first apply.
 
-## `pgevolve dump` *(v0.1.x)*
+## `pgevolve dump`
 
 ```
 USAGE: pgevolve dump --db <env> -o <dir>
 ```
 
-Introspect a live database and write source-format SQL files in the
-configured layout. **Not yet implemented in v0.1** — it needs an
-IR→SQL emitter beyond the piecemeal helpers in
-`pgevolve_core::plan::rewrite::sql`. Tracked for v0.1.x.
+Introspect a live database and write source-format SQL to `<dir>/schema.sql`.
 
-The intended use case is *adoption*: pointing `dump` at an existing
-production database to produce a starting `schema/` tree.
+| Flag | Default | Effect |
+|---|---|---|
+| `--db <env>` | — (required) | Environment name from `[environments.<env>]`. |
+| `--url <dsn>` | — | Override the resolved DSN. |
+| `-o, --output <dir>` | — (required) | Output directory. Created if it doesn't exist. |
+
+The command:
+
+1. Connects to the database using the resolved DSN.
+2. Reads the catalog for all managed schemas (from `[managed].schemas`).
+3. Renders every object as a `CREATE` statement in dependency order:
+   schemas → tables (inline PK/UK/CHECK) → FK `ALTER TABLE ADD CONSTRAINT` →
+   standalone indexes → sequences.
+4. Writes the result to `<dir>/schema.sql`.
+
+```sh
+pgevolve dump --db dev -o /tmp/schema-snapshot
+# wrote 4096 bytes to /tmp/schema-snapshot/schema.sql
+# note: output does not include pgevolve directives; add them before running `pgevolve lint`
+```
+
+**v0.1.1 scope notes:**
+
+- The entire catalog is written to a single `schema.sql` file. Multi-file layout
+  following `layout_profile` is deferred to v0.1.2+.
+- The output does **not** include pgevolve source directives
+  (`-- pgevolve: intent = ...` etc.), so it cannot be fed directly to
+  `pgevolve lint` or used with `parse_directory` without first adding those
+  directives. After `dump`, add directives manually or use a future
+  `pgevolve annotate` helper.
+- Views, materialized views, functions, and triggers are not emitted (not
+  yet modelled in v0.1 IR).
+
+The primary use case is *adoption*: pointing `dump` at an existing production
+database to produce a starting `schema/` tree for a new pgevolve project.
 
 ## `pgevolve graph`
 

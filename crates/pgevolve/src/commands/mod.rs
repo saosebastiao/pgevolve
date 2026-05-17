@@ -8,6 +8,7 @@ pub mod apply;
 pub mod bootstrap;
 pub mod diff;
 pub mod doctor;
+pub mod dump;
 pub mod graph;
 pub mod init;
 pub mod lint;

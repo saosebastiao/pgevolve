@@ -18,7 +18,7 @@ See [`../README.md`](./README.md) for the status legend.
 | `pgevolve apply <plan-dir> --db <env> [--url <dsn>] [--allow-different-target] [--allow-drift]` | ✅ Implemented | Executes a plan directory. See "Exit codes" below. |
 | `pgevolve status --db <env> [--url <dsn>] [--apply-id <uuid>] [--limit <n>] [--format human|json]` | ✅ Implemented | Recent applies + per-step detail. |
 | `pgevolve bootstrap --db <env> [--url <dsn>]` | ✅ Implemented | Explicit install/upgrade of the `pgevolve` metadata schema. (Other commands auto-bootstrap.) |
-| `pgevolve dump --db <env> -o <dir>` | 📋 Planned, v0.1.1 | Introspect a live DB and write a fully-populated `schema/` tree. Requires an IR → SQL emitter beyond the piecemeal helpers in `plan::rewrite::sql`. |
+| `pgevolve dump --db <env> -o <dir>` | ✅ Implemented | Introspect a live DB and write `<dir>/schema.sql` containing `CREATE` statements for all managed schemas, tables, constraints, indexes, and sequences. Multi-file layout following `layout_profile` is deferred to v0.1.2+. Output does not include pgevolve source directives; add them manually before running `pgevolve lint`. |
 | `pgevolve graph [--graph-format dot\|mermaid] [-o <path>] [--plan <dir>]` | ✅ Implemented | Render the source dep graph. Read-only. `--graph-format` (not `--format`; collides with global flag) defaults to `dot`. `--plan <dir>` is deferred. |
 | `pgevolve doctor --db <env> [--url <dsn>]` | ✅ Implemented | Project health check: bootstrap status, NOT VALID constraints, INVALID indexes, source/catalog object counts, recent failed applies. |
 | `pgevolve rewrite-table <qname> --db <env> --confirm-rewrite` | 🟡 Partial | CLI surface stable; implementation lands with v0.2 partitioning / column-type-change sub-spec. |

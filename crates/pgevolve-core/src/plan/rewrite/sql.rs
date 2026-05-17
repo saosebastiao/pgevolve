@@ -372,6 +372,24 @@ pub fn comment_on_constraint(
     )
 }
 
+/// `COMMENT ON INDEX qname IS '...';`
+pub fn comment_on_index(qname: &QualifiedName, comment: Option<&str>) -> String {
+    format!(
+        "COMMENT ON INDEX {} IS {};",
+        qname.render_sql(),
+        render_comment(comment),
+    )
+}
+
+/// `COMMENT ON SEQUENCE qname IS '...';`
+pub fn comment_on_sequence(qname: &QualifiedName, comment: Option<&str>) -> String {
+    format!(
+        "COMMENT ON SEQUENCE {} IS {};",
+        qname.render_sql(),
+        render_comment(comment),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // ALTER SEQUENCE field-level ops
 // ---------------------------------------------------------------------------

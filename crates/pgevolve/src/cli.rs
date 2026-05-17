@@ -46,7 +46,7 @@ pub enum Command {
     Apply(ApplyArgs),
     /// Show recent applies and per-step state.
     Status(StatusArgs),
-    /// Introspect a live database and write source SQL files. (Deferred to v0.1.1.)
+    /// Introspect a live database and write source SQL files.
     Dump(DumpArgs),
     /// Install or upgrade the `pgevolve` metadata schema.
     Bootstrap(BootstrapArgs),
@@ -215,7 +215,7 @@ pub struct StatusArgs {
     pub limit: u32,
 }
 
-/// `dump` arguments. (v0.1.1.)
+/// `dump` arguments.
 #[derive(Args, Debug)]
 pub struct DumpArgs {
     /// Environment name.

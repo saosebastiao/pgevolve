@@ -14,6 +14,7 @@ pub mod ir;
 pub mod lint;
 pub mod parse;
 pub mod plan;
+pub mod render;
 
 pub use crate::parse::normalize_body::{BodyError, NormalizedBody};
 
