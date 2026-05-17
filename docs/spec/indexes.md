@@ -40,6 +40,7 @@ See [`../README.md`](./README.md) for the status legend.
 | `CREATE INDEX` on an existing table → `CREATE INDEX CONCURRENTLY` (non-unique) | ✅ Implemented | Gated by `[planner.online_rewrites].create_index_concurrent`. Concurrent creates run as their own non-transactional group. change_kinds: [create] |
 | `DROP INDEX` on an existing index → `DROP INDEX CONCURRENTLY` (non-unique) | ✅ Implemented | Same gating. change_kinds: [drop] |
 | `CREATE UNIQUE INDEX CONCURRENTLY` | ⛔ Not planned (v0.1) | A failed concurrent unique-index build leaves behind an `INVALID` index that must be cleaned up out-of-band. v0.1 plays it safe and uses the locking variant; an opt-in policy may land in v0.2. |
+| INVALID index drift detection and auto-resolution | ✅ Implemented | The catalog reader detects `pg_index.indisvalid = false` (from a failed `CREATE INDEX CONCURRENTLY`) and the differ emits `Change::RecreateIndex`. The planner emits `DROP INDEX + CREATE INDEX`. No user action required. See [`pipeline.md`](./pipeline.md). |
 | `REINDEX [CONCURRENTLY]` | 🔮 Future | Useful as an ops command; not yet a planner step kind. |
 
 ## Index naming

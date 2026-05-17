@@ -29,6 +29,7 @@ See [`../README.md`](./README.md) for the status legend.
 | `DEFERRABLE` / `NOT DEFERRABLE`, `INITIALLY DEFERRED` / `INITIALLY IMMEDIATE` | ✅ Implemented | change_kinds: [add, set_deferrable] |
 | `NOT VALID` + `VALIDATE CONSTRAINT` rewrite for adds on existing tables | ✅ Implemented | See [`pipeline.md`](./pipeline.md). change_kinds: [validate] |
 | `NOT VALID` constraints persisted as-is | ⛔ Not planned | The IR represents only fully-validated constraints; the `NOT VALID` state is an intermediate planner artifact. |
+| NOT VALID drift detection and auto-resolution | ✅ Implemented | The catalog reader detects `pg_constraint.convalidated = false` (from a partial-apply) and the differ emits `Change::ValidateConstraint`. The planner emits `ALTER TABLE ... VALIDATE CONSTRAINT`. No user action required. See [`pipeline.md`](./pipeline.md). |
 
 ## CHECK attributes
 

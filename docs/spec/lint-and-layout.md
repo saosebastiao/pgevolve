@@ -23,6 +23,16 @@ time. The lint engine runs them defensively over a built `SourceTree`.
 | `[managed].schemas` matches the schemas declared in source (two-way) | ✅ Implemented | Lint engine (`managed_schemas_match`). Silent when `managed.schemas` is empty. |
 | Every column referenced by a constraint exists in its parent table | 🔮 Future | Mostly caught by Postgres at apply time; could be brought forward to lint time. |
 | Every type referenced by a column exists (or is built-in) | 🔮 Future | Same: caught by Postgres today. |
+| `column-position-drift` — table's column order in source disagrees with target catalog | ✅ Implemented | Severity `LintAtPlan` (see below). Source is canonical. Resolution: reorder source, add `[[lint_waiver]]` in `intent.toml`, or run `pgevolve rewrite-table`. |
+| `plpgsql-dynamic-sql` — PL/pgSQL function body contains opaque `EXECUTE` patterns | 📋 Planned, v0.2 | Severity `Warning`. Resolved by adding `-- @pgevolve dep:` directives. |
+
+## Severity tiers
+
+| Tier | Status | Behaviour |
+|---|---|---|
+| `Error` | ✅ Implemented | Fails lint (exit 1). |
+| `Warning` | ✅ Implemented | Reported but does not fail lint. |
+| `LintAtPlan` | ✅ Implemented | Drift / divergence detected at plan time that pgevolve declines to act on without explicit user instruction. `pgevolve plan` exits with code 2 unless the finding is waived via a matching `[[lint_waiver]]` row in `intent.toml`. |
 
 ## Layout profiles
 

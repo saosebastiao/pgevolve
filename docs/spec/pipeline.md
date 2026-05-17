@@ -39,6 +39,16 @@ flowchart TD
 | Deterministic file order | ✅ Implemented | Walks paths in sort order so identical inputs produce identical output. |
 | Multi-file project layout enforced by the layout profile | ✅ Implemented | See [`lint-and-layout.md`](./lint-and-layout.md). |
 
+## AST resolution pass (`pgevolve_core::parse::resolve`)
+
+Runs between parse and canonicalize. Validates structural references before diff.
+
+| Aspect | Status | Notes |
+|---|---|---|
+| FK targets validated against declared tables | ✅ Implemented | Surfaces unresolved references as `ParseError::AstResolution` with source location. |
+| Default-using sequences validated against declared sequences | ✅ Implemented | Same error path. |
+| Body AST walks (function/view dependency edges) | 📋 Planned, v0.2 | v0.2 sub-specs will extend the pass to walk body ASTs and emit `AstExtracted` / `AstDeclared` edges. |
+
 ## Catalog reader (`pgevolve_core::catalog`)
 
 | Aspect | Status | Notes |
@@ -51,6 +61,18 @@ flowchart TD
 | Sequence type-default min/max normalized to "unspecified" | ✅ Implemented | Same reason — PG stores explicit values even when the user didn't specify them. |
 | Object kinds beyond v0.1 (views, functions, triggers, types, …) | 📋 Planned, v0.2 | Lands with the corresponding object-kind support. |
 | Catalog filtering by `[managed]` schemas + `[managed].ignore_objects` globs | ✅ Implemented | Unmanaged schemas don't appear in the IR at all. |
+| Catalog drift detection — returns `(Catalog, DriftReport)` | ✅ Implemented | See "Catalog drift detection" section below. |
+
+## Catalog drift detection
+
+The catalog reader returns a `DriftReport` alongside the `Catalog`. The differ and planner consume it to automatically recover from partial-apply states.
+
+| Drift kind | Detection | Diff emit | Planner emit | Status |
+|---|---|---|---|---|
+| NOT VALID constraints (`pg_constraint.convalidated = false`) | Catalog reader | `Change::ValidateConstraint` | `ALTER TABLE ... VALIDATE CONSTRAINT` | ✅ Implemented |
+| INVALID indexes (`pg_index.indisvalid = false`) | Catalog reader | `Change::RecreateIndex` | `DROP INDEX + CREATE INDEX` | ✅ Implemented |
+
+Both drift kinds are auto-recovery paths — the user doesn't author NOT VALID or INVALID states; pgevolve detects and resolves them. This covers recovery from crashed FK NOT VALID + VALIDATE rewrites and failed `CREATE INDEX CONCURRENTLY`.
 
 ## Differ (`pgevolve_core::diff`)
 
@@ -90,6 +112,13 @@ flowchart TD
 | `ALTER COLUMN ... TYPE` online rewrite (e.g., int → bigint) | 🔮 Future | Currently emits a single `ALTER COLUMN ... TYPE` step, which can rewrite the entire table. The "USING expr + new column + rename" pattern is a candidate v0.3 rewrite. |
 | `REINDEX CONCURRENTLY` for bloated indexes | 🔮 Future | Not currently emitted by the planner; users invoke manually. |
 
+### Plan-time lint gate
+
+| Aspect | Status | Notes |
+|---|---|---|
+| `run_drift_lints` called after diff, before writing plan | ✅ Implemented | Any `LintAtPlan` finding without a matching `[[lint_waiver]]` in `intent.toml` causes `pgevolve plan` to exit with code 2. |
+| `column-position-drift` as a `LintAtPlan` finding | ✅ Implemented | See [`lint-and-layout.md`](./lint-and-layout.md). |
+
 ### Step grouping
 
 | Aspect | Status | Notes |
@@ -119,6 +148,7 @@ flowchart TD
 | Preflight: identity match | ✅ Implemented | Bypassed only with `--allow-different-target`. |
 | Preflight: drift recheck | 🟡 Partial | The plan slot exists but the executor's drift check is stubbed; the CLI's `apply` currently forces `allow_drift = true`. Phase-9 follow-up. |
 | Preflight: intent approval enforcement | 🟡 Partial | The plan's `intents` field is loaded but the executor doesn't re-check `approved = true` from disk. Phase-9 follow-up. |
+| Preflight: `[[lint_waiver]]` structural validation | ✅ Implemented | Preflight validates that every `[[lint_waiver]]` row has non-empty `rule` and `target`. Documented limitation: does not re-run drift lints at apply time (source not available); the live-catalog recheck stub will land in a future task. |
 | Audit row writes (`open_apply_log`, `mark_step_*`, `close_apply_log`) | ✅ Implemented | |
 | Transactional group execution (single `BEGIN…COMMIT`) | ✅ Implemented | A step failure rolls back the group; every step in the group ends up `failed` (the offender) or `rolled_back` (the rest). |
 | Autocommit group execution | ✅ Implemented | Stops on first failure; earlier steps stay `succeeded`. |

@@ -11,11 +11,75 @@ See [`../README.md`](./README.md) for the status legend.
 |------|-----------------|----------------|--------|--------------|
 | 1 | Unit-level invariants — IR equality, parser output for one statement, single function behavior | Inline `#[cfg(test)] mod tests` in every src/ file | ✅ Implemented | no |
 | 2 | Fixture corpora — parsing a real `*.sql` snippet, comparing IR vs expected | `crates/pgevolve-core/tests/parser_corpus.rs`, `crates/pgevolve-core/tests/parse_directory.rs` | ✅ Implemented | no |
-| 3 | Catalog round-trip goldens — apply known SQL, introspect, snapshot to canonical JSON | `crates/pgevolve-core/tests/catalog_round_trip.rs` per PG major (14/15/16/17) | ✅ Implemented | yes |
+| 3 | Conformance — fixture-driven regression gate (L1–L9); see below | `crates/pgevolve-conformance/` | ✅ Implemented | yes |
 | 4 | Executor + CLI end-to-end — apply a plan against real PG, assert side effects + audit rows | `crates/pgevolve/tests/{executor_smoke,cli_e2e,chaos_apply,shadow_validate}.rs` | ✅ Implemented | yes |
 | 5 | Property tests — random valid `Catalog`s exercised across the pipeline | `crates/pgevolve-core/tests/property_tests.rs` (pure) and `crates/pgevolve/tests/pg_property_tests.rs` (PG-bound) | ✅ Implemented | partial |
 | 6 | Mutation tests — flip code, verify a test fails | not implemented | 🔮 Future | n/a |
 | 7 | Soak — high-case property runs over multiple PG versions, weekly | `.github/workflows/soak.yml` | ✅ Implemented | yes |
+
+## Tier C (conformance) assertion layers
+
+Tier C is the canonical regression gate. Each fixture drives the full pipeline; assertion layers are evaluated in order. Layers L1–L4 shipped with v0.1; L5–L9 landed in v0.2 readiness.
+
+| Layer | Name | Status | Notes |
+|---|---|---|---|
+| L1 | parse | ✅ Implemented | Source parses cleanly. |
+| L2 | lint | ✅ Implemented | No lint errors. |
+| L3 | plan | ✅ Implemented | Plan produces expected steps. |
+| L4 | apply | ✅ Implemented | Plan applies cleanly against real PG. |
+| L5 | minimality | ✅ Implemented | Re-plan after L4 apply asserts empty diff and empty plan groups. |
+| L6 | no-collateral-damage | ✅ Implemented | Opt-in `touches_only` allow-list; asserts no unlisted objects were modified. |
+| L7 | intent-shape | ✅ Implemented | Mandatory-on-destructive; matches `[[expect.intent]]` against the generated `intent.toml`. |
+| L8 | dep-graph golden | ✅ Implemented | Byte-compares rendered DOT against `expected/dep-graph.dot`. |
+| L9 | topological-order | ✅ Implemented | Declared partial orders respected by step sequence. |
+
+Full details and authoring contract: `crates/pgevolve-conformance/AUTHORING.md`.
+
+## Fixture authoring subtrees
+
+Each subtree under `crates/pgevolve-conformance/fixtures/` has a specific contract:
+
+| Subtree | Contract |
+|---|---|
+| `objects/` | One fixture per object kind / change kind combination. Exercises L1–L5 at minimum. |
+| `scenarios/` | Multi-object, multi-step scenarios (e.g., rename dance, online rewrite sequences). |
+| `intent/` | Destructive-change fixtures; must include `[[expect.intent]]` blocks (L7). |
+| `failure/` | Fixtures that must fail at a specific phase (parse error, lint error, plan error). Uses `[expect.failure]`. |
+| `regressions/` | Scaffolded by `cargo xtask capture-regression`; each fixture is linked to a GitHub issue. |
+
+## `fixture.toml` schema additions
+
+| Key | Status | Notes |
+|---|---|---|
+| `[budget].seconds` | ✅ Implemented | Per-fixture time budget; exceeded fixtures fail in CI. |
+| `[pg.expect].<major>` | ✅ Implemented | Per-PG-major expected output overrides. |
+| `[expect.plan.per_pg.pgN]` | ✅ Implemented | Override plan expectations for a specific PG major. |
+| `[[expect.intent]]` | ✅ Implemented | L7 intent-shape matching rows. |
+| `[expect.dep_graph]` | ✅ Implemented | L8 dep-graph golden reference. |
+| `[expect.failure]` | ✅ Implemented | Phase and message for expected-failure fixtures. |
+| `expect.plan.touches_only` | ✅ Implemented | L6 collateral-damage allow-list. |
+| `expect.plan.order` | ✅ Implemented | L9 partial-order declarations. |
+| `expect.plan.minimality` | ✅ Implemented | L5 minimality assertion toggle (on by default). |
+
+Full schema in `crates/pgevolve-conformance/AUTHORING.md`.
+
+## `TestPgBackend` pluggability
+
+| Mechanism | Status | Notes |
+|---|---|---|
+| `PGEVOLVE_TEST_PG_MODE` env var | ✅ Implemented | Selects backend: `testcontainers` (default), `compose`, or `dsn`. |
+| `dev/docker-compose.pg.yml` | ✅ Implemented | Ships for `compose` mode; pre-warms containers across test runs. |
+
+## xtask additions
+
+| Task | Status | Notes |
+|---|---|---|
+| `cargo xtask coverage --check \| --gaps` | ✅ Implemented | (capability × change-kind × major) coverage matrix gate. `--check` fails if any cell is uncovered; `--gaps` prints the gap report. |
+| `cargo xtask fixture-cost` | ✅ Implemented | Per-fixture timing report; helps identify slow fixtures. |
+| `cargo xtask capture-regression --seed <hex> --issue <n>` | ✅ Implemented | Scaffold a regression fixture linked to a GitHub issue. |
+| `cargo xtask verify-regression <fixture-dir>` | ✅ Implemented | Confirm a regression fixture exercises a real bug (fails without the fix). |
+| `cargo xtask property-status --max-age-days N` | ✅ Implemented | Open-issue compliance gate; uses `gh` to check issue status. |
+| `cargo xtask diagnose-pg-version <fixture-dir> --pg-major N` | ✅ Implemented | Per-PG-major fixture diagnostic for version-specific failures. |
 
 ## What each property test checks (Tier 5)
 
@@ -49,6 +113,8 @@ See [`../README.md`](./README.md) for the status legend.
 |---|---|---|
 | `ci.yml` — fmt + clippy + tier 1+2 (no Docker) on every push / PR | ✅ Implemented | |
 | `ci.yml` — `pg-matrix` job runs tier 3-5 on PG 14/15/16/17 with `PROPTEST_CASES=50` | ✅ Implemented | Needs Docker on the runner. |
+| `ci.yml` — auto-capture on flaky property failure + `property-status` compliance gate | ✅ Implemented | Uses `cargo xtask capture-regression` and `cargo xtask property-status`. |
+| `property-tests.yml` — dedicated property-test workflow with coverage matrix gate | ✅ Implemented | Runs `cargo xtask coverage --check` on every push to main and on PRs. |
 | `soak.yml` — manual `workflow_dispatch` + weekly cron at `PROPTEST_CASES=5000` per PG major | ✅ Implemented | |
 | Mutation testing (cargo-mutants, Stryker-style) | 🔮 Future | Once the spec stabilizes; mutation testing flags rules that aren't actually tested. |
 | Code coverage badges | 🔮 Future | `cargo-llvm-cov` is the obvious tool. |

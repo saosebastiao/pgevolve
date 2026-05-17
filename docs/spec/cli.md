@@ -19,9 +19,11 @@ See [`../README.md`](./README.md) for the status legend.
 | `pgevolve status --db <env> [--url <dsn>] [--apply-id <uuid>] [--limit <n>] [--format human|json]` | ✅ Implemented | Recent applies + per-step detail. |
 | `pgevolve bootstrap --db <env> [--url <dsn>]` | ✅ Implemented | Explicit install/upgrade of the `pgevolve` metadata schema. (Other commands auto-bootstrap.) |
 | `pgevolve dump --db <env> -o <dir>` | 📋 Planned, v0.1.1 | Introspect a live DB and write a fully-populated `schema/` tree. Requires an IR → SQL emitter beyond the piecemeal helpers in `plan::rewrite::sql`. |
+| `pgevolve graph [--graph-format dot\|mermaid] [-o <path>] [--plan <dir>]` | ✅ Implemented | Render the source dep graph. Read-only. `--graph-format` (not `--format`; collides with global flag) defaults to `dot`. `--plan <dir>` is deferred. |
+| `pgevolve doctor --db <env> [--url <dsn>]` | ✅ Implemented | Project health check: bootstrap status, NOT VALID constraints, INVALID indexes, source/catalog object counts, recent failed applies. |
+| `pgevolve rewrite-table <qname> --db <env> --confirm-rewrite` | 🟡 Partial | CLI surface stable; implementation lands with v0.2 partitioning / column-type-change sub-spec. |
 | `pgevolve fmt` | 🔮 Future | Rewrite source files into the configured layout. Lint identifies the violations; `fmt` would mechanically fix them. |
 | `pgevolve check` | 🔮 Future | Alias for `lint && validate && plan --dry-run`. Pure convenience. |
-| `pgevolve doctor` | 🔮 Future | Inspect the live DB and report on metadata-schema bootstrap state, abandoned locks, suspicious `apply_log` rows, etc. |
 
 ## Global flags
 
@@ -32,6 +34,13 @@ See [`../README.md`](./README.md) for the status legend.
 | `-v` / `-vv` (verbosity) | ✅ Implemented | Bumps `tracing` filter to `debug` / `trace`. |
 | `--quiet` | ✅ Implemented | Filter set to `error`. |
 | `-h` / `--help` / `--version` (clap built-ins) | ✅ Implemented | |
+
+## Shadow-validation flags (`plan`, `diff`, `validate`)
+
+| Flag | Status | Notes |
+|---|---|---|
+| `--shadow-validate` | ✅ Implemented (scaffold) | Opt-in cross-check against the shadow Postgres. v0.1 is a no-op for body-bearing objects (none exist yet); v0.2 sub-specs deepen coverage. |
+| `--shadow-strict` | ✅ Implemented (scaffold) | Requires `--shadow-validate`. Treats shadow mismatches as errors rather than warnings. |
 
 ## Output formats
 
@@ -76,9 +85,38 @@ Mirrors `psql`. First non-empty source wins.
 | `[planner]` (strategy) | ✅ Implemented | `atomic` or `online`. |
 | `[planner.online_rewrites]` (per-rewrite switches) | ✅ Implemented | Four switches: `create_index_concurrent`, `fk_not_valid_then_validate`, `check_not_valid_then_validate`, `not_null_via_check_pattern`. |
 | `[environments.<name>]` (url, url_env, strategy) | ✅ Implemented | Per-env strategy override. |
-| `[shadow]` (provider, postgres_version) | ✅ Implemented | `provider = "testcontainers"`; version is one of `"14" | "15" | "16" | "17"`. |
+| `[shadow]` (backend, url, url_env, reset, extensions, postgres_version) | ✅ Implemented | Full schema: `backend = "auto"` (auto-select testcontainers or DSN); `url` / `url_env` for DSN override; `reset = "drop_schema_cascade"`; `extensions = ["pgcrypto"]`; `postgres_version = "17"`. |
 | `[extensions]` (declared extensions and versions) | 📋 Planned, v0.2 | Lands with extension support. |
 | `[grants]` (high-level grant tables) | 📋 Planned, v0.3 | Lands with roles + grants. |
+
+### `[shadow]` block (full example)
+
+```toml
+[shadow]
+backend = "auto"
+url = "..."
+url_env = "..."
+reset = "drop_schema_cascade"
+extensions = ["pgcrypto"]
+postgres_version = "17"
+```
+
+## `intent.toml` schema
+
+Beyond the `[[intent]]` rows written by the planner, `intent.toml` supports user-authored `[[lint_waiver]]` rows:
+
+```toml
+[[lint_waiver]]
+rule = "column-position-drift"
+target = "app.users"
+reason = "..."
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `rule` | yes | Stable rule identifier (e.g., `column-position-drift`). Non-empty. |
+| `target` | yes | Qualified object name the waiver applies to. Non-empty. |
+| `reason` | no | Free-text explanation; encouraged for auditing. |
 
 ## Logging
 
