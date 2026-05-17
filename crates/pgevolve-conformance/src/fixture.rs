@@ -100,6 +100,17 @@ impl Default for FixturePg {
     }
 }
 
+/// `[expect.failure]` block — declares which pipeline stage should
+/// fail and what the error message should contain.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExpectFailure {
+    /// Stage: `"parse"` | `"ast_resolution"` | `"order"` | `"lint_at_plan"`.
+    pub stage: String,
+    /// Substrings that must appear in the error message.
+    #[serde(default)]
+    pub stderr_contains: Vec<String>,
+}
+
 /// One `[[expect.intent]]` row.
 ///
 /// Matches against a generated [`DestructiveIntent`] row in the plan.
@@ -138,6 +149,9 @@ pub struct FixtureExpect {
     /// collision.
     #[serde(default, rename = "intent")]
     pub intent: Vec<ExpectIntentRow>,
+    /// `[expect.failure]` — failure-fixture contract declaration.
+    #[serde(default)]
+    pub failure: Option<ExpectFailure>,
 }
 
 /// `[expect.dep_graph]` — L8 dep-graph golden.

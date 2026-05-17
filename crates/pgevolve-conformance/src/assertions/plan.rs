@@ -188,6 +188,7 @@ mod tests {
                 apply: ExpectApply::default(),
                 dep_graph: ExpectDepGraph::default(),
                 intent: Vec::new(),
+                failure: None,
             },
         }
     }
@@ -274,6 +275,7 @@ mod golden_tests {
                 apply: ExpectApply::default(),
                 dep_graph: ExpectDepGraph::default(),
                 intent: Vec::new(),
+                failure: None,
             },
         }
     }

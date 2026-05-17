@@ -331,8 +331,15 @@ async fn conformance_suite() {
                 // before invoking apply::check so that L4 also passes for intent/ fixtures.
             }
 
-            Authoring::Failure | Authoring::Regressions => {
-                // T0: subtrees discovered but not yet wired; skip cleanly.
+            Authoring::Failure => {
+                ran += 1;
+                if let Err(e) = pgevolve_conformance::failure::run_failure_fixture(fixture) {
+                    report.fail(dir, "failure", e.to_string());
+                }
+            }
+
+            Authoring::Regressions => {
+                // T0: regressions subtree discovered but not yet wired; skip cleanly.
                 eprintln!(
                     "skip {}: authoring {:?} not yet wired",
                     dir.display(),

@@ -1,0 +1,7 @@
+[meta]
+title = "Two CREATE SCHEMA statements for the same name"
+authoring = "failure"
+
+[expect.failure]
+stage = "parse"
+stderr_contains = ["duplicate"]
