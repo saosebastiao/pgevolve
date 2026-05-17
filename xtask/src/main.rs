@@ -16,6 +16,7 @@
 #![forbid(unsafe_code)]
 
 mod coverage;
+mod fixture_cost;
 
 use std::path::{Path, PathBuf};
 
@@ -46,8 +47,9 @@ async fn main() -> Result<()> {
             };
             coverage::run(mode, &workspace_root()?)
         }
+        "fixture-cost" => fixture_cost::run(),
         "" | "help" | "--help" | "-h" => {
-            eprintln!("usage: cargo xtask <bless | bless --conformance | coverage [--check | --gaps]>");
+            eprintln!("usage: cargo xtask <bless | bless --conformance | coverage [--check | --gaps] | fixture-cost>");
             Ok(())
         }
         other => Err(anyhow!("unknown subcommand: {other}")),

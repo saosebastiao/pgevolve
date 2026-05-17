@@ -60,8 +60,8 @@ fn render(diffs: &[Difference]) -> String {
 mod tests {
     use super::*;
     use crate::fixture::{
-        ExpectApply, ExpectDiff, ExpectPlan, FixtureExpect, FixtureMeta, FixturePassthrough,
-        FixturePg,
+        ExpectApply, ExpectDiff, ExpectPlan, FixtureBudget, FixtureExpect, FixtureMeta,
+        FixturePassthrough, FixturePg,
     };
     use std::path::PathBuf;
 
@@ -77,6 +77,7 @@ mod tests {
                 authoring: "objects".into(),
             },
             pg: FixturePg::default(),
+            budget: FixtureBudget::default(),
             passthrough: FixturePassthrough::default(),
             expect: FixtureExpect {
                 diff: ExpectDiff {

@@ -164,8 +164,8 @@ pub fn check_golden(
 mod tests {
     use super::*;
     use crate::fixture::{
-        ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureExpect, FixtureMeta,
-        FixturePassthrough, FixturePg,
+        ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureBudget, FixtureExpect,
+        FixtureMeta, FixturePassthrough, FixturePg,
     };
     use std::path::PathBuf;
 
@@ -181,6 +181,7 @@ mod tests {
                 authoring: "objects".into(),
             },
             pg: FixturePg::default(),
+            budget: FixtureBudget::default(),
             passthrough: FixturePassthrough::default(),
             expect: FixtureExpect {
                 diff: ExpectDiff::default(),
@@ -244,8 +245,8 @@ mod tests {
 mod golden_tests {
     use super::*;
     use crate::fixture::{
-        ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureExpect, FixtureMeta,
-        FixturePassthrough, FixturePg,
+        ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureBudget, FixtureExpect,
+        FixtureMeta, FixturePassthrough, FixturePg,
     };
     use std::path::PathBuf;
 
@@ -263,6 +264,7 @@ mod golden_tests {
                 authoring: "objects".into(),
             },
             pg: FixturePg::default(),
+            budget: FixtureBudget::default(),
             passthrough: FixturePassthrough::default(),
             expect: FixtureExpect {
                 diff: ExpectDiff::default(),

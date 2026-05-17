@@ -81,6 +81,26 @@ fn default_authoring() -> String {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct FixturePgExpect(pub std::collections::BTreeMap<String, String>);
 
+/// `[budget]` block — per-fixture wall-clock cap.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FixtureBudget {
+    /// Wall-clock cap in seconds. Default 30.
+    #[serde(default = "default_budget_seconds")]
+    pub seconds: u64,
+}
+
+const fn default_budget_seconds() -> u64 {
+    30
+}
+
+impl Default for FixtureBudget {
+    fn default() -> Self {
+        Self {
+            seconds: default_budget_seconds(),
+        }
+    }
+}
+
 /// `[pg]` block.
 #[derive(Debug, Clone, Deserialize)]
 pub struct FixturePg {
@@ -361,6 +381,8 @@ pub struct Fixture {
     pub meta: FixtureMeta,
     /// `[pg]`.
     pub pg: FixturePg,
+    /// `[budget]` — per-fixture wall-clock cap.
+    pub budget: FixtureBudget,
     /// `[intent]` + `[planner]` passthroughs.
     pub passthrough: FixturePassthrough,
     /// `[expect]`.
@@ -372,6 +394,8 @@ struct RawFixtureToml {
     meta: FixtureMeta,
     #[serde(default)]
     pg: FixturePg,
+    #[serde(default)]
+    budget: FixtureBudget,
     #[serde(default)]
     intent: toml::Table,
     #[serde(default)]
@@ -421,6 +445,7 @@ impl Fixture {
             after_sql,
             meta: raw.meta,
             pg: raw.pg,
+            budget: raw.budget,
             passthrough: FixturePassthrough {
                 intent: raw.intent,
                 planner: raw.planner,
