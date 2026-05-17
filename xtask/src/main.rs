@@ -8,9 +8,27 @@
 //! - `bless --conformance` — walk every fixture under
 //!   `crates/pgevolve-conformance/tests/cases/`, render the in-process planner
 //!   pipeline, normalize the output, and write it to the fixture's golden path.
+//! - `coverage [--check | --gaps]` — cross-check `docs/spec/*.md` capability
+//!   rows against the (capability × change-kind × PG-major) fixture matrix.
+//!   `--check` fails if any required cell is uncovered; `--gaps` lists gaps.
+//! - `capture-regression --seed <hex> --issue <n>` — scaffold a regression
+//!   fixture from a proptest seed.
+//! - `verify-regression <fixture-dir>` — confirm a fixture fails on the current
+//!   branch (proving the bug it captures is still present).
+//! - `property-status [--max-age-days N]` — list open property-test GitHub
+//!   issues; fail if any exceed the age threshold.
+//! - `diagnose-pg-version <fixture-dir> --pg-major N` — run a fixture against
+//!   a specific PG major and report suggested fixture.toml edits.
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
+
+mod capture_regression;
+mod coverage;
+mod diagnose_pg_version;
+mod fixture_cost;
+mod property_status;
+mod verify_regression;
 
 use std::path::{Path, PathBuf};
 
@@ -32,8 +50,60 @@ async fn main() -> Result<()> {
                 _ => bless().await,
             }
         }
+        "coverage" => {
+            let flag = std::env::args().nth(2);
+            let mode = match flag.as_deref() {
+                Some("--gaps") => coverage::CoverageMode::Gaps,
+                // default: --check
+                _ => coverage::CoverageMode::Check,
+            };
+            coverage::run(mode, &workspace_root()?)
+        }
+        "fixture-cost" => fixture_cost::run(),
+        "capture-regression" => {
+            let args: Vec<String> = std::env::args().collect();
+            let seed = flag_value(&args, "--seed")
+                .ok_or_else(|| anyhow!("capture-regression requires --seed <hex>"))?;
+            let issue_str = flag_value(&args, "--issue")
+                .ok_or_else(|| anyhow!("capture-regression requires --issue <n>"))?;
+            let issue: u64 = issue_str
+                .parse()
+                .map_err(|_| anyhow!("--issue must be a positive integer"))?;
+            capture_regression::run(&seed, issue)
+        }
+        "verify-regression" => {
+            let fixture_dir = std::env::args()
+                .nth(2)
+                .ok_or_else(|| anyhow!("verify-regression requires <fixture-dir>"))?;
+            verify_regression::run(std::path::Path::new(&fixture_dir))
+        }
+        "property-status" => {
+            let args: Vec<String> = std::env::args().collect();
+            let max_age_days: u64 = flag_value(&args, "--max-age-days")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30);
+            property_status::run(max_age_days)
+        }
+        "diagnose-pg-version" => {
+            let fixture_dir = std::env::args()
+                .nth(2)
+                .ok_or_else(|| anyhow!("diagnose-pg-version requires <fixture-dir>"))?;
+            let args: Vec<String> = std::env::args().collect();
+            let pg_major_str = flag_value(&args, "--pg-major")
+                .ok_or_else(|| anyhow!("diagnose-pg-version requires --pg-major <n>"))?;
+            let pg_major: u32 = pg_major_str
+                .parse()
+                .map_err(|_| anyhow!("--pg-major must be a positive integer"))?;
+            diagnose_pg_version::run(std::path::Path::new(&fixture_dir), pg_major)
+        }
         "" | "help" | "--help" | "-h" => {
-            eprintln!("usage: cargo xtask <bless | bless --conformance>");
+            eprintln!(
+                "usage: cargo xtask <bless | bless --conformance | coverage [--check | --gaps] | fixture-cost |\n\
+                 \t capture-regression --seed <hex> --issue <n> |\n\
+                 \t verify-regression <fixture-dir> |\n\
+                 \t property-status [--max-age-days N] |\n\
+                 \t diagnose-pg-version <fixture-dir> --pg-major N>"
+            );
             Ok(())
         }
         other => Err(anyhow!("unknown subcommand: {other}")),
@@ -100,17 +170,18 @@ async fn run_one(version: PgVersion, source_sql: &Path) -> Result<String> {
         managed.push(Identifier::from_unquoted("billing").map_err(|e| anyhow!(e))?);
     }
     let filter = CatalogFilter::new(managed, vec![]).map_err(|e| anyhow!(e.to_string()))?;
-    let catalog = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+    let (catalog, _drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
         .await?
         .map_err(|e| anyhow!(e.to_string()))?;
     catalog_snapshotter::to_canonical_json(&catalog)
 }
 
 fn bless_conformance() -> Result<()> {
+    use pgevolve_conformance::assertions::dep_graph::render_dot;
     use pgevolve_conformance::fixture::Fixture;
     use pgevolve_conformance::normalize::normalize;
-    use pgevolve_conformance::planning::render_plan;
-    use pgevolve_core::plan::Strategy;
+    use pgevolve_conformance::planning::{parse_sql, render_plan};
+    use pgevolve_core::plan::{Strategy, build_create_graph};
 
     let cases = workspace_root()?.join("crates/pgevolve-conformance/tests/cases");
     if !cases.exists() {
@@ -133,44 +204,62 @@ fn bless_conformance() -> Result<()> {
             .parent()
             .ok_or_else(|| anyhow!("fixture.toml has no parent"))?
             .to_path_buf();
-        let fixture = Fixture::load(&dir)
-            .with_context(|| format!("load fixture {}", dir.display()))?;
+        let fixture =
+            Fixture::load(&dir).with_context(|| format!("load fixture {}", dir.display()))?;
 
-        let Some(rel) = fixture.expect.plan.golden.as_ref() else {
+        // --- plan.sql golden ---
+        if let Some(rel) = fixture.expect.plan.golden.as_ref() {
+            let strategy = fixture
+                .passthrough
+                .planner
+                .get("strategy")
+                .and_then(|v| v.as_str())
+                .map_or(Strategy::Online, |s| match s {
+                    "atomic" => Strategy::Atomic,
+                    _ => Strategy::Online,
+                });
+
+            let (_plan, rendered_sql) =
+                render_plan(&fixture.before_sql, &fixture.after_sql, strategy)
+                    .with_context(|| format!("render plan for {}", dir.display()))?;
+            let normalized = normalize(&rendered_sql);
+
+            let golden_path = dir.join(rel);
+            if let Some(parent) = golden_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&golden_path, normalized)
+                .with_context(|| format!("write {}", golden_path.display()))?;
+            blessed += 1;
+            tracing::info!(fixture = %dir.display(), "blessed plan.sql");
+        } else {
             skipped += 1;
             tracing::info!(
                 fixture = %dir.display(),
-                "skipping: goldening opted out"
+                "skipping plan.sql: goldening opted out"
             );
-            continue;
-        };
-
-        let strategy = fixture
-            .passthrough
-            .planner
-            .get("strategy")
-            .and_then(|v| v.as_str())
-            .map_or(Strategy::Online, |s| match s {
-                "atomic" => Strategy::Atomic,
-                _ => Strategy::Online,
-            });
-
-        let (_plan, rendered_sql) =
-            render_plan(&fixture.before_sql, &fixture.after_sql, strategy)
-                .with_context(|| format!("render plan for {}", dir.display()))?;
-        let normalized = normalize(&rendered_sql);
-
-        let golden_path = dir.join(rel);
-        if let Some(parent) = golden_path.parent() {
-            std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&golden_path, normalized)
-            .with_context(|| format!("write {}", golden_path.display()))?;
-        blessed += 1;
-        tracing::info!(fixture = %dir.display(), "blessed");
+
+        // --- dep-graph.dot golden ---
+        if fixture.expect.dep_graph.enabled {
+            let source_catalog = parse_sql(&fixture.after_sql, "after")
+                .with_context(|| format!("parse after.sql for dep-graph in {}", dir.display()))?;
+            let graph = build_create_graph(&source_catalog);
+            let edges: Vec<_> = graph.dep_edges().collect();
+            let dot = render_dot(&edges);
+
+            let dot_path = dir.join(&fixture.expect.dep_graph.golden);
+            if let Some(parent) = dot_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&dot_path, &dot)
+                .with_context(|| format!("write {}", dot_path.display()))?;
+            blessed += 1;
+            tracing::info!(fixture = %dir.display(), "blessed dep-graph.dot");
+        }
     }
 
-    eprintln!("conformance: blessed {blessed} fixture(s); skipped {skipped}");
+    eprintln!("conformance: blessed {blessed} golden(s); skipped {skipped}");
     Ok(())
 }
 
@@ -179,4 +268,10 @@ fn workspace_root() -> Result<PathBuf> {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.pop();
     Ok(p)
+}
+
+/// Return the value for a `--flag value` pair in an argument list.
+fn flag_value(args: &[String], flag: &str) -> Option<String> {
+    let pos = args.iter().position(|a| a == flag)?;
+    args.get(pos + 1).cloned()
 }

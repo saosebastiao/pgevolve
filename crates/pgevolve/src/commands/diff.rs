@@ -20,16 +20,57 @@ pub async fn run(args: DiffArgs, cfg: &PgevolveConfig, format: OutputFormat) -> 
     let client = connect(&opts).await?;
     let querier = PgCatalogQuerier::new(client)?;
     let filter = CatalogFilter::new(opts.managed_schemas.clone(), opts.ignore_objects.clone())?;
-    let target = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+    let (target, drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
         .await
         .map_err(|e| anyhow::anyhow!("join error: {e}"))??;
 
-    let changes = diff(&target, &source);
+    let changes = diff(&target, &source, &drift);
     match format {
         OutputFormat::Human => print_human(&changes),
         OutputFormat::Json => print_json(&changes)?,
         OutputFormat::Sql => print_sql(&changes),
     }
+
+    if args.shadow_validate {
+        let shadow_cfg = cfg.shadow.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("--shadow-validate requires a [shadow] section in pgevolve.toml")
+        })?;
+        let backend = crate::shadow::resolve(shadow_cfg)?;
+        // v0.1: default to PG 17. v0.2 will thread the real major from the
+        // live DB connection or from [shadow].postgres_version.
+        let major = shadow_cfg
+            .postgres_version
+            .as_deref()
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .unwrap_or(17);
+        let report = crate::shadow::validate::cross_check(
+            backend.as_ref(),
+            &source,
+            major,
+            args.shadow_strict,
+        )
+        .await?;
+        eprintln!(
+            "shadow-validate: {} structural edge(s) checked",
+            report.structural_edges_checked
+        );
+        if !report.warnings.is_empty() {
+            eprintln!("shadow-validate: {} warning(s):", report.warnings.len());
+            for w in &report.warnings {
+                eprintln!("  - {w}");
+            }
+            if args.shadow_strict {
+                anyhow::bail!("shadow-validate --strict: warnings treated as errors");
+            }
+        }
+        if !report.errors.is_empty() {
+            for e in &report.errors {
+                eprintln!("  - {e}");
+            }
+            anyhow::bail!("shadow-validate: {} error(s)", report.errors.len());
+        }
+    }
+
     // Spec §10.1: `diff` is informational — always exit 0 regardless of change count.
     Ok(0)
 }
@@ -86,6 +127,12 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
             }
             pgevolve_core::diff::change::Change::AlterSchema { name, .. } => {
                 println!("      alter schema {name}");
+            }
+            pgevolve_core::diff::change::Change::ValidateConstraint { table, constraint } => {
+                println!("      validate constraint {constraint} on {table}");
+            }
+            pgevolve_core::diff::change::Change::RecreateIndex { qname } => {
+                println!("      recreate invalid index {qname}");
             }
         }
     }
@@ -160,5 +207,7 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::CreateSequence(_) => "CreateSequence",
         Change::DropSequence(_) => "DropSequence",
         Change::AlterSequence { .. } => "AlterSequence",
+        Change::ValidateConstraint { .. } => "ValidateConstraint",
+        Change::RecreateIndex { .. } => "RecreateIndex",
     }
 }

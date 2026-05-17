@@ -18,7 +18,7 @@ use std::path::Path;
 pub use finding::{Finding, Severity};
 pub use profile::{CustomProfile, PathPattern, Profile, check_profile};
 pub use source_tree::{ObjectKey, SourceTree};
-pub use universal::check_universal;
+pub use universal::{LINT_AT_PLAN_RULES, check_universal};
 
 /// Inputs for [`run`].
 #[derive(Debug, Clone)]

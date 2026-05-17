@@ -62,6 +62,43 @@ pub struct FixtureMeta {
     /// Optional issue URL when this fixture is a regression capture.
     #[serde(default)]
     pub issue: Option<String>,
+    /// One of: "objects" | "scenarios" | "intent" | "failure" | "regressions".
+    /// Drives which assertion layers fire. Defaults to "objects" for
+    /// backward compatibility.
+    #[serde(default = "default_authoring")]
+    pub authoring: String,
+}
+
+fn default_authoring() -> String {
+    "objects".to_string()
+}
+
+/// `[pg.expect]` block — per-version expectation override.
+///
+/// Keys are PG major versions as strings (`"14"`, `"15"`, …).
+/// Values are `"success"` | `"failure"` | `"skip"`.
+/// Missing key → `"success"`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FixturePgExpect(pub std::collections::BTreeMap<String, String>);
+
+/// `[budget]` block — per-fixture wall-clock cap.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FixtureBudget {
+    /// Wall-clock cap in seconds. Default 30.
+    #[serde(default = "default_budget_seconds")]
+    pub seconds: u64,
+}
+
+const fn default_budget_seconds() -> u64 {
+    30
+}
+
+impl Default for FixtureBudget {
+    fn default() -> Self {
+        Self {
+            seconds: default_budget_seconds(),
+        }
+    }
 }
 
 /// `[pg]` block.
@@ -73,6 +110,9 @@ pub struct FixturePg {
     /// Inclusive maximum supported PG major. Defaults to 17.
     #[serde(default = "default_pg_max")]
     pub max: u32,
+    /// Per-major expectation overrides. Keys are major version strings.
+    #[serde(default)]
+    pub expect: FixturePgExpect,
 }
 
 const fn default_pg_min() -> u32 {
@@ -87,8 +127,35 @@ impl Default for FixturePg {
         Self {
             min: default_pg_min(),
             max: default_pg_max(),
+            expect: FixturePgExpect::default(),
         }
     }
+}
+
+/// `[expect.failure]` block — declares which pipeline stage should
+/// fail and what the error message should contain.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExpectFailure {
+    /// Stage: `"parse"` | `"ast_resolution"` | `"order"` | `"lint_at_plan"`.
+    pub stage: String,
+    /// Substrings that must appear in the error message.
+    #[serde(default)]
+    pub stderr_contains: Vec<String>,
+}
+
+/// One `[[expect.intent]]` row.
+///
+/// Matches against a generated [`DestructiveIntent`] row in the plan.
+/// The assertion is mandatory for destructive fixtures (see L7).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExpectIntentRow {
+    /// Intent kind to match (e.g., `"drop_column"`). Case-insensitive substring match.
+    pub kind: String,
+    /// Fully-qualified target to match (e.g., `"app.users.legacy_id"`).
+    pub target: String,
+    /// Each string must appear as a substring in the generated intent's reason.
+    #[serde(default)]
+    pub reason_contains: Vec<String>,
 }
 
 /// `[expect]` block.
@@ -103,6 +170,44 @@ pub struct FixtureExpect {
     /// `[expect.apply]`.
     #[serde(default)]
     pub apply: ExpectApply,
+    /// `[expect.dep_graph]` — L8 dep-graph golden. Default-on.
+    #[serde(default)]
+    pub dep_graph: ExpectDepGraph,
+    /// `[[expect.intent]]` rows — L7 intent-shape assertion.
+    ///
+    /// Note: the top-level `[intent]` table in fixture.toml is a passthrough
+    /// written into the plan's `intent.toml`. These `[[expect.intent]]` rows
+    /// live under `[expect]` and are at a different TOML nesting level — no
+    /// collision.
+    #[serde(default, rename = "intent")]
+    pub intent: Vec<ExpectIntentRow>,
+    /// `[expect.failure]` — failure-fixture contract declaration.
+    #[serde(default)]
+    pub failure: Option<ExpectFailure>,
+}
+
+/// `[expect.dep_graph]` — L8 dep-graph golden.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExpectDepGraph {
+    /// Default true; opt out for trivial fixtures.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Golden file path; default `expected/dep-graph.dot`.
+    #[serde(default = "default_dep_graph_golden")]
+    pub golden: String,
+}
+
+fn default_dep_graph_golden() -> String {
+    "expected/dep-graph.dot".to_string()
+}
+
+impl Default for ExpectDepGraph {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            golden: default_dep_graph_golden(),
+        }
+    }
 }
 
 /// `[expect.diff]`.
@@ -111,6 +216,28 @@ pub struct ExpectDiff {
     /// Substrings that must appear in the rendered diff.
     #[serde(default)]
     pub contains: Vec<String>,
+}
+
+/// Per-PG-major structural overrides for `[expect.plan]`.
+///
+/// Used as values in `[expect.plan.per_pg]` — e.g.:
+/// ```toml
+/// [expect.plan.per_pg]
+/// pg15 = { steps = 2 }
+/// ```
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PerPgPlanOverride {
+    /// Override for `steps`.
+    pub steps: Option<usize>,
+    /// Override for `rewrites_used`.
+    #[serde(default)]
+    pub rewrites_used: Vec<String>,
+    /// Override for `touches_only`.
+    #[serde(default)]
+    pub touches_only: Vec<String>,
+    /// Override for `order`.
+    #[serde(default)]
+    pub order: Vec<String>,
 }
 
 /// `[expect.plan]`.
@@ -127,6 +254,27 @@ pub struct ExpectPlan {
     /// key → default-on. See `deserialize_golden`.
     #[serde(default = "default_golden", deserialize_with = "deserialize_golden")]
     pub golden: Option<String>,
+    /// L5 opt-out. Default true. Set to false for fixtures whose change
+    /// is itself a no-op (rare).
+    #[serde(default = "default_true")]
+    pub minimality: bool,
+    /// L6 input. Absent / empty = layer skipped.
+    #[serde(default)]
+    pub touches_only: Vec<String>,
+    /// L9 input. Each entry is `"A < B"` — when both targets appear in the
+    /// plan, A must precede B. Empty = layer skipped.
+    #[serde(default)]
+    pub order: Vec<String>,
+    /// Per-PG-major structural overrides.
+    ///
+    /// In `fixture.toml`:
+    /// ```toml
+    /// [expect.plan.per_pg]
+    /// pg15 = { steps = 2 }
+    /// pg17 = { steps = 4, rewrites_used = ["create_index_concurrent"] }
+    /// ```
+    #[serde(default)]
+    pub per_pg: std::collections::HashMap<String, PerPgPlanOverride>,
 }
 
 fn default_golden() -> Option<String> {
@@ -165,6 +313,10 @@ impl Default for ExpectPlan {
             steps: None,
             rewrites_used: Vec::new(),
             golden: default_golden(),
+            minimality: default_true(),
+            touches_only: Vec::new(),
+            order: Vec::new(),
+            per_pg: std::collections::HashMap::new(),
         }
     }
 }
@@ -229,6 +381,8 @@ pub struct Fixture {
     pub meta: FixtureMeta,
     /// `[pg]`.
     pub pg: FixturePg,
+    /// `[budget]` — per-fixture wall-clock cap.
+    pub budget: FixtureBudget,
     /// `[intent]` + `[planner]` passthroughs.
     pub passthrough: FixturePassthrough,
     /// `[expect]`.
@@ -240,6 +394,8 @@ struct RawFixtureToml {
     meta: FixtureMeta,
     #[serde(default)]
     pg: FixturePg,
+    #[serde(default)]
+    budget: FixtureBudget,
     #[serde(default)]
     intent: toml::Table,
     #[serde(default)]
@@ -265,12 +421,11 @@ impl Fixture {
                 }
             }
         })?;
-        let raw: RawFixtureToml = toml::from_str(&toml_bytes).map_err(|source| {
-            FixtureError::Toml {
+        let raw: RawFixtureToml =
+            toml::from_str(&toml_bytes).map_err(|source| FixtureError::Toml {
                 path: toml_path,
                 source,
-            }
-        })?;
+            })?;
 
         if raw.pg.min > raw.pg.max {
             return Err(FixtureError::BadVersionRange {
@@ -289,6 +444,7 @@ impl Fixture {
             after_sql,
             meta: raw.meta,
             pg: raw.pg,
+            budget: raw.budget,
             passthrough: FixturePassthrough {
                 intent: raw.intent,
                 planner: raw.planner,
@@ -389,7 +545,9 @@ max = 14
         );
         let err = Fixture::load(tmp.path()).unwrap_err();
         match err {
-            FixtureError::BadVersionRange { min: 17, max: 14, .. } => {}
+            FixtureError::BadVersionRange {
+                min: 17, max: 14, ..
+            } => {}
             other => panic!("wrong error: {other:?}"),
         }
     }
@@ -465,5 +623,71 @@ golden = true
         );
         let f = Fixture::load(tmp.path()).unwrap();
         assert_eq!(f.expect.plan.golden.as_deref(), Some("expected/plan.sql"));
+    }
+
+    #[test]
+    fn pg_expect_per_version_overrides() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_fixture(
+            tmp.path(),
+            r#"
+[meta]
+title = "per-version"
+
+[pg]
+min = 14
+max = 17
+
+[pg.expect]
+"15" = "skip"
+"16" = "failure"
+"#,
+            "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+            "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+        );
+        let f = Fixture::load(tmp.path()).unwrap();
+        assert_eq!(
+            f.pg.expect.0.get("15").map(String::as_str),
+            Some("skip"),
+            "pg15 → skip"
+        );
+        assert_eq!(
+            f.pg.expect.0.get("16").map(String::as_str),
+            Some("failure"),
+            "pg16 → failure"
+        );
+        assert_eq!(f.pg.expect.0.get("14"), None, "pg14 missing → None");
+    }
+
+    #[test]
+    fn expect_plan_per_pg_overrides() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_fixture(
+            tmp.path(),
+            r#"
+[meta]
+title = "per-pg-plan"
+
+[expect.plan]
+steps = 3
+golden = false
+
+[expect.plan.per_pg]
+pg15 = { steps = 2 }
+pg17 = { steps = 4, rewrites_used = ["create_index_concurrent"] }
+"#,
+            "",
+            "",
+        );
+        let f = Fixture::load(tmp.path()).unwrap();
+        assert_eq!(f.expect.plan.steps, Some(3), "base steps");
+        let pg15 = f.expect.plan.per_pg.get("pg15").expect("pg15 override");
+        assert_eq!(pg15.steps, Some(2), "pg15 steps override");
+        let pg17 = f.expect.plan.per_pg.get("pg17").expect("pg17 override");
+        assert_eq!(pg17.steps, Some(4), "pg17 steps override");
+        assert_eq!(
+            pg17.rewrites_used,
+            vec!["create_index_concurrent".to_string()]
+        );
     }
 }

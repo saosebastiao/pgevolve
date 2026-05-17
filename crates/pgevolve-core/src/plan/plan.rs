@@ -85,6 +85,22 @@ impl std::fmt::Display for PlanId {
 #[error("invalid plan hash: {0}")]
 pub struct InvalidPlanHash(pub String);
 
+/// One `[[lint_waiver]]` row in `intent.toml`. Acknowledges a `LintAtPlan`
+/// finding so that `pgevolve plan` can proceed despite the detected drift.
+///
+/// Waivers are matched against findings by (`rule`, `target`). The `target`
+/// must appear as a substring of the finding's message (findings always lead
+/// with the qualified table name, e.g. `"app.users: column position drift…"`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LintWaiver {
+    /// The lint rule ID being waived, e.g. `"column-position-drift"`.
+    pub rule: String,
+    /// The qualified target the finding pointed at, e.g. `"app.users"`.
+    pub target: String,
+    /// Free-text reason; surfaces in audit logs.
+    pub reason: String,
+}
+
 /// One destructive intent — a step whose execution requires the user to flip
 /// the `approved` flag in `intent.toml` before the executor will run it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,6 +147,15 @@ pub struct Plan {
     pub groups: Vec<TransactionGroup>,
     /// Destructive intents, one per destructive step, in step order.
     pub intents: Vec<DestructiveIntent>,
+    /// Lint waivers loaded from `[[lint_waiver]]` rows in `intent.toml`.
+    ///
+    /// When `pgevolve plan` detects unwaived `LintAtPlan` findings, it prints
+    /// an example `[[lint_waiver]]` row to stderr for the user to copy into
+    /// `intent.toml`; the field is omitted from serialized output when empty
+    /// (`skip_serializing_if = "Vec::is_empty"`). The field is populated when
+    /// reading back a plan directory whose `intent.toml` already contains
+    /// `[[lint_waiver]]` rows.
+    pub lint_waivers: Vec<LintWaiver>,
     /// Plan metadata.
     pub metadata: PlanMetadata,
 }
@@ -193,6 +218,7 @@ impl Plan {
             id,
             groups,
             intents,
+            lint_waivers: Vec::new(),
             metadata,
         }
     }
@@ -481,5 +507,72 @@ mod tests {
     fn plan_id_from_invalid_hex_errors() {
         assert!(PlanId::from_full_hex("not-hex").is_err());
         assert!(PlanId::from_full_hex(&"ab".repeat(10)).is_err()); // wrong length
+    }
+
+    // ---- LintWaiver round-trip (Task 8) ----
+
+    #[test]
+    fn lint_waiver_round_trips() {
+        let waiver = LintWaiver {
+            rule: "column-position-drift".to_string(),
+            target: "app.users".to_string(),
+            reason: "applied via rewrite-table; see PR #234".to_string(),
+        };
+
+        // Serialize a single waiver as TOML and confirm it parses back equal.
+        let toml_text = toml::to_string(&waiver).unwrap();
+        let back: LintWaiver = toml::from_str(&toml_text).unwrap();
+        assert_eq!(back, waiver);
+    }
+
+    #[test]
+    fn lint_waiver_round_trips_inside_intent_doc() {
+        // The deserializer must accept the full intent.toml shape (including
+        // [[intent]] rows) alongside [[lint_waiver]] rows. We use local structs
+        // that mirror the real IntentDocDe shape. Declared before any `let`
+        // statements to satisfy the `items_after_statements` lint.
+        #[derive(serde::Deserialize)]
+        #[allow(dead_code)]
+        struct IntentRow {
+            id: u32,
+            step: u32,
+            kind: String,
+            target: String,
+            reason: String,
+            #[serde(default)]
+            approved: bool,
+        }
+        #[derive(serde::Deserialize)]
+        #[allow(dead_code)]
+        struct Doc {
+            plan_id: String,
+            #[serde(default, rename = "intent")]
+            intents: Vec<IntentRow>,
+            #[serde(default, rename = "lint_waiver")]
+            lint_waivers: Vec<LintWaiver>,
+        }
+
+        // Simulate the shape that intent.toml produces: a document with a
+        // `plan_id` key and one or more `[[lint_waiver]]` array rows.
+        let toml_text = r#"
+plan_id = "abc1234567890abc"
+
+[[intent]]
+id = 1
+step = 2
+kind = "drop_table"
+target = "app.legacy"
+reason = "drop old table"
+approved = false
+
+[[lint_waiver]]
+rule = "column-position-drift"
+target = "app.users"
+reason = "rewrite-table applied; PR #234"
+"#;
+        let doc: Doc = toml::from_str(toml_text).unwrap();
+        assert_eq!(doc.lint_waivers.len(), 1);
+        assert_eq!(doc.lint_waivers[0].rule, "column-position-drift");
+        assert_eq!(doc.lint_waivers[0].target, "app.users");
     }
 }

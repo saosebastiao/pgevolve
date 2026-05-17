@@ -146,6 +146,45 @@ pub fn build_drop_graph(catalog: &Catalog) -> Graph<NodeId> {
     build_create_graph(catalog)
 }
 
+/// Where a dependency edge came from.
+///
+/// `Structural` edges are derived from the IR shape itself (schema←table,
+/// table←index, FK references, sequence ownership). They exist in v0.1.
+///
+/// `AstExtracted` edges are derived by walking the parsed AST of an object
+/// body (view body, function body, expression-index predicate, etc.).
+/// First produced in v0.2 view sub-spec.
+///
+/// `AstDeclared` edges come from explicit `-- @pgevolve dep:` directives
+/// that close the PL/pgSQL-dynamic-SQL gap (Decision 11). First produced
+/// in v0.2 function sub-spec.
+///
+/// Ordering: `Structural < AstExtracted < AstDeclared` — structural edges
+/// are tie-broken first in the Kahn min-heap to preserve v0.1 ordering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DepSource {
+    /// Derived from the IR shape; v0.1 default.
+    Structural,
+    /// Walked out of a parsed body AST.
+    AstExtracted,
+    /// Declared by a `-- @pgevolve dep:` directive in source SQL.
+    AstDeclared,
+}
+
+/// An edge in the dependency graph, with provenance metadata.
+///
+/// Convention matches the existing graph: `from` depends on `to`, so `to`
+/// must be created before `from`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DepEdge {
+    /// Dependent node (the one that needs `to` to exist first).
+    pub from: NodeId,
+    /// Dependency target.
+    pub to: NodeId,
+    /// Provenance of this edge.
+    pub source: DepSource,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

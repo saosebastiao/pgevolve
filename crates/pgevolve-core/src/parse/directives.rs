@@ -11,17 +11,37 @@
 //! directives (`step=`, `group=`, etc.) are emitted by the planner; we recognize
 //! and ignore them here so that round-tripping a plan back through the parser
 //! does not error.
+//!
+//! Additionally, `dep:` directives (Decision 11) declare explicit dependencies
+//! for PL/pgSQL bodies that reference objects via dynamic SQL:
+//!
+//! ```text
+//! -- @pgevolve dep: schema.object_name
+//! ```
 
 use std::path::Path;
 
 use crate::identifier::Identifier;
 use crate::parse::error::{ParseError, SourceLocation};
 
+/// A `-- @pgevolve dep: <qualified-name>` directive.
+///
+/// Closes the PL/pgSQL dynamic-SQL gap (Decision 11). For v0.1 the
+/// recognizer parses these but no consumer reads them yet; v0.2
+/// function sub-spec will populate `AstDeclared` edges from them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DepDirective {
+    /// Fully qualified target. Stored verbatim; the consumer resolves.
+    pub target: String,
+}
+
 /// Directives extracted from a single source file's leading comment block.
 #[derive(Debug, Clone, Default)]
 pub struct FileDirectives {
     /// Default schema for unqualified object names in this file.
     pub schema: Option<Identifier>,
+    /// Explicit dependency declarations for dynamic-SQL bodies.
+    pub deps: Vec<DepDirective>,
 }
 
 /// Plan-format directive keys that are silently ignored when reading source SQL.
@@ -63,6 +83,19 @@ pub fn extract_file_directives(sql: &str, file: &Path) -> Result<FileDirectives,
             continue;
         };
         let payload = payload.trim();
+        // `dep:` is a special form that takes the rest of the line as its
+        // target value, rather than using the `key=value` tokenization.
+        if let Some(target_raw) = payload.strip_prefix("dep:") {
+            let target = target_raw.trim().to_string();
+            if target.is_empty() {
+                return Err(ParseError::InvalidDirective {
+                    location: SourceLocation::new(file.into(), line_no + 1, 1),
+                    message: "dep: requires a non-empty target".into(),
+                });
+            }
+            out.deps.push(DepDirective { target });
+            continue;
+        }
         for kv in payload.split_whitespace() {
             let Some((k, v)) = kv.split_once('=') else {
                 return Err(ParseError::InvalidDirective {
@@ -208,5 +241,64 @@ mod tests {
     fn no_directive_returns_default() {
         let d = parse("-- just a comment\nCREATE TABLE x (id int);\n").unwrap();
         assert!(d.schema.is_none());
+    }
+
+    // --- dep: directive tests ---
+
+    #[test]
+    fn dep_directive_parses() {
+        let d = parse("-- @pgevolve dep: app.audit_log\n").unwrap();
+        assert_eq!(d.deps.len(), 1);
+        assert_eq!(d.deps[0].target, "app.audit_log");
+    }
+
+    #[test]
+    fn dep_directive_trims_whitespace() {
+        let d = parse("-- @pgevolve dep:   app.users.email   \n").unwrap();
+        assert_eq!(d.deps.len(), 1);
+        assert_eq!(d.deps[0].target, "app.users.email");
+    }
+
+    #[test]
+    fn multiple_dep_directives_collected() {
+        let sql = "-- @pgevolve dep: app.foo\n-- @pgevolve dep: app.bar\nSELECT 1;\n";
+        let d = parse(sql).unwrap();
+        let targets: Vec<&str> = d.deps.iter().map(|dep| dep.target.as_str()).collect();
+        assert!(
+            targets.contains(&"app.foo"),
+            "expected app.foo in {targets:?}"
+        );
+        assert!(
+            targets.contains(&"app.bar"),
+            "expected app.bar in {targets:?}"
+        );
+    }
+
+    #[test]
+    fn dep_directive_coexists_with_schema_directive() {
+        let sql = "-- @pgevolve schema=app\n-- @pgevolve dep: app.audit_log\n";
+        let d = parse(sql).unwrap();
+        assert_eq!(d.schema.as_ref().map(Identifier::as_str), Some("app"));
+        assert_eq!(d.deps.len(), 1);
+        assert_eq!(d.deps[0].target, "app.audit_log");
+    }
+
+    #[test]
+    fn dep_after_first_sql_is_ignored() {
+        // Directives after the first non-comment SQL line are not scanned.
+        let sql = "SELECT 1;\n-- @pgevolve dep: app.foo\n";
+        let d = parse(sql).unwrap();
+        assert!(d.deps.is_empty());
+    }
+
+    #[test]
+    fn dep_directive_with_empty_target_is_rejected() {
+        let err = parse("-- @pgevolve dep:\n").unwrap_err();
+        match err {
+            ParseError::InvalidDirective { message, .. } => {
+                assert!(message.contains("non-empty target"), "got: {message}");
+            }
+            other => panic!("expected InvalidDirective, got {other:?}"),
+        }
     }
 }

@@ -23,7 +23,30 @@ pub use version::PgVersion;
 
 mod assemble;
 
+use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
+
+/// Drift detected between the canonical catalog IR and the live Postgres state.
+///
+/// The catalog reader always surfaces all constraints and indexes in the IR
+/// regardless of their validation state. This report captures the *extra*
+/// observation that some of them are in a transitional / incomplete state:
+/// - `pending_validation`: constraints with `pg_constraint.convalidated = false`
+///   (added `NOT VALID`, never validated).
+/// - `invalid_indexes`: indexes with `pg_index.indisvalid = false` (e.g., a
+///   `CREATE INDEX CONCURRENTLY` that failed and left an INVALID index).
+///
+/// The differ consumes this report and emits [`crate::diff::change::Change::ValidateConstraint`]
+/// and [`crate::diff::change::Change::RecreateIndex`] to recover automatically.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DriftReport {
+    /// Constraints present in the catalog but with `convalidated = false`.
+    /// Identified by `(table_qname, constraint_name)`.
+    pub pending_validation: Vec<(QualifiedName, Identifier)>,
+    /// Indexes present in the catalog but with `indisvalid = false`.
+    /// Identified by index qname.
+    pub invalid_indexes: Vec<QualifiedName>,
+}
 
 /// Identifier for each catalog query the reader runs. Adapters dispatch on
 /// this enum to pick the per-version SQL string.
@@ -65,10 +88,15 @@ pub trait CatalogQuerier {
 }
 
 /// Read every catalog query, assemble the IR, and canonicalize.
+///
+/// Returns a `(Catalog, DriftReport)` tuple. The catalog contains all objects
+/// including those in transitional states (NOT VALID constraints, INVALID
+/// indexes). The drift report captures which objects are in those states so the
+/// differ can emit recovery changes.
 pub fn read_catalog(
     querier: &dyn CatalogQuerier,
     filter: &CatalogFilter,
-) -> Result<Catalog, CatalogError> {
+) -> Result<(Catalog, DriftReport), CatalogError> {
     let version = PgVersion::detect(querier)?;
     let managed: Vec<&str> = filter.managed_schemas_param();
 
@@ -90,8 +118,8 @@ pub fn read_catalog(
         sequences: sequences_rows,
         dependencies: dependencies_rows,
     };
-    let catalog = assemble::assemble(raw, filter)?;
-    Ok(catalog.canonicalize()?)
+    let (catalog, drift) = assemble::assemble(raw, filter)?;
+    Ok((catalog.canonicalize()?, drift))
 }
 
 #[cfg(test)]
@@ -130,8 +158,10 @@ mod tests {
             vec![Row::new().with("server_version_num", Value::Integer(160_000))],
         );
         let filter = CatalogFilter::new(vec![], vec![]).unwrap();
-        let cat = read_catalog(&m, &filter).expect("reads");
+        let (cat, drift) = read_catalog(&m, &filter).expect("reads");
         assert!(cat.tables.is_empty());
         assert!(cat.schemas.is_empty());
+        assert!(drift.pending_validation.is_empty());
+        assert!(drift.invalid_indexes.is_empty());
     }
 }

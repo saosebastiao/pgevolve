@@ -1,0 +1,7 @@
+[meta]
+title = "FK references a table not declared in source"
+authoring = "failure"
+
+[expect.failure]
+stage = "ast_resolution"
+stderr_contains = ["AST resolution failed", "app.users"]

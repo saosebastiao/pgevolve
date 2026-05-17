@@ -180,7 +180,9 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
             Change::AlterTable { .. }
             | Change::AlterSchema { .. }
             | Change::AlterSequence { .. }
-            | Change::ReplaceIndex { .. } => modifies.push(entry),
+            | Change::ReplaceIndex { .. }
+            | Change::ValidateConstraint { .. }
+            | Change::RecreateIndex { .. } => modifies.push(entry),
         }
     }
     (creates, modifies, drops)
@@ -200,12 +202,15 @@ fn change_node(change: &Change) -> NodeId {
             NodeId::Table(qname.clone())
         }
         Change::CreateIndex(i) => NodeId::Index(i.qname.clone()),
-        Change::DropIndex(qname) => NodeId::Index(qname.clone()),
+        // RecreateIndex maps to the same index node as DropIndex.
+        Change::DropIndex(qname) | Change::RecreateIndex { qname } => NodeId::Index(qname.clone()),
         Change::ReplaceIndex { to, .. } => NodeId::Index(to.qname.clone()),
         Change::CreateSequence(s) => NodeId::Sequence(s.qname.clone()),
         Change::DropSequence(qname) | Change::AlterSequence { qname, .. } => {
             NodeId::Sequence(qname.clone())
         }
+        // Drift-recovery changes: map to the table they affect.
+        Change::ValidateConstraint { table, .. } => NodeId::Table(table.clone()),
     }
 }
 

@@ -1659,6 +1659,7 @@ name = "pgevolve"
 version = "0.1.0-dev"
 dependencies = [
  "anyhow",
+ "async-trait",
  "blake3",
  "clap",
  "hex",
@@ -1730,6 +1731,7 @@ name = "pgevolve-testkit"
 version = "0.1.0-dev"
 dependencies = [
  "anyhow",
+ "async-trait",
  "pgevolve-core",
  "pretty_assertions",
  "proptest",
@@ -3621,6 +3623,7 @@ dependencies = [
  "pgevolve-conformance",
  "pgevolve-core",
  "pgevolve-testkit",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",

@@ -37,7 +37,11 @@ pub async fn build_plan(
     dir: &Path,
 ) -> Result<Plan> {
     let identity = pgevolve::compute_target_identity(client).await?;
-    let changes = pgevolve_core::diff::diff(target, source);
+    let changes = pgevolve_core::diff::diff(
+        target,
+        source,
+        &pgevolve_core::catalog::DriftReport::default(),
+    );
     let ordered = order(target, source, changes).map_err(|e| anyhow!("plan order: {e}"))?;
     let policy = PlannerPolicy {
         strategy: Strategy::Online,
@@ -82,7 +86,8 @@ pub async fn apply_diff(
     let filter = catalog_filter(managed_schemas)?;
     let overrides = ApplyOverrides {
         allow_different_target: false,
-        allow_drift: true, // preflight drift recheck stub bypasses
+        allow_drift: true,         // preflight drift recheck stub bypasses
+        allow_unwaived_lint: true, // test plans have no lint waivers
         actor: Some("chaos-harness".into()),
         abort_after_step,
     };
@@ -97,7 +102,7 @@ pub async fn introspect(
     let client = pg.connect().await?;
     let querier = PgCatalogQuerier::new(client)?;
     let filter = catalog_filter(managed_schemas)?;
-    let catalog = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+    let (catalog, _drift) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
         .await
         .map_err(|e| anyhow!("join: {e}"))?
         .map_err(|e| anyhow!("read_catalog: {e}"))?;

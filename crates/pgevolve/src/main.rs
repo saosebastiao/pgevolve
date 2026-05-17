@@ -58,6 +58,18 @@ fn run(cli: Cli) -> Result<u8, anyhow::Error> {
                 "`pgevolve dump` is deferred to v0.1.1 — it needs an IR→SQL emitter",
             )),
             Command::Bootstrap(args) => commands::bootstrap::run(args, &cfg).await,
+            Command::Doctor { db, url } => commands::doctor::run(&cfg, &db, url.as_deref()).await,
+            Command::RewriteTable {
+                qname,
+                db,
+                url: _,
+                confirm_rewrite,
+            } => commands::rewrite_table::run(&qname, &db, confirm_rewrite),
+            Command::Graph {
+                graph_format,
+                out,
+                plan,
+            } => commands::graph::run(&cfg, graph_format, out, plan.as_ref()),
         }
     })?;
 

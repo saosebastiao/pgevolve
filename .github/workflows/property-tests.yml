@@ -28,3 +28,18 @@ jobs:
         env:
           PGEVOLVE_TEST_PG_VERSION: ${{ matrix.pg }}
           PROPTEST_CASES: "200"
+      - name: Auto-capture property-test failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          for regr in crates/*/proptest-regressions/*.txt; do
+            [ -f "$regr" ] || continue
+            seed=$(head -1 "$regr" | awk '{print $1}')
+            [ -n "$seed" ] || continue
+            # Resolve or create an issue for this failure (manual triage may
+            # be needed; for now, just log the seed so a maintainer can run
+            # `cargo xtask capture-regression --seed X --issue Y` manually).
+            echo "::warning::Property-test failure with seed $seed — run 'cargo xtask capture-regression --seed $seed --issue <n>' to capture"
+          done

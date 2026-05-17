@@ -164,8 +164,8 @@ pub fn check_golden(
 mod tests {
     use super::*;
     use crate::fixture::{
-        ExpectApply, ExpectDiff, ExpectPlan, FixtureExpect, FixtureMeta, FixturePassthrough,
-        FixturePg,
+        ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureBudget, FixtureExpect,
+        FixtureMeta, FixturePassthrough, FixturePg,
     };
     use std::path::PathBuf;
 
@@ -178,23 +178,26 @@ mod tests {
                 title: "test".into(),
                 spec_refs: vec![],
                 issue: None,
+                authoring: "objects".into(),
             },
             pg: FixturePg::default(),
+            budget: FixtureBudget::default(),
             passthrough: FixturePassthrough::default(),
             expect: FixtureExpect {
                 diff: ExpectDiff::default(),
                 plan: expect_plan,
                 apply: ExpectApply::default(),
+                dep_graph: ExpectDepGraph::default(),
+                intent: Vec::new(),
+                failure: None,
             },
         }
     }
 
     #[test]
     fn step_count_mismatch_is_reported() {
-        let before =
-            "-- @pgevolve schema=app\nCREATE SCHEMA app;\nCREATE TABLE app.t (id bigint NOT NULL);\n";
-        let after =
-            "-- @pgevolve schema=app\nCREATE SCHEMA app;\nCREATE TABLE app.t (id bigint NOT NULL, name text);\n";
+        let before = "-- @pgevolve schema=app\nCREATE SCHEMA app;\nCREATE TABLE app.t (id bigint NOT NULL);\n";
+        let after = "-- @pgevolve schema=app\nCREATE SCHEMA app;\nCREATE TABLE app.t (id bigint NOT NULL, name text);\n";
         let f = fixture(
             before,
             after,
@@ -202,6 +205,10 @@ mod tests {
                 steps: Some(999),
                 rewrites_used: vec![],
                 golden: None,
+                minimality: true,
+                touches_only: vec![],
+                order: vec![],
+                per_pg: std::collections::HashMap::new(),
             },
         );
         let out = check(&f).unwrap();
@@ -220,6 +227,10 @@ mod tests {
                 steps: None,
                 rewrites_used: vec!["totally_made_up_rewrite".into()],
                 golden: None,
+                minimality: true,
+                touches_only: vec![],
+                order: vec![],
+                per_pg: std::collections::HashMap::new(),
             },
         );
         let out = check(&f).unwrap();
@@ -232,8 +243,8 @@ mod tests {
 mod golden_tests {
     use super::*;
     use crate::fixture::{
-        ExpectApply, ExpectDiff, ExpectPlan, FixtureExpect, FixtureMeta, FixturePassthrough,
-        FixturePg,
+        ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureBudget, FixtureExpect,
+        FixtureMeta, FixturePassthrough, FixturePg,
     };
     use std::path::PathBuf;
 
@@ -248,8 +259,10 @@ mod golden_tests {
                 title: "g".into(),
                 spec_refs: vec![],
                 issue: None,
+                authoring: "objects".into(),
             },
             pg: FixturePg::default(),
+            budget: FixtureBudget::default(),
             passthrough: FixturePassthrough::default(),
             expect: FixtureExpect {
                 diff: ExpectDiff::default(),
@@ -257,8 +270,15 @@ mod golden_tests {
                     steps: None,
                     rewrites_used: vec![],
                     golden: Some("expected/plan.sql".into()),
+                    minimality: true,
+                    touches_only: vec![],
+                    order: vec![],
+                    per_pg: std::collections::HashMap::new(),
                 },
                 apply: ExpectApply::default(),
+                dep_graph: ExpectDepGraph::default(),
+                intent: Vec::new(),
+                failure: None,
             },
         }
     }

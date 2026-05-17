@@ -10,6 +10,12 @@ pub enum Severity {
     Error,
     /// A best-practice violation; does not fail the lint.
     Warning,
+    /// Drift / divergence detected at plan time that pgevolve declines
+    /// to act on without explicit user instruction. By default, plan
+    /// fails when any `LintAtPlan` finding is present without a matching
+    /// `[[lint_waiver]]` row in `intent.toml`. See arch spec Decisions
+    /// 13–14.
+    LintAtPlan,
 }
 
 impl std::fmt::Display for Severity {
@@ -17,6 +23,7 @@ impl std::fmt::Display for Severity {
         f.write_str(match self {
             Self::Error => "error",
             Self::Warning => "warning",
+            Self::LintAtPlan => "lint-at-plan",
         })
     }
 }
@@ -49,6 +56,16 @@ impl Finding {
     pub fn warning(rule: &'static str, message: impl Into<String>) -> Self {
         Self {
             severity: Severity::Warning,
+            rule,
+            message: message.into(),
+            location: None,
+        }
+    }
+
+    /// Build a lint-at-plan-severity finding.
+    pub fn lint_at_plan(rule: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::LintAtPlan,
             rule,
             message: message.into(),
             location: None,

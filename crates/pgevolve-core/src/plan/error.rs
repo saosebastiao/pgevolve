@@ -25,4 +25,39 @@ pub enum PlanError {
     /// An internal invariant was violated.
     #[error("internal error: {0}")]
     Internal(String),
+
+    /// Body-derived cycle in the dependency graph.
+    ///
+    /// FK cycles between tables are auto-extracted into deferred FK adds
+    /// (`UnbreakableCycle` is a different error). Body-derived cycles —
+    /// view A queries view B that queries view A — have no general
+    /// mechanical fix and surface here. User must edit source to break
+    /// the cycle.
+    #[error("body-derived dependency cycle: {}", format_node_chain(.nodes))]
+    BodyCycle {
+        /// Nodes participating in the cycle, in graph-walk order.
+        nodes: Vec<crate::plan::edges::NodeId>,
+    },
+
+    /// An AST resolution error escalated to plan time (e.g., a sub-spec
+    /// resolver runs after the initial parse pass).
+    #[error("AST resolution failed during planning: {0}")]
+    AstResolution(String),
+}
+
+fn format_node_chain(nodes: &[crate::plan::edges::NodeId]) -> String {
+    nodes
+        .iter()
+        .map(render_node)
+        .collect::<Vec<_>>()
+        .join(" \u{2192} ")
+}
+
+fn render_node(n: &crate::plan::edges::NodeId) -> String {
+    use crate::plan::edges::NodeId::{Constraint, Index, Schema, Sequence, Table};
+    match n {
+        Schema(s) => s.as_str().to_string(),
+        Table(q) | Index(q) | Sequence(q) => q.to_string(),
+        Constraint { table, name } => format!("{}.{}", table, name.as_str()),
+    }
 }

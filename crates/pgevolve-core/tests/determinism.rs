@@ -56,7 +56,11 @@ fn render_plan_once() -> String {
     std::fs::write(after_dir.path().join("after.sql"), AFTER_SQL).unwrap();
     let source = parse_directory(after_dir.path(), &[]).expect("parse after");
 
-    let changes = diff(&target, &source);
+    let changes = diff(
+        &target,
+        &source,
+        &pgevolve_core::catalog::DriftReport::default(),
+    );
     let ordered = order(&target, &source, changes).expect("order");
     let policy = PlannerPolicy {
         strategy: Strategy::Online,

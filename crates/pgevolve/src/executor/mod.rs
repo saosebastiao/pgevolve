@@ -33,6 +33,15 @@ pub struct ApplyOverrides {
     /// Skip the drift recheck. Use only when intentionally re-applying after
     /// out-of-band changes.
     pub allow_drift: bool,
+    /// When true, the apply path bypasses the `check_lint_waivers` preflight.
+    /// Set internally by:
+    /// - `validate --shadow` (shadow plans have no real drift to waive)
+    /// - test harnesses (legacy tests predate the waiver mechanism)
+    ///
+    /// There is no CLI flag to set this from a user-facing apply invocation.
+    /// If you find yourself needing one, the right answer is probably to
+    /// re-plan with an appropriate `[[lint_waiver]]` rather than bypass.
+    pub allow_unwaived_lint: bool,
     /// Override the actor string written to `pgevolve.apply_log`.
     pub actor: Option<String>,
     /// Testkit / chaos hook: if `Some(n)`, the executor aborts cleanly after
@@ -82,6 +91,7 @@ pub async fn apply(
     let preflight = PreflightOverrides {
         allow_different_target: overrides.allow_different_target,
         allow_drift: overrides.allow_drift,
+        allow_unwaived_lint: overrides.allow_unwaived_lint,
     };
     let preflight_result = run_preflight(client, &plan, filter, preflight).await;
     if let Err(e) = preflight_result {

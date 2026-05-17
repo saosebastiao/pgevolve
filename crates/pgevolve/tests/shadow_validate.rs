@@ -51,7 +51,7 @@ strategy = "online"
 url = "postgres://localhost/unused"
 
 [shadow]
-provider         = "testcontainers"
+backend          = "testcontainers"
 postgres_version = "{pg}"
 "#,
     )

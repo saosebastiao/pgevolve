@@ -64,4 +64,15 @@ pub enum ApplyError {
         /// Step at which the abort fired.
         step_no: u32,
     },
+
+    /// One or more `LintAtPlan` findings lack a matching `[[lint_waiver]]` in
+    /// `intent.toml`. The plan cannot be applied until waivers are added or the
+    /// source is corrected.
+    #[error("unwaived LintAtPlan findings at apply time: {count} finding(s)")]
+    LintWaiverMissing {
+        /// Number of unwaived findings.
+        count: usize,
+        /// Brief listing for diagnostics: `(rule, target)` per finding.
+        details: Vec<(String, String)>,
+    },
 }

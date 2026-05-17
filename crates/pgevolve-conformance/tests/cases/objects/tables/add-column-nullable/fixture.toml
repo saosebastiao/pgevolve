@@ -1,6 +1,7 @@
 [meta]
 title     = "ADD COLUMN nullable — proof of life"
 spec_refs = ["objects.column.add"]
+authoring = "objects"
 
 [pg]
 min = 14

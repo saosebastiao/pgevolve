@@ -29,7 +29,7 @@ pub struct Cli {
     pub cmd: Command,
 }
 
-/// One of the nine v0.1 commands.
+/// The full set of pgevolve commands (v0.1 surface + v0.2 readiness additions).
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Scaffold a new pgevolve project.
@@ -50,6 +50,53 @@ pub enum Command {
     Dump(DumpArgs),
     /// Install or upgrade the `pgevolve` metadata schema.
     Bootstrap(BootstrapArgs),
+    /// Report project health: bootstrap status, drift, recent failures.
+    Doctor {
+        /// Environment name (looked up in `[environments.<name>]`).
+        #[arg(long)]
+        db: String,
+        /// Override the resolved DSN.
+        #[arg(long)]
+        url: Option<String>,
+    },
+    /// Destructive table rewrite (v0.2 skeleton; implementation lands later).
+    RewriteTable {
+        /// Qualified table name (e.g., `app.users`).
+        qname: String,
+        /// Environment name.
+        #[arg(long)]
+        db: String,
+        /// Override the resolved DSN.
+        #[arg(long)]
+        url: Option<String>,
+        /// Required confirmation — without it the command refuses to run.
+        #[arg(long)]
+        confirm_rewrite: bool,
+    },
+    /// Render the dep graph (name-derived + AST-derived edges).
+    Graph {
+        /// Graph output format (dot or mermaid). Note: the global `--format`
+        /// flag is for human/json/sql output; this flag controls the graph
+        /// renderer.
+        #[arg(long = "graph-format", value_enum, default_value_t = GraphFormat::Dot)]
+        graph_format: GraphFormat,
+        /// Write to file instead of stdout.
+        #[arg(short = 'o', long)]
+        out: Option<PathBuf>,
+        /// Plan directory to render the post-plan dep graph. When absent,
+        /// renders the current source graph.
+        #[arg(long)]
+        plan: Option<PathBuf>,
+    },
+}
+
+/// Output format for `pgevolve graph`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum GraphFormat {
+    /// DOT format (for use with graphviz).
+    Dot,
+    /// Mermaid graph format.
+    Mermaid,
 }
 
 /// Top-level output format.
@@ -84,6 +131,13 @@ pub struct ValidateArgs {
     /// Round-trip the source through an ephemeral PG. Phase 12 wires the logic.
     #[arg(long)]
     pub shadow: bool,
+    /// Cross-check the source IR against an ephemeral or DSN-supplied
+    /// shadow Postgres after apply. Optional; arch spec Decision 12.
+    #[arg(long)]
+    pub shadow_validate: bool,
+    /// When --shadow-validate is set, treat warnings as errors.
+    #[arg(long, requires = "shadow_validate")]
+    pub shadow_strict: bool,
 }
 
 /// `diff` arguments.
@@ -95,6 +149,13 @@ pub struct DiffArgs {
     /// Override the resolved DSN.
     #[arg(long)]
     pub url: Option<String>,
+    /// Cross-check the source IR against an ephemeral or DSN-supplied
+    /// shadow Postgres after apply. Optional; arch spec Decision 12.
+    #[arg(long)]
+    pub shadow_validate: bool,
+    /// When --shadow-validate is set, treat warnings as errors.
+    #[arg(long, requires = "shadow_validate")]
+    pub shadow_strict: bool,
 }
 
 /// `plan` arguments.
@@ -109,6 +170,13 @@ pub struct PlanArgs {
     /// Output plan directory. Defaults to `<plan_dir>/<YYYY-MM-DD>-<id>`.
     #[arg(short, long)]
     pub output: Option<PathBuf>,
+    /// Cross-check the source IR against an ephemeral or DSN-supplied
+    /// shadow Postgres after apply. Optional; arch spec Decision 12.
+    #[arg(long)]
+    pub shadow_validate: bool,
+    /// When --shadow-validate is set, treat warnings as errors.
+    #[arg(long, requires = "shadow_validate")]
+    pub shadow_strict: bool,
 }
 
 /// `apply` arguments.

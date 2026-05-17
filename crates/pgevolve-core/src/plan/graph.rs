@@ -10,12 +10,17 @@
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use std::hash::Hash;
 
+use crate::plan::edges::{DepEdge, DepSource, NodeId};
+
 /// A directed graph over nodes of type `N`.
 #[derive(Debug, Clone)]
 pub struct Graph<N> {
     nodes: BTreeSet<N>,
     /// `edges[A]` = the set of `B` such that A depends on B.
     edges: BTreeMap<N, BTreeSet<N>>,
+    /// Per-edge provenance. Absent entries default to [`DepSource::Structural`].
+    /// Internal only; not exposed through the public API.
+    edge_sources: BTreeMap<(N, N), DepSource>,
 }
 
 /// A cycle reported by [`Graph::topological_sort`] / [`Graph::reverse_topological_sort`].
@@ -43,6 +48,7 @@ where
         Self {
             nodes: BTreeSet::new(),
             edges: BTreeMap::new(),
+            edge_sources: BTreeMap::new(),
         }
     }
 
@@ -53,13 +59,28 @@ where
 
     /// Add an edge `from -> to`, meaning `from` depends on `to`.
     /// Both endpoints are added as nodes if not already present.
+    ///
+    /// The edge carries no explicit provenance; `dep_edges()` will report it as
+    /// [`DepSource::Structural`] by default. Use `add_dep_edge` on
+    /// `Graph<NodeId>` to record explicit provenance for v0.2 edges.
     pub fn add_edge(&mut self, from: N, to: N) {
+        self.add_edge_internal(from, to);
+    }
+
+    /// Internal: register adjacency without touching `edge_sources`.
+    fn add_edge_internal(&mut self, from: N, to: N) {
         self.nodes.insert(from.clone());
         self.nodes.insert(to.clone());
         self.edges.entry(from).or_default().insert(to);
     }
 
     /// Remove an edge `from -> to`. No-op if absent.
+    ///
+    /// **Does not** touch `edge_sources`. If the edge was inserted via
+    /// [`Graph::add_dep_edge`] on a `Graph<NodeId>`, the stale provenance entry
+    /// will survive and be returned by [`Graph::dep_edges`] if the edge is
+    /// re-added later. Use [`Graph::remove_dep_edge`] instead when provenance
+    /// correctness matters.
     pub fn remove_edge(&mut self, from: &N, to: &N) {
         if let Some(set) = self.edges.get_mut(from) {
             set.remove(to);
@@ -147,6 +168,60 @@ where
         let mut v = self.topological_sort()?;
         v.reverse();
         Ok(v)
+    }
+
+    /// Iterate all edges as `(from, to)` pairs in ascending `(from, to)` order by `Ord`.
+    pub fn edges(&self) -> impl Iterator<Item = (&N, &N)> {
+        self.edges
+            .iter()
+            .flat_map(|(from, targets)| targets.iter().map(move |to| (from, to)))
+    }
+}
+
+impl Graph<NodeId> {
+    /// Add an edge `from -> to` and record its [`DepSource`].
+    ///
+    /// If an edge between these two nodes already exists (inserted via
+    /// [`Graph::add_edge`] or a prior call to this method), the source is
+    /// overwritten with the new value. Both endpoints are added as nodes if
+    /// not already present.
+    ///
+    /// Use this instead of [`Graph::add_edge`] when populating v0.2 edges from
+    /// AST walks (`AstExtracted`) or `-- @pgevolve dep:` directives (`AstDeclared`).
+    pub fn add_dep_edge(&mut self, from: NodeId, to: NodeId, source: DepSource) {
+        self.add_edge_internal(from.clone(), to.clone());
+        self.edge_sources.insert((from, to), source);
+    }
+
+    /// Remove an edge `from -> to` and its [`DepSource`] from the source map.
+    /// No-op if the adjacency (or source entry) is absent.
+    ///
+    /// Prefer this over [`Graph::remove_edge`] whenever the edge may have been
+    /// inserted via [`Self::add_dep_edge`]; it prevents stale provenance from
+    /// surviving a remove-then-re-add cycle.
+    pub fn remove_dep_edge(&mut self, from: &NodeId, to: &NodeId) {
+        self.remove_edge(from, to);
+        self.edge_sources.remove(&(from.clone(), to.clone()));
+    }
+
+    /// Iterate edges as [`DepEdge`] records with per-edge provenance.
+    ///
+    /// Edges inserted via [`Self::add_dep_edge`] carry their recorded
+    /// [`DepSource`]. Edges inserted via [`Graph::add_edge`] default to
+    /// [`DepSource::Structural`], preserving v0.1 behaviour.
+    pub fn dep_edges(&self) -> impl Iterator<Item = DepEdge> + '_ {
+        self.edges().map(|(from, to)| {
+            let source = self
+                .edge_sources
+                .get(&(from.clone(), to.clone()))
+                .copied()
+                .unwrap_or(DepSource::Structural);
+            DepEdge {
+                from: from.clone(),
+                to: to.clone(),
+                source,
+            }
+        })
     }
 }
 
@@ -282,5 +357,19 @@ mod tests {
         g.add_edge("a", "m");
         let deps: Vec<&&str> = g.dependencies_of(&"a").collect();
         assert_eq!(deps, vec![&"b", &"m", &"z"]);
+    }
+
+    #[test]
+    fn edges_yields_correct_pair_for_single_edge() {
+        // Build a Graph<NodeId> with one edge and assert that edges() returns
+        // exactly that (from, to) pair. add_edge registers both endpoints as
+        // nodes, so no prior add_node calls are needed.
+        use crate::identifier::Identifier;
+        let mut g: Graph<NodeId> = Graph::new();
+        let schema_a = NodeId::Schema(Identifier::from_unquoted("a").unwrap());
+        let schema_b = NodeId::Schema(Identifier::from_unquoted("b").unwrap());
+        g.add_edge(schema_a.clone(), schema_b.clone());
+        let pairs: Vec<(&NodeId, &NodeId)> = g.edges().collect();
+        assert_eq!(pairs, vec![(&schema_a, &schema_b)]);
     }
 }

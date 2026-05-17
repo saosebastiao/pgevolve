@@ -27,6 +27,7 @@ pub async fn run(args: ApplyArgs, cfg: &PgevolveConfig) -> Result<i32> {
     let overrides = ApplyOverrides {
         allow_different_target: args.allow_different_target,
         allow_drift: true,
+        allow_unwaived_lint: false,
         actor: None,
         abort_after_step: None,
     };
@@ -41,7 +42,8 @@ pub async fn run(args: ApplyArgs, cfg: &PgevolveConfig) -> Result<i32> {
             Ok(match e {
                 ApplyError::TargetIdentityMismatch { .. }
                 | ApplyError::DriftDetected(_)
-                | ApplyError::UnapprovedIntents { .. } => 2,
+                | ApplyError::UnapprovedIntents { .. }
+                | ApplyError::LintWaiverMissing { .. } => 2,
                 ApplyError::LockHeld | ApplyError::StepFailed { .. } => 3,
                 _ => return Err(e.into()),
             })

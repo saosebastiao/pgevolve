@@ -1,0 +1,39 @@
+# Local Postgres instances for fast test iteration.
+#
+# Usage:
+#   docker compose -f dev/docker-compose.pg.yml up -d
+#
+#   PGEVOLVE_TEST_PG_MODE=compose \
+#     PGEVOLVE_TEST_PG_14_URL=postgres://postgres:postgres@localhost:54214/postgres \
+#     PGEVOLVE_TEST_PG_15_URL=postgres://postgres:postgres@localhost:54215/postgres \
+#     PGEVOLVE_TEST_PG_16_URL=postgres://postgres:postgres@localhost:54216/postgres \
+#     PGEVOLVE_TEST_PG_17_URL=postgres://postgres:postgres@localhost:54217/postgres \
+#     cargo test
+#
+#   docker compose -f dev/docker-compose.pg.yml down  # when done
+version: "3.8"
+services:
+  pg14:
+    image: postgres:14
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports: ["54214:5432"]
+  pg15:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports: ["54215:5432"]
+  pg16:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports: ["54216:5432"]
+  pg17:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports: ["54217:5432"]

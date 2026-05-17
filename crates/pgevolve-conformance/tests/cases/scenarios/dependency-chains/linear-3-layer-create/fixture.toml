@@ -1,0 +1,16 @@
+[meta]
+title = "scenarios/dependency-chains/linear-3-layer-create — placeholder pending v0.2 function/MV/view sub-specs"
+authoring = "scenarios"
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+steps = 0
+order = [
+  "app.fns.make_summary < app.mvs.summary",
+  "app.mvs.summary < app.views.summary_dashboard",
+]
+
+[expect.dep_graph]
+enabled = false
