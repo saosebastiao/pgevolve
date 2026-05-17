@@ -12,10 +12,11 @@ strict transactional and audit guarantees.
 
 ```mermaid
 flowchart TD
-    SQL["schema/*.sql"] -- parse --> Source["Catalog (source)"]
-    DB[("live Postgres")] -- introspect --> Target["Catalog (target)"]
+    SQL["schema/*.sql"] -- parse --> AST["AST"]
+    AST -- "ast_resolution" --> Source["Catalog (source)"]
+    DB[("live Postgres")] -- introspect --> CatPair["Catalog (target) + DriftReport"]
     Source --> Diff{{diff}}
-    Target --> Diff
+    CatPair --> Diff
     Diff --> CS["ChangeSet"]
     CS -- order --> OCS["OrderedChangeSet"]
     OCS -- rewrite --> Steps["Vec&lt;RawStep&gt;"]
@@ -44,12 +45,12 @@ crates/
 | Module | Responsibility |
 |---|---|
 | `identifier` | `Identifier` (single SQL name) and `QualifiedName` (`schema.name`). Quoting / validation. |
-| `ir/` | The data model. `Catalog`, `Schema`, `Table`, `Column`, `Index`, `Sequence`, `Constraint`, plus `ColumnType` (canonical type form), `DefaultExpr`, `NormalizedExpr`. |
-| `parse/` | Source-side SQL → IR. Wraps `pg_query`. |
-| `catalog/` | Live-PG → IR. Defines `CatalogQuerier` (sync trait) and the per-version SQL strings; the actual `tokio_postgres` adapter lives in the binary. |
-| `diff/` | `Catalog × Catalog → ChangeSet`. Pair-by-qname semantics; destructiveness classification. |
-| `plan/` | The planner: order → rewrite → group → write/read. Plan format and `PlanId` hashing. |
-| `lint/` | Universal rules + four built-in layout profiles + custom-profile regex+assertion mechanism. |
+| `ir/` | The data model. `Catalog`, `Schema`, `Table`, `Column`, `Index`, `Sequence`, `Constraint`, plus `ColumnType` (canonical type form), `DefaultExpr`, `NormalizedExpr`, `NormalizedBody`. |
+| `parse/` | Source-side SQL → IR. Wraps `pg_query`. Includes `ast_resolution` (post-parse structural validation pass) and `normalize_body` (statement-scope canonicalizer). |
+| `catalog/` | Live-PG → IR. Defines `CatalogQuerier` (sync trait) and the per-version SQL strings; returns `(Catalog, DriftReport)` capturing NOT VALID constraints and INVALID indexes. The actual `tokio_postgres` adapter lives in the binary. |
+| `diff/` | `Catalog × Catalog → ChangeSet`. Pair-by-qname semantics; destructiveness classification. Includes `Change::ValidateConstraint` and `Change::RecreateIndex` for drift recovery. |
+| `plan/` | The planner: order → rewrite → group → write/read. Plan format and `PlanId` hashing. `plan::edges` holds `DepEdge` / `DepSource` for typed dep provenance. |
+| `lint/` | Universal rules + four built-in layout profiles + custom-profile regex+assertion mechanism. Includes `Severity::LintAtPlan` tier and `column-position-drift` rule. |
 
 **Invariant:** `pgevolve-core` does no I/O at the type level. The only
 filesystem walk is `parse::parse_directory`, which is the explicit
@@ -60,12 +61,12 @@ entry point. Everything else is library-style data manipulation.
 | Module | Responsibility |
 |---|---|
 | `cli` | clap subcommand definitions. |
-| `commands/` | One file per subcommand. `init`, `lint`, `validate`, `diff`, `plan`, `apply`, `status`, `bootstrap`, `dump` (stub). |
-| `config` | `pgevolve.toml` loader + validation. |
+| `commands/` | One file per subcommand. `init`, `lint`, `validate`, `diff`, `plan`, `apply`, `status`, `bootstrap`, `dump` (stub), `graph`, `doctor`, `rewrite_table` (skeleton). |
+| `config` | `pgevolve.toml` loader + validation. Includes `[shadow]` block with `backend` / `url` / `extensions` fields. |
 | `connection` | DSN resolution (CLI > env.url > env.url_env > `PGEVOLVE_DATABASE_URL` > libpq env). |
-| `executor/` | The apply loop: bootstrap, lock, target-identity, preflight, audit, execute, status. |
+| `executor/` | The apply loop: bootstrap, lock, target-identity, preflight (checks `[[lint_waiver]]` well-formedness), audit, execute, status. |
 | `pg_querier` | `tokio_postgres`-backed `CatalogQuerier`. Mirrors the testkit one to avoid pulling `testcontainers` into the binary. |
-| `shadow_pg` | testcontainers wrapper used by `validate --shadow`. |
+| `shadow/` | `ShadowBackend` trait + `testcontainers` and `dsn` impls. Backend selected via `[shadow].backend` in `pgevolve.toml`. Replaces the old `shadow_pg.rs` module. |
 | `target_identity` | BLAKE3 hash of `(current_database, host, port, cluster_name, system_identifier)`. |
 
 ### `pgevolve-testkit` — internal-only test infra
@@ -95,7 +96,12 @@ fixtures against ephemeral containers and writing canonical JSON.
    `ALTER TABLE`, `COMMENT ON`).
 4. Builds an IR object per statement.
 5. Tracks every object's `SourceLocation` for the linter.
-6. Calls `Catalog::canonicalize` at the end (sorts collections, rejects
+6. **AST resolution pass** (`parse::ast_resolution`): runs between
+   parse and canonicalize; validates structural references (FKs,
+   default sequences) and surfaces source-located errors. v0.1 uses
+   structural edges only; v0.2 view/function sub-specs will add
+   `AstExtracted` and `AstDeclared` provenance.
+7. Calls `Catalog::canonicalize` at the end (sorts collections, rejects
    duplicate qnames).
 
 Output: a `Catalog`. Optionally, with
@@ -109,8 +115,13 @@ SourceLocation>)` for the linter.
 1. Detects the server version (PG 14/15/16/17).
 2. For each `CatalogQuery` kind (Schemas, Tables, Columns, etc.) picks
    the per-version SQL string and runs it via the querier.
-3. Decodes rows into typed `Value`s.
+3. Decodes rows into typed `Value`s, including `convalidated` (NOT
+   VALID constraints) and `indisvalid` (INVALID indexes).
 4. Assembles a `Catalog` and canonicalizes.
+5. Returns a `DriftReport` alongside the `Catalog` capturing NOT VALID
+   constraints (`Change::ValidateConstraint`) and INVALID indexes
+   (`Change::RecreateIndex`). These recover automatically from
+   partial-apply states.
 
 The `CatalogQuerier` is a synchronous trait — the binary's
 `PgCatalogQuerier` bridges to async `tokio_postgres` via
@@ -219,6 +230,46 @@ aren't byte-deterministic across versions.
    audit each step's transition.
 7. `close_apply_log` — set status `succeeded` / `failed` / `aborted`.
 8. `release_lock` — clear the lock row + advisory unlock.
+
+### v0.2 readiness additions
+
+The following types and modules were added as foundation for v0.2
+sub-specs (views, functions, types, etc.). They are live in the codebase
+but v0.1 does not yet produce the richer variants.
+
+**`DepEdge` / `DepSource`** (`pgevolve-core::plan::edges`): dependency
+edges in the planner graph are now first-class typed values. `DepSource`
+carries provenance:
+- `Structural` — v0.1 edge sources (FK endpoints, sequence ownership,
+  index-to-table, etc.).
+- `AstExtracted` — will be emitted by the AST resolution pass once v0.2
+  view/function body parsing lands.
+- `AstDeclared` — will be emitted when a `-- @pgevolve dep:` directive
+  is present in source SQL.
+
+**`NormalizedBody`** (`pgevolve-core::parse::normalize_body`): a
+statement-scope canonicalizer paralleling `NormalizedExpr`. Scaffold for
+v0.2 body-bearing objects (views, functions). v0.1 objects don't use it.
+
+**`DriftReport`**: returned alongside `Catalog` from `read_catalog`.
+Contains NOT VALID constraints and INVALID indexes that may be present in
+a database after an interrupted apply. `pgevolve doctor` surfaces these;
+`pgevolve plan` emits `Change::ValidateConstraint` /
+`Change::RecreateIndex` steps to resolve them.
+
+**`Severity::LintAtPlan`**: a new lint severity tier between `Warning`
+and `Error`. Plan-time gate: `pgevolve plan` exits `2` on any unwaived
+`LintAtPlan` finding. The first rule at this severity is
+`column-position-drift`. Waive via `[[lint_waiver]]` in `intent.toml`.
+
+**`PlanError::BodyCycle` / `PlanError::AstResolution`**: new error
+variants in the planner. v0.1 does not produce them; they exist as typed
+seams so v0.2 body-bearing objects have a home to fail into.
+
+**CLI additions**: `graph` (dep graph render), `doctor` (health check),
+`rewrite-table` (skeleton; errors "not yet implemented"),
+`--shadow-validate` / `--shadow-strict` flags on `plan` / `diff` /
+`validate`.
 
 ## Key invariants
 

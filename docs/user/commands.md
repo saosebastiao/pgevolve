@@ -57,7 +57,7 @@ are listed in the [spec](../spec/lint-and-layout.md).
 ## `pgevolve validate`
 
 ```
-USAGE: pgevolve validate [--shadow]
+USAGE: pgevolve validate [--shadow] [--shadow-validate] [--shadow-strict]
 ```
 
 Parses the source tree (subsumes `lint` parse).
@@ -65,6 +65,8 @@ Parses the source tree (subsumes `lint` parse).
 | Flag | Effect |
 |---|---|
 | `--shadow` | Round-trip the IR through an ephemeral Postgres of the version named in `[shadow].postgres_version`. Requires Docker. |
+| `--shadow-validate` | Cross-check the source dep graph against `pg_depend` in a shadow Postgres. See [Shadow validation](#shadow-validation). |
+| `--shadow-strict` | Promote shadow-validation warnings to errors. Requires `--shadow-validate`. |
 
 Without `--shadow` the command reports parse success and 0 lint
 findings. With `--shadow` it additionally:
@@ -80,7 +82,7 @@ Exit `0` on match; `1` on any divergence.
 ## `pgevolve diff`
 
 ```
-USAGE: pgevolve diff --db <env> [--url <dsn>]
+USAGE: pgevolve diff --db <env> [--url <dsn>] [--shadow-validate] [--shadow-strict]
 ```
 
 Prints the change set between the source IR and a live database.
@@ -90,6 +92,8 @@ Always exits `0`; this is informational.
 |---|---|
 | `--db <env>` | Environment name from `[environments.<env>]`. |
 | `--url <dsn>` | Override the resolved DSN. |
+| `--shadow-validate` | Cross-check the source dep graph against `pg_depend` in a shadow Postgres. See [Shadow validation](#shadow-validation). |
+| `--shadow-strict` | Promote shadow-validation warnings to errors. Requires `--shadow-validate`. |
 
 Output formats (selected with the global `--format` flag):
 
@@ -108,7 +112,7 @@ pgevolve diff --db dev
 ## `pgevolve plan`
 
 ```
-USAGE: pgevolve plan --db <env> [--url <dsn>] [-o <dir>]
+USAGE: pgevolve plan --db <env> [--url <dsn>] [-o <dir>] [--shadow-validate] [--shadow-strict]
 ```
 
 The full pipeline: parse → diff → order → rewrite → group →
@@ -119,6 +123,14 @@ The full pipeline: parse → diff → order → rewrite → group →
 | `--db <env>` | — (required) | Environment to plan against. |
 | `--url <dsn>` | — | Override the resolved DSN. |
 | `-o <dir>` | `<plan_dir>/<YYYY-MM-DD>-<short-id>` | Output directory. |
+| `--shadow-validate` | off | Cross-check the source dep graph against `pg_depend` in a shadow Postgres. See [Shadow validation](#shadow-validation). |
+| `--shadow-strict` | off | Promote shadow-validation warnings to errors. Requires `--shadow-validate`. |
+
+`plan` also enforces `LintAtPlan` findings: if any unwaived
+`LintAtPlan`-severity finding is present (e.g., column-position drift),
+the command exits `2` and writes no plan directory. Acknowledge findings
+with `[[lint_waiver]]` rows in `intent.toml` — see
+[configuration](./configuration.md#lint_waiver).
 
 ```sh
 pgevolve plan --db dev
@@ -207,3 +219,115 @@ IR→SQL emitter beyond the piecemeal helpers in
 
 The intended use case is *adoption*: pointing `dump` at an existing
 production database to produce a starting `schema/` tree.
+
+## `pgevolve graph`
+
+```
+USAGE: pgevolve graph [--graph-format dot|mermaid] [-o <path>] [--plan <dir>]
+```
+
+Render the source dependency graph. Read-only; no database connection
+required.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--graph-format dot\|mermaid` | `dot` | Output format. `dot` is Graphviz DOT; `mermaid` is Mermaid flowchart syntax. Note: named `--graph-format`, not `--format`, to avoid a clap collision with the global `--format` flag. |
+| `-o, --out <path>` | stdout | Write output to a file instead of stdout. |
+| `--plan <dir>` | — | Render the dep graph captured inside an existing plan directory. **Not yet implemented** — errors with "not yet implemented"; reserved for a v0.2 sub-spec. |
+
+```sh
+# DOT output to stdout (pipe to `dot -Tpng -o deps.png` for a diagram)
+pgevolve graph
+
+# Mermaid output to a file
+pgevolve graph --graph-format mermaid -o schema/deps.md
+```
+
+Used by the conformance suite's L8 dep-graph golden layer: fixtures
+assert byte-stable DOT output for a given source tree.
+
+## `pgevolve doctor`
+
+```
+USAGE: pgevolve doctor --db <env> [--url <dsn>]
+```
+
+Project health check. Read-only; does not modify the database or write
+any files.
+
+| Flag | Effect |
+|---|---|
+| `--db <env>` | Environment name from `[environments.<env>]` (required). |
+| `--url <dsn>` | Override the resolved DSN. |
+
+Reports:
+
+- Bootstrap status (whether `pgevolve.*` metadata tables are installed
+  and at what version).
+- NOT VALID constraints in managed schemas (candidates for a follow-up
+  `VALIDATE CONSTRAINT`).
+- INVALID indexes in managed schemas (candidates for a follow-up
+  `REINDEX CONCURRENTLY`).
+- Source object count vs. catalog object count (quick sanity check
+  for unexpected drift).
+- Recent failed applies from `pgevolve.apply_log`.
+
+```sh
+pgevolve doctor --db dev
+# pgevolve bootstrap: ok (v3)
+# NOT VALID constraints: 0
+# INVALID indexes: 0
+# source objects: 42  catalog objects: 42
+# recent failed applies: 0
+```
+
+Exit `0` when no issues are found. Exits non-zero if the database is
+unbootstrapped, or if `--format json` is used and the caller wants to
+check values programmatically.
+
+## `pgevolve rewrite-table` *(v0.2 skeleton)*
+
+```
+USAGE: pgevolve rewrite-table <qname> --db <env> --confirm-rewrite
+```
+
+Destructive table rewrite. **Not yet implemented** — the CLI surface is
+stable but the command currently errors with "not yet implemented in
+v0.2 readiness". The implementation lands with the column-reorder
+v0.2 sub-spec.
+
+| Argument / flag | Effect |
+|---|---|
+| `<qname>` | Qualified table name to rewrite (e.g., `app.users`). |
+| `--db <env>` | Environment to operate against (required). |
+| `--confirm-rewrite` | Explicit confirmation flag — required to guard against accidental invocation (required). |
+
+The intended use case is column-position reorder: when `pgevolve plan`
+detects column-position drift and you have an approved
+`[[lint_waiver]]` for the relevant `column-position-drift` finding,
+this command performs the shadow-copy table rewrite to materialise the
+new column order.
+
+## Shadow validation
+
+`--shadow-validate` is an optional opt-in cross-check available on
+`validate`, `diff`, and `plan`. When set, pgevolve boots a shadow
+Postgres (using the `[shadow]` block in `pgevolve.toml`) and verifies
+the source dependency graph against the `pg_depend` catalog view.
+Discrepancies are reported as warnings; `--shadow-strict` promotes
+them to errors (and requires `--shadow-validate`).
+
+```sh
+# Check dep graph consistency; warn on discrepancies
+pgevolve validate --shadow-validate
+
+# Same but fail on any discrepancy
+pgevolve validate --shadow-validate --shadow-strict
+
+# Shadow-validate during plan; fail if dep graph diverges
+pgevolve plan --db dev --shadow-validate --shadow-strict
+```
+
+Shadow backend selection follows `[shadow].backend` in `pgevolve.toml`
+(`auto` | `testcontainers` | `dsn`). See
+[configuration](./configuration.md#shadow).

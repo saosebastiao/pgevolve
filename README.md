@@ -36,13 +36,16 @@ pgevolve apply plans/2026-05-12-<short-id> --db dev
 |---|---|---|---|
 | `pgevolve init` | Scaffold project files | no | yes |
 | `pgevolve lint` | Run universal + layout-profile rules | no | no |
-| `pgevolve validate` | Parse + build source IR; with `--shadow`, round-trip the IR through an ephemeral Postgres of the configured version and report any divergences | shadow only | no |
-| `pgevolve diff --db <env>` | Build source + catalog IR; print change set (`--format=human|json|sql`) | read-only | no |
-| `pgevolve plan --db <env> [-o <dir>]` | Full pipeline; write plan directory | read-only | yes |
+| `pgevolve validate` | Parse + build source IR; with `--shadow`, round-trip the IR through ephemeral Postgres; `--shadow-validate` cross-checks dep graph against `pg_depend` | shadow only | no |
+| `pgevolve diff --db <env>` | Build source + catalog IR; print change set (`--format=human|json|sql`); `--shadow-validate` opt-in | read-only | no |
+| `pgevolve plan --db <env> [-o <dir>]` | Full pipeline; write plan directory; gates on unwaived `LintAtPlan` findings; `--shadow-validate` opt-in | read-only | yes |
 | `pgevolve apply <plan-dir> --db <env>` | Execute plan | read+write | no |
 | `pgevolve status --db <env>` | Show recent applies and per-step state | read-only | no |
 | `pgevolve dump --db <env> -o <dir>` | Introspect live DB and write source SQL | read-only | yes — *v0.1.x* |
 | `pgevolve bootstrap --db <env>` | Install/upgrade the `pgevolve` metadata schema | read+write | no |
+| `pgevolve graph` | Render source dep graph (`--graph-format dot\|mermaid`); no DB required | no | optional (`-o`) |
+| `pgevolve doctor --db <env>` | Health check: bootstrap status, NOT VALID constraints, INVALID indexes, object counts, recent failures | read-only | no |
+| `pgevolve rewrite-table <qname> --db <env> --confirm-rewrite` | Destructive table rewrite — *v0.2 skeleton; not yet implemented* | — | — |
 
 Exit codes follow spec §13: `0` success, `1` lint/validation error, `2`
 drift or pre-flight mismatch, `3` apply error, `4` config or CLI input
@@ -145,16 +148,42 @@ libpq env (`PGHOST`, `PGUSER`, ...).
 | 1 | unit tests in `src/` | `cargo test --workspace --lib` | no | yes |
 | 2 | parser/IR fixture corpora | `cargo test --workspace --tests` | no | yes |
 | 3 | catalog round-trip goldens | `cargo test --workspace --tests` | yes | yes |
-| C | **conformance suite (`crates/pgevolve-conformance`)** | `cargo test -p pgevolve-conformance` | yes (apply layer) | yes |
+| C | **conformance suite (`crates/pgevolve-conformance`)** | `cargo test -p pgevolve-conformance` | yes (apply layer) | **yes — canonical CI gate** |
 | 5 | property tests | `cargo test --workspace --tests -- --ignored` | partial | no — nightly only |
 | 7 | weekly soak | manual / cron | yes | no |
 
-The conformance suite (Tier C) is the canonical regression gate; every
-deterministic correctness expectation lives there as a fixture. Property
-tests run nightly to surface new failure shapes that are then permanently
-captured as conformance fixtures under
-`crates/pgevolve-conformance/tests/cases/regressions/`. See
-[`docs/superpowers/specs/2026-05-11-conformance-test-suite-design.md`](docs/superpowers/specs/2026-05-11-conformance-test-suite-design.md).
+Tier C is the canonical CI gate; every deterministic correctness
+expectation lives there as a fixture. Fixture authoring subtrees under
+`crates/pgevolve-conformance/tests/cases/`:
+
+| Subtree | Purpose |
+|---|---|
+| `objects/` | Per-object-kind DDL coverage (tables, indexes, sequences, etc.) |
+| `scenarios/` | Multi-step migration scenarios (add column, reorder, FK cycle, etc.) |
+| `intent/` | Destructive-intent approval and waiver flows |
+| `failure/` | Error paths: bad SQL, cycle, NOT VALID drift, INVALID index |
+| `regressions/` | Fixtures captured from property-test failures |
+
+Layers L1–L9 within each fixture:
+
+| Layer | What it asserts |
+|---|---|
+| L1 | Parse (no panics, canonical IR) |
+| L2 | Lint (finding set) |
+| L3 | Diff (ChangeSet golden) |
+| L4 | Plan order (OrderedChangeSet golden) |
+| L5 | Rewrite (RawStep golden) |
+| L6 | Plan SQL golden (`plan.sql`) |
+| L7 | Apply round-trip (apply + re-diff → empty) |
+| L8 | Dep-graph golden (DOT output from `pgevolve graph`) |
+| L9 | Doctor output golden |
+
+**Backend selection** for Docker-gated layers: set
+`PGEVOLVE_TEST_PG_MODE=testcontainers|compose|dsn`.
+- `testcontainers` (default) — pulls `postgres:<major>-alpine`.
+- `compose` — connects to a running container started by
+  `dev/docker-compose.pg.yml` (faster in local dev).
+- `dsn` — connects to an explicit DSN from `PGEVOLVE_TEST_PG_URL`.
 
 Set `PGEVOLVE_DISABLE_DOCKER_TESTS=1` to skip every Docker-gated test;
 the suite skips cleanly when `docker info` fails.

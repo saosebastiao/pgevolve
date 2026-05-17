@@ -163,6 +163,27 @@ Two `NormalizedExpr`s compare equal iff their `canonical_text`s match.
 The `ast_hash` is a BLAKE3 hash of the canonical text, kept for fast
 equality checks and as a stable identity for an expression.
 
+### `NormalizedBody`
+
+```rust
+pub struct NormalizedBody {
+    pub canonical_text: String,
+    pub ast_hash:       [u8; 32],
+}
+```
+
+`NormalizedBody` is the statement-scope counterpart to `NormalizedExpr`.
+Where `NormalizedExpr` canonicalizes a single expression (e.g., a column
+default or a CHECK predicate), `NormalizedBody` canonicalizes the body
+of a body-bearing object — a view's `SELECT` statement, a function's
+body, a trigger's action. The same canonicalization rules apply (keyword
+case, redundant parens, etc.).
+
+In v0.1 no objects carry a body; `NormalizedBody` is scaffolding for
+v0.2 views and functions. It is kept in `pgevolve-core::parse::normalize_body`
+so body-bearing objects added by v0.2 sub-specs can reuse the same
+diffing semantics as `NormalizedExpr`.
+
 ## `Column` attributes
 
 ```rust

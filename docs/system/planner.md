@@ -92,7 +92,36 @@ relevant `Change::CreateTable` body.
 Each top-level `Change` dispatches to an emitter that produces one or
 more `RawStep`s. The bulk of this is straightforward SQL generation
 (`pgevolve_core::plan::rewrite::sql`); the interesting bits are the
-four online rewrites.
+four online rewrites plus two drift-recovery variants.
+
+### Drift-recovery changes
+
+`read_catalog` now returns a `DriftReport` alongside the `Catalog`.
+The diff stage folds these into the `ChangeSet` as two additional
+`Change` variants:
+
+**`Change::ValidateConstraint`** — emitted when the catalog contains a
+NOT VALID constraint (left behind by an interrupted FK / CHECK NOT VALID
+apply). The rewrite emits:
+
+```sql
+ALTER TABLE <schema>.<table> VALIDATE CONSTRAINT <name>;
+```
+
+This step is `InTransaction` and safe; it's equivalent to resuming the
+second half of the FK NOT VALID + VALIDATE online rewrite.
+
+**`Change::RecreateIndex`** — emitted when the catalog contains an
+INVALID index (left behind by a failed `CREATE INDEX CONCURRENTLY`). The
+rewrite emits:
+
+```sql
+DROP INDEX CONCURRENTLY IF EXISTS <schema>.<name>;
+CREATE INDEX CONCURRENTLY <name> ON <schema>.<table> (...);
+```
+
+Both steps are `OutsideTransaction` (autocommit), consistent with the
+normal concurrent-index handling.
 
 ### Online rewrite 1: `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY`
 
@@ -284,7 +313,11 @@ cross-protocol collision with other BLAKE3 uses in the codebase.
 - **Column reorder.** The diff detects column position drift
   (`columns.<order>` paths) but the planner doesn't emit a reorder
   step. Postgres has no `ALTER COLUMN ... POSITION`, so this would
-  require a table rewrite. Tracked for a future major version.
+  require a table rewrite. As of v0.2 readiness, this is surfaced as a
+  `Severity::LintAtPlan` finding (`column-position-drift`) rather than
+  being silently ignored. `pgevolve plan` exits `2` on an unwaived
+  finding; waive with `[[lint_waiver]]` + a separate `rewrite-table`
+  invocation (implementation pending v0.2 sub-spec).
 - **The `ALTER TYPE ... ADD VALUE` enum rewrite.** Lands with enum
   support (v0.2). Adding an enum value can't run in a transaction (in
   PG ≤ 11) or has restrictions (≥ 12); the rewrite will mirror the

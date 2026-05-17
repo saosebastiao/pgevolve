@@ -120,17 +120,66 @@ For `pgevolve <cmd> --db <env>`:
 
 ```toml
 [shadow]
-provider         = "testcontainers"
-postgres_version = "16"
+backend          = "auto"         # auto | testcontainers | dsn
+url              = "postgres://localhost/myapp_shadow"   # for backend = "dsn"
+url_env          = "PGEVOLVE_SHADOW_URL"                 # alternative to url
+reset            = "drop_schema_cascade"                 # drop_schema_cascade | none
+extensions       = ["pgcrypto", "uuid-ossp"]
+postgres_version = "17"           # major version; used to select container or validate DSN
 ```
+
+| Key | Default | Notes |
+|---|---|---|
+| `backend` | `"auto"` | How to obtain a shadow Postgres. See below. |
+| `url` | — | DSN for an existing Postgres to use as shadow. Requires `backend = "dsn"` or `backend = "auto"` with a URL set. Mutually exclusive with `url_env`. |
+| `url_env` | — | Name of an environment variable holding the shadow DSN. Alternative to `url`. |
+| `reset` | `"drop_schema_cascade"` | How to clean the shadow DB between runs. `"drop_schema_cascade"` drops all schemas under `[managed].schemas`; `"none"` leaves the DB as-is (useful for DSN backends where you manage teardown yourself). |
+| `extensions` | `[]` | Extensions to install in the shadow DB before any apply. Names must match `[a-zA-Z_][a-zA-Z0-9_-]*`. |
+| `postgres_version` | `"16"` | Major version: `"14"`, `"15"`, `"16"`, or `"17"`. Pick the version that matches production. Used to select the container image or to validate a provided DSN. |
+
+### `backend` values
+
+- **`"auto"`** (default): uses `url` / `url_env` if set; otherwise tries
+  testcontainers if Docker is available; otherwise errors with a helpful
+  message.
+- **`"testcontainers"`**: always uses Docker. Hermetic; requires Docker
+  to be running. Pulls `postgres:<major>-alpine`.
+- **`"dsn"`**: connects to a user-supplied Postgres. No Docker required.
+  Useful for developers without Docker or for projects with
+  pre-installed extensions (TimescaleDB, PostGIS, etc.).
+
+`pgevolve validate --shadow` and the `--shadow-validate` flag on
+`plan` / `diff` / `validate` all read this block. Without it those
+flags error out with a helpful message.
+
+## `[[lint_waiver]]`
+
+```toml
+[[lint_waiver]]
+rule   = "column-position-drift"
+target = "app.users"
+reason = "applied via separate rewrite-table operation; see PR #234"
+```
+
+`[[lint_waiver]]` rows acknowledge `LintAtPlan`-severity findings so
+that `pgevolve plan` doesn't refuse with exit `2`. Live in the plan's
+`intent.toml`, not in `pgevolve.toml`.
 
 | Key | Notes |
 |---|---|
-| `provider` | Currently `"testcontainers"` is the only supported value; uses Docker. |
-| `postgres_version` | Major version: `"14"`, `"15"`, `"16"`, or `"17"`. Pick the version that matches production so round-trip surprises match production behavior. |
+| `rule` | Exact rule name of the finding to waive (e.g., `"column-position-drift"`). Must be non-empty. |
+| `target` | Substring matched against the finding's message (typically the qualified object name). Must be non-empty. |
+| `reason` | Free-form justification. Shown in `--format human` output. |
 
-`pgevolve validate --shadow` reads this block. Without it, `--shadow`
-errors out with a helpful message.
+Match semantics: a waiver applies when `rule` equals the finding's rule
+name **and** `target` is a substring of the finding's message. A waiver
+that matches zero findings is reported as a warning ("unused waiver").
+
+Preflight at apply time validates structural well-formedness: both
+`rule` and `target` must be non-empty strings. A malformed waiver row
+causes preflight to exit `2`.
+
+Multiple `[[lint_waiver]]` rows are supported — use one per finding.
 
 ## Worked example: production-grade config
 
@@ -166,7 +215,7 @@ url_env  = "DATABASE_URL_STAGING"
 url_env  = "DATABASE_URL_PROD"
 
 [shadow]
-provider         = "testcontainers"
+backend          = "testcontainers"
 postgres_version = "16"
 ```
 
