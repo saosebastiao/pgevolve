@@ -74,6 +74,7 @@ mod tests {
                 title: "test".into(),
                 spec_refs: vec![],
                 issue: None,
+                authoring: "objects".into(),
             },
             pg: FixturePg::default(),
             passthrough: FixturePassthrough::default(),

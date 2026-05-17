@@ -62,6 +62,15 @@ pub struct FixtureMeta {
     /// Optional issue URL when this fixture is a regression capture.
     #[serde(default)]
     pub issue: Option<String>,
+    /// One of: "objects" | "scenarios" | "intent" | "failure" | "regressions".
+    /// Drives which assertion layers fire. Defaults to "objects" for
+    /// backward compatibility.
+    #[serde(default = "default_authoring")]
+    pub authoring: String,
+}
+
+fn default_authoring() -> String {
+    "objects".to_string()
 }
 
 /// `[pg]` block.
