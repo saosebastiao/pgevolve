@@ -294,6 +294,8 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "env-var racing — assertions about PGEVOLVE_TEST_PG_MODE can't reliably run in parallel; \
+                run with --test-threads=1 or in isolation"]
     fn backend_mode_recognizes_compose_and_dsn() {
         // SAFETY: see `backend_mode_from_env_defaults_to_testcontainers`.
         #[allow(unsafe_code)]
