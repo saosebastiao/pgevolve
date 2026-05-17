@@ -8,7 +8,7 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-> **Status:** under active development. v0.1 is not yet released.
+> **Status:** v0.1.0 release candidate. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in this version and the known limitations.
 
 ## Usage at a glance
 
