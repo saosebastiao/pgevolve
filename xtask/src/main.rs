@@ -11,12 +11,24 @@
 //! - `coverage [--check | --gaps]` — cross-check `docs/spec/*.md` capability
 //!   rows against the (capability × change-kind × PG-major) fixture matrix.
 //!   `--check` fails if any required cell is uncovered; `--gaps` lists gaps.
+//! - `capture-regression --seed <hex> --issue <n>` — scaffold a regression
+//!   fixture from a proptest seed.
+//! - `verify-regression <fixture-dir>` — confirm a fixture fails on the current
+//!   branch (proving the bug it captures is still present).
+//! - `property-status [--max-age-days N]` — list open property-test GitHub
+//!   issues; fail if any exceed the age threshold.
+//! - `diagnose-pg-version <fixture-dir> --pg-major N` — run a fixture against
+//!   a specific PG major and report suggested fixture.toml edits.
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+mod capture_regression;
 mod coverage;
+mod diagnose_pg_version;
 mod fixture_cost;
+mod property_status;
+mod verify_regression;
 
 use std::path::{Path, PathBuf};
 
@@ -48,8 +60,50 @@ async fn main() -> Result<()> {
             coverage::run(mode, &workspace_root()?)
         }
         "fixture-cost" => fixture_cost::run(),
+        "capture-regression" => {
+            let args: Vec<String> = std::env::args().collect();
+            let seed = flag_value(&args, "--seed")
+                .ok_or_else(|| anyhow!("capture-regression requires --seed <hex>"))?;
+            let issue_str = flag_value(&args, "--issue")
+                .ok_or_else(|| anyhow!("capture-regression requires --issue <n>"))?;
+            let issue: u64 = issue_str
+                .parse()
+                .map_err(|_| anyhow!("--issue must be a positive integer"))?;
+            capture_regression::run(&seed, issue)
+        }
+        "verify-regression" => {
+            let fixture_dir = std::env::args()
+                .nth(2)
+                .ok_or_else(|| anyhow!("verify-regression requires <fixture-dir>"))?;
+            verify_regression::run(std::path::Path::new(&fixture_dir))
+        }
+        "property-status" => {
+            let args: Vec<String> = std::env::args().collect();
+            let max_age_days: u64 = flag_value(&args, "--max-age-days")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30);
+            property_status::run(max_age_days)
+        }
+        "diagnose-pg-version" => {
+            let fixture_dir = std::env::args()
+                .nth(2)
+                .ok_or_else(|| anyhow!("diagnose-pg-version requires <fixture-dir>"))?;
+            let args: Vec<String> = std::env::args().collect();
+            let pg_major_str = flag_value(&args, "--pg-major")
+                .ok_or_else(|| anyhow!("diagnose-pg-version requires --pg-major <n>"))?;
+            let pg_major: u32 = pg_major_str
+                .parse()
+                .map_err(|_| anyhow!("--pg-major must be a positive integer"))?;
+            diagnose_pg_version::run(std::path::Path::new(&fixture_dir), pg_major)
+        }
         "" | "help" | "--help" | "-h" => {
-            eprintln!("usage: cargo xtask <bless | bless --conformance | coverage [--check | --gaps] | fixture-cost>");
+            eprintln!(
+                "usage: cargo xtask <bless | bless --conformance | coverage [--check | --gaps] | fixture-cost |\n\
+                 \t capture-regression --seed <hex> --issue <n> |\n\
+                 \t verify-regression <fixture-dir> |\n\
+                 \t property-status [--max-age-days N] |\n\
+                 \t diagnose-pg-version <fixture-dir> --pg-major N>"
+            );
             Ok(())
         }
         other => Err(anyhow!("unknown subcommand: {other}")),
@@ -214,4 +268,10 @@ fn workspace_root() -> Result<PathBuf> {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.pop();
     Ok(p)
+}
+
+/// Return the value for a `--flag value` pair in an argument list.
+fn flag_value(args: &[String], flag: &str) -> Option<String> {
+    let pos = args.iter().position(|a| a == flag)?;
+    args.get(pos + 1).cloned()
 }
