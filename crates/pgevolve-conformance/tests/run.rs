@@ -10,7 +10,8 @@
 
 use std::path::PathBuf;
 
-use pgevolve_conformance::assertions::{apply, diff, minimality, plan, touches_only};
+use pgevolve_conformance::assertions::{apply, dep_graph, diff, minimality, plan, topological_order, touches_only};
+use pgevolve_conformance::planning::parse_sql;
 use pgevolve_conformance::walk::{self, Authoring};
 
 fn cases_root() -> PathBuf {
@@ -179,9 +180,86 @@ async fn conformance_suite() {
                         report.fail(dir, "minimality", e.to_string());
                     }
                 }
+
+                // Layer 8: dep-graph golden (default-on, opt-out via
+                // expect.dep_graph.enabled = false).
+                if fixture.expect.dep_graph.enabled {
+                    match parse_sql(&fixture.after_sql, "after") {
+                        Err(e) => report.fail(dir, "dep_graph", e.to_string()),
+                        Ok(source_catalog) => {
+                            if let Err(e) = dep_graph::assert_dep_graph_golden(
+                                &source_catalog,
+                                dir,
+                                &fixture.expect.dep_graph.golden,
+                            ) {
+                                report.fail(dir, "dep_graph", e.to_string());
+                            }
+                        }
+                    }
+                }
+
+                // Layer 9: topological order (opt-in via expect.plan.order).
+                if let Err(e) = topological_order::assert_order(
+                    &plan_outcome.plan,
+                    &fixture.expect.plan.order,
+                ) {
+                    report.fail(dir, "topological_order", e.to_string());
+                }
             }
 
-            Authoring::Scenarios | Authoring::Intent | Authoring::Failure | Authoring::Regressions => {
+            Authoring::Scenarios => {
+                if !fixture.applies_to(pg_major) {
+                    skipped += 1;
+                    continue;
+                }
+                ran += 1;
+
+                // Layer 2.
+                let plan_outcome = match plan::check(fixture) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        report.fail(dir, "plan", e.to_string());
+                        continue;
+                    }
+                };
+                if let Some(expected) = plan_outcome.step_mismatch {
+                    report.fail(
+                        dir,
+                        "plan",
+                        format!(
+                            "expected {} step(s), got {}",
+                            expected, plan_outcome.actual_steps
+                        ),
+                    );
+                }
+
+                // Layer 8: dep-graph golden (opt-out via
+                // expect.dep_graph.enabled = false).
+                if fixture.expect.dep_graph.enabled {
+                    match parse_sql(&fixture.after_sql, "after") {
+                        Err(e) => report.fail(dir, "dep_graph", e.to_string()),
+                        Ok(source_catalog) => {
+                            if let Err(e) = dep_graph::assert_dep_graph_golden(
+                                &source_catalog,
+                                dir,
+                                &fixture.expect.dep_graph.golden,
+                            ) {
+                                report.fail(dir, "dep_graph", e.to_string());
+                            }
+                        }
+                    }
+                }
+
+                // Layer 9: topological order (opt-in via expect.plan.order).
+                if let Err(e) = topological_order::assert_order(
+                    &plan_outcome.plan,
+                    &fixture.expect.plan.order,
+                ) {
+                    report.fail(dir, "topological_order", e.to_string());
+                }
+            }
+
+            Authoring::Intent | Authoring::Failure | Authoring::Regressions => {
                 // T0: subtrees discovered but not yet wired; skip cleanly.
                 eprintln!(
                     "skip {}: authoring {:?} not yet wired",

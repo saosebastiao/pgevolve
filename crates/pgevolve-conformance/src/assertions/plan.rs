@@ -164,8 +164,8 @@ pub fn check_golden(
 mod tests {
     use super::*;
     use crate::fixture::{
-        ExpectApply, ExpectDiff, ExpectPlan, FixtureExpect, FixtureMeta, FixturePassthrough,
-        FixturePg,
+        ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureExpect, FixtureMeta,
+        FixturePassthrough, FixturePg,
     };
     use std::path::PathBuf;
 
@@ -186,6 +186,7 @@ mod tests {
                 diff: ExpectDiff::default(),
                 plan: expect_plan,
                 apply: ExpectApply::default(),
+                dep_graph: ExpectDepGraph::default(),
             },
         }
     }
@@ -205,6 +206,7 @@ mod tests {
                 golden: None,
                 minimality: true,
                 touches_only: vec![],
+                order: vec![],
             },
         );
         let out = check(&f).unwrap();
@@ -225,6 +227,7 @@ mod tests {
                 golden: None,
                 minimality: true,
                 touches_only: vec![],
+                order: vec![],
             },
         );
         let out = check(&f).unwrap();
@@ -237,8 +240,8 @@ mod tests {
 mod golden_tests {
     use super::*;
     use crate::fixture::{
-        ExpectApply, ExpectDiff, ExpectPlan, FixtureExpect, FixtureMeta, FixturePassthrough,
-        FixturePg,
+        ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureExpect, FixtureMeta,
+        FixturePassthrough, FixturePg,
     };
     use std::path::PathBuf;
 
@@ -265,8 +268,10 @@ mod golden_tests {
                     golden: Some("expected/plan.sql".into()),
                     minimality: true,
                     touches_only: vec![],
+                    order: vec![],
                 },
                 apply: ExpectApply::default(),
+                dep_graph: ExpectDepGraph::default(),
             },
         }
     }

@@ -112,6 +112,33 @@ pub struct FixtureExpect {
     /// `[expect.apply]`.
     #[serde(default)]
     pub apply: ExpectApply,
+    /// `[expect.dep_graph]` — L8 dep-graph golden. Default-on.
+    #[serde(default)]
+    pub dep_graph: ExpectDepGraph,
+}
+
+/// `[expect.dep_graph]` — L8 dep-graph golden.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExpectDepGraph {
+    /// Default true; opt out for trivial fixtures.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Golden file path; default `expected/dep-graph.dot`.
+    #[serde(default = "default_dep_graph_golden")]
+    pub golden: String,
+}
+
+fn default_dep_graph_golden() -> String {
+    "expected/dep-graph.dot".to_string()
+}
+
+impl Default for ExpectDepGraph {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            golden: default_dep_graph_golden(),
+        }
+    }
 }
 
 /// `[expect.diff]`.
@@ -143,6 +170,10 @@ pub struct ExpectPlan {
     /// L6 input. Absent / empty = layer skipped.
     #[serde(default)]
     pub touches_only: Vec<String>,
+    /// L9 input. Each entry is `"A < B"` — when both targets appear in the
+    /// plan, A must precede B. Empty = layer skipped.
+    #[serde(default)]
+    pub order: Vec<String>,
 }
 
 fn default_golden() -> Option<String> {
@@ -183,6 +214,7 @@ impl Default for ExpectPlan {
             golden: default_golden(),
             minimality: default_true(),
             touches_only: Vec::new(),
+            order: Vec::new(),
         }
     }
 }

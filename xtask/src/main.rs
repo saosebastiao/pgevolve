@@ -107,10 +107,11 @@ async fn run_one(version: PgVersion, source_sql: &Path) -> Result<String> {
 }
 
 fn bless_conformance() -> Result<()> {
+    use pgevolve_conformance::assertions::dep_graph::render_dot;
     use pgevolve_conformance::fixture::Fixture;
     use pgevolve_conformance::normalize::normalize;
-    use pgevolve_conformance::planning::render_plan;
-    use pgevolve_core::plan::Strategy;
+    use pgevolve_conformance::planning::{parse_sql, render_plan};
+    use pgevolve_core::plan::{Strategy, build_create_graph};
 
     let cases = workspace_root()?.join("crates/pgevolve-conformance/tests/cases");
     if !cases.exists() {
@@ -136,41 +137,59 @@ fn bless_conformance() -> Result<()> {
         let fixture = Fixture::load(&dir)
             .with_context(|| format!("load fixture {}", dir.display()))?;
 
-        let Some(rel) = fixture.expect.plan.golden.as_ref() else {
+        // --- plan.sql golden ---
+        if let Some(rel) = fixture.expect.plan.golden.as_ref() {
+            let strategy = fixture
+                .passthrough
+                .planner
+                .get("strategy")
+                .and_then(|v| v.as_str())
+                .map_or(Strategy::Online, |s| match s {
+                    "atomic" => Strategy::Atomic,
+                    _ => Strategy::Online,
+                });
+
+            let (_plan, rendered_sql) =
+                render_plan(&fixture.before_sql, &fixture.after_sql, strategy)
+                    .with_context(|| format!("render plan for {}", dir.display()))?;
+            let normalized = normalize(&rendered_sql);
+
+            let golden_path = dir.join(rel);
+            if let Some(parent) = golden_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&golden_path, normalized)
+                .with_context(|| format!("write {}", golden_path.display()))?;
+            blessed += 1;
+            tracing::info!(fixture = %dir.display(), "blessed plan.sql");
+        } else {
             skipped += 1;
             tracing::info!(
                 fixture = %dir.display(),
-                "skipping: goldening opted out"
+                "skipping plan.sql: goldening opted out"
             );
-            continue;
-        };
-
-        let strategy = fixture
-            .passthrough
-            .planner
-            .get("strategy")
-            .and_then(|v| v.as_str())
-            .map_or(Strategy::Online, |s| match s {
-                "atomic" => Strategy::Atomic,
-                _ => Strategy::Online,
-            });
-
-        let (_plan, rendered_sql) =
-            render_plan(&fixture.before_sql, &fixture.after_sql, strategy)
-                .with_context(|| format!("render plan for {}", dir.display()))?;
-        let normalized = normalize(&rendered_sql);
-
-        let golden_path = dir.join(rel);
-        if let Some(parent) = golden_path.parent() {
-            std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&golden_path, normalized)
-            .with_context(|| format!("write {}", golden_path.display()))?;
-        blessed += 1;
-        tracing::info!(fixture = %dir.display(), "blessed");
+
+        // --- dep-graph.dot golden ---
+        if fixture.expect.dep_graph.enabled {
+            let source_catalog = parse_sql(&fixture.after_sql, "after")
+                .with_context(|| format!("parse after.sql for dep-graph in {}", dir.display()))?;
+            let graph = build_create_graph(&source_catalog);
+            let edges: Vec<_> = graph.dep_edges().collect();
+            let dot = render_dot(&edges);
+
+            let dot_path = dir.join(&fixture.expect.dep_graph.golden);
+            if let Some(parent) = dot_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&dot_path, &dot)
+                .with_context(|| format!("write {}", dot_path.display()))?;
+            blessed += 1;
+            tracing::info!(fixture = %dir.display(), "blessed dep-graph.dot");
+        }
     }
 
-    eprintln!("conformance: blessed {blessed} fixture(s); skipped {skipped}");
+    eprintln!("conformance: blessed {blessed} golden(s); skipped {skipped}");
     Ok(())
 }
 
