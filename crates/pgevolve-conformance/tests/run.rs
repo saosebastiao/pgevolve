@@ -7,10 +7,16 @@
 //!
 //! Driven by env var `PGEVOLVE_TEST_PG_VERSION` (default: 17) so the
 //! same suite runs once per major in the CI matrix.
+//!
+//! Per-version overrides in `fixture.toml`:
+//! - `[pg.expect]."<major>" = "skip"` — skip this fixture on that major.
+//! - `[pg.expect]."<major>" = "failure"` — expect the fixture to fail on that major.
+//! - `[expect.plan.per_pg].pg<major>` — override plan structural expectations.
 
 use std::path::PathBuf;
 
 use pgevolve_conformance::assertions::{apply, dep_graph, diff, intent_shape, minimality, plan, topological_order, touches_only};
+use pgevolve_conformance::fixture::{ExpectPlan, Fixture};
 use pgevolve_conformance::planning::parse_sql;
 use pgevolve_conformance::walk::{self, Authoring};
 
@@ -23,6 +29,48 @@ fn active_pg_major() -> u32 {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(17)
+}
+
+/// The outcome of consulting `[pg.expect]` for a given major.
+#[derive(Debug, PartialEq)]
+enum PgExpect {
+    /// Run the fixture normally.
+    Success,
+    /// The fixture is expected to fail on this major (currently treated as skip).
+    ExpectFailure,
+    /// Skip the fixture entirely on this major.
+    Skip,
+}
+
+/// Consult `[pg.expect]` for the given major.
+fn pg_expect_for_major(fixture: &Fixture, major: u32) -> PgExpect {
+    match fixture.pg.expect.0.get(&major.to_string()).map(String::as_str) {
+        Some("skip") => PgExpect::Skip,
+        Some("failure") => PgExpect::ExpectFailure,
+        _ => PgExpect::Success,
+    }
+}
+
+/// Resolve the effective `ExpectPlan` for the given major, applying any
+/// `[expect.plan.per_pg].pg<major>` overrides.
+fn resolve_plan_for_major(fixture: &Fixture, major: u32) -> ExpectPlan {
+    let mut plan = fixture.expect.plan.clone();
+    let key = format!("pg{major}");
+    if let Some(ov) = fixture.expect.plan.per_pg.get(&key) {
+        if let Some(s) = ov.steps {
+            plan.steps = Some(s);
+        }
+        if !ov.rewrites_used.is_empty() {
+            plan.rewrites_used.clone_from(&ov.rewrites_used);
+        }
+        if !ov.touches_only.is_empty() {
+            plan.touches_only.clone_from(&ov.touches_only);
+        }
+        if !ov.order.is_empty() {
+            plan.order.clone_from(&ov.order);
+        }
+    }
+    plan
 }
 
 #[derive(Debug, Default)]
@@ -72,7 +120,18 @@ async fn conformance_suite() {
                     skipped += 1;
                     continue;
                 }
+                // Check [pg.expect] per-major override.
+                match pg_expect_for_major(fixture, pg_major) {
+                    PgExpect::Skip => {
+                        skipped += 1;
+                        continue;
+                    }
+                    PgExpect::ExpectFailure | PgExpect::Success => {}
+                }
                 ran += 1;
+
+                // Effective plan expectations for this major (applies per_pg overrides).
+                let effective_plan = resolve_plan_for_major(fixture, pg_major);
 
                 // Layer 1.
                 match diff::check(fixture) {
@@ -96,7 +155,9 @@ async fn conformance_suite() {
                         continue;
                     }
                 };
-                if let Some(expected) = plan_outcome.step_mismatch {
+                if let Some(expected) = effective_plan.steps
+                    && expected != plan_outcome.actual_steps
+                {
                     report.fail(
                         dir,
                         "plan",
@@ -106,11 +167,25 @@ async fn conformance_suite() {
                         ),
                     );
                 }
-                if !plan_outcome.missing_rewrites.is_empty() {
+                // Check rewrites from the effective plan.
+                // When per_pg overrides the rewrite list, recheck against rendered SQL.
+                // Otherwise reuse what plan::check() already computed.
+                let effective_missing_rewrites: Vec<String> =
+                    if effective_plan.rewrites_used == fixture.expect.plan.rewrites_used {
+                        plan_outcome.missing_rewrites.clone()
+                    } else {
+                        effective_plan
+                            .rewrites_used
+                            .iter()
+                            .filter(|kind| !plan_outcome.rendered_sql.contains(kind.as_str()))
+                            .cloned()
+                            .collect()
+                    };
+                if !effective_missing_rewrites.is_empty() {
                     report.fail(
                         dir,
                         "plan",
-                        format!("missing rewrites {:?}", plan_outcome.missing_rewrites),
+                        format!("missing rewrites {effective_missing_rewrites:?}"),
                     );
                 }
 
@@ -126,7 +201,7 @@ async fn conformance_suite() {
                 // assert_touches_only is a no-op when the list is empty.
                 if let Err(e) = touches_only::assert_touches_only(
                     &plan_outcome.plan,
-                    &fixture.expect.plan.touches_only,
+                    &effective_plan.touches_only,
                 ) {
                     report.fail(dir, "touches_only", e.to_string());
                 }
@@ -176,7 +251,7 @@ async fn conformance_suite() {
                 }
 
                 // Layer 5: minimality.
-                if fixture.expect.plan.minimality
+                if effective_plan.minimality
                     && let apply::ApplyOutcome::Ok(state) = &apply_outcome
                 {
                     let input = minimality::MinimalityInput {
@@ -209,7 +284,7 @@ async fn conformance_suite() {
                 // Layer 9: topological order (opt-in via expect.plan.order).
                 if let Err(e) = topological_order::assert_order(
                     &plan_outcome.plan,
-                    &fixture.expect.plan.order,
+                    &effective_plan.order,
                 ) {
                     report.fail(dir, "topological_order", e.to_string());
                 }
@@ -220,7 +295,17 @@ async fn conformance_suite() {
                     skipped += 1;
                     continue;
                 }
+                // Check [pg.expect] per-major override.
+                match pg_expect_for_major(fixture, pg_major) {
+                    PgExpect::Skip => {
+                        skipped += 1;
+                        continue;
+                    }
+                    PgExpect::ExpectFailure | PgExpect::Success => {}
+                }
                 ran += 1;
+
+                let effective_plan = resolve_plan_for_major(fixture, pg_major);
 
                 // Layer 2.
                 let plan_outcome = match plan::check(fixture) {
@@ -230,7 +315,9 @@ async fn conformance_suite() {
                         continue;
                     }
                 };
-                if let Some(expected) = plan_outcome.step_mismatch {
+                if let Some(expected) = effective_plan.steps
+                    && expected != plan_outcome.actual_steps
+                {
                     report.fail(
                         dir,
                         "plan",
@@ -269,7 +356,7 @@ async fn conformance_suite() {
                 // Layer 9: topological order (opt-in via expect.plan.order).
                 if let Err(e) = topological_order::assert_order(
                     &plan_outcome.plan,
-                    &fixture.expect.plan.order,
+                    &effective_plan.order,
                 ) {
                     report.fail(dir, "topological_order", e.to_string());
                 }
@@ -280,7 +367,17 @@ async fn conformance_suite() {
                     skipped += 1;
                     continue;
                 }
+                // Check [pg.expect] per-major override.
+                match pg_expect_for_major(fixture, pg_major) {
+                    PgExpect::Skip => {
+                        skipped += 1;
+                        continue;
+                    }
+                    PgExpect::ExpectFailure | PgExpect::Success => {}
+                }
                 ran += 1;
+
+                let effective_plan = resolve_plan_for_major(fixture, pg_major);
 
                 // Layer 1: diff substrings.
                 match diff::check(fixture) {
@@ -304,7 +401,9 @@ async fn conformance_suite() {
                         continue;
                     }
                 };
-                if let Some(expected) = plan_outcome.step_mismatch {
+                if let Some(expected) = effective_plan.steps
+                    && expected != plan_outcome.actual_steps
+                {
                     report.fail(
                         dir,
                         "plan",

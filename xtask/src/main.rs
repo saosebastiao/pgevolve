@@ -8,9 +8,14 @@
 //! - `bless --conformance` — walk every fixture under
 //!   `crates/pgevolve-conformance/tests/cases/`, render the in-process planner
 //!   pipeline, normalize the output, and write it to the fixture's golden path.
+//! - `coverage [--check | --gaps]` — cross-check `docs/spec/*.md` capability
+//!   rows against the (capability × change-kind × PG-major) fixture matrix.
+//!   `--check` fails if any required cell is uncovered; `--gaps` lists gaps.
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
+
+mod coverage;
 
 use std::path::{Path, PathBuf};
 
@@ -32,8 +37,17 @@ async fn main() -> Result<()> {
                 _ => bless().await,
             }
         }
+        "coverage" => {
+            let flag = std::env::args().nth(2);
+            let mode = match flag.as_deref() {
+                Some("--gaps") => coverage::CoverageMode::Gaps,
+                // default: --check
+                _ => coverage::CoverageMode::Check,
+            };
+            coverage::run(mode, &workspace_root()?)
+        }
         "" | "help" | "--help" | "-h" => {
-            eprintln!("usage: cargo xtask <bless | bless --conformance>");
+            eprintln!("usage: cargo xtask <bless | bless --conformance | coverage [--check | --gaps]>");
             Ok(())
         }
         other => Err(anyhow!("unknown subcommand: {other}")),

@@ -73,6 +73,14 @@ fn default_authoring() -> String {
     "objects".to_string()
 }
 
+/// `[pg.expect]` block — per-version expectation override.
+///
+/// Keys are PG major versions as strings (`"14"`, `"15"`, …).
+/// Values are `"success"` | `"failure"` | `"skip"`.
+/// Missing key → `"success"`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FixturePgExpect(pub std::collections::BTreeMap<String, String>);
+
 /// `[pg]` block.
 #[derive(Debug, Clone, Deserialize)]
 pub struct FixturePg {
@@ -82,6 +90,9 @@ pub struct FixturePg {
     /// Inclusive maximum supported PG major. Defaults to 17.
     #[serde(default = "default_pg_max")]
     pub max: u32,
+    /// Per-major expectation overrides. Keys are major version strings.
+    #[serde(default)]
+    pub expect: FixturePgExpect,
 }
 
 const fn default_pg_min() -> u32 {
@@ -96,6 +107,7 @@ impl Default for FixturePg {
         Self {
             min: default_pg_min(),
             max: default_pg_max(),
+            expect: FixturePgExpect::default(),
         }
     }
 }
@@ -186,6 +198,28 @@ pub struct ExpectDiff {
     pub contains: Vec<String>,
 }
 
+/// Per-PG-major structural overrides for `[expect.plan]`.
+///
+/// Used as values in `[expect.plan.per_pg]` — e.g.:
+/// ```toml
+/// [expect.plan.per_pg]
+/// pg15 = { steps = 2 }
+/// ```
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PerPgPlanOverride {
+    /// Override for `steps`.
+    pub steps: Option<usize>,
+    /// Override for `rewrites_used`.
+    #[serde(default)]
+    pub rewrites_used: Vec<String>,
+    /// Override for `touches_only`.
+    #[serde(default)]
+    pub touches_only: Vec<String>,
+    /// Override for `order`.
+    #[serde(default)]
+    pub order: Vec<String>,
+}
+
 /// `[expect.plan]`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExpectPlan {
@@ -211,6 +245,16 @@ pub struct ExpectPlan {
     /// plan, A must precede B. Empty = layer skipped.
     #[serde(default)]
     pub order: Vec<String>,
+    /// Per-PG-major structural overrides.
+    ///
+    /// In `fixture.toml`:
+    /// ```toml
+    /// [expect.plan.per_pg]
+    /// pg15 = { steps = 2 }
+    /// pg17 = { steps = 4, rewrites_used = ["create_index_concurrent"] }
+    /// ```
+    #[serde(default)]
+    pub per_pg: std::collections::HashMap<String, PerPgPlanOverride>,
 }
 
 fn default_golden() -> Option<String> {
@@ -252,6 +296,7 @@ impl Default for ExpectPlan {
             minimality: default_true(),
             touches_only: Vec::new(),
             order: Vec::new(),
+            per_pg: std::collections::HashMap::new(),
         }
     }
 }
@@ -552,5 +597,75 @@ golden = true
         );
         let f = Fixture::load(tmp.path()).unwrap();
         assert_eq!(f.expect.plan.golden.as_deref(), Some("expected/plan.sql"));
+    }
+
+    #[test]
+    fn pg_expect_per_version_overrides() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_fixture(
+            tmp.path(),
+            r#"
+[meta]
+title = "per-version"
+
+[pg]
+min = 14
+max = 17
+
+[pg.expect]
+"15" = "skip"
+"16" = "failure"
+"#,
+            "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+            "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+        );
+        let f = Fixture::load(tmp.path()).unwrap();
+        assert_eq!(
+            f.pg.expect.0.get("15").map(String::as_str),
+            Some("skip"),
+            "pg15 → skip"
+        );
+        assert_eq!(
+            f.pg.expect.0.get("16").map(String::as_str),
+            Some("failure"),
+            "pg16 → failure"
+        );
+        assert_eq!(
+            f.pg.expect.0.get("14"),
+            None,
+            "pg14 missing → None"
+        );
+    }
+
+    #[test]
+    fn expect_plan_per_pg_overrides() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_fixture(
+            tmp.path(),
+            r#"
+[meta]
+title = "per-pg-plan"
+
+[expect.plan]
+steps = 3
+golden = false
+
+[expect.plan.per_pg]
+pg15 = { steps = 2 }
+pg17 = { steps = 4, rewrites_used = ["create_index_concurrent"] }
+"#,
+            "",
+            "",
+        );
+        let f = Fixture::load(tmp.path()).unwrap();
+        assert_eq!(f.expect.plan.steps, Some(3), "base steps");
+        let pg15 = f.expect.plan.per_pg.get("pg15").expect("pg15 override");
+        assert_eq!(pg15.steps, Some(2), "pg15 steps override");
+        let pg17 = f.expect.plan.per_pg.get("pg17").expect("pg17 override");
+        assert_eq!(pg17.steps, Some(4), "pg17 steps override");
+        assert_eq!(
+            pg17.rewrites_used,
+            vec!["create_index_concurrent".to_string()]
+        );
     }
 }

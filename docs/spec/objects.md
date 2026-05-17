@@ -7,11 +7,11 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Object | Status | Notes |
 |---|---|---|
-| `SCHEMA` | ✅ Implemented | `CREATE / DROP / COMMENT ON`. Schemas are listed in `[managed].schemas`; everything outside the list is ignored by the differ and lint. |
-| `TABLE` | ✅ Implemented | `CREATE / DROP / ALTER` for every v0.1 column / constraint operation. See [`column-types.md`](./column-types.md) and [`constraints.md`](./constraints.md) for nested capability. Column reorder is detected but not yet applied. |
-| `INDEX` | ✅ Implemented | Six access methods; partial, expression, INCLUDE, NULLS NOT DISTINCT, opclass, collation, tablespace. See [`indexes.md`](./indexes.md). |
-| `SEQUENCE` | ✅ Implemented | `CREATE / DROP / ALTER`. `OWNED BY` modeled. Identity-backing sequences derived from `SERIAL` / `GENERATED AS IDENTITY` columns. |
-| `COMMENT` | ✅ Implemented | On schemas, tables, columns, indexes, sequences, constraints. |
+| `SCHEMA` | ✅ Implemented | `CREATE / DROP / COMMENT ON`. Schemas are listed in `[managed].schemas`; everything outside the list is ignored by the differ and lint. change_kinds: [create, drop, alter, comment_on] |
+| `TABLE` | ✅ Implemented | `CREATE / DROP / ALTER` for every v0.1 column / constraint operation. See [`column-types.md`](./column-types.md) and [`constraints.md`](./constraints.md) for nested capability. Column reorder is detected but not yet applied. change_kinds: [create, drop, alter, comment_on] |
+| `INDEX` | ✅ Implemented | Six access methods; partial, expression, INCLUDE, NULLS NOT DISTINCT, opclass, collation, tablespace. See [`indexes.md`](./indexes.md). change_kinds: [create, drop, recreate, set_comment] |
+| `SEQUENCE` | ✅ Implemented | `CREATE / DROP / ALTER`. `OWNED BY` modeled. Identity-backing sequences derived from `SERIAL` / `GENERATED AS IDENTITY` columns. change_kinds: [create, drop, alter, comment_on] |
+| `COMMENT` | ✅ Implemented | On schemas, tables, columns, indexes, sequences, constraints. change_kinds: [comment_on] |
 | Inheritance (`INHERITS`) | ⛔ Not planned | Declarative partitioning supersedes inheritance for v0.1's target use cases. |
 
 ## Partitioning
@@ -84,7 +84,7 @@ manage. See [`../README.md`](./README.md) for the status legend.
 |---|---|---|
 | `TABLESPACE` | 🔮 Future | The IR carries the `tablespace` attribute on tables and indexes, but pgevolve does not create / drop tablespaces — they're cluster-level admin objects outside the schema-management remit. |
 | `TABLE ... USING <access method>` | 🔮 Future | Custom table access methods (zheap, columnar, etc.). |
-| `WITH (storage_parameter = ...)` (table reloptions) | 🟡 Partial | The IR doesn't yet model `fillfactor`, autovacuum overrides, etc. Planned for v0.2. |
+| `WITH (storage_parameter = ...)` (table reloptions) | 🟡 Partial | The IR doesn't yet model `fillfactor`, autovacuum overrides, etc. Planned for v0.2. change_kinds: [alter] |
 | Toast options (`STORAGE EXTERNAL` / `EXTENDED` / `PLAIN` / `MAIN`) | 📋 Planned, v0.2 | Per-column toast strategy lands with extended `[storage]` modeling. |
 
 ## Operators, casts, collations, text search
@@ -93,7 +93,7 @@ manage. See [`../README.md`](./README.md) for the status legend.
 |---|---|---|
 | `OPERATOR` / `OPERATOR CLASS` / `OPERATOR FAMILY` | 🔮 Future | Heavy admin objects; lower priority than user-facing surface. |
 | `CAST` | 🔮 Future | Custom casts; lands with custom types. |
-| `COLLATION` | 🟡 Partial | Per-column collation **is** modeled in v0.1; `CREATE COLLATION` (defining new collations) is 🔮 Future. |
+| `COLLATION` | 🟡 Partial | Per-column collation **is** modeled in v0.1; `CREATE COLLATION` (defining new collations) is 🔮 Future. change_kinds: [alter] |
 | `TEXT SEARCH CONFIGURATION` / `DICTIONARY` / `PARSER` / `TEMPLATE` | 🔮 Future | Lands with full-text-search-aware index methods (`gin` is already supported as a method but text-search dictionaries are not modeled). |
 
 ## Statistics, rules, and other helpers

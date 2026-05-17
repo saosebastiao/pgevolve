@@ -209,6 +209,7 @@ mod tests {
                 minimality: true,
                 touches_only: vec![],
                 order: vec![],
+                per_pg: std::collections::HashMap::new(),
             },
         );
         let out = check(&f).unwrap();
@@ -230,6 +231,7 @@ mod tests {
                 minimality: true,
                 touches_only: vec![],
                 order: vec![],
+                per_pg: std::collections::HashMap::new(),
             },
         );
         let out = check(&f).unwrap();
@@ -271,6 +273,7 @@ mod golden_tests {
                     minimality: true,
                     touches_only: vec![],
                     order: vec![],
+                    per_pg: std::collections::HashMap::new(),
                 },
                 apply: ExpectApply::default(),
                 dep_graph: ExpectDepGraph::default(),
