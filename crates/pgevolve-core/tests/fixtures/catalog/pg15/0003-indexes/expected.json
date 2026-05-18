@@ -91,7 +91,8 @@
         "schema": "app",
         "name": "users_active_idx"
       },
-      "table": {
+      "on": {
+        "kind": "table",
         "schema": "app",
         "name": "users"
       },
@@ -155,7 +156,8 @@
         "schema": "app",
         "name": "users_email_idx"
       },
-      "table": {
+      "on": {
+        "kind": "table",
         "schema": "app",
         "name": "users"
       },
@@ -183,7 +185,8 @@
         "schema": "app",
         "name": "users_email_lower_idx"
       },
-      "table": {
+      "on": {
+        "kind": "table",
         "schema": "app",
         "name": "users"
       },
@@ -247,7 +250,8 @@
         "schema": "app",
         "name": "users_email_uniq"
       },
-      "table": {
+      "on": {
+        "kind": "table",
         "schema": "app",
         "name": "users"
       },
@@ -275,7 +279,8 @@
         "schema": "app",
         "name": "users_email_with_name"
       },
-      "table": {
+      "on": {
+        "kind": "table",
         "schema": "app",
         "name": "users"
       },
@@ -301,5 +306,7 @@
       "comment": null
     }
   ],
-  "sequences": []
+  "sequences": [],
+  "views": [],
+  "materialized_views": []
 }

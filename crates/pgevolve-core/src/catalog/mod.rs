@@ -70,6 +70,10 @@ pub enum CatalogQuery {
     Comments,
     /// `pg_depend` rows linking sequences to their owning columns.
     Dependencies,
+    /// `pg_class` (relkind IN ('v','m')) joined with `pg_get_viewdef`.
+    ViewsAndMvs,
+    /// `pg_attribute` for view and materialized view columns.
+    ViewColumns,
 }
 
 /// Sync, driver-agnostic catalog query interface.
@@ -107,6 +111,8 @@ pub fn read_catalog(
     let indexes_rows = querier.fetch(CatalogQuery::Indexes, &managed)?;
     let sequences_rows = querier.fetch(CatalogQuery::Sequences, &managed)?;
     let dependencies_rows = querier.fetch(CatalogQuery::Dependencies, &managed)?;
+    let views_and_mvs_rows = querier.fetch(CatalogQuery::ViewsAndMvs, &managed)?;
+    let view_columns_rows = querier.fetch(CatalogQuery::ViewColumns, &managed)?;
 
     let raw = assemble::RawRows {
         version,
@@ -117,6 +123,8 @@ pub fn read_catalog(
         indexes: indexes_rows,
         sequences: sequences_rows,
         dependencies: dependencies_rows,
+        views_and_mvs: views_and_mvs_rows,
+        view_columns: view_columns_rows,
     };
     let (catalog, drift) = assemble::assemble(raw, filter)?;
     Ok((catalog.canonicalize()?, drift))
