@@ -1,0 +1,1 @@
+CREATE TYPE ... AS ENUM with explicit schema vs schema directive — both produce identical IR with three enum values at sort_order 1.0, 2.0, 3.0.

@@ -39,6 +39,57 @@ pub fn resolve_qname(
     )
 }
 
+/// Resolve a `repeated Node` type-name list (as produced by `CreateEnumStmt`,
+/// `CreateDomainStmt`, `CompositeTypeStmt`, etc.) into a [`QualifiedName`].
+///
+/// PG encodes the name as a list of [`pg_query::NodeEnum::String`] nodes:
+/// - one element → unqualified name (requires `default_schema`).
+/// - two elements → `[schema, name]`.
+///
+/// Returns [`ParseError::UnqualifiedName`] if neither the source nor the
+/// directive supply a schema.
+///
+/// This helper is shared by the enum, domain, and composite builders (T2–T4).
+pub fn qname_from_string_list(
+    nodes: &[pg_query::protobuf::Node],
+    default_schema: Option<&Identifier>,
+    location: &SourceLocation,
+) -> Result<QualifiedName, ParseError> {
+    let strings: Vec<&str> = nodes
+        .iter()
+        .filter_map(|n| {
+            if let Some(NodeEnum::String(s)) = n.node.as_ref() {
+                Some(s.sval.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    match strings.as_slice() {
+        [name] => {
+            let name_id = ident(name, location)?;
+            let schema = default_schema
+                .cloned()
+                .ok_or_else(|| ParseError::UnqualifiedName {
+                    location: location.clone(),
+                })?;
+            Ok(QualifiedName::new(schema, name_id))
+        }
+        [schema, name] => {
+            let schema_id = ident(schema, location)?;
+            let name_id = ident(name, location)?;
+            Ok(QualifiedName::new(schema_id, name_id))
+        }
+        _ => Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "unexpected type-name list length {} (expected 1 or 2 String nodes)",
+                nodes.len()
+            ),
+        }),
+    }
+}
+
 /// Build an unquoted [`Identifier`], wrapping [`crate::ir::IrError`] into a
 /// source-located [`ParseError::Ir`].
 pub fn ident(s: &str, location: &SourceLocation) -> Result<Identifier, ParseError> {

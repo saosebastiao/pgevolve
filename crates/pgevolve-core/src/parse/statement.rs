@@ -29,6 +29,8 @@ pub enum Statement {
     CreateView(protobuf::ViewStmt),
     /// `CREATE MATERIALIZED VIEW ...`.
     CreateMaterializedView(protobuf::CreateTableAsStmt),
+    /// `CREATE TYPE ... AS ENUM (...)`.
+    CreateEnum(protobuf::CreateEnumStmt),
 }
 
 impl Statement {
@@ -43,6 +45,7 @@ impl Statement {
             NodeEnum::AlterTableStmt(s) => Ok(Self::AlterTable(s)),
             NodeEnum::CommentStmt(s) => Ok(Self::Comment(*s)),
             NodeEnum::ViewStmt(s) => Ok(Self::CreateView(*s)),
+            NodeEnum::CreateEnumStmt(s) => Ok(Self::CreateEnum(s)),
             NodeEnum::CreateTableAsStmt(s) => {
                 // `CREATE TABLE ... AS SELECT` and `CREATE MATERIALIZED VIEW`
                 // both arrive as CreateTableAsStmt. Route by the objtype field.
@@ -65,9 +68,9 @@ const fn unsupported(location: SourceLocation, kind: &'static str) -> ParseError
 const fn friendly_kind(node: &NodeEnum) -> &'static str {
     match node {
         NodeEnum::ViewStmt(_) => "CREATE VIEW", // never reached — routed above
+        NodeEnum::CreateEnumStmt(_) => "CREATE TYPE ... AS ENUM", // never reached — routed above
         NodeEnum::CreateFunctionStmt(_) => "CREATE FUNCTION/PROCEDURE",
         NodeEnum::CreateTrigStmt(_) => "CREATE TRIGGER",
-        NodeEnum::CreateEnumStmt(_) => "CREATE TYPE ... AS ENUM",
         NodeEnum::CreateRangeStmt(_) => "CREATE TYPE ... AS RANGE",
         NodeEnum::CompositeTypeStmt(_) => "CREATE TYPE ... AS (...)",
         NodeEnum::CreateDomainStmt(_) => "CREATE DOMAIN",
