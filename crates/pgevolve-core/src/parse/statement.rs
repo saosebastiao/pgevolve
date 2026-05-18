@@ -31,6 +31,8 @@ pub enum Statement {
     CreateMaterializedView(protobuf::CreateTableAsStmt),
     /// `CREATE TYPE ... AS ENUM (...)`.
     CreateEnum(protobuf::CreateEnumStmt),
+    /// `CREATE DOMAIN ... AS ...`.
+    CreateDomain(protobuf::CreateDomainStmt),
 }
 
 impl Statement {
@@ -46,6 +48,7 @@ impl Statement {
             NodeEnum::CommentStmt(s) => Ok(Self::Comment(*s)),
             NodeEnum::ViewStmt(s) => Ok(Self::CreateView(*s)),
             NodeEnum::CreateEnumStmt(s) => Ok(Self::CreateEnum(s)),
+            NodeEnum::CreateDomainStmt(s) => Ok(Self::CreateDomain(*s)),
             NodeEnum::CreateTableAsStmt(s) => {
                 // `CREATE TABLE ... AS SELECT` and `CREATE MATERIALIZED VIEW`
                 // both arrive as CreateTableAsStmt. Route by the objtype field.
@@ -73,7 +76,6 @@ const fn friendly_kind(node: &NodeEnum) -> &'static str {
         NodeEnum::CreateTrigStmt(_) => "CREATE TRIGGER",
         NodeEnum::CreateRangeStmt(_) => "CREATE TYPE ... AS RANGE",
         NodeEnum::CompositeTypeStmt(_) => "CREATE TYPE ... AS (...)",
-        NodeEnum::CreateDomainStmt(_) => "CREATE DOMAIN",
         NodeEnum::CreateExtensionStmt(_) => "CREATE EXTENSION",
         NodeEnum::CreatePolicyStmt(_) => "CREATE POLICY",
         NodeEnum::CreateForeignTableStmt(_) => "CREATE FOREIGN TABLE",

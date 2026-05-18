@@ -294,6 +294,22 @@ fn process_file(
                 locations.insert(ut.qname.to_string(), location.clone());
                 catalog.types.push(ut);
             }
+            Statement::CreateDomain(s) => {
+                let ut = builder::create_domain_stmt::build_domain(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                )?;
+                if let Some(prior) = locations.get(&ut.qname.to_string()) {
+                    return Err(ParseError::DuplicateObject {
+                        qname: ut.qname.to_string(),
+                        first: prior.clone(),
+                        second: location,
+                    });
+                }
+                locations.insert(ut.qname.to_string(), location.clone());
+                catalog.types.push(ut);
+            }
         }
     }
     Ok(())
