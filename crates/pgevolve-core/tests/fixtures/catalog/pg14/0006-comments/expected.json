@@ -161,5 +161,6 @@
     }
   ],
   "views": [],
-  "materialized_views": []
+  "materialized_views": [],
+  "types": []
 }

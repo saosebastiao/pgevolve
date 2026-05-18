@@ -9,6 +9,7 @@ pub mod pg15;
 pub mod pg16;
 pub mod pg17;
 pub mod shared;
+pub mod types;
 pub mod views;
 
 use crate::catalog::CatalogQuery;
@@ -30,6 +31,11 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::Dependencies) => shared::DEPENDENCIES_QUERY,
         (_, CatalogQuery::ViewsAndMvs) => views::SELECT_VIEWS_AND_MVS,
         (_, CatalogQuery::ViewColumns) => views::SELECT_VIEW_COLUMNS,
+        (_, CatalogQuery::UserTypes) => types::SELECT_USER_TYPES,
+        (_, CatalogQuery::EnumValues) => types::SELECT_ENUM_VALUES,
+        (_, CatalogQuery::DomainDetails) => types::SELECT_DOMAIN_DETAILS,
+        (_, CatalogQuery::DomainChecks) => types::SELECT_DOMAIN_CHECKS,
+        (_, CatalogQuery::CompositeAttributes) => types::SELECT_COMPOSITE_ATTRIBUTES,
     }
 }
 

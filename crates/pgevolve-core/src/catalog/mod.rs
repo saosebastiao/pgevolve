@@ -74,6 +74,16 @@ pub enum CatalogQuery {
     ViewsAndMvs,
     /// `pg_attribute` for view and materialized view columns.
     ViewColumns,
+    /// `pg_type` filtered to `typtype IN ('e','d','c')` for user-defined types.
+    UserTypes,
+    /// `pg_enum` labels for enum types.
+    EnumValues,
+    /// Base-type and nullability details for domain types.
+    DomainDetails,
+    /// Named CHECK constraints attached to domain types.
+    DomainChecks,
+    /// Attributes (fields) of composite types.
+    CompositeAttributes,
 }
 
 /// Sync, driver-agnostic catalog query interface.
@@ -113,6 +123,11 @@ pub fn read_catalog(
     let dependencies_rows = querier.fetch(CatalogQuery::Dependencies, &managed)?;
     let views_and_mvs_rows = querier.fetch(CatalogQuery::ViewsAndMvs, &managed)?;
     let view_columns_rows = querier.fetch(CatalogQuery::ViewColumns, &managed)?;
+    let user_types_rows = querier.fetch(CatalogQuery::UserTypes, &managed)?;
+    let enum_values_rows = querier.fetch(CatalogQuery::EnumValues, &managed)?;
+    let domain_details_rows = querier.fetch(CatalogQuery::DomainDetails, &managed)?;
+    let domain_checks_rows = querier.fetch(CatalogQuery::DomainChecks, &managed)?;
+    let composite_attributes_rows = querier.fetch(CatalogQuery::CompositeAttributes, &managed)?;
 
     let raw = assemble::RawRows {
         version,
@@ -125,6 +140,11 @@ pub fn read_catalog(
         dependencies: dependencies_rows,
         views_and_mvs: views_and_mvs_rows,
         view_columns: view_columns_rows,
+        user_types: user_types_rows,
+        enum_values: enum_values_rows,
+        domain_details: domain_details_rows,
+        domain_checks: domain_checks_rows,
+        composite_attributes: composite_attributes_rows,
     };
     let (catalog, drift) = assemble::assemble(raw, filter)?;
     Ok((catalog.canonicalize()?, drift))
