@@ -232,6 +232,20 @@ fn table_column_with_declared_user_type_resolves() {
     let catalog = parse_directory(dir, &[]).expect("declared user type should resolve");
     assert_eq!(catalog.types.len(), 1, "should have 1 type");
     assert_eq!(catalog.tables.len(), 1, "should have 1 table");
+
+    // Load-bearing check: the column type actually resolves to UserDefined,
+    // not silently to ColumnType::Other (which was the pre-T5 bug).
+    let status_col = catalog.tables[0]
+        .columns
+        .iter()
+        .find(|c| c.name.as_str() == "status")
+        .expect("status column must exist");
+    match &status_col.ty {
+        pgevolve_core::ir::column_type::ColumnType::UserDefined(q) => {
+            assert_eq!(q.to_string(), "app.order_status");
+        }
+        other => panic!("expected UserDefined(app.order_status), got {other:?}"),
+    }
 }
 
 #[test]

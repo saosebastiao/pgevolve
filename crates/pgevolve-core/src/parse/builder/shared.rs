@@ -155,18 +155,21 @@ pub fn type_name_to_column_type(
     type_name: &TypeName,
     location: &SourceLocation,
 ) -> Result<ColumnType, ParseError> {
-    // Collect String nodes from names.
+    // Collect String nodes from names; fail fast on unexpected kinds.
     let name_strings: Vec<&str> = type_name
         .names
         .iter()
-        .filter_map(|n| {
-            if let Some(NodeEnum::String(s)) = &n.node {
-                Some(s.sval.as_str())
-            } else {
-                None
-            }
+        .map(|n| match n.node.as_ref() {
+            Some(NodeEnum::String(s)) => Ok(s.sval.as_str()),
+            other => Err(ParseError::Structural {
+                location: location.clone(),
+                message: format!(
+                    "expected String node in type-name list, got {:?}",
+                    other.map(std::mem::discriminant),
+                ),
+            }),
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     // Two-segment, non-pg_catalog prefix → user-defined type reference.
     if let [schema, name] = name_strings.as_slice()
