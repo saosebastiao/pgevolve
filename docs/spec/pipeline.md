@@ -39,15 +39,32 @@ flowchart TD
 | Deterministic file order | ✅ Implemented | Walks paths in sort order so identical inputs produce identical output. |
 | Multi-file project layout enforced by the layout profile | ✅ Implemented | See [`lint-and-layout.md`](./lint-and-layout.md). |
 
+## AST canonicalization pass (`pgevolve_core::parse::ast_canon`)
+
+Runs immediately after source parse, before the AST resolution pass. For each view and materialized view in the provisional catalog, the pass:
+
+1. Calls `NormalizedBody::from_sql` (see `parse/normalize_body.rs`) on `raw_body` to fill `body_canonical`.
+2. Walks the body AST to extract `DepEdge` records with `DepSource::AstExtracted` provenance, filling `body_dependencies`.
+3. Resolves each referenced relation against the provisional catalog. Unresolved references surface as `AstCanonError::UnresolvedReference`.
+4. Fills `columns` from the SELECT target list when no explicit alias list was provided (using Postgres's column-naming algorithm: explicit alias → rightmost `ColumnRef` name → `"?column?"` fallback).
+
+The same `NormalizedBody::from_sql` call is used on the catalog side (T5 reader queries `pg_get_viewdef`), so source-side and catalog-side canonical texts are directly comparable by the differ. The v0.2 property test (`view_canonicalization_closed_under_pg_rewrite`) verifies this closure invariant.
+
+| Aspect | Status | Notes |
+|---|---|---|
+| `NormalizedBody::from_sql` canonicalization | ✅ Implemented | `pg_query` parse + deparse + whitespace collapse. Source: `parse/normalize_body.rs`. |
+| Dep-edge extraction from view body AST | ✅ Implemented | `DepEdge { from: NodeId::View, to: NodeId::Table/View/Mv, source: AstExtracted }`. |
+| `body_dependencies` integration into planner ordering | ✅ Implemented | View → table and view → view edges are part of the dep-graph; creates and drops respect the topo order. |
+
 ## AST resolution pass (`pgevolve_core::parse::resolve`)
 
-Runs between parse and canonicalize. Validates structural references before diff.
+Runs after the AST canonicalization pass. Validates structural references before diff.
 
 | Aspect | Status | Notes |
 |---|---|---|
 | FK targets validated against declared tables | ✅ Implemented | Surfaces unresolved references as `ParseError::AstResolution` with source location. |
 | Default-using sequences validated against declared sequences | ✅ Implemented | Same error path. |
-| Body AST walks (function/view dependency edges) | 📋 Planned, v0.2 | v0.2 sub-specs will extend the pass to walk body ASTs and emit `AstExtracted` / `AstDeclared` edges. |
+| View body cross-references validated against declared objects | ✅ Implemented | The AST canon pass (`ast_canon.rs`) surfaces unresolved view body references as `AstCanonError::UnresolvedReference`. |
 
 ## Catalog reader (`pgevolve_core::catalog`)
 
@@ -59,7 +76,8 @@ Runs between parse and canonicalize. Validates structural references before diff
 | Dependencies (sequence `OWNED BY`, default → sequence) | ✅ Implemented | |
 | `pg_catalog.default` collation normalized to "none" | ✅ Implemented | Avoids phantom drift on every text column. |
 | Sequence type-default min/max normalized to "unspecified" | ✅ Implemented | Same reason — PG stores explicit values even when the user didn't specify them. |
-| Object kinds beyond v0.1 (views, functions, triggers, types, …) | 📋 Planned, v0.2 | Lands with the corresponding object-kind support. |
+| Views and materialized views | ✅ Implemented | `read_views` and `read_materialized_views` query `pg_views` / `pg_matviews`, call `pg_get_viewdef` for the body text, and feed it through `NormalizedBody::from_sql` so the catalog-side canonical text is directly comparable with the source-side canonical text. |
+| Object kinds beyond v0.1/v0.2 views (functions, triggers, types, …) | 📋 Planned, v0.2+ | Lands with the corresponding object-kind support. |
 | Catalog filtering by `[managed]` schemas + `[managed].ignore_objects` globs | ✅ Implemented | Unmanaged schemas don't appear in the IR at all. |
 | Catalog drift detection — returns `(Catalog, DriftReport)` | ✅ Implemented | See "Catalog drift detection" section below. |
 
@@ -108,6 +126,8 @@ Both drift kinds are auto-recovery paths — the user doesn't author NOT VALID o
 | CHECK `NOT VALID` + `VALIDATE CONSTRAINT` for adds on existing tables | ✅ Implemented | Same pattern as FK. |
 | `SET NOT NULL` on populated columns via the CHECK pattern (4 steps) | ✅ Implemented | `ADD CHECK NOT VALID` → `VALIDATE` → `SET NOT NULL` (cheap once validated) → `DROP CONSTRAINT`. |
 | Per-environment policy override (`[environments.<env>].strategy = "atomic"`) | ✅ Implemented | Atomic mode disables every online rewrite. |
+| `REFRESH MATERIALIZED VIEW CONCURRENTLY` upgrade | ✅ Implemented | When `refresh_mv_concurrently = true` (default) and the MV has a unique index, the planner emits `REFRESH MATERIALIZED VIEW CONCURRENTLY` instead of the locking variant. Gated on strategy = online. |
+| Dependent-view recreation cascade (`recreate_views::extend_with_dependent_recreations`) | ✅ Implemented | When a table drop, column change, or incompatible view-body replace is detected, the planner walks `body_dependencies` transitively and emits explicit `DROP + CREATE` steps for every affected view. Controlled by `view_drop_create_dependents` switch (default `true`). |
 | `ALTER TYPE ... ADD VALUE` (enum value add) online rewrite | 📋 Planned, v0.2 | Lands with enum support. |
 | `ALTER COLUMN ... TYPE` online rewrite (e.g., int → bigint) | 🔮 Future | Currently emits a single `ALTER COLUMN ... TYPE` step, which can rewrite the entire table. The "USING expr + new column + rename" pattern is a candidate v0.3 rewrite. |
 | `REINDEX CONCURRENTLY` for bloated indexes | 🔮 Future | Not currently emitted by the planner; users invoke manually. |

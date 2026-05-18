@@ -231,6 +231,73 @@ If step 4 of a 5-step plan fails:
 You don't manually fix anything in the plan directory. You re-run
 `pgevolve plan --db <env>` and apply the new plan.
 
+## Managing views
+
+### Create a simple view
+
+```sql
+-- schema/app/views/active_users.sql
+CREATE VIEW app.active_users AS
+  SELECT id, email FROM app.users WHERE deleted_at IS NULL;
+```
+
+`pgevolve plan` emits one `create_view` step in a transactional group.
+
+### Add a column to an existing view (compatible change)
+
+If the new column is appended at the end of the SELECT list, the body
+change is **compatible**: Postgres can apply it without dropping the view.
+pgevolve emits `CREATE OR REPLACE VIEW`:
+
+```sql
+-- After: add `created_at`
+CREATE VIEW app.active_users AS
+  SELECT id, email, created_at FROM app.users WHERE deleted_at IS NULL;
+```
+
+```sql
+-- @pgevolve step=1 kind=create_view destructive=false targets=app.active_users
+CREATE OR REPLACE VIEW app.active_users AS
+  SELECT id, email, created_at FROM app.users WHERE deleted_at IS NULL;
+```
+
+### Reorder columns (incompatible change → DROP + CREATE)
+
+Reordering columns or changing a column type is **incompatible** with
+`CREATE OR REPLACE VIEW`. pgevolve emits an explicit `drop_view` followed
+by `create_view`:
+
+```sql
+-- After: move `email` before `id`
+CREATE VIEW app.active_users AS
+  SELECT email, id FROM app.users WHERE deleted_at IS NULL;
+```
+
+```sql
+-- @pgevolve step=1 kind=drop_view destructive=true intent_id=1 targets=app.active_users
+DROP VIEW app.active_users;
+-- @pgevolve step=2 kind=create_view destructive=false targets=app.active_users
+CREATE VIEW app.active_users AS SELECT email, id FROM app.users WHERE deleted_at IS NULL;
+```
+
+The `drop_view` step is destructive — you must flip `approved = true` in
+`intent.toml` before applying.
+
+### Dependent-view cascade
+
+If view `B` selects from view `A`, modifying `A`'s body incompatibly
+automatically cascades to `B`. pgevolve walks the `body_dependencies`
+graph and emits explicit `DROP + CREATE` steps for every affected view.
+The plan is fully auditable: no hidden `CASCADE` drops.
+
+To opt out of automatic cascade and instead get an error listing the
+affected views, set:
+
+```toml
+[planner.online_rewrites]
+view_drop_create_dependents = false
+```
+
 ## Run the same plan against multiple environments
 
 A plan is bound to a specific `target_identity`. If you generate

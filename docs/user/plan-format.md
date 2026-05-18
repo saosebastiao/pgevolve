@@ -77,6 +77,20 @@ COMMIT;
 | `intent_id=<n>` | Present only on destructive steps; references the same `id` in `intent.toml`. |
 | `targets=<qname1>,<qname2>,...` | Comma-separated list of affected qualified names. |
 
+### Step kinds — v0.2 additions (views and materialized views)
+
+The following step kinds were added in v0.2 alongside view and materialized view support:
+
+| Kind | SQL emitted | Transactional | Notes |
+|---|---|---|---|
+| `create_view` | `CREATE VIEW <qname> AS <body>` | yes | Used for new views and for incompatible body replacements (recreate). |
+| `drop_view` | `DROP VIEW <qname>` | yes | Destructive — requires intent approval. |
+| `create_materialized_view` | `CREATE MATERIALIZED VIEW <qname> AS <body>` | yes | |
+| `drop_materialized_view` | `DROP MATERIALIZED VIEW <qname>` | yes | Destructive — requires intent approval. |
+| `refresh_materialized_view` | `REFRESH MATERIALIZED VIEW [CONCURRENTLY] <qname>` | no (CONCURRENTLY); yes (without) | Upgraded to CONCURRENTLY under online strategy when a unique index is present. |
+| `alter_view_set_reloption` | `ALTER VIEW <qname> SET (security_barrier = …)` | yes | Also handles `security_invoker`. |
+| `comment_on_view` | `COMMENT ON VIEW <qname> IS '…'` | yes | Used for both regular views and materialized views. |
+
 ## `intent.toml`
 
 ```toml
@@ -91,7 +105,7 @@ reason   = "drops column legacy_email"
 approved = false
 ```
 
-Every destructive step gets one `[[intent]]` row. The executor:
+Every destructive step gets one `[[intent]]` row. `intent.toml` also supports `[[step_override]]` rows (see below). The executor:
 
 - Reads this file at apply time.
 - **Refuses to run** while any row has `approved = false`.
@@ -108,6 +122,25 @@ must stay intact; pgevolve cross-checks it against `plan.sql` and
 > flipping `approved = true`, not the same person who authored the
 > change. Treat the diff in `intent.toml` as the "are you really sure?"
 > gate.
+
+## `[[step_override]]` — suppress or skip steps
+
+`intent.toml` also accepts `[[step_override]]` rows. Step overrides let you suppress specific planner steps (e.g., skip a `refresh_materialized_view` during a maintenance window without regenerating the plan):
+
+```toml
+[[step_override]]
+kind = "refresh_materialized_view"
+target = "app.daily_summary"
+suppress = true
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `kind` | yes | Step kind to match (e.g., `refresh_materialized_view`, `create_view`). |
+| `target` | yes | Qualified object name the override applies to. |
+| `suppress` | no | Default `false`. When `true`, the matching step is silently omitted from execution. The plan is otherwise applied normally. |
+
+> **When to use.** Step overrides are appropriate for one-off operational situations (e.g., deferring an expensive `REFRESH` to off-peak hours). They are **not** a substitute for intent approval — destructive steps still require `approved = true` even when a `[[step_override]]` is present.
 
 ## `manifest.toml`
 

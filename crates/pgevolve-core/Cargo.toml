@@ -34,3 +34,4 @@ proptest          = { workspace = true }
 tempfile          = "3"
 anyhow            = { workspace = true }
 tokio             = { workspace = true }
+tokio-postgres    = { workspace = true }

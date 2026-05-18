@@ -8,7 +8,7 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-> **Status:** v0.1.0 release candidate. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in this version and the known limitations.
+> **Status:** v0.1.0 released; v0.2 in progress — views and materialized views implemented. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
 
 ## Usage at a glance
 
@@ -124,6 +124,24 @@ libpq env (`PGHOST`, `PGUSER`, ...).
 | 10    | Linter                       | done     |
 | 11    | Testkit                      | done     |
 | 12    | Shadow                       | done     |
+
+### v0.2 feature progress
+
+| Feature | Status |
+|---|---|
+| Views (`CREATE VIEW`, `DROP VIEW`, `CREATE OR REPLACE VIEW`) | ✅ Implemented |
+| Materialized views (`CREATE MATERIALIZED VIEW`, `REFRESH [CONCURRENTLY]`) | ✅ Implemented |
+| AST body canonicalization (`NormalizedBody::from_sql`) | ✅ Implemented |
+| OR-REPLACE compatibility predicate | ✅ Implemented |
+| Dependent-view recreation cascade | ✅ Implemented |
+| Online rewrite: `REFRESH CONCURRENTLY` (when unique index present) | ✅ Implemented |
+| `[[step_override]]` in `intent.toml` | ✅ Implemented |
+| 3 new lint rules (`view-shadows-table`, `mv-no-unique-index`, `view-body-references-unmanaged-schema`) | ✅ Implemented |
+| 15 conformance fixtures (views, MVs, intent, dep-chains) | ✅ Implemented |
+| Declarative partitioning | 📋 Planned |
+| Functions, procedures, triggers | 📋 Planned |
+| Enums, domains, composite types | 📋 Planned |
+| Extensions | 📋 Planned |
 
 ## Workspace layout
 

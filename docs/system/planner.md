@@ -224,6 +224,51 @@ the audit log.
 The synthesized `__pgevolve_chk_<col>` constraint name is reserved.
 Users shouldn't create constraints with this prefix in their source.
 
+### Online rewrite 5: `REFRESH MATERIALIZED VIEW CONCURRENTLY`
+
+`plan::rewrite::refresh_mv_concurrent::should_rewrite`:
+
+```rust
+policy.refresh_mv_concurrently()
+    && target.mv_has_unique_index(&mv.qname)
+```
+
+Two gating conditions:
+
+1. Policy enables the rewrite (`refresh_mv_concurrently = true`; default enabled under online strategy).
+2. The materialized view has at least one unique index in the **target** catalog (checked before the step is emitted, not at plan time — at plan time the MV may be brand new and the index is being created in the same plan).
+
+When both hold, the step is emitted with `TransactionConstraint::OutsideTransaction` and kind `RefreshMaterializedView`. `group_steps` places it in its own non-transactional group. The `mv-no-unique-index` lint rule fires as a `Warning` when an MV exists with no unique index, alerting the user that concurrent refresh is unavailable.
+
+### View OR-REPLACE compatibility predicate
+
+Source: `crates/pgevolve-core/src/diff/views.rs` — `body_is_or_replace_compatible`.
+
+A view body change is **OR-REPLACE compatible** if and only if:
+
+1. The new SELECT list is a superset of the old one (columns can be appended but not removed or reordered).
+2. The types of existing columns are unchanged.
+
+When the predicate returns `true`, the differ emits `ViewChange::ReplaceBody { compatible: true }` and the planner uses `CREATE OR REPLACE VIEW`. When `false`, it emits `compatible: false` and the planner uses `DROP VIEW` + `CREATE VIEW` (destructive — requires intent approval) plus the dependent-recreation cascade below.
+
+### Dependent-recreation walk
+
+Source: `crates/pgevolve-core/src/plan/recreate_views.rs` — `extend_with_dependent_recreations`.
+
+After the differ produces the initial `ChangeSet`, the planner calls `extend_with_dependent_recreations` to find every view transitively affected by the changes. Triggers that start the walk:
+
+- `DropTable` — any view with a `body_dependencies` edge to the dropped table.
+- `AlterTable` with `DropColumn` or `AlterColumnType` ops — views referencing the affected column.
+- `View(ReplaceBody { compatible: false })` — views depending on the view being replaced.
+- `Mv(ReplaceBody { .. })` — views depending on the MV being replaced.
+- `View(Drop)` or `Mv(Drop)` — views depending on the dropped object.
+
+The walk is a BFS over the `body_dependencies` reverse index (object → views that reference it). The result set is topologically sorted (dependency-first) before being appended to `changes` as `ReplaceBody { compatible: false }` entries. The planner then processes those into `DROP + CREATE` steps.
+
+**Policy gate.** When `PlannerPolicy::view_drop_create_dependents()` returns `false`, the walk still runs to detect affected views, but returns `Err(affected)` instead of modifying `changes`. The caller surfaces a human-readable error naming every affected view.
+
+**No double-emission.** Views already present in `changes` (because the differ itself produced a `ReplaceBody` for them) are excluded from the walk's output — the filter prevents emitting the same step twice.
+
 ### Atomic mode
 
 `Strategy::Atomic` short-circuits **every** online rewrite — every
