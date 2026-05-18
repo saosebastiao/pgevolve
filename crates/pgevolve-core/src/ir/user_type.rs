@@ -1,0 +1,243 @@
+//! User-defined types — enums, domains, composites.
+
+use serde::{Deserialize, Serialize};
+
+use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::column_type::ColumnType;
+use crate::ir::default_expr::NormalizedExpr;
+use crate::ir::difference::Difference;
+use crate::ir::eq::Diff;
+
+/// A user-defined type (enum, domain, or composite).
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct UserType {
+    /// Schema-qualified type name.
+    pub qname: QualifiedName,
+    /// The kind and kind-specific data for this type.
+    pub kind: UserTypeKind,
+    /// Optional `COMMENT ON TYPE` text.
+    pub comment: Option<String>,
+}
+
+/// The three user-defined type variants supported by pgevolve.
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UserTypeKind {
+    /// `CREATE TYPE … AS ENUM (…)`.
+    Enum {
+        /// Ordered list of enum labels.
+        values: Vec<EnumValue>,
+    },
+    /// `CREATE DOMAIN … AS …`.
+    Domain {
+        /// Underlying base type.
+        base: ColumnType,
+        /// Whether `NULL` values are accepted (`NOT NULL` constraint absent).
+        nullable: bool,
+        /// Optional `DEFAULT` expression.
+        default: Option<NormalizedExpr>,
+        /// `CHECK` constraints attached to this domain.
+        check_constraints: Vec<DomainCheck>,
+        /// Optional `COLLATE` clause.
+        collation: Option<QualifiedName>,
+    },
+    /// `CREATE TYPE … AS (…)`.
+    Composite {
+        /// Ordered list of composite attributes.
+        attributes: Vec<CompositeAttribute>,
+    },
+}
+
+/// A single label in a `CREATE TYPE … AS ENUM` declaration.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EnumValue {
+    /// The enum label string.
+    pub name: String,
+    /// PG's `pg_enum.enumsortorder` is real4; we store the same float for
+    /// byte-stable round-trip.
+    pub sort_order: f32,
+}
+
+// f32 doesn't implement Eq or Hash. Provide manual impls that use the
+// IEEE 754 bit pattern, so two EnumValues with the same sort_order
+// compare equal and hash equal even though f32: !Eq in std.
+impl Eq for EnumValue {}
+impl std::hash::Hash for EnumValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.sort_order.to_bits().hash(state);
+    }
+}
+
+/// A named `CHECK` constraint on a domain type.
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct DomainCheck {
+    /// Constraint name.
+    pub name: Identifier,
+    /// Normalized check expression.
+    pub expression: NormalizedExpr,
+}
+
+/// A single attribute (field) in a composite type.
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct CompositeAttribute {
+    /// Attribute name.
+    pub name: Identifier,
+    /// Attribute data type.
+    pub ty: ColumnType,
+    /// Optional `COLLATE` clause on this attribute.
+    pub collation: Option<QualifiedName>,
+}
+
+impl Diff for UserType {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        if self == other {
+            Vec::new()
+        } else {
+            vec![Difference::new(
+                "",
+                format!("{:?}", self.kind),
+                format!("{:?}", other.kind),
+            )]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::catalog::Catalog;
+    use crate::ir::schema::Schema;
+
+    fn ident(s: &str) -> Identifier {
+        Identifier::from_unquoted(s).unwrap()
+    }
+    fn qname(schema: &str, name: &str) -> QualifiedName {
+        QualifiedName::new(ident(schema), ident(name))
+    }
+
+    fn sample_enum() -> UserType {
+        UserType {
+            qname: qname("app", "order_status"),
+            kind: UserTypeKind::Enum {
+                values: vec![
+                    EnumValue {
+                        name: "pending".into(),
+                        sort_order: 1.0,
+                    },
+                    EnumValue {
+                        name: "shipped".into(),
+                        sort_order: 2.0,
+                    },
+                ],
+            },
+            comment: None,
+        }
+    }
+
+    fn sample_domain() -> UserType {
+        UserType {
+            qname: qname("app", "positive_int"),
+            kind: UserTypeKind::Domain {
+                base: ColumnType::Integer,
+                nullable: false,
+                default: None,
+                check_constraints: vec![],
+                collation: None,
+            },
+            comment: None,
+        }
+    }
+
+    fn sample_composite() -> UserType {
+        UserType {
+            qname: qname("app", "address"),
+            kind: UserTypeKind::Composite {
+                attributes: vec![
+                    CompositeAttribute {
+                        name: ident("street"),
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                    CompositeAttribute {
+                        name: ident("zip"),
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                ],
+            },
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn user_types_round_trip_through_serde() {
+        for ut in [sample_enum(), sample_domain(), sample_composite()] {
+            let json = serde_json::to_string(&ut).unwrap();
+            let back: UserType = serde_json::from_str(&json).unwrap();
+            assert_eq!(ut, back);
+        }
+    }
+
+    #[test]
+    fn catalog_holds_user_types_and_canonicalizes() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema {
+            name: ident("app"),
+            comment: None,
+        });
+        // Insert in non-canonical order.
+        c.types.push(sample_composite());
+        c.types.push(sample_enum());
+        c.types.push(sample_domain());
+
+        c = c.canonicalize().expect("must canonicalize");
+
+        // After canonicalize, types are sorted by qname.
+        let names: Vec<_> = c
+            .types
+            .iter()
+            .map(|t| t.qname.name.as_str().to_string())
+            .collect();
+        assert_eq!(names, vec!["address", "order_status", "positive_int"]);
+    }
+
+    #[test]
+    fn catalog_rejects_duplicate_user_type_qname() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema {
+            name: ident("app"),
+            comment: None,
+        });
+        c.types.push(sample_enum());
+        c.types.push(sample_enum()); // duplicate qname
+
+        let err = c.canonicalize().expect_err("duplicate must fail");
+        let msg = err.to_string();
+        assert!(
+            msg.to_lowercase().contains("duplicate"),
+            "expected duplicate error: {msg}"
+        );
+        assert!(msg.contains("order_status"), "should name the qname: {msg}");
+    }
+
+    #[test]
+    fn enum_value_hash_uses_bit_pattern() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let a = EnumValue {
+            name: "x".into(),
+            sort_order: 1.0,
+        };
+        let b = EnumValue {
+            name: "x".into(),
+            sort_order: 1.0,
+        };
+        let mut ha = DefaultHasher::new();
+        let mut hb = DefaultHasher::new();
+        a.hash(&mut ha);
+        b.hash(&mut hb);
+        assert_eq!(ha.finish(), hb.finish());
+    }
+}

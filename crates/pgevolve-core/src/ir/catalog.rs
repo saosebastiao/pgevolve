@@ -11,6 +11,7 @@ use crate::ir::index::Index;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
+use crate::ir::user_type::UserType;
 use crate::ir::view::{MaterializedView, View};
 
 /// A whole-database schema snapshot.
@@ -28,6 +29,8 @@ pub struct Catalog {
     pub views: Vec<View>,
     /// Materialized views.
     pub materialized_views: Vec<MaterializedView>,
+    /// User-defined types (enums, domains, composites).
+    pub types: Vec<UserType>,
 }
 
 impl Catalog {
@@ -41,6 +44,7 @@ impl Catalog {
             sequences: Vec::new(),
             views: Vec::new(),
             materialized_views: Vec::new(),
+            types: Vec::new(),
         }
     }
 
@@ -100,6 +104,13 @@ impl Catalog {
             )));
         }
 
+        self.types.sort_by(|a, b| a.qname.cmp(&b.qname));
+        if let Some(dupe) = first_duplicate(self.types.iter().map(|t| t.qname.to_string())) {
+            return Err(IrError::InvalidIdentifier(format!(
+                "duplicate type: {dupe}"
+            )));
+        }
+
         Ok(self)
     }
 }
@@ -146,6 +157,10 @@ impl Diff for Catalog {
             diff_keyed(&self.materialized_views, &other.materialized_views, |m| {
                 m.qname.to_string()
             }),
+        ));
+        out.extend(prefix_diffs(
+            "types",
+            diff_keyed(&self.types, &other.types, |t| t.qname.to_string()),
         ));
         out
     }

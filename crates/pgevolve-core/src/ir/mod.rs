@@ -15,6 +15,8 @@ pub mod index;
 pub mod schema;
 pub mod sequence;
 pub mod table;
+pub mod user_type;
+pub use user_type::*;
 pub mod view;
 pub use view::*;
 
