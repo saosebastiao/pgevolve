@@ -39,7 +39,7 @@ pub enum ApplyOutcome {
     /// Docker unavailable; layer skipped.
     Skipped,
     /// Apply succeeded; IRs were equal. Carries post-apply state for L5.
-    Ok(PostApplyState),
+    Ok(Box<PostApplyState>),
     /// Apply was expected to fail, and it did fail with matching substrings.
     /// No post-apply state is available.
     OkExpectedFailure,
@@ -132,11 +132,11 @@ pub async fn check_with_options(
     let expected_ir = parse_post_apply_target(fixture)?;
 
     if post_apply_ir.canonical_eq(&expected_ir) {
-        Ok(ApplyOutcome::Ok(PostApplyState {
+        Ok(ApplyOutcome::Ok(Box::new(PostApplyState {
             catalog: post_apply_ir,
             drift: post_apply_drift,
             after_source: expected_ir,
-        }))
+        })))
     } else {
         let diffs = expected_ir.diff(&post_apply_ir);
         let rendered = diffs

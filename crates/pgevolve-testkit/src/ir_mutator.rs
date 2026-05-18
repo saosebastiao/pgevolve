@@ -488,6 +488,8 @@ mod tests {
             tables: vec![table],
             indexes: vec![],
             sequences: vec![],
+            views: vec![],
+            materialized_views: vec![],
         };
 
         // Try every seed in 0..16 (covering all column-pick positions and
@@ -511,7 +513,7 @@ mod tests {
                 }
             }
             catalog = c; // accumulate added indexes across seeds — they all
-                         // must target the bigint PK column, never json.
+            // must target the bigint PK column, never json.
         }
     }
 }

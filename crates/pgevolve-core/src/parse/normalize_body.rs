@@ -17,8 +17,10 @@
 //! For v0.1 this module is unused; v0.2 view/function sub-specs are
 //! its first consumers.
 
+use serde::{Deserialize, Serialize};
+
 /// A canonicalized statement-scope body.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NormalizedBody {
     canonical_text: String,
     canonical_hash: [u8; 32],

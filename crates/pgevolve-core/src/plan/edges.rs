@@ -12,6 +12,8 @@
 //! (over the target catalog) use the same edge logic — drop ordering is
 //! produced by reversing the topological sort, not by reversing the edges.
 
+use serde::{Deserialize, Serialize};
+
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::ir::constraint::ConstraintKind;
@@ -23,7 +25,7 @@ use crate::plan::graph::Graph;
 /// `Schema` carries an `Identifier` (schemas are not schema-qualified). All
 /// other variants carry [`QualifiedName`]. `Constraint` is identified by
 /// `(table, name)` because constraint names are scoped to their table.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum NodeId {
     /// A schema (namespace).
     Schema(Identifier),
@@ -161,7 +163,7 @@ pub fn build_drop_graph(catalog: &Catalog) -> Graph<NodeId> {
 ///
 /// Ordering: `Structural < AstExtracted < AstDeclared` — structural edges
 /// are tie-broken first in the Kahn min-heap to preserve v0.1 ordering.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum DepSource {
     /// Derived from the IR shape; v0.1 default.
     Structural,
@@ -175,7 +177,7 @@ pub enum DepSource {
 ///
 /// Convention matches the existing graph: `from` depends on `to`, so `to`
 /// must be created before `from`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DepEdge {
     /// Dependent node (the one that needs `to` to exist first).
     pub from: NodeId,

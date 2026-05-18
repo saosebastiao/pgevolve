@@ -15,6 +15,7 @@ pub mod index;
 pub mod schema;
 pub mod sequence;
 pub mod table;
+pub mod view;
 
 use thiserror::Error;
 

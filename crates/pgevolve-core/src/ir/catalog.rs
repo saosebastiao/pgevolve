@@ -11,6 +11,7 @@ use crate::ir::index::Index;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
+use crate::ir::view::{MaterializedView, View};
 
 /// A whole-database schema snapshot.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -23,6 +24,10 @@ pub struct Catalog {
     pub indexes: Vec<Index>,
     /// Sequences.
     pub sequences: Vec<Sequence>,
+    /// Views.
+    pub views: Vec<View>,
+    /// Materialized views.
+    pub materialized_views: Vec<MaterializedView>,
 }
 
 impl Catalog {
@@ -34,6 +39,8 @@ impl Catalog {
             tables: Vec::new(),
             indexes: Vec::new(),
             sequences: Vec::new(),
+            views: Vec::new(),
+            materialized_views: Vec::new(),
         }
     }
 
@@ -76,6 +83,23 @@ impl Catalog {
             )));
         }
 
+        self.views.sort_by(|a, b| a.qname.cmp(&b.qname));
+        if let Some(dupe) = first_duplicate(self.views.iter().map(|v| v.qname.to_string())) {
+            return Err(IrError::InvalidIdentifier(format!(
+                "duplicate view: {dupe}"
+            )));
+        }
+
+        self.materialized_views
+            .sort_by(|a, b| a.qname.cmp(&b.qname));
+        if let Some(dupe) =
+            first_duplicate(self.materialized_views.iter().map(|m| m.qname.to_string()))
+        {
+            return Err(IrError::InvalidIdentifier(format!(
+                "duplicate materialized view: {dupe}"
+            )));
+        }
+
         Ok(self)
     }
 }
@@ -112,6 +136,16 @@ impl Diff for Catalog {
         out.extend(prefix_diffs(
             "sequences",
             diff_keyed(&self.sequences, &other.sequences, |s| s.qname.to_string()),
+        ));
+        out.extend(prefix_diffs(
+            "views",
+            diff_keyed(&self.views, &other.views, |v| v.qname.to_string()),
+        ));
+        out.extend(prefix_diffs(
+            "materialized_views",
+            diff_keyed(&self.materialized_views, &other.materialized_views, |m| {
+                m.qname.to_string()
+            }),
         ));
         out
     }
