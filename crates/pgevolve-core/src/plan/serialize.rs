@@ -9,7 +9,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::ir::catalog::Catalog;
 use crate::plan::io_error::PlanIoError;
-use crate::plan::plan::{LintWaiver, Plan, RecordedFinding, kind_name};
+use crate::plan::plan::{LintWaiver, Plan, RecordedFinding, StepOverride, kind_name};
 use crate::plan::raw_step::RawStep;
 
 // ---------------------------------------------------------------------------
@@ -102,6 +102,9 @@ struct IntentDoc<'a> {
     /// `plan.lint_waivers` (empty on first write; populated by the user).
     #[serde(rename = "lint_waiver", skip_serializing_if = "Vec::is_empty")]
     lint_waivers: Vec<&'a LintWaiver>,
+    /// `[[step_override]]` rows; omitted from TOML when empty.
+    #[serde(rename = "step_override", skip_serializing_if = "Vec::is_empty")]
+    step_overrides: Vec<&'a StepOverride>,
 }
 
 #[derive(Serialize)]
@@ -136,6 +139,7 @@ pub fn write_intent_toml(plan: &Plan, w: &mut dyn Write) -> Result<(), PlanIoErr
             })
             .collect(),
         lint_waivers: plan.lint_waivers.iter().collect(),
+        step_overrides: plan.step_overrides.iter().collect(),
     };
     let s = toml::to_string_pretty(&doc)?;
     w.write_all(s.as_bytes())

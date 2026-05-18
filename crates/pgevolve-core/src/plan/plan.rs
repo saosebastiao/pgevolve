@@ -102,6 +102,23 @@ impl std::fmt::Display for PlanId {
 #[error("invalid plan hash: {0}")]
 pub struct InvalidPlanHash(pub String);
 
+/// One `[[step_override]]` row in `intent.toml`.
+///
+/// Non-destructive per-step modifier — the user can suppress an
+/// auto-emitted step (e.g., the REFRESH MATERIALIZED VIEW that follows
+/// every CREATE MATERIALIZED VIEW).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StepOverride {
+    /// `StepKind` wire-form tag (`snake_case`): `"refresh_materialized_view"`,
+    /// `"create_view"`, etc.
+    pub kind: String,
+    /// Target qname (matches the step's primary target).
+    pub target: String,
+    /// When true, the executor skips the step entirely.
+    #[serde(default)]
+    pub suppress: bool,
+}
+
 /// One `[[lint_waiver]]` row in `intent.toml`. Acknowledges a `LintAtPlan`
 /// finding so that `pgevolve plan` can proceed despite the detected drift.
 ///
@@ -183,6 +200,13 @@ pub struct Plan {
     /// reading back a plan directory whose `intent.toml` already contains
     /// `[[lint_waiver]]` rows.
     pub lint_waivers: Vec<LintWaiver>,
+    /// Step overrides loaded from `[[step_override]]` rows in `intent.toml`.
+    ///
+    /// Each row can suppress a specific auto-emitted step at apply time.
+    /// The executor checks this list before running each step and skips
+    /// (recording as `skipped` in the audit log) any step whose `kind`
+    /// and primary `target` match an override with `suppress = true`.
+    pub step_overrides: Vec<StepOverride>,
     /// Plan metadata.
     pub metadata: PlanMetadata,
 }
@@ -248,6 +272,7 @@ impl Plan {
             groups,
             intents,
             lint_waivers: Vec::new(),
+            step_overrides: Vec::new(),
             metadata,
         }
     }
@@ -550,6 +575,55 @@ mod tests {
     fn plan_id_from_invalid_hex_errors() {
         assert!(PlanId::from_full_hex("not-hex").is_err());
         assert!(PlanId::from_full_hex(&"ab".repeat(10)).is_err()); // wrong length
+    }
+
+    // ---- StepOverride round-trip (Task 9) ----
+
+    #[test]
+    fn step_override_round_trips() {
+        let override_ = StepOverride {
+            kind: "refresh_materialized_view".to_string(),
+            target: "app.daily_revenue".to_string(),
+            suppress: true,
+        };
+        // Serialize a single StepOverride as TOML and confirm it parses back equal.
+        let toml_text = toml::to_string(&override_).unwrap();
+        let back: StepOverride = toml::from_str(&toml_text).unwrap();
+        assert_eq!(back, override_);
+    }
+
+    #[test]
+    fn step_override_suppress_defaults_to_false() {
+        let toml_text = r#"kind = "refresh_materialized_view"
+target = "app.daily_revenue"
+"#;
+        let back: StepOverride = toml::from_str(toml_text).unwrap();
+        assert!(!back.suppress);
+    }
+
+    #[test]
+    fn step_override_round_trips_inside_intent_doc() {
+        #[derive(serde::Deserialize)]
+        #[allow(dead_code)]
+        struct Doc {
+            plan_id: String,
+            #[serde(default, rename = "step_override")]
+            step_overrides: Vec<StepOverride>,
+        }
+
+        let toml_text = r#"
+plan_id = "abc1234567890abc"
+
+[[step_override]]
+kind = "refresh_materialized_view"
+target = "app.daily_revenue"
+suppress = true
+"#;
+        let doc: Doc = toml::from_str(toml_text).unwrap();
+        assert_eq!(doc.step_overrides.len(), 1);
+        assert_eq!(doc.step_overrides[0].kind, "refresh_materialized_view");
+        assert_eq!(doc.step_overrides[0].target, "app.daily_revenue");
+        assert!(doc.step_overrides[0].suppress);
     }
 
     // ---- LintWaiver round-trip (Task 8) ----
