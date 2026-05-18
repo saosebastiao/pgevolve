@@ -51,6 +51,17 @@ pub(crate) fn build_materialized_view(
 /// `CREATE MATERIALIZED VIEW mv(a, b, ...) AS ...`.
 ///
 /// Returns an empty vec when no alias list was provided (the common case).
+/// When the explicit alias list is empty, columns are derived from the
+/// SELECT target list. This derivation requires walking the SELECT AST,
+/// which T4's AST canonicalization pass already does for `body_canonical`
+/// and `body_dependencies`. T3 leaves `columns` as an empty Vec; T4 fills
+/// it during the same AST walk per PG's column-naming algorithm:
+///   1. `ResTarget.name` (explicit alias) wins
+///   2. Otherwise, the rightmost name in a `ColumnRef` (`users.email` → "email")
+///   3. Otherwise, `"?column?"` (PG's fallback)
+///
+/// See arch spec views sub-spec §5.1 for the AST-canonicalization-pass
+/// contract that includes column derivation.
 fn mv_columns_from_col_names(
     col_names: &[pg_query::protobuf::Node],
     location: &SourceLocation,

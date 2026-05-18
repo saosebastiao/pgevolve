@@ -44,6 +44,17 @@ pub(crate) fn build_view(
 /// Extract explicit column alias list from `CREATE VIEW v(a, b, ...) AS ...`.
 ///
 /// Returns an empty vec when no alias list was provided (the common case).
+/// When the explicit alias list is empty, columns are derived from the
+/// SELECT target list. This derivation requires walking the SELECT AST,
+/// which T4's AST canonicalization pass already does for `body_canonical`
+/// and `body_dependencies`. T3 leaves `columns` as an empty Vec; T4 fills
+/// it during the same AST walk per PG's column-naming algorithm:
+///   1. `ResTarget.name` (explicit alias) wins
+///   2. Otherwise, the rightmost name in a `ColumnRef` (`users.email` → "email")
+///   3. Otherwise, `"?column?"` (PG's fallback)
+///
+/// See arch spec views sub-spec §5.1 for the AST-canonicalization-pass
+/// contract that includes column derivation.
 fn view_columns_from_aliases(
     aliases: &[pg_query::protobuf::Node],
     location: &SourceLocation,
@@ -72,7 +83,9 @@ fn view_columns_from_aliases(
 /// Parse the `WITH (...)` reloptions list for `security_barrier` and
 /// `security_invoker` boolean options.
 ///
-/// Other options are silently ignored (pgevolve only tracks the security ones).
+/// Unknown options are rejected: silently swallowing them would discard
+/// user intent (e.g. `check_option = local`) with no diagnostic, which
+/// constitutes silent data loss.
 fn view_reloptions(
     options: &[pg_query::protobuf::Node],
     location: &SourceLocation,
@@ -91,7 +104,17 @@ fn view_reloptions(
             "security_invoker" => {
                 security_invoker = Some(def_elem_bool(de, location)?);
             }
-            _ => {} // ignore unknown reloptions
+            other => {
+                return Err(ParseError::Structural {
+                    location: location.clone(),
+                    message: format!(
+                        "unsupported view reloption: {other} (v0.2 supports \
+                         security_barrier and security_invoker; see arch spec \
+                         §13 lint-at-plan tier for opt-in via [[lint_waiver]] \
+                         once future reloption support lands)"
+                    ),
+                });
+            }
         }
     }
 
@@ -246,5 +269,19 @@ mod tests {
         let v = build("CREATE VIEW app.v AS SELECT 1;");
         assert!(v.body_canonical.canonical_text().is_empty());
         assert_eq!(v.body_canonical.canonical_hash(), &[0u8; 32]);
+    }
+
+    #[test]
+    fn view_with_unsupported_reloption_rejects() {
+        let stmt = parse_view("CREATE VIEW app.v WITH (check_option = local) AS SELECT 1;");
+        let err = build_view(&stmt, None, &loc()).unwrap_err();
+        let msg = match &err {
+            ParseError::Structural { message, .. } => message.clone(),
+            other => panic!("expected Structural error, got: {other:?}"),
+        };
+        assert!(
+            msg.contains("check_option"),
+            "error message should mention 'check_option', got: {msg}"
+        );
     }
 }

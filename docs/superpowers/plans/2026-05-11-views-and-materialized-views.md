@@ -700,6 +700,29 @@ The `todo!()` stubs are placeholders for the engineer. The spec's §5.1 lists th
 
 Note: the parser in Task 3 stores `raw_body: String` on the provisional IR records (the SELECT body text before any canonicalization). If the existing `View` struct doesn't have a `raw_body` field, add a `pub(crate) raw_body: String` alongside the existing fields; it is not serialized to JSON.
 
+- [ ] **Step 4.2a: Fill `columns` from SELECT target list when alias list was empty**
+
+  T3 leaves `View.columns` and `MaterializedView.columns` as empty when
+  no explicit alias list was provided. T4's AST walk fills them by
+  applying PG's column-naming algorithm: explicit `AS alias` wins;
+  otherwise the rightmost name in a `ColumnRef`; otherwise `?column?`.
+
+  Inside `canonicalize_view_bodies`, after `body_canonical` and
+  `body_dependencies` are filled, if `ir.views[i].columns.is_empty()`,
+  walk the `SelectStmt` target list from the body AST and derive each
+  column name:
+
+  1. `ResTarget.name` (explicit `AS alias`) — use directly.
+  2. `ColumnRef` with no alias — take the last field name
+     (e.g. `users.email` → `"email"`).
+  3. All other expressions — use `"?column?"` (PG's fallback).
+
+  Apply the same logic for `ir.materialized_views[i].columns`.
+
+  Add a unit test in `crates/pgevolve-core/tests/ast_canon.rs` that
+  verifies columns are populated after canonicalization for a view
+  without an explicit alias list.
+
 - [ ] **Step 4.3: Wire the canonicalization pass into the parse pipeline**
 
 In `crates/pgevolve-core/src/parse/mod.rs`, add a call to `ast_canon::canonicalize_view_bodies` at the end of `load_source` (or whatever the top-level source-loading function is called):
