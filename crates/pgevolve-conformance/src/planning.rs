@@ -12,7 +12,7 @@ use pgevolve_core::diff::{ChangeSet, diff};
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::parse::{ParseError, parse_directory};
 use pgevolve_core::plan::{
-    Plan, PlanError, PlanIoError, PlannerPolicy, Strategy, group_steps, order, rewrite,
+    Plan, PlanError, PlanIoError, PlannerPolicy, Strategy, group_steps, order, rewrite_with_source,
     write_plan_sql,
 };
 
@@ -79,7 +79,7 @@ pub fn render_plan(
         ..PlannerPolicy::default()
     };
     let ordered = order(&target, &source, changes, &policy)?;
-    let steps = rewrite(ordered, &target, &policy);
+    let steps = rewrite_with_source(ordered, &target, &source, &policy);
     let groups = group_steps(steps);
     let plan = Plan::from_grouped(
         groups,

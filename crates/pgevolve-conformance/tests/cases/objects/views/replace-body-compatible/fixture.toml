@@ -1,0 +1,16 @@
+[meta]
+title     = "Replace view body — column-additive change uses CREATE OR REPLACE VIEW"
+authoring = "objects"
+spec_refs = ["views.replace_body_compatible"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "views.app.active_users",
+]
+
+[expect.plan]
+steps = 1

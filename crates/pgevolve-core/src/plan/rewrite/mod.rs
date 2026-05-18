@@ -84,10 +84,12 @@ pub fn rewrite_with_source(
         emit_deferred_fk(&fk, &ctx, &mut out);
     }
     // Post-emit: upgrade REFRESH MATERIALIZED VIEW → CONCURRENTLY where eligible.
+    // Check indexes from the *source* catalog (desired state), not target, so
+    // that newly-created unique indexes on new MVs are included in the check.
     // Lint findings from this pass are discarded here; T10 wires them into the
     // plan's lint output.
     let mut findings_sink: Vec<crate::lint::Finding> = Vec::new();
-    refresh_mv_concurrently::rewrite(&mut out, target, policy, &mut findings_sink);
+    refresh_mv_concurrently::rewrite(&mut out, source, policy, &mut findings_sink);
     out
 }
 

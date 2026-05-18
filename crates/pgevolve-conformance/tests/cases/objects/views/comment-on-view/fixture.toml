@@ -1,0 +1,17 @@
+[meta]
+title     = "COMMENT ON VIEW and COMMENT ON COLUMN for view columns"
+authoring = "objects"
+spec_refs = ["views.comment"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "views.app.annotated_view",
+]
+
+[expect.plan]
+# view-level comment + column comment = 2 steps
+steps = 2

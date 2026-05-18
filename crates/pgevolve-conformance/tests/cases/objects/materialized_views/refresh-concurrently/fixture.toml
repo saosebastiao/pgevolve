@@ -1,0 +1,20 @@
+[meta]
+title     = "CREATE MV with unique index under online strategy — emits REFRESH CONCURRENTLY"
+authoring = "objects"
+spec_refs = ["views.mv_refresh_concurrently"]
+
+[pg]
+min = 14
+max = 17
+
+[planner]
+strategy = "online"
+
+[expect.diff]
+contains = [
+  "materialized_views.app.revenue_summary",
+]
+
+[expect.plan]
+# Steps: CREATE MV + REFRESH CONCURRENTLY + CREATE INDEX = 3
+steps = 3

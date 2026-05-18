@@ -207,6 +207,13 @@ fn bless_conformance() -> Result<()> {
         let fixture =
             Fixture::load(&dir).with_context(|| format!("load fixture {}", dir.display()))?;
 
+        // Failure fixtures expect the pipeline to error — skip them entirely.
+        if fixture.meta.authoring == "failure" {
+            skipped += 1;
+            tracing::info!(fixture = %dir.display(), "skipping failure fixture");
+            continue;
+        }
+
         // --- plan.sql golden ---
         if let Some(rel) = fixture.expect.plan.golden.as_ref() {
             let strategy = fixture

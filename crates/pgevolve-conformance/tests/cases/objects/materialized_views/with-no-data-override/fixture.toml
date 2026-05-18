@@ -1,0 +1,25 @@
+[meta]
+title     = "step_override suppresses post-create REFRESH — plan still emits 2 steps"
+authoring = "objects"
+spec_refs = ["views.mv_step_override"]
+
+[pg]
+min = 14
+max = 17
+
+# Provide [[step_override]] in intent.toml to signal suppression at apply time.
+# The planner still emits CREATE MV + REFRESH; suppression is an executor concern.
+[[intent.step_override]]
+kind     = "refresh_materialized_view"
+target   = "app.daily_metrics"
+suppress = true
+
+[expect.diff]
+contains = [
+  "materialized_views.app.daily_metrics",
+]
+
+[expect.plan]
+# Steps: CREATE MATERIALIZED VIEW + REFRESH MATERIALIZED VIEW = 2
+# The planner always emits the REFRESH; step_override suppresses it at apply time.
+steps = 2

@@ -1,0 +1,16 @@
+[meta]
+title     = "security_barrier reloption toggle via ALTER VIEW SET (...)"
+authoring = "objects"
+spec_refs = ["views.security_barrier"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "views.app.secure_view",
+]
+
+[expect.plan]
+steps = 1

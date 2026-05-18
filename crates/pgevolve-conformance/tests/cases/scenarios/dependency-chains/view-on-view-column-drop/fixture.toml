@@ -1,0 +1,22 @@
+[meta]
+title     = "Incompatible body change on v1 forces recreation of dependent v2"
+authoring = "scenarios"
+spec_refs = ["views.dependent_recreation"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "views.app.v1",
+  "views.app.v2",
+]
+
+[expect.plan]
+# v1: DROP + CREATE = 2 steps; v2: DROP + CREATE = 2 steps (triggered by recreate_views)
+steps  = 4
+golden = false
+
+[expect.dep_graph]
+enabled = false

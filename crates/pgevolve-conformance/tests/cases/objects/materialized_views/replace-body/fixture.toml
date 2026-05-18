@@ -1,0 +1,17 @@
+[meta]
+title     = "MATERIALIZED VIEW body change — emits DROP + CREATE + REFRESH"
+authoring = "objects"
+spec_refs = ["views.mv_replace_body"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "materialized_views.app.order_stats",
+]
+
+[expect.plan]
+# Steps: DROP MV + CREATE MV + REFRESH = 3
+steps = 3
