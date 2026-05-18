@@ -92,6 +92,22 @@ pub enum StepKind {
     /// Intermediate `ADD CONSTRAINT __pgevolve_chk_<col> CHECK (col IS NOT NULL) NOT VALID`
     /// step in the SET NOT NULL pattern (spec §6.5).
     AddCheckForNotNull,
+
+    // --- v0.2 view / materialized-view step kinds ---
+    /// `CREATE [OR REPLACE] VIEW`.
+    CreateView,
+    /// `DROP VIEW`.
+    DropView,
+    /// `CREATE MATERIALIZED VIEW ... WITH NO DATA`.
+    CreateMaterializedView,
+    /// `DROP MATERIALIZED VIEW`.
+    DropMaterializedView,
+    /// `REFRESH MATERIALIZED VIEW [CONCURRENTLY]`.
+    RefreshMaterializedView,
+    /// `ALTER VIEW ... SET (...)`.
+    AlterViewSetReloption,
+    /// `COMMENT ON VIEW / MATERIALIZED VIEW / COLUMN` for views and MVs.
+    CommentOnView,
 }
 
 /// One unit of work the executor will attempt.
@@ -160,6 +176,13 @@ mod tests {
             StepKind::DropSequence,
             StepKind::AlterSequence,
             StepKind::AddCheckForNotNull,
+            StepKind::CreateView,
+            StepKind::DropView,
+            StepKind::CreateMaterializedView,
+            StepKind::DropMaterializedView,
+            StepKind::RefreshMaterializedView,
+            StepKind::AlterViewSetReloption,
+            StepKind::CommentOnView,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

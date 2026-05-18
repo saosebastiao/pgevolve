@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE VIEW with explicit column alias list"
+authoring = "objects"
+spec_refs = ["views.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "views.app.aliased_view",
+]
+
+[expect.plan]
+steps = 1

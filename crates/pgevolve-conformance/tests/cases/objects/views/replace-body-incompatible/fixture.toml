@@ -1,0 +1,16 @@
+[meta]
+title     = "Replace view body — column-narrowing change uses DROP + CREATE"
+authoring = "objects"
+spec_refs = ["views.replace_body_incompatible"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "views.app.user_report",
+]
+
+[expect.plan]
+steps = 2

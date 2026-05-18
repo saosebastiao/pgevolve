@@ -24,6 +24,9 @@ time. The lint engine runs them defensively over a built `SourceTree`.
 | Every column referenced by a constraint exists in its parent table | 🔮 Future | Mostly caught by Postgres at apply time; could be brought forward to lint time. |
 | Every type referenced by a column exists (or is built-in) | 🔮 Future | Same: caught by Postgres today. |
 | `column-position-drift` — table's column order in source disagrees with target catalog | ✅ Implemented | Severity `LintAtPlan` (see below). Source is canonical. Resolution: reorder source, add `[[lint_waiver]]` in `intent.toml`, or run `pgevolve rewrite-table`. |
+| `view-shadows-table` — a VIEW or MATERIALIZED VIEW shares a qualified name with a managed table | ✅ Implemented | Severity `Error`. Views and tables occupy the same namespace in Postgres; pgevolve rejects the ambiguity at parse time. |
+| `mv-no-unique-index` — a MATERIALIZED VIEW has no unique index and thus cannot use `REFRESH CONCURRENTLY` | ✅ Implemented | Severity `Warning`. Resolution: add a unique index on the MV, or set `refresh_mv_concurrently = false` in `[planner.online_rewrites]`. |
+| `view-body-references-unmanaged-schema` — a view body dependency edge points to a schema not in `[managed].schemas` | ✅ Implemented | Severity `Warning`. pgevolve cannot track schema changes for objects it does not manage; a cross-schema dependency is a portability risk. |
 | `plpgsql-dynamic-sql` — PL/pgSQL function body contains opaque `EXECUTE` patterns | 📋 Planned, v0.2 | Severity `Warning`. Resolved by adding `-- @pgevolve dep:` directives. |
 
 ## Severity tiers

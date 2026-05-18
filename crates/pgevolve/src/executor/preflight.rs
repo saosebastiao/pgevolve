@@ -362,6 +362,7 @@ mod tests {
             groups: vec![],
             intents: vec![],
             lint_waivers: waivers,
+            step_overrides: vec![],
             metadata: PlanMetadata {
                 pgevolve_version: "0.0.0-test".into(),
                 planner_ruleset_version: 1,
@@ -381,6 +382,7 @@ mod tests {
             groups: vec![],
             intents,
             lint_waivers: vec![],
+            step_overrides: vec![],
             metadata: PlanMetadata {
                 pgevolve_version: "0.0.0-test".into(),
                 planner_ruleset_version: 1,

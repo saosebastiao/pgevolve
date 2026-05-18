@@ -6,9 +6,11 @@
 
 pub mod alter_table_stmt;
 pub mod comment_stmt;
+pub mod create_materialized_view_stmt;
 pub mod create_schema_stmt;
 pub mod create_seq_stmt;
 pub mod create_stmt;
+pub mod create_view_stmt;
 pub mod desugar_serial;
 pub mod index_stmt;
 pub mod shared;

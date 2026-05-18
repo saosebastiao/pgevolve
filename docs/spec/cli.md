@@ -83,11 +83,18 @@ Mirrors `psql`. First non-empty source wins.
 | `[project]` (name, schema_dir, plan_dir, layout_profile) | ✅ Implemented | Required. |
 | `[managed]` (schemas, ignore_objects) | ✅ Implemented | Empty `schemas` list means "lint doesn't enforce schema match"; the filter still applies. |
 | `[planner]` (strategy) | ✅ Implemented | `atomic` or `online`. |
-| `[planner.online_rewrites]` (per-rewrite switches) | ✅ Implemented | Four switches: `create_index_concurrent`, `fk_not_valid_then_validate`, `check_not_valid_then_validate`, `not_null_via_check_pattern`. |
+| `[planner.online_rewrites]` (per-rewrite switches) | ✅ Implemented | Six switches: `create_index_concurrent`, `fk_not_valid_then_validate`, `check_not_valid_then_validate`, `not_null_via_check_pattern`, `refresh_mv_concurrently`, `view_drop_create_dependents`. |
 | `[environments.<name>]` (url, url_env, strategy) | ✅ Implemented | Per-env strategy override. |
 | `[shadow]` (backend, url, url_env, reset, extensions, postgres_version) | ✅ Implemented | Full schema: `backend = "auto"` (auto-select testcontainers or DSN); `url` / `url_env` for DSN override; `reset = "drop_schema_cascade"`; `extensions = ["pgcrypto"]`; `postgres_version = "17"`. |
 | `[extensions]` (declared extensions and versions) | 📋 Planned, v0.2 | Lands with extension support. |
 | `[grants]` (high-level grant tables) | 📋 Planned, v0.3 | Lands with roles + grants. |
+
+### `[planner.online_rewrites]` — v0.2 view / MV keys
+
+| Key | Default | Notes |
+|---|---|---|
+| `refresh_mv_concurrently` | `true` | Upgrade `REFRESH MATERIALIZED VIEW` to `REFRESH MATERIALIZED VIEW CONCURRENTLY` when the MV has at least one unique index. Has no effect under `strategy = "atomic"`. |
+| `view_drop_create_dependents` | `true` | When `true`, the planner walks the `body_dependencies` graph and emits explicit `DROP + CREATE` steps for every view transitively affected by an upstream change. When `false`, the planner errors instead of cascading dependent-view recreations — useful if you want to review every affected view manually. |
 
 ### `[shadow]` block (full example)
 
@@ -103,7 +110,9 @@ postgres_version = "17"
 
 ## `intent.toml` schema
 
-Beyond the `[[intent]]` rows written by the planner, `intent.toml` supports user-authored `[[lint_waiver]]` rows:
+Beyond the `[[intent]]` rows written by the planner, `intent.toml` supports two user-authored table kinds: `[[lint_waiver]]` and `[[step_override]]`.
+
+### `[[lint_waiver]]`
 
 ```toml
 [[lint_waiver]]
@@ -117,6 +126,23 @@ reason = "..."
 | `rule` | yes | Stable rule identifier (e.g., `column-position-drift`). Non-empty. |
 | `target` | yes | Qualified object name the waiver applies to. Non-empty. |
 | `reason` | no | Free-text explanation; encouraged for auditing. |
+
+### `[[step_override]]`
+
+Step overrides allow suppressing or modifying individual planner steps. Useful when you want to skip, for example, a `refresh_materialized_view` step during a maintenance window.
+
+```toml
+[[step_override]]
+kind = "refresh_materialized_view"
+target = "app.daily_summary"
+suppress = true
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `kind` | yes | Step kind to match (e.g., `refresh_materialized_view`). Must be a valid `StepKind` name. |
+| `target` | yes | Qualified object name the override applies to. Non-empty. |
+| `suppress` | no | Default `false`. When `true`, the matching step is omitted from the plan entirely. |
 
 ## Logging
 

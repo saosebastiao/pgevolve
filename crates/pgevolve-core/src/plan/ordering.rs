@@ -8,7 +8,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
-use crate::diff::change::{Change, ChangeEntry};
+use crate::diff::change::{Change, ChangeEntry, MvChange, ViewChange};
+use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::TableOp;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
@@ -17,15 +18,23 @@ use crate::ir::index::IndexColumnExpr;
 use crate::plan::edges::{NodeId, build_create_graph, build_drop_graph};
 use crate::plan::error::PlanError;
 use crate::plan::ordered::{DeferredFkAdd, OrderedChangeSet};
+use crate::plan::policy::PlannerPolicy;
+use crate::plan::recreate_views;
 
 /// Order a `ChangeSet` into an [`OrderedChangeSet`] for plan emission.
 ///
 /// `target` is the live database catalog; `source` is the desired one. The
 /// create / modify graphs are built from `source`; the drop graph from `target`.
+///
+/// `policy` gates the dependent-view recreation walk: when
+/// `policy.view_drop_create_dependents()` is `false` and any change would
+/// force dependent views to be recreated, this function returns
+/// [`PlanError::DependentViewsBlocked`] naming the affected views.
 pub fn order(
     target: &Catalog,
     source: &Catalog,
     changes: ChangeSet,
+    policy: &PlannerPolicy,
 ) -> Result<OrderedChangeSet, PlanError> {
     // Elide DropIndex changes whose target index will be cascade-dropped by
     // an upstream `ALTER TABLE ... DROP COLUMN` in the same plan. Postgres
@@ -33,6 +42,38 @@ pub fn order(
     // key list or `INCLUDE` list); leaving the explicit `DROP INDEX` in the
     // plan causes the executor to fail with SQLSTATE 42704.
     let changes = elide_cascaded_index_drops(target, changes);
+
+    // Extend the changeset with explicit DROP + CREATE steps for every
+    // transitively-affected view (never CASCADE). This must happen before
+    // partitioning so the new ReplaceBody entries flow through the normal
+    // ordering pipeline.
+    //
+    // `extend_with_dependent_recreations` only appends to `raw_changes`; it
+    // never modifies existing entries. We preserve the original
+    // `Destructiveness` values for all original entries and assign `Safe` to
+    // any newly-appended ones (dependent view recreation is not destructive —
+    // the view body itself is unchanged).
+    let original_entries: Vec<crate::diff::change::ChangeEntry> = changes.entries;
+    let mut raw_changes: Vec<Change> = original_entries.iter().map(|e| e.change.clone()).collect();
+    recreate_views::extend_with_dependent_recreations(&mut raw_changes, target, policy)
+        .map_err(|views| PlanError::DependentViewsBlocked { views })?;
+    // Re-assemble ChangeSet preserving original destructiveness for original
+    // entries, and using Safe for any newly-added recreation entries.
+    let changes = ChangeSet {
+        entries: raw_changes
+            .into_iter()
+            .enumerate()
+            .map(|(i, change)| {
+                let destructiveness = original_entries
+                    .get(i)
+                    .map_or(Destructiveness::Safe, |e| e.destructiveness.clone());
+                crate::diff::change::ChangeEntry {
+                    change,
+                    destructiveness,
+                }
+            })
+            .collect(),
+    };
 
     // 1. Bucket entries by phase.
     let (creates, modifies, drops) = partition(changes);
@@ -141,7 +182,7 @@ fn elide_cascaded_index_drops(target: &Catalog, mut changes: ChangeSet) -> Chang
                 IndexColumnExpr::Expression(_) => None,
             })
             .chain(idx.include.iter())
-            .any(|col| dropped_columns.contains(&(idx.table.clone(), col.clone())));
+            .any(|col| dropped_columns.contains(&(idx.on.qname().clone(), col.clone())));
         !cascades
     });
     changes
@@ -169,20 +210,39 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
     let mut drops = Vec::new();
     for entry in changes.entries {
         match &entry.change {
+            // Creates: structural objects that need to be ordered dependencies-first.
+            // Views and MVs are included here; T7 will wire their dep edges.
             Change::CreateSchema(_)
             | Change::CreateTable(_)
             | Change::CreateIndex(_)
-            | Change::CreateSequence(_) => creates.push(entry),
+            | Change::CreateSequence(_)
+            | Change::View(ViewChange::Create(_))
+            | Change::Mv(MvChange::Create(_)) => creates.push(entry),
+            // Drops: ordered by reverse-dependency (deepest dependents first).
             Change::DropSchema(_)
             | Change::DropTable { .. }
             | Change::DropIndex(_)
-            | Change::DropSequence(_) => drops.push(entry),
+            | Change::DropSequence(_)
+            | Change::View(ViewChange::Drop(_))
+            | Change::Mv(MvChange::Drop(_)) => drops.push(entry),
+            // Modifies: ALTER / REPLACE / COMMENT / drift-recovery.
             Change::AlterTable { .. }
             | Change::AlterSchema { .. }
             | Change::AlterSequence { .. }
             | Change::ReplaceIndex { .. }
             | Change::ValidateConstraint { .. }
-            | Change::RecreateIndex { .. } => modifies.push(entry),
+            | Change::RecreateIndex { .. }
+            | Change::View(
+                ViewChange::ReplaceBody { .. }
+                | ViewChange::SetReloption { .. }
+                | ViewChange::SetComment { .. }
+                | ViewChange::SetColumnComment { .. },
+            )
+            | Change::Mv(
+                MvChange::ReplaceBody { .. }
+                | MvChange::SetComment { .. }
+                | MvChange::SetColumnComment { .. },
+            ) => modifies.push(entry),
         }
     }
     (creates, modifies, drops)
@@ -193,6 +253,7 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
 /// Returns the schema/table/index/sequence node for top-level operations.
 /// `AlterTable` maps to its target table node; per-op constraint changes
 /// inside it are not separately ordered (they ride with the table).
+#[allow(clippy::match_same_arms)] // View and Mv arms share the body shape but not the inner type.
 fn change_node(change: &Change) -> NodeId {
     match change {
         Change::CreateSchema(s) => NodeId::Schema(s.name.clone()),
@@ -211,6 +272,23 @@ fn change_node(change: &Change) -> NodeId {
         }
         // Drift-recovery changes: map to the table they affect.
         Change::ValidateConstraint { table, .. } => NodeId::Table(table.clone()),
+        // View changes: use NodeId::View for correct topological ordering.
+        Change::View(ViewChange::Create(v)) => NodeId::View(v.qname.clone()),
+        Change::View(ViewChange::ReplaceBody { source, .. }) => NodeId::View(source.qname.clone()),
+        Change::View(
+            ViewChange::Drop(qname)
+            | ViewChange::SetReloption { qname, .. }
+            | ViewChange::SetComment { qname, .. }
+            | ViewChange::SetColumnComment { qname, .. },
+        ) => NodeId::View(qname.clone()),
+        // MV changes: use NodeId::Mv for correct topological ordering.
+        Change::Mv(MvChange::Create(mv)) => NodeId::Mv(mv.qname.clone()),
+        Change::Mv(MvChange::ReplaceBody { source, .. }) => NodeId::Mv(source.qname.clone()),
+        Change::Mv(
+            MvChange::Drop(qname)
+            | MvChange::SetComment { qname, .. }
+            | MvChange::SetColumnComment { qname, .. },
+        ) => NodeId::Mv(qname.clone()),
     }
 }
 
@@ -285,6 +363,8 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Index(q) => format!("index:{q}"),
         NodeId::Sequence(q) => format!("sequence:{q}"),
         NodeId::Constraint { table, name } => format!("constraint:{table}.{name}"),
+        NodeId::View(q) => format!("view:{q}"),
+        NodeId::Mv(q) => format!("mv:{q}"),
     }
 }
 
@@ -301,7 +381,7 @@ mod tests {
         Constraint, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
     };
     use crate::ir::index::{
-        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
     use crate::ir::schema::Schema;
     use crate::ir::table::Table;
@@ -358,7 +438,7 @@ mod tests {
     fn make_index(name: &str, table: QualifiedName) -> Index {
         Index {
             qname: qn("app", name),
-            table,
+            on: IndexParent::Table(table),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("id")),
@@ -404,7 +484,13 @@ mod tests {
     fn empty_changeset_yields_empty_ordered_set() {
         let target = Catalog::empty();
         let source = Catalog::empty();
-        let result = order(&target, &source, ChangeSet::new()).unwrap();
+        let result = order(
+            &target,
+            &source,
+            ChangeSet::new(),
+            &PlannerPolicy::default(),
+        )
+        .unwrap();
         assert!(result.is_empty());
     }
 
@@ -438,7 +524,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.creates_and_adds.len(), 3);
 
         let schema_pos = pos(&result.creates_and_adds, |c| {
@@ -492,7 +578,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert!(result.deferred_fks.is_empty());
         let orgs_pos = result
             .creates_and_adds
@@ -555,7 +641,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         // Both tables present in creates_and_adds, schema first.
         assert_eq!(result.creates_and_adds.len(), 3);
         // At least one FK was extracted.
@@ -614,7 +700,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&target, &Catalog::empty(), cs).unwrap();
+        let result = order(&target, &Catalog::empty(), cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.drops.len(), 3);
         let idx_pos = pos(&result.drops, |c| matches!(c, Change::DropIndex(_)));
         let table_pos = pos(&result.drops, |c| matches!(c, Change::DropTable { .. }));
@@ -646,7 +732,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.modifies.len(), 1);
         assert!(result.creates_and_adds.is_empty());
         assert!(result.drops.is_empty());
@@ -688,8 +774,9 @@ mod tests {
             cs
         };
 
-        let r1 = order(&Catalog::empty(), &source, mk_cs(false)).unwrap();
-        let r2 = order(&Catalog::empty(), &source, mk_cs(true)).unwrap();
+        let policy = PlannerPolicy::default();
+        let r1 = order(&Catalog::empty(), &source, mk_cs(false), &policy).unwrap();
+        let r2 = order(&Catalog::empty(), &source, mk_cs(true), &policy).unwrap();
         assert_eq!(r1, r2);
     }
 
@@ -716,7 +803,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.modifies.len(), 1);
     }
 
@@ -746,7 +833,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.modifies.len(), 1);
     }
 
@@ -791,7 +878,7 @@ mod tests {
             cs.push(Change::CreateTable(t.clone()), Destructiveness::Safe);
         }
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.creates_and_adds.len(), 4);
         assert!(!result.deferred_fks.is_empty());
     }
@@ -836,7 +923,7 @@ mod tests {
             );
         }
 
-        let result = order(&target, &Catalog::empty(), cs).unwrap();
+        let result = order(&target, &Catalog::empty(), cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.drops.len(), 4);
         // Every DropTable must precede the corresponding DropSchema.
         for table in &target.tables {
@@ -886,7 +973,7 @@ mod tests {
         });
         target.indexes.push(Index {
             qname: qn("app", "users_deleted_at_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("deleted_at")),
@@ -937,7 +1024,7 @@ mod tests {
             },
         );
 
-        let result = order(&target, &source, cs).unwrap();
+        let result = order(&target, &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.modifies.len(), 1, "AlterTable must stay in modifies");
         assert!(
             result.drops.is_empty(),
@@ -966,7 +1053,7 @@ mod tests {
         // Index on `email`, but the column being dropped is `unused`.
         target.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("email")),
@@ -1022,7 +1109,7 @@ mod tests {
             },
         );
 
-        let result = order(&target, &source, cs).unwrap();
+        let result = order(&target, &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.modifies.len(), 1);
         assert_eq!(
             result.drops.len(),
@@ -1049,7 +1136,7 @@ mod tests {
         });
         target.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("email")),
@@ -1103,7 +1190,7 @@ mod tests {
             },
         );
 
-        let result = order(&target, &source, cs).unwrap();
+        let result = order(&target, &source, cs, &PlannerPolicy::default()).unwrap();
         assert!(
             result.drops.is_empty(),
             "DropIndex must be elided when an INCLUDEd column is dropped; got: {:?}",

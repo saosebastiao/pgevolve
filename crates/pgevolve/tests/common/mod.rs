@@ -42,11 +42,12 @@ pub async fn build_plan(
         source,
         &pgevolve_core::catalog::DriftReport::default(),
     );
-    let ordered = order(target, source, changes).map_err(|e| anyhow!("plan order: {e}"))?;
     let policy = PlannerPolicy {
         strategy: Strategy::Online,
         ..PlannerPolicy::default()
     };
+    let ordered =
+        order(target, source, changes, &policy).map_err(|e| anyhow!("plan order: {e}"))?;
     let steps = rewrite(ordered, target, &policy);
     let groups = group_steps(steps);
     let plan = Plan::from_grouped(

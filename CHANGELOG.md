@@ -7,7 +7,46 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-Nothing yet.
+## [0.2.0] — Unreleased
+
+Extends the v0.1 surface with **views and materialized views** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
+
+### Added — IR
+
+- `View` and `MaterializedView` flat IR types in `pgevolve-core::ir::view`.
+- `ViewColumn` — named column with resolved type and optional comment; used by both views and MVs.
+- `body_canonical: NormalizedBody` — parsed-and-deparsed SELECT body in canonical form. Enables cosmetically-different but semantically-identical view bodies to diff equal.
+- `body_dependencies: Vec<DepEdge>` — dependency edges extracted from the body AST with `DepSource::AstExtracted` provenance. Powers the dependent-recreation walk and the `view-body-references-unmanaged-schema` lint.
+- `security_barrier` and `security_invoker` reloptions on `View`.
+
+### Added — pipeline
+
+- **AST canonicalization pass** (`parse/ast_canon.rs`) — runs after source parse; calls `NormalizedBody::from_sql` on each view body, extracts `DepEdge`s, resolves references against the provisional catalog, and fills in column types.
+- **Catalog reader** — `read_views` and `read_materialized_views` query `pg_views` / `pg_matviews`, call `pg_get_viewdef`, and feed the result through `NormalizedBody::from_sql`. Source-side and catalog-side canonical texts are directly comparable.
+- **Differ** — `ViewChange` and `MvChange` variants. OR-REPLACE compatibility predicate (`body_is_or_replace_compatible`) determines whether a body change emits `CREATE OR REPLACE VIEW` (compatible) or `DROP + CREATE` (incompatible).
+- **Planner** — 7 new step kinds: `CreateView`, `DropView`, `CreateMaterializedView`, `DropMaterializedView`, `RefreshMaterializedView`, `AlterViewSetReloption`, `CommentOnView`.
+- **Online rewrites** — `REFRESH MATERIALIZED VIEW CONCURRENTLY` upgrade (when unique index present); dependent-view recreation cascade (`recreate_views::extend_with_dependent_recreations`).
+
+### Added — configuration
+
+- `[planner.online_rewrites].refresh_mv_concurrently` (default `true`) — upgrade `REFRESH` to `REFRESH CONCURRENTLY` when the MV has a unique index.
+- `[planner.online_rewrites].view_drop_create_dependents` (default `true`) — cascade dependent-view recreations; set `false` to error instead of auto-cascading.
+- `[[step_override]]` rows in `intent.toml` — suppress individual plan steps by kind + target.
+
+### Added — lint rules
+
+- `view-shadows-table` (Error) — a view or MV shares a qualified name with a managed table.
+- `mv-no-unique-index` (Warning) — an MV has no unique index; `REFRESH CONCURRENTLY` unavailable.
+- `view-body-references-unmanaged-schema` (Warning) — a view body dependency edge points to an unmanaged schema.
+
+### Added — tests
+
+- **15 conformance fixtures** (Tier C): `objects/views/` (8), `objects/materialized_views/` (6), `intent/drop-view-requires-intent` (1), `scenarios/dependency-chains/` (2).
+- **Property test** `view_canonicalization_closed_under_pg_rewrite` (`#[ignore]`, Docker-gated) — verifies `NormalizedBody::from_sql` closure under the PG rewrite for a fixed set of representative view bodies.
+
+### Deferred
+
+- `arb_view_dependency_graph` proptest (spec §12 step 12.2) — deferred post-v0.2; requires substantial generator engineering and is not load-bearing for the closure invariant.
 
 ## [0.1.0] — Unreleased
 
@@ -137,5 +176,6 @@ columns/constraints/comments), indexes, and sequences** against Postgres
   bearing objects so the cross-check has nothing to do beyond a
   trivial structural-edge count; v0.2 sub-specs deepen it.
 
-[Unreleased]: https://github.com/saosebastiao/pgevolve/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/saosebastiao/pgevolve/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/saosebastiao/pgevolve/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/saosebastiao/pgevolve/releases/tag/v0.1.0

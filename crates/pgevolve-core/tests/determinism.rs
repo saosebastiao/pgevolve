@@ -45,7 +45,64 @@ CREATE TABLE app.users (
 );
 CREATE INDEX users_org_idx ON app.users (org_id);
 CREATE INDEX users_email_idx ON app.users (email);
+CREATE VIEW app.active_users AS SELECT id, email FROM app.users;
+CREATE MATERIALIZED VIEW app.user_count AS SELECT count(*) AS total FROM app.users;
 ";
+
+// Fixture that starts with a view and MV (empty target, only source objects).
+const VIEW_AFTER_SQL: &str = "\
+-- @pgevolve schema=app
+CREATE SCHEMA app;
+CREATE TABLE app.users (
+  id bigint NOT NULL,
+  email text NOT NULL,
+  CONSTRAINT users_pkey PRIMARY KEY (id)
+);
+CREATE VIEW app.active_users AS SELECT id, email FROM app.users;
+CREATE MATERIALIZED VIEW app.user_count AS SELECT count(*) AS total FROM app.users;
+";
+
+fn render_plan_with_views_once() -> String {
+    let before_dir = tempfile::tempdir().expect("tempdir");
+    // Empty before (no objects yet).
+    std::fs::write(
+        before_dir.path().join("before.sql"),
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    )
+    .unwrap();
+    let target = parse_directory(before_dir.path(), &[]).expect("parse before");
+
+    let after_dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(after_dir.path().join("after.sql"), VIEW_AFTER_SQL).unwrap();
+    let source = parse_directory(after_dir.path(), &[]).expect("parse after");
+
+    let changes = diff(
+        &target,
+        &source,
+        &pgevolve_core::catalog::DriftReport::default(),
+    );
+    let policy = PlannerPolicy {
+        strategy: Strategy::Online,
+        ..PlannerPolicy::default()
+    };
+    let ordered = order(&target, &source, changes, &policy).expect("order");
+    let steps = rewrite(ordered, &target, &policy);
+    let groups = group_steps(steps);
+    let plan = Plan::from_grouped(
+        groups,
+        &source,
+        &target,
+        "determinism-test-views".to_string(),
+        None,
+        pgevolve_core::VERSION,
+        policy.planner_ruleset_version,
+    );
+
+    let mut buf = Vec::new();
+    write_plan_sql(&plan, &mut buf).expect("render plan.sql");
+    let raw = String::from_utf8(buf).expect("plan.sql is utf-8");
+    normalize_plan_sql(&raw)
+}
 
 fn render_plan_once() -> String {
     let before_dir = tempfile::tempdir().expect("tempdir");
@@ -61,11 +118,11 @@ fn render_plan_once() -> String {
         &source,
         &pgevolve_core::catalog::DriftReport::default(),
     );
-    let ordered = order(&target, &source, changes).expect("order");
     let policy = PlannerPolicy {
         strategy: Strategy::Online,
         ..PlannerPolicy::default()
     };
+    let ordered = order(&target, &source, changes, &policy).expect("order");
     let steps = rewrite(ordered, &target, &policy);
     let groups = group_steps(steps);
     // Fixed target identity so plan IDs are reproducible. Any stable string
@@ -128,6 +185,23 @@ fn planner_pipeline_is_byte_deterministic() {
             std::fs::write(dir.path().join(format!("run-{i}.sql")), &next).unwrap();
             panic!(
                 "planner output differed on iteration {i}. baseline written to {} for inspection.",
+                dir.path().display()
+            );
+        }
+    }
+}
+
+#[test]
+fn planner_pipeline_with_views_is_byte_deterministic() {
+    let baseline = render_plan_with_views_once();
+    for i in 0..99 {
+        let next = render_plan_with_views_once();
+        if next != baseline {
+            let dir = tempfile::tempdir().expect("tempdir");
+            std::fs::write(dir.path().join("baseline_views.sql"), &baseline).unwrap();
+            std::fs::write(dir.path().join(format!("run-views-{i}.sql")), &next).unwrap();
+            panic!(
+                "view pipeline output differed on iteration {i}. baseline written to {} for inspection.",
                 dir.path().display()
             );
         }

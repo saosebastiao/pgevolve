@@ -116,7 +116,8 @@
         "schema": "app",
         "name": "users_email_idx"
       },
-      "table": {
+      "on": {
+        "kind": "table",
         "schema": "app",
         "name": "users"
       },
@@ -158,5 +159,7 @@
       "owned_by": null,
       "comment": "Independent ID sequence"
     }
-  ]
+  ],
+  "views": [],
+  "materialized_views": []
 }

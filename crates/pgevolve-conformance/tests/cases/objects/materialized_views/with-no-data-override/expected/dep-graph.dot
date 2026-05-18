@@ -1,0 +1,11 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.events.events_pkey";
+  "schema:app";
+  "table:app.daily_metrics";
+  "table:app.events";
+  "table:app.daily_metrics" -> "table:app.events" [style=solid];
+  "table:app.events" -> "schema:app" [style=solid];
+  "constraint:app.events.events_pkey" -> "table:app.events" [style=solid];
+}

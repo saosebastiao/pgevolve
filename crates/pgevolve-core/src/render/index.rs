@@ -31,7 +31,7 @@ mod tests {
     use crate::identifier::QualifiedName;
     use crate::ir::default_expr::NormalizedExpr;
     use crate::ir::index::{
-        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
 
     fn id(s: &str) -> Identifier {
@@ -60,7 +60,7 @@ mod tests {
     fn base_index() -> Index {
         Index {
             qname: qn("app", "users_email_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![col("email")],
             include: vec![],

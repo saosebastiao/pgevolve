@@ -1,0 +1,14 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.sales.sales_pkey";
+  "index:app.revenue_summary_region_uidx";
+  "mv:app.revenue_summary";
+  "schema:app";
+  "table:app.revenue_summary";
+  "table:app.sales";
+  "table:app.revenue_summary" -> "table:app.sales" [style=solid];
+  "table:app.sales" -> "schema:app" [style=solid];
+  "index:app.revenue_summary_region_uidx" -> "mv:app.revenue_summary" [style=solid];
+  "constraint:app.sales.sales_pkey" -> "table:app.sales" [style=solid];
+}

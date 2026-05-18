@@ -7,13 +7,39 @@ use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::difference::Difference;
 use crate::ir::eq::{Diff, diff_field};
 
+/// The parent object of an [`Index`]: either a table or a materialized view.
+///
+/// Introduced in v0.2 to support MV indexes alongside table indexes.
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum IndexParent {
+    /// The index targets a regular table.
+    Table(QualifiedName),
+    /// The index targets a materialized view.
+    Mv(QualifiedName),
+}
+
+impl IndexParent {
+    /// The qualified name of the parent (table or MV).
+    pub const fn qname(&self) -> &QualifiedName {
+        match self {
+            Self::Table(q) | Self::Mv(q) => q,
+        }
+    }
+
+    /// True if the parent is a materialized view.
+    pub const fn is_mv(&self) -> bool {
+        matches!(self, Self::Mv(_))
+    }
+}
+
 /// A Postgres index.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Index {
     /// Schema-qualified index name.
     pub qname: QualifiedName,
-    /// Table the index is on.
-    pub table: QualifiedName,
+    /// The parent table or materialized view this index is defined on.
+    pub on: IndexParent,
     /// Index access method.
     pub method: IndexMethod,
     /// Indexed columns / expressions; order is significant.
@@ -111,7 +137,11 @@ impl Diff for Index {
     fn diff(&self, other: &Self) -> Vec<Difference> {
         let mut out = Vec::new();
         out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field("table", &self.table, &other.table));
+        out.extend(diff_field(
+            "on",
+            &format!("{:?}", self.on),
+            &format!("{:?}", other.on),
+        ));
         out.extend(diff_field(
             "method",
             &format!("{:?}", self.method),
@@ -177,7 +207,7 @@ mod tests {
     fn base() -> Index {
         Index {
             qname: qn("app", "users_email_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![col("email")],
             include: vec![],
@@ -233,5 +263,39 @@ mod tests {
             ..base()
         };
         assert!(!a.canonical_eq(&b));
+    }
+
+    #[test]
+    fn index_can_target_a_materialized_view() {
+        let mv_idx = Index {
+            qname: qn("app", "mv_email_idx"),
+            on: IndexParent::Mv(qn("app", "users_mv")),
+            method: IndexMethod::BTree,
+            columns: vec![col("email")],
+            include: vec![],
+            unique: true,
+            nulls_not_distinct: false,
+            predicate: None,
+            tablespace: None,
+            comment: None,
+        };
+        assert!(mv_idx.on.is_mv());
+        assert_eq!(mv_idx.on.qname().to_string(), "app.users_mv");
+        assert!(mv_idx.canonical_eq(&mv_idx));
+
+        // A table-parent index does not report is_mv.
+        let tbl_idx = base();
+        assert!(!tbl_idx.on.is_mv());
+        assert_eq!(tbl_idx.on.qname().to_string(), "app.users");
+
+        // An MV-parent index differs from a Table-parent index.
+        let tbl_idx_same_name = Index {
+            qname: qn("app", "mv_email_idx"),
+            on: IndexParent::Table(qn("app", "users_mv")),
+            ..mv_idx.clone()
+        };
+        assert!(!mv_idx.canonical_eq(&tbl_idx_same_name));
+        let diffs = mv_idx.diff(&tbl_idx_same_name);
+        assert!(diffs.iter().any(|d| d.path == "on"));
     }
 }

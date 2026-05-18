@@ -178,11 +178,12 @@ async fn run_shadow_validation(source: &Catalog, cfg: &PgevolveConfig) -> Result
 fn build_plan_for_shadow(source: &Catalog, target_identity: String) -> Result<Plan> {
     let empty = Catalog::empty();
     let changes = pgevolve_core::diff::diff(&empty, source, &DriftReport::default());
-    let ordered = order(&empty, source, changes).map_err(|e| anyhow!("plan order: {e}"))?;
     let policy = PlannerPolicy {
         strategy: Strategy::Online,
         ..PlannerPolicy::default()
     };
+    let ordered =
+        order(&empty, source, changes, &policy).map_err(|e| anyhow!("plan order: {e}"))?;
     let steps = rewrite(ordered, &empty, &policy);
     let groups = group_steps(steps);
     Ok(Plan::from_grouped(

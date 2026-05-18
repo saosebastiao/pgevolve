@@ -36,16 +36,27 @@ pub struct OnlineRewrites {
     /// `SetColumnNullable { nullable: false }` on a populated column →
     /// `ADD CHECK NOT VALID` + `VALIDATE` + `SET NOT NULL` + `DROP CONSTRAINT`.
     pub not_null_via_check_pattern: bool,
+    /// Upgrade `REFRESH MATERIALIZED VIEW` to `REFRESH MATERIALIZED VIEW
+    /// CONCURRENTLY` when the MV has at least one unique index. Emits a lint
+    /// warning when the MV has no unique index. Default `true`.
+    pub refresh_mv_concurrently: bool,
+    /// Walk transitively-affected views and emit explicit DROP + CREATE steps
+    /// for them instead of relying on `CASCADE`. When `false`, the planner
+    /// errors (naming every affected view) if any change would cascade
+    /// dependent recreations. Default `true`.
+    pub view_drop_create_dependents: bool,
 }
 
 impl OnlineRewrites {
-    /// All rewrites enabled — v0.1 default.
+    /// All rewrites enabled — default.
     pub const fn all_enabled() -> Self {
         Self {
             create_index_concurrent: true,
             fk_not_valid_then_validate: true,
             check_not_valid_then_validate: true,
             not_null_via_check_pattern: true,
+            refresh_mv_concurrently: true,
+            view_drop_create_dependents: true,
         }
     }
 
@@ -56,6 +67,8 @@ impl OnlineRewrites {
             fk_not_valid_then_validate: false,
             check_not_valid_then_validate: false,
             not_null_via_check_pattern: false,
+            refresh_mv_concurrently: false,
+            view_drop_create_dependents: false,
         }
     }
 }
@@ -92,6 +105,21 @@ impl PlannerPolicy {
         matches!(self.strategy, Strategy::Online) && self.online.not_null_via_check_pattern
     }
 
+    /// Is the `REFRESH MATERIALIZED VIEW CONCURRENTLY` upgrade effectively enabled?
+    pub const fn refresh_mv_concurrently(&self) -> bool {
+        matches!(self.strategy, Strategy::Online) && self.online.refresh_mv_concurrently
+    }
+
+    /// Is the dependent-view DROP + CREATE walk effectively enabled?
+    ///
+    /// When `false`, the planner errors when any change would force dependent
+    /// view recreations (instead of walking and emitting them silently).
+    pub const fn view_drop_create_dependents(&self) -> bool {
+        // This switch is consulted even in atomic mode because it controls
+        // error-vs-walk behavior (not a pure online-only optimization).
+        self.online.view_drop_create_dependents
+    }
+
     /// True iff the strategy is `Online` (i.e., online rewrites may run).
     pub const fn is_online(&self) -> bool {
         matches!(self.strategy, Strategy::Online)
@@ -120,6 +148,8 @@ mod tests {
         assert!(p.fk_not_valid_then_validate());
         assert!(p.check_not_valid_then_validate());
         assert!(p.not_null_via_check_pattern());
+        assert!(p.refresh_mv_concurrently());
+        assert!(p.view_drop_create_dependents());
         assert_eq!(p.planner_ruleset_version, 1);
     }
 
@@ -135,6 +165,9 @@ mod tests {
         assert!(!p.fk_not_valid_then_validate());
         assert!(!p.check_not_valid_then_validate());
         assert!(!p.not_null_via_check_pattern());
+        assert!(!p.refresh_mv_concurrently());
+        // view_drop_create_dependents is consulted regardless of strategy.
+        assert!(p.view_drop_create_dependents());
     }
 
     #[test]
@@ -146,6 +179,8 @@ mod tests {
                 fk_not_valid_then_validate: true,
                 check_not_valid_then_validate: false,
                 not_null_via_check_pattern: true,
+                refresh_mv_concurrently: false,
+                view_drop_create_dependents: true,
             },
             planner_ruleset_version: 1,
         };
@@ -153,6 +188,8 @@ mod tests {
         assert!(p.fk_not_valid_then_validate());
         assert!(!p.check_not_valid_then_validate());
         assert!(p.not_null_via_check_pattern());
+        assert!(!p.refresh_mv_concurrently());
+        assert!(p.view_drop_create_dependents());
     }
 
     #[test]
@@ -167,5 +204,7 @@ mod tests {
         assert!(!p.fk_not_valid_then_validate());
         assert!(!p.check_not_valid_then_validate());
         assert!(!p.not_null_via_check_pattern());
+        assert!(!p.refresh_mv_concurrently());
+        assert!(!p.view_drop_create_dependents());
     }
 }

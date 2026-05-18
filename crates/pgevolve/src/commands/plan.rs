@@ -36,13 +36,12 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
         .map_err(|e| anyhow::anyhow!("join error: {e}"))??;
 
     let changes = diff(&target, &source, &drift);
-    let ordered = order(&target, &source, changes)?;
-
     let policy = PlannerPolicy {
         strategy: opts.strategy,
         online: PlannerPolicy::default().online,
         ..PlannerPolicy::default()
     };
+    let ordered = order(&target, &source, changes, &policy)?;
     let steps = rewrite_with_source(ordered, &target, &source, &policy);
     let groups = group_steps(steps);
     let mut plan = Plan::from_grouped(

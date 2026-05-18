@@ -5,6 +5,7 @@
 
 use pg_query::NodeEnum;
 use pg_query::protobuf;
+use pg_query::protobuf::ObjectType;
 
 use crate::parse::error::{ParseError, SourceLocation};
 
@@ -24,10 +25,14 @@ pub enum Statement {
     AlterTable(protobuf::AlterTableStmt),
     /// `COMMENT ON ...`.
     Comment(protobuf::CommentStmt),
+    /// `CREATE [OR REPLACE] VIEW ...`.
+    CreateView(protobuf::ViewStmt),
+    /// `CREATE MATERIALIZED VIEW ...`.
+    CreateMaterializedView(protobuf::CreateTableAsStmt),
 }
 
 impl Statement {
-    /// Classify a node into the v0.1 whitelist, or return
+    /// Classify a node into the supported whitelist, or return
     /// [`ParseError::UnsupportedObjectKind`] for anything else.
     pub fn classify(node: NodeEnum, location: SourceLocation) -> Result<Self, ParseError> {
         match node {
@@ -37,6 +42,15 @@ impl Statement {
             NodeEnum::IndexStmt(s) => Ok(Self::CreateIndex(*s)),
             NodeEnum::AlterTableStmt(s) => Ok(Self::AlterTable(s)),
             NodeEnum::CommentStmt(s) => Ok(Self::Comment(*s)),
+            NodeEnum::ViewStmt(s) => Ok(Self::CreateView(*s)),
+            NodeEnum::CreateTableAsStmt(s) => {
+                // `CREATE TABLE ... AS SELECT` and `CREATE MATERIALIZED VIEW`
+                // both arrive as CreateTableAsStmt. Route by the objtype field.
+                match ObjectType::try_from(s.objtype) {
+                    Ok(ObjectType::ObjectMatview) => Ok(Self::CreateMaterializedView(*s)),
+                    _ => Err(unsupported(location, "CREATE TABLE AS SELECT")),
+                }
+            }
             other => Err(unsupported(location, friendly_kind(&other))),
         }
     }
@@ -50,7 +64,7 @@ const fn unsupported(location: SourceLocation, kind: &'static str) -> ParseError
 #[allow(clippy::match_same_arms)]
 const fn friendly_kind(node: &NodeEnum) -> &'static str {
     match node {
-        NodeEnum::ViewStmt(_) => "CREATE VIEW",
+        NodeEnum::ViewStmt(_) => "CREATE VIEW", // never reached — routed above
         NodeEnum::CreateFunctionStmt(_) => "CREATE FUNCTION/PROCEDURE",
         NodeEnum::CreateTrigStmt(_) => "CREATE TRIGGER",
         NodeEnum::CreateEnumStmt(_) => "CREATE TYPE ... AS ENUM",
@@ -155,13 +169,26 @@ mod tests {
     }
 
     #[test]
-    fn create_view_unsupported() {
+    fn create_view_classifies() {
         let node = first_node("CREATE VIEW app.v AS SELECT 1;");
+        let stmt = Statement::classify(node, loc()).unwrap();
+        assert!(matches!(stmt, Statement::CreateView(_)));
+    }
+
+    #[test]
+    fn create_materialized_view_classifies() {
+        let node = first_node(
+            "CREATE MATERIALIZED VIEW app.mv AS SELECT count(*) FROM app.t WITH NO DATA;",
+        );
+        let stmt = Statement::classify(node, loc()).unwrap();
+        assert!(matches!(stmt, Statement::CreateMaterializedView(_)));
+    }
+
+    #[test]
+    fn create_table_as_select_unsupported() {
+        let node = first_node("CREATE TABLE app.t2 AS SELECT 1;");
         let err = Statement::classify(node, loc()).unwrap_err();
-        match err {
-            ParseError::UnsupportedObjectKind { kind, .. } => assert_eq!(kind, "CREATE VIEW"),
-            other => panic!("expected UnsupportedObjectKind, got {other:?}"),
-        }
+        assert!(matches!(err, ParseError::UnsupportedObjectKind { .. }));
     }
 
     #[test]

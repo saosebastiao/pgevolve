@@ -1,0 +1,25 @@
+[meta]
+title     = "CREATE MV without unique index — plain REFRESH (mv-no-unique-index lint fires at apply time)"
+authoring = "objects"
+spec_refs = ["views.mv_no_unique_index"]
+
+[pg]
+min = 14
+max = 17
+
+[planner]
+strategy = "online"
+
+[expect.diff]
+contains = [
+  "materialized_views.app.nolynx_report",
+]
+
+[expect.plan]
+# CREATE MATERIALIZED VIEW + plain REFRESH (no CONCURRENTLY — no unique index)
+steps = 2
+
+# Note: the mv-no-unique-index lint warning fires at apply time via
+# refresh_mv_concurrently::rewrite. The conformance in-process pipeline
+# (which calls rewrite() not rewrite_with_source()) discards lint findings.
+# The lint is unit-tested in pgevolve-core.

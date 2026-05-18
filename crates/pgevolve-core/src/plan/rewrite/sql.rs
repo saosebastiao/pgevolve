@@ -100,7 +100,7 @@ pub fn create_index(idx: &Index, concurrently: bool) -> String {
     }
     s.push_str(&idx.qname.name.render_sql());
     s.push_str(" ON ");
-    s.push_str(&idx.table.render_sql());
+    s.push_str(&idx.on.qname().render_sql());
     s.push_str(" USING ");
     s.push_str(index_method(idx.method));
     s.push_str(" (");

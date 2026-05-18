@@ -26,7 +26,16 @@ use crate::plan::rewrite::sql;
 ///    being created in the same plan), and
 /// 3. the index is not `UNIQUE` (see module comment).
 pub fn should_rewrite_create(idx: &Index, target: &Catalog, policy: &PlannerPolicy) -> bool {
-    policy.create_index_concurrent() && target.table_exists(&idx.table) && !idx.unique
+    // Note: for `IndexParent::Mv`, `target.table_exists()` returns false
+    // because `table_exists` only consults `catalog.tables`. Skipping the
+    // concurrent rewrite for MV indexes is correct: PostgreSQL does NOT
+    // support `CREATE INDEX CONCURRENTLY` on materialized views (PG emits
+    // "CREATE INDEX CONCURRENTLY cannot be executed within a pipeline" or
+    // equivalent depending on context). MV indexes go through the inline
+    // `CREATE INDEX` path. T7 may want to add a sibling
+    // `should_rewrite_concurrent_mv_refresh` for the REFRESH CONCURRENTLY
+    // pattern, which IS supported.
+    policy.create_index_concurrent() && target.table_exists(idx.on.qname()) && !idx.unique
 }
 
 /// Should this `DropIndex` be rewritten as `DROP INDEX CONCURRENTLY`?
@@ -59,7 +68,7 @@ pub fn create_step(idx: &Index, destructive: bool, destructive_reason: Option<St
         destructive,
         destructive_reason,
         intent_id: None,
-        targets: vec![idx.qname.clone(), idx.table.clone()],
+        targets: vec![idx.qname.clone(), idx.on.qname().clone()],
         sql: sql::create_index(idx, true),
         transactional: TransactionConstraint::OutsideTransaction,
     }

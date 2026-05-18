@@ -4,7 +4,9 @@ use pg_query::NodeEnum;
 use pg_query::protobuf::{self, IndexElem, IndexStmt, SortByDir, SortByNulls};
 
 use crate::identifier::{Identifier, QualifiedName};
-use crate::ir::index::{Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder};
+use crate::ir::index::{
+    Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
+};
 use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
 use crate::parse::normalize_expr;
@@ -71,7 +73,7 @@ pub fn build_index(
 
     Ok(Index {
         qname,
-        table,
+        on: IndexParent::Table(table),
         method,
         columns,
         include,
@@ -242,7 +244,7 @@ mod tests {
     fn bare_btree_index() {
         let i = build("CREATE INDEX users_email_idx ON app.users (email);");
         assert_eq!(i.qname.to_string(), "app.users_email_idx");
-        assert_eq!(i.table.to_string(), "app.users");
+        assert_eq!(i.on.qname().to_string(), "app.users");
         assert!(matches!(i.method, IndexMethod::BTree));
         assert_eq!(i.columns.len(), 1);
         assert!(matches!(

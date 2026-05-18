@@ -27,7 +27,7 @@ use pgevolve_core::ir::column::Column;
 use pgevolve_core::ir::column_type::ColumnType;
 use pgevolve_core::ir::constraint::{Constraint, ConstraintKind, Deferrable};
 use pgevolve_core::ir::index::{
-    Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+    Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
 };
 use pgevolve_core::ir::schema::Schema;
 use pgevolve_core::ir::sequence::Sequence;
@@ -321,7 +321,7 @@ fn arbitrary_indexes_for_table(
             }
             out.push(Index {
                 qname: QualifiedName::new(qname.schema.clone(), idx_name),
-                table: qname.clone(),
+                on: IndexParent::Table(qname.clone()),
                 method: IndexMethod::BTree,
                 columns: vec![IndexColumn {
                     expr: IndexColumnExpr::Column(col.clone()),

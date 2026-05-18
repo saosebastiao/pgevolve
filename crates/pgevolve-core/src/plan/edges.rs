@@ -12,6 +12,8 @@
 //! (over the target catalog) use the same edge logic — drop ordering is
 //! produced by reversing the topological sort, not by reversing the edges.
 
+use serde::{Deserialize, Serialize};
+
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::ir::constraint::ConstraintKind;
@@ -23,7 +25,7 @@ use crate::plan::graph::Graph;
 /// `Schema` carries an `Identifier` (schemas are not schema-qualified). All
 /// other variants carry [`QualifiedName`]. `Constraint` is identified by
 /// `(table, name)` because constraint names are scoped to their table.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum NodeId {
     /// A schema (namespace).
     Schema(Identifier),
@@ -40,6 +42,10 @@ pub enum NodeId {
         /// Constraint name (the `name` half of the constraint's qname).
         name: Identifier,
     },
+    /// A view (`CREATE VIEW`).
+    View(QualifiedName),
+    /// A materialized view (`CREATE MATERIALIZED VIEW`).
+    Mv(QualifiedName),
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.
@@ -70,6 +76,14 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
             });
         }
     }
+    // Register view and MV nodes so they participate in topological ordering
+    // and body-dependency edges are rooted correctly.
+    for v in &catalog.views {
+        g.add_node(NodeId::View(v.qname.clone()));
+    }
+    for mv in &catalog.materialized_views {
+        g.add_node(NodeId::Mv(mv.qname.clone()));
+    }
 
     // Phase 2: tables depend on their schema and on any sequence used as a
     // column default. We add the schema node implicitly via add_edge in case
@@ -90,12 +104,30 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
         }
     }
 
-    // Phase 3: indexes depend on their table.
+    // Phase 2b: views and MVs depend on objects in their body_dependencies.
+    // `body_dependencies` edges use NodeId directly (already the correct
+    // variant); we just re-register each edge into the graph.
+    for v in &catalog.views {
+        for dep in &v.body_dependencies {
+            g.add_edge(dep.from.clone(), dep.to.clone());
+        }
+    }
+    for mv in &catalog.materialized_views {
+        for dep in &mv.body_dependencies {
+            g.add_edge(dep.from.clone(), dep.to.clone());
+        }
+    }
+
+    // Phase 3: indexes depend on their parent (table or MV).
+    // For `IndexParent::Mv`, we use `NodeId::Mv` so the graph correctly
+    // orders CREATE INDEX after CREATE MATERIALIZED VIEW.
     for i in &catalog.indexes {
-        g.add_edge(
-            NodeId::Index(i.qname.clone()),
-            NodeId::Table(i.table.clone()),
-        );
+        use crate::ir::index::IndexParent;
+        let parent_node = match &i.on {
+            IndexParent::Table(q) => NodeId::Table(q.clone()),
+            IndexParent::Mv(q) => NodeId::Mv(q.clone()),
+        };
+        g.add_edge(NodeId::Index(i.qname.clone()), parent_node);
     }
 
     // Phase 4: constraints depend on their owning table; FKs additionally
@@ -161,7 +193,7 @@ pub fn build_drop_graph(catalog: &Catalog) -> Graph<NodeId> {
 ///
 /// Ordering: `Structural < AstExtracted < AstDeclared` — structural edges
 /// are tie-broken first in the Kahn min-heap to preserve v0.1 ordering.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum DepSource {
     /// Derived from the IR shape; v0.1 default.
     Structural,
@@ -175,7 +207,7 @@ pub enum DepSource {
 ///
 /// Convention matches the existing graph: `from` depends on `to`, so `to`
 /// must be created before `from`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DepEdge {
     /// Dependent node (the one that needs `to` to exist first).
     pub from: NodeId,
@@ -194,7 +226,7 @@ mod tests {
         Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
     };
     use crate::ir::index::{
-        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
     use crate::ir::schema::Schema;
     use crate::ir::sequence::{Sequence, SequenceOwner};
@@ -271,7 +303,7 @@ mod tests {
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("id")),
@@ -334,7 +366,7 @@ mod tests {
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("id")),

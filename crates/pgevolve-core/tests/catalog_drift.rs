@@ -213,8 +213,8 @@ async fn invalid_index_produces_drop_and_create_in_plan() {
 
     // Diff + order + rewrite_with_source.
     let changes = diff(&live, &source, &drift);
-    let ordered = order(&live, &source, changes).expect("order");
     let policy = PlannerPolicy::default();
+    let ordered = order(&live, &source, changes, &policy).expect("order");
     let steps = rewrite_with_source(ordered, &live, &source, &policy);
     let _groups = group_steps(steps.clone());
 

@@ -4,6 +4,7 @@
 //! [`crate::ir::catalog::Catalog`]. Construction is I/O-free at the type level —
 //! the only I/O is performed by [`parse_directory`] on behalf of callers.
 
+pub mod ast_canon;
 mod ast_resolution;
 pub mod builder;
 pub mod directives;
@@ -119,6 +120,20 @@ pub fn parse_directory_with_locations(
     // sequence defaults) resolve against the declared IR, before any DB touch.
     ast_resolution::resolve(&catalog, &locations).map_err(ParseError::AstResolution)?;
 
+    // AST canonicalization pass: fill body_canonical, body_dependencies, and
+    // (when needed) columns for all views and materialized views. Skipped when
+    // the catalog has no views, so v0.1 fixtures pay no overhead.
+    if !catalog.views.is_empty() || !catalog.materialized_views.is_empty() {
+        ast_canon::canonicalize_view_bodies(&mut catalog).map_err(ParseError::AstCanon)?;
+    }
+
+    // MV index parent promotion: source-side `CREATE INDEX ON mv_name (...)` is
+    // initially parsed as `IndexParent::Table` because the parser doesn't know
+    // whether the relation is a table or an MV. Now that both the indexes and
+    // the MVs are in the catalog, promote any `IndexParent::Table(q)` where `q`
+    // is actually a materialized view.
+    ast_canon::promote_mv_index_parents(&mut catalog);
+
     let canonical = catalog
         .canonicalize()
         .map_err(|e: IrError| translate_canonicalize_error(e, &locations))?;
@@ -230,6 +245,38 @@ fn process_file(
             }
             Statement::Comment(s) => {
                 deferred_comments.push((s, location, directives.schema.clone()));
+            }
+            Statement::CreateView(s) => {
+                let view = builder::create_view_stmt::build_view(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                )?;
+                if let Some(prior) = locations.get(&view.qname.to_string()) {
+                    return Err(ParseError::DuplicateObject {
+                        qname: view.qname.to_string(),
+                        first: prior.clone(),
+                        second: location,
+                    });
+                }
+                locations.insert(view.qname.to_string(), location.clone());
+                catalog.views.push(view);
+            }
+            Statement::CreateMaterializedView(s) => {
+                let mv = builder::create_materialized_view_stmt::build_materialized_view(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                )?;
+                if let Some(prior) = locations.get(&mv.qname.to_string()) {
+                    return Err(ParseError::DuplicateObject {
+                        qname: mv.qname.to_string(),
+                        first: prior.clone(),
+                        second: location,
+                    });
+                }
+                locations.insert(mv.qname.to_string(), location.clone());
+                catalog.materialized_views.push(mv);
             }
         }
     }

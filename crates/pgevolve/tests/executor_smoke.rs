@@ -451,3 +451,149 @@ async fn target_identity_differs_between_distinct_databases() {
         .unwrap();
     assert_ne!(id_a, id_b);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::too_many_lines)] // integration test; inline fixture by design
+async fn refresh_mv_suppressed_by_step_override() {
+    if !docker_available() {
+        eprintln!("skipping: docker unavailable");
+        return;
+    }
+    use pgevolve_core::identifier::{Identifier, QualifiedName};
+    use pgevolve_core::ir::catalog::Catalog;
+    use pgevolve_core::plan::Plan;
+    use pgevolve_core::plan::StepOverride;
+    use pgevolve_core::plan::grouping::TransactionGroup;
+    use pgevolve_core::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
+
+    let pg = EphemeralPostgres::start(default_pg_version())
+        .await
+        .unwrap();
+    let mut client = pg.connect().await.unwrap();
+    let identity = pgevolve::compute_target_identity(&client).await.unwrap();
+
+    let id = |s: &str| Identifier::from_unquoted(s).unwrap();
+    let qn = |sch: &str, n: &str| QualifiedName::new(id(sch), id(n));
+
+    // Build a plan with two steps:
+    // 1. CREATE MATERIALIZED VIEW app.mv_revenue WITH NO DATA
+    // 2. REFRESH MATERIALIZED VIEW app.mv_revenue  (suppressed by step_override)
+    let groups = vec![TransactionGroup {
+        id: 1,
+        transactional: true,
+        steps: vec![
+            RawStep {
+                step_no: 0,
+                kind: StepKind::CreateSchema,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qn("app", "app")],
+                sql: "CREATE SCHEMA app;".into(),
+                transactional: TransactionConstraint::InTransaction,
+            },
+            RawStep {
+                step_no: 0,
+                kind: StepKind::CreateMaterializedView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qn("app", "mv_revenue")],
+                sql: "CREATE MATERIALIZED VIEW app.mv_revenue AS SELECT 1 AS n WITH NO DATA;"
+                    .into(),
+                transactional: TransactionConstraint::InTransaction,
+            },
+            RawStep {
+                step_no: 0,
+                kind: StepKind::RefreshMaterializedView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qn("app", "mv_revenue")],
+                sql: "REFRESH MATERIALIZED VIEW app.mv_revenue;".into(),
+                transactional: TransactionConstraint::InTransaction,
+            },
+        ],
+    }];
+
+    let mut plan = Plan::from_grouped(
+        groups,
+        &Catalog::empty(),
+        &Catalog::empty(),
+        identity,
+        None,
+        "0.2.0",
+        2,
+    );
+
+    // Suppress the REFRESH step via a [[step_override]] row.
+    plan.step_overrides.push(StepOverride {
+        kind: "refresh_materialized_view".to_string(),
+        target: "app.mv_revenue".to_string(),
+        suppress: true,
+    });
+
+    // Write plan to disk so the full apply path (including read_plan_dir)
+    // exercises the serialize/deserialize round-trip.
+    let dir = tempfile::tempdir().unwrap();
+    pgevolve_core::plan::serialize::write_plan_dir(&plan, dir.path()).unwrap();
+
+    let filter = pgevolve_core::catalog::CatalogFilter::new(vec![id("app")], vec![]).unwrap();
+    pgevolve::apply(
+        dir.path(),
+        &mut client,
+        &filter,
+        pgevolve::executor::ApplyOverrides {
+            allow_drift: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("apply ok");
+
+    // The MV should exist in pg_class.
+    let row = client
+        .query_one(
+            "SELECT COUNT(*)::int FROM pg_class c \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = 'app' AND c.relname = 'mv_revenue'",
+            &[],
+        )
+        .await
+        .unwrap();
+    let exists: i32 = row.get(0);
+    assert_eq!(exists, 1, "MV should exist");
+
+    // The MV should NOT be populated (relispopulated = false) because the
+    // REFRESH was suppressed.
+    let row = client
+        .query_one(
+            "SELECT relispopulated FROM pg_class c \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = 'app' AND c.relname = 'mv_revenue'",
+            &[],
+        )
+        .await
+        .unwrap();
+    let populated: bool = row.get(0);
+    assert!(
+        !populated,
+        "MV should not be populated (REFRESH was suppressed)"
+    );
+
+    // The audit log should show the REFRESH step as 'skipped'.
+    let row = client
+        .query_one(
+            "SELECT status FROM pgevolve.plan_steps \
+             WHERE apply_id = (SELECT apply_id FROM pgevolve.apply_log ORDER BY started_at DESC LIMIT 1) \
+               AND kind = 'refresh_materialized_view'",
+            &[],
+        )
+        .await
+        .unwrap();
+    let status: String = row.get(0);
+    assert_eq!(
+        status, "skipped",
+        "Suppressed REFRESH step should be skipped in audit log"
+    );
+}

@@ -1,6 +1,8 @@
 //! Tier-5 property tests.
 //!
-//! Two properties land in v0.1 — both pure (no Docker required):
+//! Properties in this file:
+//!
+//! ### v0.1 (pure, no Docker)
 //!
 //! 1. **`plan_id_is_deterministic`** — for the same source/target catalog
 //!    and the same `(version, ruleset_version)`, `PlanId::compute` returns
@@ -10,9 +12,19 @@
 //!    cycle nodes are all FK-bound (which the planner extracts as a
 //!    post-pass).
 //!
-//! Property tests that depend on a live Postgres (round-trip, idempotency,
-//! end-to-end equivalence) land in v0.1.x once `IRMutator` exists and the
-//! generator's coverage is tight enough to survive PG normalization.
+//! ### v0.2 (Docker-bound)
+//!
+//! 3. **`view_canonicalization_closed_under_pg_rewrite`** — verifies the
+//!    v0.2 invariant: `NormalizedBody::from_sql` applied to a view body
+//!    yields the same canonical text as `NormalizedBody::from_sql` applied
+//!    to the body Postgres stores in `pg_get_viewdef`. In other words,
+//!    the canonicalizer is *closed* under the PG rewrite: source-side and
+//!    catalog-side canonicalization produce the same result. A divergence
+//!    here is a bug in the canonicalizer. This test is `#[ignore]`'d and
+//!    Docker-gated; run manually with
+//!    `cargo test -- --ignored view_canonicalization_closed_under_pg_rewrite`.
+//!    `arb_view_dependency_graph` (spec §12 step 12.2) is deferred — it
+//!    requires a non-trivial proptest generator for arbitrary dep graphs.
 //!
 //! All tests in this file are #[ignore]'d for CI. Run with
 //! `cargo test --test property_tests -- --ignored` locally, or via the
@@ -20,11 +32,126 @@
 
 use proptest::prelude::*;
 
+use pgevolve_core::parse::normalize_body::NormalizedBody;
 use pgevolve_core::plan::{NodeId, PlanId, build_create_graph};
-use pgevolve_testkit::{IRGeneratorConfig, arbitrary_catalog};
+use pgevolve_testkit::{IRGeneratorConfig, arbitrary_catalog, docker_available};
+
+// ---------------------------------------------------------------------------
+// v0.2: representative view bodies for the closure invariant test
+// ---------------------------------------------------------------------------
+
+/// A fixed set of representative view SELECT bodies. These are kept as a
+/// const array rather than an arbitrary generator because the load-bearing
+/// property is the *closure invariant* (source canon == catalog canon), not
+/// the breadth of the generator itself. Five to ten bodies that exercise
+/// different SELECT shapes are sufficient.
+const VIEW_BODIES: &[&str] = &[
+    "SELECT id FROM app.users",
+    "SELECT id, email FROM app.users",
+    "SELECT u.id AS user_id, u.email FROM app.users u",
+    "SELECT id FROM app.users WHERE id > 0",
+    "SELECT count(*) AS c FROM app.users",
+    "SELECT id, email FROM app.users WHERE id > 10 ORDER BY email",
+    "SELECT u.id, u.email FROM app.users u WHERE u.id IS NOT NULL",
+    "SELECT 1 AS one",
+    "SELECT id AS user_id, email AS user_email FROM app.users",
+];
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
+
+    /// v0.2 invariant: `NormalizedBody::from_sql` is closed under the PG
+    /// rewrite.
+    ///
+    /// For each body in `VIEW_BODIES`:
+    ///  1. Boot an ephemeral PG instance.
+    ///  2. Create `app.users (id bigint, email text)` to satisfy FK refs.
+    ///  3. Create a view `CREATE VIEW app.v AS <body>`.
+    ///  4. Query `pg_get_viewdef('app.v'::regclass, true)` to get the
+    ///     catalog-stored body text.
+    ///  5. Canonicalize both the source body and the catalog body via
+    ///     `NormalizedBody::from_sql`.
+    ///  6. Assert the two canonical texts are equal.
+    ///
+    /// A divergence is a canonicalization bug: the differ would consider the
+    /// view body changed on every plan even though the semantics are
+    /// identical.
+    ///
+    /// Docker-gated: the test returns early without asserting if Docker is
+    /// not available. `arb_view_dependency_graph` (spec §12 step 12.2) is
+    /// deferred — it requires a non-trivial proptest generator for arbitrary
+    /// dep graphs and is not load-bearing for the closure invariant.
+    #[ignore = "property test — Docker-gated; run with `cargo test -- --ignored view_canonicalization_closed_under_pg_rewrite`"]
+    #[test]
+    fn view_canonicalization_closed_under_pg_rewrite(
+        body_idx in 0usize..VIEW_BODIES.len(),
+    ) {
+        if !docker_available() {
+            return Ok(());
+        }
+
+        let body_text = VIEW_BODIES[body_idx];
+
+        // Canonicalize the source-side body.
+        let source_canon = NormalizedBody::from_sql(body_text)
+            .map_err(|e| TestCaseError::fail(format!("source canonicalize failed: {e}")))?;
+
+        // Boot ephemeral PG, apply the schema, query pg_get_viewdef.
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+
+        let catalog_body: String = rt.block_on(async {
+            use pgevolve_testkit::EphemeralPostgres;
+            let pg = EphemeralPostgres::start(pgevolve_testkit::default_pg_version())
+                .await
+                .expect("ephemeral PG");
+            let client = pg.connect().await.expect("connect");
+
+            client
+                .batch_execute(
+                    "CREATE SCHEMA app; \
+                     CREATE TABLE app.users (id bigint, email text);",
+                )
+                .await
+                .expect("create schema + table");
+
+            // CREATE VIEW — one view per ephemeral container, unique per body.
+            let create_sql = format!("CREATE VIEW app.v AS {body_text}");
+            client
+                .execute(&create_sql, &[])
+                .await
+                .expect("create view");
+
+            let row = client
+                .query_one(
+                    "SELECT pg_get_viewdef('app.v'::regclass, true)",
+                    &[],
+                )
+                .await
+                .expect("pg_get_viewdef");
+
+            let raw: String = row.get(0);
+            raw
+        });
+
+        // Canonicalize the catalog-side body.
+        let catalog_canon = NormalizedBody::from_sql(&catalog_body)
+            .map_err(|e| TestCaseError::fail(format!(
+                "catalog canonicalize failed for PG-rewritten body {catalog_body:?}: {e}"
+            )))?;
+
+        prop_assert_eq!(
+            source_canon.canonical_text(),
+            catalog_canon.canonical_text(),
+            "canonicalization diverged for body {:?}\n  source  => {:?}\n  catalog => {:?}\n  pg_get_viewdef raw => {:?}",
+            body_text,
+            source_canon.canonical_text(),
+            catalog_canon.canonical_text(),
+            catalog_body,
+        );
+    }
 
     /// Property: planning C → C for any random catalog C produces an
     /// empty change set. Pure; no Docker.

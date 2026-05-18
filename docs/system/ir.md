@@ -7,10 +7,12 @@ this doc lives in `crates/pgevolve-core/src/ir/`.
 
 ```rust
 pub struct Catalog {
-    pub schemas:   Vec<Schema>,
-    pub tables:    Vec<Table>,
-    pub indexes:   Vec<Index>,
-    pub sequences: Vec<Sequence>,
+    pub schemas:            Vec<Schema>,
+    pub tables:             Vec<Table>,
+    pub indexes:            Vec<Index>,
+    pub sequences:          Vec<Sequence>,
+    pub views:              Vec<View>,
+    pub materialized_views: Vec<MaterializedView>,
 }
 ```
 
@@ -24,17 +26,23 @@ The implicit name-based relationships look like this:
 
 ```mermaid
 erDiagram
-    Catalog ||--o{ Schema    : "schemas[]"
-    Catalog ||--o{ Table     : "tables[]"
-    Catalog ||--o{ Index     : "indexes[]"
-    Catalog ||--o{ Sequence  : "sequences[]"
-    Table   ||--o{ Column    : "columns[]"
-    Table   ||--o{ Constraint : "constraints[]"
-    Index    }o--|| Table    : "table (qname)"
-    Sequence }o--o| Table    : "owned_by (optional)"
-    Schema   ||--o{ Table    : "qname.schema"
-    Schema   ||--o{ Index    : "qname.schema"
-    Schema   ||--o{ Sequence : "qname.schema"
+    Catalog ||--o{ Schema           : "schemas[]"
+    Catalog ||--o{ Table            : "tables[]"
+    Catalog ||--o{ Index            : "indexes[]"
+    Catalog ||--o{ Sequence         : "sequences[]"
+    Catalog ||--o{ View             : "views[]"
+    Catalog ||--o{ MaterializedView : "materialized_views[]"
+    Table   ||--o{ Column           : "columns[]"
+    Table   ||--o{ Constraint       : "constraints[]"
+    View    ||--o{ ViewColumn       : "columns[]"
+    MaterializedView ||--o{ ViewColumn : "columns[]"
+    Index    }o--|| Table           : "table (qname)"
+    Sequence }o--o| Table           : "owned_by (optional)"
+    Schema   ||--o{ Table           : "qname.schema"
+    Schema   ||--o{ Index           : "qname.schema"
+    Schema   ||--o{ Sequence        : "qname.schema"
+    Schema   ||--o{ View            : "qname.schema"
+    Schema   ||--o{ MaterializedView : "qname.schema"
 ```
 
 ## Canonicalization
@@ -252,6 +260,80 @@ pub struct Index {
 Indexes are first-class IR objects (paired by their own qname, not by
 their backing table). This makes "rename the index" or "change the
 opclass on column 2" a single-row diff entry.
+
+## `View` and `MaterializedView`
+
+Added in v0.2. Source: `crates/pgevolve-core/src/ir/view.rs`.
+
+```rust
+pub struct View {
+    pub qname:              QualifiedName,
+    pub columns:            Vec<ViewColumn>,
+    pub body_canonical:     NormalizedBody,
+    pub body_dependencies:  Vec<DepEdge>,
+    pub security_barrier:   Option<bool>,
+    pub security_invoker:   Option<bool>,
+    pub comment:            Option<String>,
+    // raw_body: parser-internal sentinel; not serialized.
+}
+
+pub struct MaterializedView {
+    pub qname:              QualifiedName,
+    pub columns:            Vec<ViewColumn>,
+    pub body_canonical:     NormalizedBody,
+    pub body_dependencies:  Vec<DepEdge>,
+    pub comment:            Option<String>,
+    // raw_body: parser-internal sentinel; not serialized.
+}
+```
+
+### `body_canonical: NormalizedBody`
+
+The canonicalized SELECT body. `NormalizedBody::from_sql` (in
+`parse/normalize_body.rs`) feeds the raw SQL through `pg_query`'s
+parse + deparse cycle and collapses whitespace. The same function is
+called on the source side (T3/T4 parse pass) and the catalog side (T5
+reader, which calls `pg_get_viewdef`). Because both sides go through
+the same normalization, the differ compares canonical texts directly
+without knowing anything about SQL semantics.
+
+`canonical_hash` (BLAKE3 of the text, domain-separated with
+`pgevolve-normalized-body-v1\n`) is kept for fast equality checks and
+stable identity.
+
+### `body_dependencies: Vec<DepEdge>`
+
+Dependency edges extracted from the body AST by the T4 AST canonicalization
+pass (`parse/ast_canon.rs`). Each `DepEdge` has:
+
+```rust
+pub struct DepEdge {
+    pub from:   NodeId,         // NodeId::View or NodeId::Mv
+    pub to:     NodeId,         // NodeId::Table, NodeId::View, or NodeId::Mv
+    pub source: DepSource,      // DepSource::AstExtracted
+}
+```
+
+`body_dependencies` is what makes the planner's dependent-recreation walk
+possible (see `plan/recreate_views.rs`). It is also what the
+`view-body-references-unmanaged-schema` lint rule checks.
+
+## `ViewColumn`
+
+```rust
+pub struct ViewColumn {
+    pub name:        Identifier,
+    pub column_type: ColumnType,
+    pub comment:     Option<String>,
+}
+```
+
+A single named column in a view or materialized view. When constructed
+from the source parser (T3), `column_type` is set to
+`ColumnType::Other { raw: "unresolved" }` as a sentinel; the T4 AST
+canonicalization pass fills in the resolved type. When built from the
+live catalog (T5), `column_type` is parsed from
+`format_type(a.atttypid, a.atttypmod)`.
 
 ## `Sequence`
 

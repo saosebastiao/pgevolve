@@ -47,6 +47,19 @@ Each subtree under `crates/pgevolve-conformance/fixtures/` has a specific contra
 | `failure/` | Fixtures that must fail at a specific phase (parse error, lint error, plan error). Uses `[expect.failure]`. |
 | `regressions/` | Scaffolded by `cargo xtask capture-regression`; each fixture is linked to a GitHub issue. |
 
+### v0.2 view / MV fixture coverage (Tier C)
+
+As of T11, there are 15 conformance fixtures covering views and materialized views:
+
+| Subtree | Fixtures |
+|---|---|
+| `objects/views/` | 8 fixtures: `create-simple`, `create-with-aliases`, `comment-on-view`, `drop`, `replace-body-compatible`, `replace-body-incompatible`, `security-barrier-toggle`, `security-invoker-toggle` |
+| `objects/materialized_views/` | 6 fixtures: `create-simple`, `create-no-unique-index-online`, `index-on-mv`, `refresh-concurrently`, `replace-body`, `with-no-data-override` |
+| `intent/` | 1 fixture: `drop-view-requires-intent` |
+| `scenarios/dependency-chains/` | 2 fixtures covering transitive view recreation |
+
+Total: 15 fixtures across `objects/views/`, `objects/materialized_views/`, `intent/`, and `scenarios/dependency-chains/`.
+
 ## `fixture.toml` schema additions
 
 | Key | Status | Notes |
@@ -87,10 +100,12 @@ Full schema in `crates/pgevolve-conformance/AUTHORING.md`.
 |---|---|---|
 | `plan_id_is_deterministic` | ✅ Implemented | Two `PlanId::compute(source, target, ver, ruleset)` invocations return the same bytes; different ruleset returns different bytes. Pure; no Docker. |
 | `create_graph_topo_sorts_or_only_fk_cycles` | ✅ Implemented | Either the create-graph topologically sorts cleanly, or every node in the cycle is an FK-bound `Table` / `Constraint`. Pure. |
+| `view_canonicalization_closed_under_pg_rewrite` | ✅ Implemented | v0.2. For a fixed set of representative view bodies: create the view in an ephemeral PG, query `pg_get_viewdef`, canonicalize both source and catalog bodies via `NormalizedBody::from_sql`, assert the canonical texts match. Docker-gated; `#[ignore]`'d. A divergence indicates a canonicalization bug. |
 | `round_trip_property` | ✅ Implemented | Apply a random catalog to PG; re-introspect; assert structural equality. Needs Docker. |
 | `idempotency_property` | ✅ Implemented | Diff of (applied catalog, applied catalog) is empty. |
 | `end_to_end_equivalence_property` | ✅ Implemented | Apply initial; apply a random mutation; introspect; assert equal to mutated. Exercises `IRMutator`. |
 | `drift_recovery_property` | ✅ Implemented | Apply with `abort_after_step = N`; re-plan from partial state; apply to completion; assert equal to target. |
+| `arb_view_dependency_graph` | 🔮 Deferred | Spec §12 step 12.2. Requires a non-trivial proptest generator for arbitrary view dep graphs. Not load-bearing for the closure invariant; deferred post-v0.2. |
 
 `PGEVOLVE_PROPERTY_CASES` controls the Docker-bound test case count
 (default 3 locally; CI's `pg-matrix` uses 50; soak uses 5000).

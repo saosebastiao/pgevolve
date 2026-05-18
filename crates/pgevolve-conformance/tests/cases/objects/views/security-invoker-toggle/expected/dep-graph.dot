@@ -1,0 +1,11 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.data.data_pkey";
+  "schema:app";
+  "table:app.data";
+  "table:app.invoker_view";
+  "table:app.data" -> "schema:app" [style=solid];
+  "table:app.invoker_view" -> "table:app.data" [style=solid];
+  "constraint:app.data.data_pkey" -> "table:app.data" [style=solid];
+}

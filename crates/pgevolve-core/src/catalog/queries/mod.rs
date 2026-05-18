@@ -9,6 +9,7 @@ pub mod pg15;
 pub mod pg16;
 pub mod pg17;
 pub mod shared;
+pub mod views;
 
 use crate::catalog::CatalogQuery;
 use crate::catalog::version::PgVersion;
@@ -27,6 +28,8 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::Sequences) => shared::SEQUENCES_QUERY,
         (_, CatalogQuery::Comments) => shared::COMMENTS_QUERY,
         (_, CatalogQuery::Dependencies) => shared::DEPENDENCIES_QUERY,
+        (_, CatalogQuery::ViewsAndMvs) => views::SELECT_VIEWS_AND_MVS,
+        (_, CatalogQuery::ViewColumns) => views::SELECT_VIEW_COLUMNS,
     }
 }
 

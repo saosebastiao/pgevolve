@@ -27,7 +27,17 @@ pub fn apply_comment(
     } else {
         Some(stmt.comment.clone())
     };
+    apply_comment_inner(stmt, catalog, default_schema, location, kind, comment)
+}
 
+fn apply_comment_inner(
+    stmt: &CommentStmt,
+    catalog: &mut Catalog,
+    default_schema: Option<&Identifier>,
+    location: &SourceLocation,
+    kind: ObjectType,
+    comment: Option<String>,
+) -> Result<(), ParseError> {
     match kind {
         ObjectType::ObjectSchema => {
             let name = single_string(stmt, location)?;
@@ -66,21 +76,6 @@ pub fn apply_comment(
                 .ok_or_else(|| missing(location, "sequence", &qname.to_string()))?;
             seq.comment = comment;
         }
-        ObjectType::ObjectColumn => {
-            let parts = string_parts(stmt, location)?;
-            let (table_qname, col_name) = split_column_target(&parts, default_schema, location)?;
-            let table = catalog
-                .tables
-                .iter_mut()
-                .find(|t| t.qname == table_qname)
-                .ok_or_else(|| missing(location, "table", &table_qname.to_string()))?;
-            let col = table
-                .columns
-                .iter_mut()
-                .find(|c| c.name == col_name)
-                .ok_or_else(|| missing(location, "column", &format!("{table_qname}.{col_name}")))?;
-            col.comment = comment;
-        }
         ObjectType::ObjectTabconstraint => {
             let parts = string_parts(stmt, location)?;
             let (table_qname, con_name) = split_column_target(&parts, default_schema, location)?;
@@ -98,6 +93,29 @@ pub fn apply_comment(
                 })?;
             con.comment = comment;
         }
+        ObjectType::ObjectView => {
+            let qname = qualified_name(stmt, default_schema, location)?;
+            let view = catalog
+                .views
+                .iter_mut()
+                .find(|v| v.qname == qname)
+                .ok_or_else(|| missing(location, "view", &qname.to_string()))?;
+            view.comment = comment;
+        }
+        ObjectType::ObjectMatview => {
+            let qname = qualified_name(stmt, default_schema, location)?;
+            let mv = catalog
+                .materialized_views
+                .iter_mut()
+                .find(|m| m.qname == qname)
+                .ok_or_else(|| missing(location, "materialized view", &qname.to_string()))?;
+            mv.comment = comment;
+        }
+        ObjectType::ObjectColumn => {
+            let parts = string_parts(stmt, location)?;
+            let (obj_qname, col_name) = split_column_target(&parts, default_schema, location)?;
+            apply_column_comment(catalog, location, &obj_qname, &col_name, comment)?;
+        }
         other => {
             return Err(ParseError::Structural {
                 location: location.clone(),
@@ -105,7 +123,51 @@ pub fn apply_comment(
             });
         }
     }
+    Ok(())
+}
 
+/// Apply a column comment, trying tables then views then MVs.
+fn apply_column_comment(
+    catalog: &mut Catalog,
+    location: &SourceLocation,
+    obj_qname: &QualifiedName,
+    col_name: &Identifier,
+    comment: Option<String>,
+) -> Result<(), ParseError> {
+    if let Some(table) = catalog.tables.iter_mut().find(|t| t.qname == *obj_qname) {
+        let col = table
+            .columns
+            .iter_mut()
+            .find(|c| c.name == *col_name)
+            .ok_or_else(|| missing(location, "column", &format!("{obj_qname}.{col_name}")))?;
+        col.comment = comment;
+    } else if let Some(view) = catalog.views.iter_mut().find(|v| v.qname == *obj_qname) {
+        let col = view
+            .columns
+            .iter_mut()
+            .find(|c| c.name == *col_name)
+            .ok_or_else(|| missing(location, "view column", &format!("{obj_qname}.{col_name}")))?;
+        col.comment = comment;
+    } else if let Some(mv) = catalog
+        .materialized_views
+        .iter_mut()
+        .find(|m| m.qname == *obj_qname)
+    {
+        let col = mv
+            .columns
+            .iter_mut()
+            .find(|c| c.name == *col_name)
+            .ok_or_else(|| {
+                missing(
+                    location,
+                    "materialized view column",
+                    &format!("{obj_qname}.{col_name}"),
+                )
+            })?;
+        col.comment = comment;
+    } else {
+        return Err(missing(location, "table/view/mv", &obj_qname.to_string()));
+    }
     Ok(())
 }
 
@@ -238,7 +300,8 @@ mod tests {
     use crate::ir::column_type::ColumnType;
     use crate::ir::constraint::{Constraint as IrConstraint, ConstraintKind, Deferrable};
     use crate::ir::index::{
-        Index as IrIndex, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index as IrIndex, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder,
+        SortOrder,
     };
     use crate::ir::schema::Schema;
     use crate::ir::sequence::Sequence;
@@ -285,7 +348,7 @@ mod tests {
         });
         c.indexes.push(IrIndex {
             qname: qn("users_email_idx"),
-            table: qn("users"),
+            on: IndexParent::Table(qn("users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("email")),

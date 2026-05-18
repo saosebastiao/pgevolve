@@ -231,5 +231,7 @@
     }
   ],
   "indexes": [],
-  "sequences": []
+  "sequences": [],
+  "views": [],
+  "materialized_views": []
 }

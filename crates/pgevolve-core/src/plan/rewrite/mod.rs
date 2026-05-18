@@ -18,10 +18,12 @@
 pub mod check_not_valid_validate;
 pub mod concurrent_index;
 pub mod fk_not_valid_validate;
+pub mod refresh_mv_concurrently;
 pub mod set_not_null_check_pattern;
 pub mod sql;
+pub mod views;
 
-use crate::diff::change::{Change, ChangeEntry};
+use crate::diff::change::{Change, ChangeEntry, MvChange, ViewChange};
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::sequence_op::{SequenceOp, SequenceOpEntry};
 use crate::diff::table_op::{TableOp, TableOpEntry};
@@ -52,6 +54,11 @@ pub fn rewrite(
 
 /// Like [`rewrite`] but also accepts the source catalog for drift-recovery
 /// changes that need to look up source-side IR (e.g., `RecreateIndex`).
+///
+/// After all changes are emitted, the `refresh_mv_concurrently` rewrite pass
+/// upgrades `REFRESH MATERIALIZED VIEW` steps to `CONCURRENTLY` when the target
+/// MV has a unique index (spec §6.5). Lint findings from that pass are
+/// currently discarded here (T10 wires them into the plan's lint output).
 pub fn rewrite_with_source(
     ordered: OrderedChangeSet,
     target: &Catalog,
@@ -76,6 +83,13 @@ pub fn rewrite_with_source(
     for fk in ordered.deferred_fks {
         emit_deferred_fk(&fk, &ctx, &mut out);
     }
+    // Post-emit: upgrade REFRESH MATERIALIZED VIEW → CONCURRENTLY where eligible.
+    // Check indexes from the *source* catalog (desired state), not target, so
+    // that newly-created unique indexes on new MVs are included in the check.
+    // Lint findings from this pass are discarded here; T10 wires them into the
+    // plan's lint output.
+    let mut findings_sink: Vec<crate::lint::Finding> = Vec::new();
+    refresh_mv_concurrently::rewrite(&mut out, source, policy, &mut findings_sink);
     out
 }
 
@@ -209,7 +223,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                     destructive,
                     destructive_reason,
                     intent_id: None,
-                    targets: vec![qname.clone(), idx.table.clone()],
+                    targets: vec![qname.clone(), idx.on.qname().clone()],
                     sql: sql::create_index(&idx, false),
                     transactional: TransactionConstraint::InTransaction,
                 }
@@ -278,7 +292,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                         destructive: false,
                         destructive_reason: None,
                         intent_id: None,
-                        targets: vec![to.qname.clone(), to.table.clone()],
+                        targets: vec![to.qname.clone(), to.on.qname().clone()],
                         sql: sql::create_index(&to, false),
                         transactional: TransactionConstraint::InTransaction,
                     }
@@ -379,7 +393,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                             destructive: false,
                             destructive_reason: None,
                             intent_id: None,
-                            targets: vec![idx.qname.clone(), idx.table.clone()],
+                            targets: vec![idx.qname.clone(), idx.on.qname().clone()],
                             sql: sql::create_index(idx, false),
                             transactional: TransactionConstraint::InTransaction,
                         }
@@ -387,7 +401,308 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 out.push(create_step);
             }
         }
+
+        Change::View(vc) => emit_view_change(vc, destructive, destructive_reason, out),
+        Change::Mv(mc) => emit_mv_change(mc, destructive, destructive_reason, out),
     }
+}
+
+fn emit_view_change(
+    vc: ViewChange,
+    destructive: bool,
+    destructive_reason: Option<String>,
+    out: &mut Vec<RawStep>,
+) {
+    use crate::diff::change::ViewChange as V;
+    use views::{
+        emit_alter_view_set_reloption, emit_comment_on_view, emit_comment_on_view_column,
+        emit_create_view, emit_drop_view,
+    };
+
+    match vc {
+        V::Create(v) => {
+            let qname = v.qname.clone();
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_create_view(&v, false),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            if let Some(c) = &v.comment {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: StepKind::CommentOnView,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: emit_comment_on_view(&qname, Some(c)),
+                    transactional: TransactionConstraint::InTransaction,
+                });
+            }
+            for col in &v.columns {
+                if let Some(comment) = &col.comment {
+                    out.push(RawStep {
+                        step_no: 0,
+                        kind: StepKind::CommentOnView,
+                        destructive: false,
+                        destructive_reason: None,
+                        intent_id: None,
+                        targets: vec![qname.clone()],
+                        sql: emit_comment_on_view_column(&qname, &col.name, Some(comment)),
+                        transactional: TransactionConstraint::InTransaction,
+                    });
+                }
+            }
+        }
+        V::Drop(qname) => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::DropView,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_drop_view(&qname),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        V::ReplaceBody {
+            source,
+            catalog: _,
+            compatible: true,
+        } => {
+            let qname = source.qname.clone();
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname],
+                sql: emit_create_view(&source, true),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        V::ReplaceBody {
+            source,
+            catalog,
+            compatible: false,
+        } => {
+            let qname = source.qname.clone();
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::DropView,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_drop_view(&catalog.qname),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname],
+                sql: emit_create_view(&source, false),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        V::SetReloption {
+            qname,
+            security_barrier,
+            security_invoker,
+        } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AlterViewSetReloption,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_alter_view_set_reloption(&qname, security_barrier, security_invoker),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        V::SetComment { qname, comment } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CommentOnView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_comment_on_view(&qname, comment.as_deref()),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        V::SetColumnComment {
+            qname,
+            column,
+            comment,
+        } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CommentOnView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_comment_on_view_column(&qname, &column, comment.as_deref()),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+    }
+}
+
+fn emit_mv_change(
+    mc: MvChange,
+    destructive: bool,
+    destructive_reason: Option<String>,
+    out: &mut Vec<RawStep>,
+) {
+    use crate::diff::change::MvChange as M;
+    use views::{
+        emit_comment_on_materialized_view, emit_comment_on_mv_column,
+        emit_create_materialized_view, emit_drop_materialized_view, emit_refresh_mv,
+    };
+
+    match mc {
+        M::Create(mv) => {
+            let qname = mv.qname.clone();
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateMaterializedView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_create_materialized_view(&mv),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            // Always follow up with a REFRESH; concurrently=false here — T8 flips it.
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::RefreshMaterializedView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_refresh_mv(&qname, false),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            if let Some(c) = &mv.comment {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: StepKind::CommentOnView,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: emit_comment_on_materialized_view(&qname, Some(c)),
+                    transactional: TransactionConstraint::InTransaction,
+                });
+            }
+            for col in &mv.columns {
+                if let Some(comment) = &col.comment {
+                    out.push(RawStep {
+                        step_no: 0,
+                        kind: StepKind::CommentOnView,
+                        destructive: false,
+                        destructive_reason: None,
+                        intent_id: None,
+                        targets: vec![qname.clone()],
+                        sql: emit_comment_on_mv_column(&qname, &col.name, Some(comment)),
+                        transactional: TransactionConstraint::InTransaction,
+                    });
+                }
+            }
+        }
+        M::Drop(qname) => {
+            // MV drops are NOT destructive — materialized views are derived data.
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::DropMaterializedView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_drop_materialized_view(&qname),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        M::ReplaceBody { source, catalog } => {
+            let qname = source.qname.clone();
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::DropMaterializedView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_drop_materialized_view(&catalog.qname),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateMaterializedView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_create_materialized_view(&source),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::RefreshMaterializedView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_refresh_mv(&qname, false),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        M::SetComment { qname, comment } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CommentOnView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_comment_on_materialized_view(&qname, comment.as_deref()),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        M::SetColumnComment {
+            qname,
+            column,
+            comment,
+        } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CommentOnView,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_comment_on_mv_column(&qname, &column, comment.as_deref()),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+    }
+    // MV drops always use destructive=false regardless of what the change entry
+    // says; suppress "unused variable" lint for the two parameters.
+    let _ = (destructive, destructive_reason);
 }
 
 fn emit_table_op(
@@ -635,7 +950,7 @@ mod tests {
         Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
     };
     use crate::ir::index::{
-        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
     use crate::ir::schema::Schema;
     use crate::ir::sequence::Sequence;
@@ -679,7 +994,7 @@ mod tests {
     fn make_index(name: &str, table: QualifiedName, unique: bool) -> Index {
         Index {
             qname: qn("app", name),
-            table,
+            on: IndexParent::Table(table),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("id")),
@@ -703,7 +1018,7 @@ mod tests {
         changes: ChangeSet,
     ) -> Vec<RawStep> {
         let policy = PlannerPolicy::default();
-        let ordered = order(target, source, changes).unwrap();
+        let ordered = order(target, source, changes, &policy).unwrap();
         rewrite(ordered, target, &policy)
     }
 

@@ -1,0 +1,17 @@
+[meta]
+title     = "CREATE INDEX on an existing MATERIALIZED VIEW"
+authoring = "objects"
+spec_refs = ["views.mv_index"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "indexes.app.product_summary_category_idx",
+]
+
+[expect.plan]
+# Steps: CREATE INDEX = 1
+steps = 1

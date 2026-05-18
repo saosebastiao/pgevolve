@@ -115,6 +115,11 @@ pub enum ParseError {
     /// One or more structural references could not be resolved in source IR.
     #[error("AST resolution failed:\n{}", format_resolution_errors(.0))]
     AstResolution(Vec<crate::parse::ast_resolution::AstResolutionError>),
+
+    /// AST canonicalization pass failed (view body normalization or reference
+    /// resolution error).
+    #[error("{0}")]
+    AstCanon(crate::parse::ast_canon::AstCanonError),
 }
 
 fn format_resolution_errors(errs: &[crate::parse::ast_resolution::AstResolutionError]) -> String {

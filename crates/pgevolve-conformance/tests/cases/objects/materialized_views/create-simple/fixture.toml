@@ -1,0 +1,17 @@
+[meta]
+title     = "CREATE MATERIALIZED VIEW — emits CREATE + REFRESH steps"
+authoring = "objects"
+spec_refs = ["views.mv_create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "materialized_views.app.user_stats",
+]
+
+[expect.plan]
+# CREATE MATERIALIZED VIEW + REFRESH MATERIALIZED VIEW
+steps = 2

@@ -22,8 +22,9 @@ pub mod sequence_op;
 pub mod sequences;
 pub mod table_op;
 pub mod tables;
+pub mod views;
 
-pub use change::{Change, ChangeEntry};
+pub use change::{Change, ChangeEntry, MvChange, ViewChange};
 pub use changeset::ChangeSet;
 pub use destructiveness::Destructiveness;
 pub use sequence_op::{SequenceOp, SequenceOpEntry};
@@ -68,6 +69,12 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
     tables::diff_tables(target, source, &mut out);
     indexes::diff_indexes(target, source, &mut out);
     sequences::diff_sequences(target, source, &mut out);
+    views::diff_views(&target.views, &source.views, &mut out);
+    views::diff_materialized_views(
+        &target.materialized_views,
+        &source.materialized_views,
+        &mut out,
+    );
     out
 }
 
@@ -82,7 +89,7 @@ mod tests {
         Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
     };
     use crate::ir::index::{
-        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
     use crate::ir::schema::Schema;
     use crate::ir::sequence::Sequence;
@@ -185,7 +192,7 @@ mod tests {
         });
         c.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("email")),

@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE VIEW — single view over one table"
+authoring = "objects"
+spec_refs = ["views.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "views.app.users_summary",
+]
+
+[expect.plan]
+steps = 1

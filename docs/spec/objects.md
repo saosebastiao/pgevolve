@@ -26,9 +26,12 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Object | Status | Notes |
 |---|---|---|
-| `VIEW` | 📋 Planned, v0.2 | Stored SQL view. Normalized AST so cosmetically-different views diff equal. |
-| `MATERIALIZED VIEW` | 📋 Planned, v0.2 | Including `WITH NO DATA` initial state and the `REFRESH MATERIALIZED VIEW` step kind. `CONCURRENTLY` refresh as an online-rewrite path. |
+| `VIEW` | ✅ Implemented | Stored SQL view. `NormalizedBody::from_sql` canonicalizes the SELECT body on both the source side (T3/T4 parse pass) and the catalog side (T5 catalog reader), so cosmetically-different views diff equal. `security_barrier` and `security_invoker` reloptions are modeled. change_kinds: [create, drop, replace_compatible, replace_incompatible, set_reloption, set_comment] |
+| `MATERIALIZED VIEW` | ✅ Implemented | Physically-stored view. `WITH NO DATA` initial state honored. `REFRESH MATERIALIZED VIEW` step kind lands with the planner; upgraded to `REFRESH MATERIALIZED VIEW CONCURRENTLY` under online strategy when the MV has a unique index (`refresh_mv_concurrently = true`). change_kinds: [create, drop, replace_body, refresh, set_comment] |
+| `security_barrier` reloption | ✅ Implemented | Modeled as `View::security_barrier: Option<bool>`. Emitted as `ALTER VIEW … SET (security_barrier = …)` via the `alter_view_set_reloption` step kind. |
+| `security_invoker` reloption | ✅ Implemented | Modeled as `View::security_invoker: Option<bool>`. Same step kind as `security_barrier`. |
 | `CREATE VIEW ... WITH CHECK OPTION` | 🔮 Future | Plumbed alongside views; defaults off. |
+| Recursive views (`WITH RECURSIVE`) | 🔮 Future | Requires cycle-aware dep-graph handling. |
 
 ## Functions, procedures, triggers
 

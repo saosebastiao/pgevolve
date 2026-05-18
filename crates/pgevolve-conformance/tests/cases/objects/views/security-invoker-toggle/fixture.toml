@@ -1,0 +1,16 @@
+[meta]
+title     = "security_invoker reloption toggle (PG 15+) via ALTER VIEW SET (...)"
+authoring = "objects"
+spec_refs = ["views.security_invoker"]
+
+[pg]
+min = 15
+max = 17
+
+[expect.diff]
+contains = [
+  "views.app.invoker_view",
+]
+
+[expect.plan]
+steps = 1

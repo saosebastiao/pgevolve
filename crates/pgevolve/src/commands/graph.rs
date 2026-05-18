@@ -130,6 +130,8 @@ fn node_label(n: &NodeId) -> String {
         NodeId::Index(q) => format!("index:{q}"),
         NodeId::Sequence(q) => format!("sequence:{q}"),
         NodeId::Constraint { table, name } => format!("constraint:{table}.{}", name.as_str()),
+        NodeId::View(q) => format!("view:{q}"),
+        NodeId::Mv(q) => format!("mv:{q}"),
     }
 }
 

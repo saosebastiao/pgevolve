@@ -111,6 +111,26 @@ pub async fn mark_step_failed(
     Ok(())
 }
 
+/// Mark a step as `skipped` (suppressed by a `[[step_override]]` row in `intent.toml`).
+///
+/// The step is stamped with `started_at` = `finished_at` = `now()` so the
+/// audit log reflects when the suppression was recorded.
+pub async fn mark_step_suppressed(
+    client: &Client,
+    apply_id: Uuid,
+    step_no: u32,
+) -> Result<(), ApplyError> {
+    client
+        .execute(
+            "UPDATE pgevolve.plan_steps
+             SET status='skipped', started_at=now(), finished_at=now()
+             WHERE apply_id=$1 AND step_no=$2",
+            &[&apply_id, &i32::try_from(step_no).unwrap_or(i32::MAX)],
+        )
+        .await?;
+    Ok(())
+}
+
 /// Mark steps in a group as `rolled_back`.
 ///
 /// Used after a transactional group's tx is rolled back. Every step in the

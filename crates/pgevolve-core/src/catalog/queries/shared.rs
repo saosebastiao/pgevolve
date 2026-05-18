@@ -140,8 +140,10 @@ WHERE c.contype IN ('p','u','f','c')
 ORDER BY cln.nspname, cl.relname, c.conname
 ";
 
-/// Indexes (PG 15+ — includes `indnullsnotdistinct`). Excludes constraint-backing
-/// indexes, which we recover from `pg_constraint`.
+/// Indexes (PG 15+). Excludes constraint-backing indexes.
+///
+/// Includes `indnullsnotdistinct` and indexes on materialized views
+/// (`tc.relkind = 'm'`) as well as ordinary tables.
 pub const INDEXES_QUERY: &str = r"
 SELECT
   c.oid::bigint              AS oid,
@@ -149,6 +151,7 @@ SELECT
   n.nspname                  AS schema,
   tc.relname                 AS table_name,
   tn.nspname                 AS table_schema,
+  tc.relkind::text           AS parent_relkind,
   am.amname                  AS method,
   i.indisunique              AS unique,
   i.indisvalid               AS indisvalid,
@@ -169,6 +172,7 @@ LEFT JOIN pg_catalog.pg_description d
  AND d.classoid = 'pg_catalog.pg_class'::regclass
  AND d.objsubid = 0
 WHERE n.nspname = ANY($1::text[])
+  AND tc.relkind IN ('r','m')
   AND NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_constraint cc
     WHERE cc.conindid = i.indexrelid
