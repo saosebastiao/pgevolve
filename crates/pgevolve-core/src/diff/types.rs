@@ -43,8 +43,24 @@ pub fn diff_user_types(catalog: &[UserType], source: &[UserType], out: &mut Chan
 
 /// Diff two types with the same qualified name.
 fn diff_same_qname(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
-    // Comment change is always safe and independent of kind changes.
-    if catalog.comment != source.comment {
+    // Detect kind mismatch FIRST. When a cascade replaces the type, the
+    // recreated CREATE statement already carries the new comment, so emitting
+    // a separate SetComment would either be redundant or — worse — schedule
+    // a COMMENT ON TYPE after a DROP TYPE, which fails at execution.
+    let kinds_match = matches!(
+        (&catalog.kind, &source.kind),
+        (UserTypeKind::Enum { .. }, UserTypeKind::Enum { .. })
+            | (UserTypeKind::Domain { .. }, UserTypeKind::Domain { .. })
+            | (
+                UserTypeKind::Composite { .. },
+                UserTypeKind::Composite { .. }
+            )
+    );
+
+    // Comment change is always safe — but only emit when we're NOT replacing
+    // the whole type (kind mismatch / domain base change / enum or composite
+    // reorder all carry the new comment through the CREATE TYPE step).
+    if kinds_match && catalog.comment != source.comment {
         out.push(
             Change::UserType(UserTypeChange::SetComment {
                 qname: catalog.qname.clone(),
@@ -102,7 +118,10 @@ fn diff_same_qname(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
 ///   position among shared labels (no reordering of preserved labels).
 /// - Any label present in catalog but absent from source is matched 1:1 by a
 ///   new source label at the same list index (rename heuristic).
-fn enum_can_alter_in_place(catalog_vals: &[EnumValue], source_vals: &[EnumValue]) -> bool {
+pub(crate) fn enum_can_alter_in_place(
+    catalog_vals: &[EnumValue],
+    source_vals: &[EnumValue],
+) -> bool {
     let cat_names: Vec<&str> = catalog_vals.iter().map(|v| v.name.as_str()).collect();
     let src_names: Vec<&str> = source_vals.iter().map(|v| v.name.as_str()).collect();
 
@@ -267,7 +286,7 @@ fn diff_enum(
 /// Diff two domain types and emit per-property changes.
 #[allow(clippy::too_many_lines)]
 fn diff_domain(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
-    let (cat_base, cat_nullable, cat_default, cat_checks, _cat_collation) = match &catalog.kind {
+    let (cat_base, cat_nullable, cat_default, cat_checks, cat_collation) = match &catalog.kind {
         UserTypeKind::Domain {
             base,
             nullable,
@@ -277,7 +296,7 @@ fn diff_domain(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
         } => (base, *nullable, default, check_constraints, collation),
         _ => unreachable!(),
     };
-    let (src_base, src_nullable, src_default, src_checks, _src_collation) = match &source.kind {
+    let (src_base, src_nullable, src_default, src_checks, src_collation) = match &source.kind {
         UserTypeKind::Domain {
             base,
             nullable,
@@ -290,21 +309,27 @@ fn diff_domain(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
 
     let qname = &catalog.qname;
 
-    // Base type change requires full replacement — PG does not support ALTER DOMAIN … SET DATA TYPE.
-    if cat_base != src_base {
+    // Base type OR collation change requires full replacement — PG does not
+    // support ALTER DOMAIN … SET DATA TYPE or ALTER DOMAIN … COLLATE.
+    if cat_base != src_base || cat_collation != src_collation {
         out.push(
             Change::UserType(UserTypeChange::ReplaceWithCascade {
                 source: source.clone(),
                 catalog: catalog.clone(),
             }),
             Destructiveness::RequiresApprovalAndDataLossWarning {
-                reason: format!(
-                    "domain {qname} base type changed from {cat_base:?} to {src_base:?} \
-                     (requires DROP DOMAIN … CASCADE + CREATE DOMAIN)"
-                ),
+                reason: if cat_base == src_base {
+                    format!(
+                        "domain {qname} collation changed (requires DROP DOMAIN … CASCADE + CREATE DOMAIN)"
+                    )
+                } else {
+                    format!(
+                        "domain {qname} base type changed from {cat_base:?} to {src_base:?} \
+                         (requires DROP DOMAIN … CASCADE + CREATE DOMAIN)"
+                    )
+                },
             },
         );
-        // Remaining properties are moot if we're replacing entirely.
         return;
     }
 
@@ -366,14 +391,21 @@ fn diff_domain(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
                             qname: qname.clone(),
                             constraint: (*src_check).clone(),
                         }),
-                        Destructiveness::Safe,
+                        Destructiveness::RequiresApproval {
+                            reason: format!(
+                                "adding CHECK constraint {} to domain {qname} validates all existing values using this domain",
+                                src_check.name.as_str(),
+                            ),
+                        },
                     );
                 }
             }
         }
     }
 
-    // Add new constraints.
+    // Add new constraints. Adding a CHECK to a domain validates all existing
+    // values that use the domain — table scan, may fail on bad rows. Treat as
+    // approval-required.
     for (name, src_check) in &src_checks_map {
         if !cat_checks_map.contains_key(name) {
             out.push(
@@ -381,7 +413,12 @@ fn diff_domain(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
                     qname: qname.clone(),
                     constraint: (*src_check).clone(),
                 }),
-                Destructiveness::Safe,
+                Destructiveness::RequiresApproval {
+                    reason: format!(
+                        "adding CHECK constraint {} to domain {qname} validates all existing values using this domain",
+                        src_check.name.as_str(),
+                    ),
+                },
             );
         }
     }
@@ -397,7 +434,7 @@ fn diff_domain(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
 ///
 /// The check fails if any attribute preserved in both sides has a different
 /// relative order compared with the catalog.
-fn composite_can_alter_in_place(
+pub(crate) fn composite_can_alter_in_place(
     catalog_attrs: &[CompositeAttribute],
     source_attrs: &[CompositeAttribute],
 ) -> bool {
@@ -906,6 +943,61 @@ mod tests {
             &changes[0],
             Change::UserType(UserTypeChange::DomainDropCheck { .. })
         ));
+    }
+
+    // ---- Domain: CHECK expression change ----
+
+    #[test]
+    fn domain_replace_check_expression_emits_drop_then_add() {
+        let qname = qn("app", "d");
+        let old_check = DomainCheck {
+            name: id("positive"),
+            expression: NormalizedExpr::from_text("VALUE > 0"),
+        };
+        let new_check = DomainCheck {
+            name: id("positive"),
+            expression: NormalizedExpr::from_text("VALUE > 10"),
+        };
+        let cat = UserType {
+            qname: qname.clone(),
+            kind: UserTypeKind::Domain {
+                base: ColumnType::Integer,
+                nullable: true,
+                default: None,
+                check_constraints: vec![old_check],
+                collation: None,
+            },
+            comment: None,
+        };
+        let src = UserType {
+            qname: qname.clone(),
+            kind: UserTypeKind::Domain {
+                base: ColumnType::Integer,
+                nullable: true,
+                default: None,
+                check_constraints: vec![new_check],
+                collation: None,
+            },
+            comment: None,
+        };
+        let changes = run(&[cat], &[src]);
+        assert_eq!(changes.len(), 2, "expected drop then add, got {changes:?}");
+        assert!(
+            matches!(
+                &changes[0],
+                Change::UserType(UserTypeChange::DomainDropCheck { .. })
+            ),
+            "first change must be drop, got {:?}",
+            changes[0],
+        );
+        assert!(
+            matches!(
+                &changes[1],
+                Change::UserType(UserTypeChange::DomainAddCheck { .. })
+            ),
+            "second change must be add, got {:?}",
+            changes[1],
+        );
     }
 
     // ---- Domain: set default ----
