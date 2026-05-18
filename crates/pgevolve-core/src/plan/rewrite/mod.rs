@@ -387,6 +387,13 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 out.push(create_step);
             }
         }
+
+        // View and MV changes: SQL emission is handled by T7 (planner step
+        // kinds + SQL emission). For now these variants are parsed by the
+        // differ but not yet translated to RawSteps — T7 will fill this in.
+        Change::View(_) | Change::Mv(_) => {
+            // T7 will emit SQL for view/MV changes.
+        }
     }
 }
 

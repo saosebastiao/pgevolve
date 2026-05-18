@@ -802,12 +802,22 @@ fn build_views_and_mvs(
         let schema = cr.get_text(q, "schema_name")?;
         let view_name = cr.get_text(q, "view_name")?;
         let col_name_str = cr.get_text(q, "column_name")?;
+        let col_type_str = cr.get_text(q, "column_type")?;
         let comment = cr.get_opt_text(q, "column_comment")?;
         let name = ident_required(&col_name_str)?;
+        let column_type = ColumnType::parse_from_pg_type_string(&col_type_str).map_err(|e| {
+            CatalogError::Ir(crate::ir::IrError::InvalidColumnType(format!(
+                "view column {col_name_str} type {col_type_str:?}: {e}"
+            )))
+        })?;
         columns_by_key
             .entry((schema, view_name))
             .or_default()
-            .push(ViewColumn { name, comment });
+            .push(ViewColumn {
+                name,
+                column_type,
+                comment,
+            });
     }
 
     let mut views: Vec<View> = Vec::new();

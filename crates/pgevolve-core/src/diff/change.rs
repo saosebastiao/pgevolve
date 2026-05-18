@@ -15,6 +15,7 @@ use crate::ir::index::Index;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
+use crate::ir::view::{MaterializedView, View};
 
 use super::destructiveness::Destructiveness;
 use super::sequence_op::SequenceOpEntry;
@@ -109,6 +110,103 @@ pub enum Change {
     RecreateIndex {
         /// Qualified name of the invalid index.
         qname: QualifiedName,
+    },
+
+    /// A view-level change.
+    View(ViewChange),
+    /// A materialized-view-level change.
+    Mv(MvChange),
+}
+
+/// A structural change to a single view.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ViewChange {
+    /// Create a new view.
+    Create(View),
+    /// Drop an existing view.
+    Drop(QualifiedName),
+    /// Replace the SELECT body of a view.
+    ///
+    /// `compatible` is `true` when Postgres's `CREATE OR REPLACE VIEW` rules
+    /// are satisfied (same column names and types at the same indexes, with
+    /// new columns only appended at the end). When `compatible` is `false`,
+    /// the planner must `DROP` then re-`CREATE` the view (and rebuild its
+    /// dependents).
+    ReplaceBody {
+        /// The view as it should exist (source SQL).
+        source: View,
+        /// The view as it currently exists (live catalog).
+        catalog: View,
+        /// Whether `CREATE OR REPLACE VIEW` can be used (`true`) or a
+        /// `DROP` + `CREATE` cycle is required (`false`).
+        compatible: bool,
+    },
+    /// Change `WITH (security_barrier = ..., security_invoker = ...)` reloptions.
+    SetReloption {
+        /// View qname.
+        qname: QualifiedName,
+        /// Desired `security_barrier` value (`None` clears the option).
+        security_barrier: Option<bool>,
+        /// Desired `security_invoker` value (`None` clears the option).
+        security_invoker: Option<bool>,
+    },
+    /// Set (or clear) the view-level `COMMENT ON VIEW`.
+    SetComment {
+        /// View qname.
+        qname: QualifiedName,
+        /// New comment (`None` clears the comment).
+        comment: Option<String>,
+    },
+    /// Set (or clear) a `COMMENT ON COLUMN view.col`.
+    SetColumnComment {
+        /// View qname.
+        qname: QualifiedName,
+        /// Column name.
+        column: Identifier,
+        /// New comment (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// A structural change to a single materialized view.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum MvChange {
+    /// Create a new materialized view.
+    Create(MaterializedView),
+    /// Drop an existing materialized view.
+    ///
+    /// Unlike `ViewChange::Drop`, this is classified as `Safe` because
+    /// materialized views are derived data that can be recreated by refreshing.
+    Drop(QualifiedName),
+    /// Replace the SELECT body of a materialized view.
+    ///
+    /// Materialized views do not support `CREATE OR REPLACE`; the planner must
+    /// always `DROP` then `CREATE` the MV (and rebuild any indexes on it).
+    ReplaceBody {
+        /// The MV as it should exist (source SQL).
+        source: MaterializedView,
+        /// The MV as it currently exists (live catalog).
+        catalog: MaterializedView,
+    },
+    /// Set (or clear) the MV-level `COMMENT ON MATERIALIZED VIEW`.
+    SetComment {
+        /// MV qname.
+        qname: QualifiedName,
+        /// New comment (`None` clears the comment).
+        comment: Option<String>,
+    },
+    /// Set (or clear) a `COMMENT ON COLUMN mv.col`.
+    SetColumnComment {
+        /// MV qname.
+        qname: QualifiedName,
+        /// Column name.
+        column: Identifier,
+        /// New comment (`None` clears the comment).
+        comment: Option<String>,
     },
 }
 

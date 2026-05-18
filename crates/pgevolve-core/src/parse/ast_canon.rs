@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
+use crate::ir::column_type::ColumnType;
 use crate::ir::view::ViewColumn;
 use crate::parse::normalize_body::NormalizedBody;
 use crate::plan::edges::{DepEdge, DepSource, NodeId};
@@ -328,6 +329,14 @@ fn walk_select(
 ///  2. Otherwise the rightmost field name of a `ColumnRef`
 ///     (`schema.table.col` → `"col"`).
 ///  3. Otherwise `"?column?"` (PG's fallback for expressions with no name).
+///
+/// The `column_type` is set to `ColumnType::Other { raw: "expression" }` as
+/// a sentinel for the v0.2 source-side path; the live-catalog path (T5)
+/// populates the real type from `format_type(a.atttypid, a.atttypmod)`.
+/// The OR-REPLACE compatibility predicate in `diff::views` uses catalog-side
+/// types (target) vs. catalog-side types (source), so expression-typed columns
+/// from the source side will compare as unequal to typed columns in the
+/// catalog, conservatively declaring a replace incompatible — which is correct.
 fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
     use pg_query::NodeEnum as N;
     let Some(N::ResTarget(rt)) = &target.node else {
@@ -341,6 +350,9 @@ fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
             .ok()?;
         return Some(ViewColumn {
             name,
+            column_type: ColumnType::Other {
+                raw: "expression".to_string(),
+            },
             comment: None,
         });
     }
@@ -351,6 +363,9 @@ fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
     {
         return Some(ViewColumn {
             name: col_name,
+            column_type: ColumnType::Other {
+                raw: "expression".to_string(),
+            },
             comment: None,
         });
     }
@@ -360,6 +375,9 @@ fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
         .ok()
         .map(|name| ViewColumn {
             name,
+            column_type: ColumnType::Other {
+                raw: "expression".to_string(),
+            },
             comment: None,
         })
 }

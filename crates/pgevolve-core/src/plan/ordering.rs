@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
-use crate::diff::change::{Change, ChangeEntry};
+use crate::diff::change::{Change, ChangeEntry, MvChange, ViewChange};
 use crate::diff::table_op::TableOp;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
@@ -169,20 +169,39 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
     let mut drops = Vec::new();
     for entry in changes.entries {
         match &entry.change {
+            // Creates: structural objects that need to be ordered dependencies-first.
+            // Views and MVs are included here; T7 will wire their dep edges.
             Change::CreateSchema(_)
             | Change::CreateTable(_)
             | Change::CreateIndex(_)
-            | Change::CreateSequence(_) => creates.push(entry),
+            | Change::CreateSequence(_)
+            | Change::View(ViewChange::Create(_))
+            | Change::Mv(MvChange::Create(_)) => creates.push(entry),
+            // Drops: ordered by reverse-dependency (deepest dependents first).
             Change::DropSchema(_)
             | Change::DropTable { .. }
             | Change::DropIndex(_)
-            | Change::DropSequence(_) => drops.push(entry),
+            | Change::DropSequence(_)
+            | Change::View(ViewChange::Drop(_))
+            | Change::Mv(MvChange::Drop(_)) => drops.push(entry),
+            // Modifies: ALTER / REPLACE / COMMENT / drift-recovery.
             Change::AlterTable { .. }
             | Change::AlterSchema { .. }
             | Change::AlterSequence { .. }
             | Change::ReplaceIndex { .. }
             | Change::ValidateConstraint { .. }
-            | Change::RecreateIndex { .. } => modifies.push(entry),
+            | Change::RecreateIndex { .. }
+            | Change::View(
+                ViewChange::ReplaceBody { .. }
+                | ViewChange::SetReloption { .. }
+                | ViewChange::SetComment { .. }
+                | ViewChange::SetColumnComment { .. },
+            )
+            | Change::Mv(
+                MvChange::ReplaceBody { .. }
+                | MvChange::SetComment { .. }
+                | MvChange::SetColumnComment { .. },
+            ) => modifies.push(entry),
         }
     }
     (creates, modifies, drops)
@@ -193,6 +212,7 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
 /// Returns the schema/table/index/sequence node for top-level operations.
 /// `AlterTable` maps to its target table node; per-op constraint changes
 /// inside it are not separately ordered (they ride with the table).
+#[allow(clippy::match_same_arms)] // View and Mv arms share the body shape but not the inner type.
 fn change_node(change: &Change) -> NodeId {
     match change {
         Change::CreateSchema(s) => NodeId::Schema(s.name.clone()),
@@ -211,6 +231,24 @@ fn change_node(change: &Change) -> NodeId {
         }
         // Drift-recovery changes: map to the table they affect.
         Change::ValidateConstraint { table, .. } => NodeId::Table(table.clone()),
+        // View changes: map to NodeId::Table using the view's qname.
+        // T7 will introduce NodeId::View once full dependency ordering is wired.
+        Change::View(ViewChange::Create(v)) => NodeId::Table(v.qname.clone()),
+        Change::View(ViewChange::ReplaceBody { source, .. }) => NodeId::Table(source.qname.clone()),
+        Change::View(
+            ViewChange::Drop(qname)
+            | ViewChange::SetReloption { qname, .. }
+            | ViewChange::SetComment { qname, .. }
+            | ViewChange::SetColumnComment { qname, .. },
+        ) => NodeId::Table(qname.clone()),
+        // MV changes: same pattern.
+        Change::Mv(MvChange::Create(mv)) => NodeId::Table(mv.qname.clone()),
+        Change::Mv(MvChange::ReplaceBody { source, .. }) => NodeId::Table(source.qname.clone()),
+        Change::Mv(
+            MvChange::Drop(qname)
+            | MvChange::SetComment { qname, .. }
+            | MvChange::SetColumnComment { qname, .. },
+        ) => NodeId::Table(qname.clone()),
     }
 }
 

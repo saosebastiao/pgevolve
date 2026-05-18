@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::column_type::ColumnType;
 use crate::ir::difference::Difference;
 use crate::ir::eq::{Diff, diff_field};
 use crate::parse::normalize_body::NormalizedBody;
@@ -18,11 +19,31 @@ use crate::plan::edges::DepEdge;
 ///
 /// Postgres allows column alias lists on `CREATE VIEW` to override the
 /// column names derived from the SELECT list. This struct records the
-/// (possibly overridden) column name and any attached comment.
+/// (possibly overridden) column name, its resolved type, and any attached
+/// comment.
+///
+/// ## `column_type` sentinel
+///
+/// When `ViewColumn` is constructed from an explicit alias list in T3
+/// (parsing), the type is not yet known — it requires resolving the SELECT
+/// body against the catalog. In that case `column_type` is set to
+/// `ColumnType::Other { raw: "unresolved".to_string() }`, which serves as
+/// a parser-internal sentinel. T4's AST canonicalization pass replaces it
+/// with the resolved type. The sentinel **must never appear** in a serialized
+/// catalog or plan — T4 always runs before serialization.
+///
+/// When `ViewColumn` is built from the live catalog (T5), `column_type` is
+/// parsed directly from `format_type(a.atttypid, a.atttypmod)`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ViewColumn {
     /// Column name as it appears in the view definition (or is aliased).
     pub name: Identifier,
+    /// Resolved data type of the column.
+    ///
+    /// Set to `ColumnType::Other { raw: "unresolved".to_string() }` as a
+    /// parser-internal sentinel when type resolution has not yet occurred
+    /// (T3 → T4 transition). Must be fully resolved before serialization.
+    pub column_type: ColumnType,
     /// Optional `COMMENT ON COLUMN` text.
     pub comment: Option<String>,
 }
@@ -118,6 +139,13 @@ impl Diff for View {
                     "removed",
                 )),
                 Some(r) => {
+                    if l.column_type != r.column_type {
+                        out.push(Difference::new(
+                            format!("columns.{name}.column_type"),
+                            l.column_type.render_sql(),
+                            r.column_type.render_sql(),
+                        ));
+                    }
                     if l.comment != r.comment {
                         out.push(Difference::new(
                             format!("columns.{name}.comment"),
@@ -184,6 +212,13 @@ impl Diff for MaterializedView {
                     "removed",
                 )),
                 Some(r) => {
+                    if l.column_type != r.column_type {
+                        out.push(Difference::new(
+                            format!("columns.{name}.column_type"),
+                            l.column_type.render_sql(),
+                            r.column_type.render_sql(),
+                        ));
+                    }
                     if l.comment != r.comment {
                         out.push(Difference::new(
                             format!("columns.{name}.comment"),
@@ -229,6 +264,7 @@ mod tests {
     use super::*;
     use crate::ir::IrError;
     use crate::ir::catalog::Catalog;
+    use crate::ir::column_type::ColumnType;
     use crate::plan::edges::{DepSource, NodeId};
 
     fn id(s: &str) -> Identifier {
@@ -248,6 +284,7 @@ mod tests {
             qname: qn(schema, name),
             columns: vec![ViewColumn {
                 name: id("id"),
+                column_type: ColumnType::BigInt,
                 comment: None,
             }],
             body_canonical: body("SELECT 1"),
@@ -277,6 +314,7 @@ mod tests {
             qname: qn("app", "active_users"),
             columns: vec![ViewColumn {
                 name: id("id"),
+                column_type: ColumnType::BigInt,
                 comment: None,
             }],
             body_canonical: body("SELECT 1"),
@@ -295,6 +333,7 @@ mod tests {
             qname: qn("app", "summary"),
             columns: vec![ViewColumn {
                 name: id("total"),
+                column_type: ColumnType::BigInt,
                 comment: Some("total count".to_string()),
             }],
             body_canonical: body("SELECT count(*) FROM users"),

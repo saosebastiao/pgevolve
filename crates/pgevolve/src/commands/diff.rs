@@ -134,6 +134,48 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
             pgevolve_core::diff::change::Change::RecreateIndex { qname } => {
                 println!("      recreate invalid index {qname}");
             }
+            pgevolve_core::diff::change::Change::View(vc) => {
+                use pgevolve_core::diff::change::ViewChange;
+                match vc {
+                    ViewChange::Create(v) => println!("      create view {}", v.qname),
+                    ViewChange::Drop(q) => println!("      drop view {q}"),
+                    ViewChange::ReplaceBody {
+                        source, compatible, ..
+                    } => {
+                        let compat = if *compatible {
+                            "compatible"
+                        } else {
+                            "incompatible"
+                        };
+                        println!("      replace view body {} ({compat})", source.qname);
+                    }
+                    ViewChange::SetReloption { qname, .. } => {
+                        println!("      set view reloption {qname}");
+                    }
+                    ViewChange::SetComment { qname, .. } => {
+                        println!("      set view comment {qname}");
+                    }
+                    ViewChange::SetColumnComment { qname, column, .. } => {
+                        println!("      set column comment {qname}.{column}");
+                    }
+                }
+            }
+            pgevolve_core::diff::change::Change::Mv(mc) => {
+                use pgevolve_core::diff::change::MvChange;
+                match mc {
+                    MvChange::Create(mv) => println!("      create materialized view {}", mv.qname),
+                    MvChange::Drop(q) => println!("      drop materialized view {q}"),
+                    MvChange::ReplaceBody { source, .. } => {
+                        println!("      replace mv body {}", source.qname);
+                    }
+                    MvChange::SetComment { qname, .. } => {
+                        println!("      set mv comment {qname}");
+                    }
+                    MvChange::SetColumnComment { qname, column, .. } => {
+                        println!("      set mv column comment {qname}.{column}");
+                    }
+                }
+            }
         }
     }
 }
@@ -193,7 +235,7 @@ fn print_sql(changes: &pgevolve_core::diff::ChangeSet) {
 }
 
 const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static str {
-    use pgevolve_core::diff::change::Change;
+    use pgevolve_core::diff::change::{Change, MvChange, ViewChange};
     match c {
         Change::CreateSchema(_) => "CreateSchema",
         Change::DropSchema(_) => "DropSchema",
@@ -209,5 +251,16 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::AlterSequence { .. } => "AlterSequence",
         Change::ValidateConstraint { .. } => "ValidateConstraint",
         Change::RecreateIndex { .. } => "RecreateIndex",
+        Change::View(ViewChange::Create(_)) => "CreateView",
+        Change::View(ViewChange::Drop(_)) => "DropView",
+        Change::View(ViewChange::ReplaceBody { .. }) => "ReplaceViewBody",
+        Change::View(ViewChange::SetReloption { .. }) => "SetViewReloption",
+        Change::View(ViewChange::SetComment { .. }) => "SetViewComment",
+        Change::View(ViewChange::SetColumnComment { .. }) => "SetViewColumnComment",
+        Change::Mv(MvChange::Create(_)) => "CreateMv",
+        Change::Mv(MvChange::Drop(_)) => "DropMv",
+        Change::Mv(MvChange::ReplaceBody { .. }) => "ReplaceMvBody",
+        Change::Mv(MvChange::SetComment { .. }) => "SetMvComment",
+        Change::Mv(MvChange::SetColumnComment { .. }) => "SetMvColumnComment",
     }
 }

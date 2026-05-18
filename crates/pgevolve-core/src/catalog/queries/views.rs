@@ -27,16 +27,18 @@ ORDER BY n.nspname, c.relname
 
 /// Query for columns belonging to views and materialized views.
 ///
-/// Returns one row per non-dropped, user-visible column, together with
-/// an optional `COMMENT ON COLUMN` text. Ordered by (schema, view, attnum)
-/// so that columns arrive in declaration order.
+/// Returns one row per non-dropped, user-visible column, together with the
+/// canonical Postgres type string from `format_type` and an optional
+/// `COMMENT ON COLUMN` text. Ordered by (schema, view, attnum) so that
+/// columns arrive in declaration order.
 pub const SELECT_VIEW_COLUMNS: &str = "
 SELECT
-  n.nspname     AS schema_name,
-  c.relname     AS view_name,
-  a.attnum      AS attnum,
-  a.attname     AS column_name,
-  d.description AS column_comment
+  n.nspname                                     AS schema_name,
+  c.relname                                     AS view_name,
+  a.attnum                                      AS attnum,
+  a.attname                                     AS column_name,
+  format_type(a.atttypid, a.atttypmod)          AS column_type,
+  d.description                                 AS column_comment
 FROM pg_class c
 JOIN pg_namespace n  ON c.relnamespace = n.oid
 JOIN pg_attribute a  ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
