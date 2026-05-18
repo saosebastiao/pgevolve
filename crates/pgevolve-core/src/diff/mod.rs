@@ -82,7 +82,7 @@ mod tests {
         Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
     };
     use crate::ir::index::{
-        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
     use crate::ir::schema::Schema;
     use crate::ir::sequence::Sequence;
@@ -185,7 +185,7 @@ mod tests {
         });
         c.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("email")),

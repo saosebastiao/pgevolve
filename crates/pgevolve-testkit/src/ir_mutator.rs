@@ -34,7 +34,7 @@ use pgevolve_core::identifier::{Identifier, QualifiedName};
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::ir::column::Column;
 use pgevolve_core::ir::index::{
-    Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+    Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
 };
 use pgevolve_core::ir::schema::Schema;
 use pgevolve_core::ir::sequence::Sequence;
@@ -132,7 +132,7 @@ fn drop_non_pk_column(c: &mut Catalog, seed: usize) {
     let qname = table.qname.clone();
     // Cascade-drop indexes that reference the dropped column.
     c.indexes.retain(|idx| {
-        if idx.table != qname {
+        if idx.on.qname() != &qname {
             return true;
         }
         !idx.columns
@@ -188,7 +188,7 @@ fn add_index(c: &mut Catalog, seed: usize) {
     let qname = QualifiedName::new(table.qname.schema.clone(), idx_name);
     c.indexes.push(Index {
         qname,
-        table: table.qname.clone(),
+        on: IndexParent::Table(table.qname.clone()),
         method: IndexMethod::BTree,
         columns: vec![IndexColumn {
             expr: IndexColumnExpr::Column(col_name),
@@ -290,7 +290,7 @@ fn drop_schema(c: &mut Catalog, seed: usize) {
         .collect();
     c.tables.retain(|t| t.qname.schema != dropped);
     c.indexes
-        .retain(|i| i.qname.schema != dropped && !owned_table_qnames.contains(&i.table));
+        .retain(|i| i.qname.schema != dropped && !owned_table_qnames.contains(i.on.qname()));
     c.sequences.retain(|s| {
         s.qname.schema != dropped
             && !s
@@ -362,7 +362,7 @@ fn unique_table_name(
 }
 
 fn cascade_drop_objects_for_table(c: &mut Catalog, qname: &QualifiedName) {
-    c.indexes.retain(|i| &i.table != qname);
+    c.indexes.retain(|i| i.on.qname() != qname);
     c.sequences
         .retain(|s: &Sequence| s.owned_by.as_ref().is_none_or(|o| &o.table != qname));
 }

@@ -116,15 +116,15 @@ fn closed_world_references(tree: &SourceTree) -> Vec<Finding> {
         }
     }
 
-    // Indexes' table references.
+    // Indexes' parent references (table or MV).
     for idx in &tree.catalog.indexes {
-        if !table_names.contains(&idx.table) {
+        if !table_names.contains(idx.on.qname()) {
             let mut f = Finding::error(
                 "closed_world_references",
                 format!(
                     "index `{idx}` references unknown table `{tbl}`",
                     idx = idx.qname,
-                    tbl = idx.table,
+                    tbl = idx.on.qname(),
                 ),
             );
             if let Some(loc) = tree

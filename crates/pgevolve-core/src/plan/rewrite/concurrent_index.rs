@@ -26,7 +26,7 @@ use crate::plan::rewrite::sql;
 ///    being created in the same plan), and
 /// 3. the index is not `UNIQUE` (see module comment).
 pub fn should_rewrite_create(idx: &Index, target: &Catalog, policy: &PlannerPolicy) -> bool {
-    policy.create_index_concurrent() && target.table_exists(&idx.table) && !idx.unique
+    policy.create_index_concurrent() && target.table_exists(idx.on.qname()) && !idx.unique
 }
 
 /// Should this `DropIndex` be rewritten as `DROP INDEX CONCURRENTLY`?
@@ -59,7 +59,7 @@ pub fn create_step(idx: &Index, destructive: bool, destructive_reason: Option<St
         destructive,
         destructive_reason,
         intent_id: None,
-        targets: vec![idx.qname.clone(), idx.table.clone()],
+        targets: vec![idx.qname.clone(), idx.on.qname().clone()],
         sql: sql::create_index(idx, true),
         transactional: TransactionConstraint::OutsideTransaction,
     }

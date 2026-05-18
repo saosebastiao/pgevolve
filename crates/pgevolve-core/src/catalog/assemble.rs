@@ -593,7 +593,9 @@ fn build_indexes(
         let mut idx = parse_index_def(&indexdef)?;
         // `pg_get_indexdef` always returns fully-qualified names; trust them.
         idx.qname = qname;
-        idx.table = table_qname;
+        // For v0.1/v0.2, catalog rows for plain tables use IndexParent::Table.
+        // T5 will extend this to use IndexParent::Mv when pg_class.relkind = 'm'.
+        idx.on = crate::ir::index::IndexParent::Table(table_qname);
         idx.comment = r.get_opt_text(q, "comment")?;
         idx.nulls_not_distinct = r.get_bool(q, "nulls_not_distinct").unwrap_or(false);
         out.push(idx);

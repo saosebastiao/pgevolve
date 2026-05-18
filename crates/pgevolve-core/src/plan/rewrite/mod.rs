@@ -209,7 +209,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                     destructive,
                     destructive_reason,
                     intent_id: None,
-                    targets: vec![qname.clone(), idx.table.clone()],
+                    targets: vec![qname.clone(), idx.on.qname().clone()],
                     sql: sql::create_index(&idx, false),
                     transactional: TransactionConstraint::InTransaction,
                 }
@@ -278,7 +278,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                         destructive: false,
                         destructive_reason: None,
                         intent_id: None,
-                        targets: vec![to.qname.clone(), to.table.clone()],
+                        targets: vec![to.qname.clone(), to.on.qname().clone()],
                         sql: sql::create_index(&to, false),
                         transactional: TransactionConstraint::InTransaction,
                     }
@@ -379,7 +379,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                             destructive: false,
                             destructive_reason: None,
                             intent_id: None,
-                            targets: vec![idx.qname.clone(), idx.table.clone()],
+                            targets: vec![idx.qname.clone(), idx.on.qname().clone()],
                             sql: sql::create_index(idx, false),
                             transactional: TransactionConstraint::InTransaction,
                         }
@@ -635,7 +635,7 @@ mod tests {
         Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
     };
     use crate::ir::index::{
-        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
     use crate::ir::schema::Schema;
     use crate::ir::sequence::Sequence;
@@ -679,7 +679,7 @@ mod tests {
     fn make_index(name: &str, table: QualifiedName, unique: bool) -> Index {
         Index {
             qname: qn("app", name),
-            table,
+            on: IndexParent::Table(table),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("id")),

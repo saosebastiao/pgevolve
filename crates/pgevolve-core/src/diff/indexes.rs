@@ -71,7 +71,9 @@ pub fn diff_indexes(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
 mod tests {
     use super::*;
     use crate::identifier::Identifier;
-    use crate::ir::index::{IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder};
+    use crate::ir::index::{
+        IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
+    };
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -94,7 +96,7 @@ mod tests {
     fn ix(name: &str, cols: Vec<IndexColumn>, unique: bool) -> Index {
         Index {
             qname: qn(name),
-            table: qn("users"),
+            on: IndexParent::Table(qn("users")),
             method: IndexMethod::BTree,
             columns: cols,
             include: vec![],

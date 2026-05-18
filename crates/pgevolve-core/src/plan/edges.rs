@@ -92,11 +92,15 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
         }
     }
 
-    // Phase 3: indexes depend on their table.
+    // Phase 3: indexes depend on their parent (table or MV).
+    // For v0.2 the dep graph only has a Table NodeId variant; MV NodeIds are
+    // introduced in T7+. Until then, both IndexParent::Table and
+    // IndexParent::Mv route to NodeId::Table so existing edges still compile.
+    // TODO(T7): add NodeId::Mv and route IndexParent::Mv to it here.
     for i in &catalog.indexes {
         g.add_edge(
             NodeId::Index(i.qname.clone()),
-            NodeId::Table(i.table.clone()),
+            NodeId::Table(i.on.qname().clone()),
         );
     }
 
@@ -196,7 +200,7 @@ mod tests {
         Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
     };
     use crate::ir::index::{
-        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
     use crate::ir::schema::Schema;
     use crate::ir::sequence::{Sequence, SequenceOwner};
@@ -273,7 +277,7 @@ mod tests {
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("id")),
@@ -336,7 +340,7 @@ mod tests {
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("id")),

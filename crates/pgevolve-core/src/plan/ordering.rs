@@ -141,7 +141,7 @@ fn elide_cascaded_index_drops(target: &Catalog, mut changes: ChangeSet) -> Chang
                 IndexColumnExpr::Expression(_) => None,
             })
             .chain(idx.include.iter())
-            .any(|col| dropped_columns.contains(&(idx.table.clone(), col.clone())));
+            .any(|col| dropped_columns.contains(&(idx.on.qname().clone(), col.clone())));
         !cascades
     });
     changes
@@ -301,7 +301,7 @@ mod tests {
         Constraint, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
     };
     use crate::ir::index::{
-        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
     use crate::ir::schema::Schema;
     use crate::ir::table::Table;
@@ -358,7 +358,7 @@ mod tests {
     fn make_index(name: &str, table: QualifiedName) -> Index {
         Index {
             qname: qn("app", name),
-            table,
+            on: IndexParent::Table(table),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("id")),
@@ -886,7 +886,7 @@ mod tests {
         });
         target.indexes.push(Index {
             qname: qn("app", "users_deleted_at_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("deleted_at")),
@@ -966,7 +966,7 @@ mod tests {
         // Index on `email`, but the column being dropped is `unused`.
         target.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("email")),
@@ -1049,7 +1049,7 @@ mod tests {
         });
         target.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("email")),

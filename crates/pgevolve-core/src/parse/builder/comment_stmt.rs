@@ -238,7 +238,8 @@ mod tests {
     use crate::ir::column_type::ColumnType;
     use crate::ir::constraint::{Constraint as IrConstraint, ConstraintKind, Deferrable};
     use crate::ir::index::{
-        Index as IrIndex, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index as IrIndex, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder,
+        SortOrder,
     };
     use crate::ir::schema::Schema;
     use crate::ir::sequence::Sequence;
@@ -285,7 +286,7 @@ mod tests {
         });
         c.indexes.push(IrIndex {
             qname: qn("users_email_idx"),
-            table: qn("users"),
+            on: IndexParent::Table(qn("users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("email")),

@@ -24,7 +24,7 @@ mod tests {
     use pgevolve_core::ir::default_expr::{DefaultExpr, LiteralValue};
     use pgevolve_core::ir::eq::Diff;
     use pgevolve_core::ir::index::{
-        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
     use pgevolve_core::ir::schema::Schema;
     use pgevolve_core::ir::sequence::Sequence;
@@ -150,7 +150,7 @@ mod tests {
         // Standalone index.
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
-            table: qn("app", "users"),
+            on: IndexParent::Table(qn("app", "users")),
             method: IndexMethod::BTree,
             columns: vec![IndexColumn {
                 expr: IndexColumnExpr::Column(id("email")),
