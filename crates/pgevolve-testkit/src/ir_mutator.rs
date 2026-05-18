@@ -39,7 +39,7 @@ use pgevolve_core::ir::index::{
 use pgevolve_core::ir::schema::Schema;
 use pgevolve_core::ir::sequence::Sequence;
 
-use crate::ir_generator::arbitrary_column_type;
+use crate::ir_generator::{arbitrary_column_type, is_btree_indexable};
 
 /// Produce a random valid mutation of `seed`.
 ///
@@ -168,11 +168,22 @@ fn add_index(c: &mut Catalog, seed: usize) {
     }
     let i = seed % c.tables.len();
     let table = &c.tables[i];
-    if table.columns.is_empty() {
+    // Restrict to columns indexable with the default btree opclass — the
+    // mutator emits btree indexes (see `method:` below). `json` lacks a
+    // default btree opclass and would produce PG error 42704 at apply time;
+    // see `crate::ir_generator::is_btree_indexable`. When no candidates
+    // remain, the mutation is a no-op (consistent with other mutators that
+    // bail when nothing applies).
+    let candidates: Vec<&Column> = table
+        .columns
+        .iter()
+        .filter(|col| is_btree_indexable(&col.ty))
+        .collect();
+    if candidates.is_empty() {
         return;
     }
-    let col_pick = seed % table.columns.len();
-    let col_name = table.columns[col_pick].name.clone();
+    let col_pick = seed % candidates.len();
+    let col_name = candidates[col_pick].name.clone();
     let idx_name = unique_index_name(&c.indexes, &table.qname, seed);
     let qname = QualifiedName::new(table.qname.schema.clone(), idx_name);
     c.indexes.push(Index {
@@ -408,5 +419,99 @@ mod tests {
             diverged >= 50,
             "only {diverged} / 100 mutations diverged from seed",
         );
+    }
+
+    /// Regression for the property-test failure where `add_index` produced
+    /// a btree index on a `json` column. PG rejects this with error 42704
+    /// ("data type json has no default operator class for access method
+    /// 'btree'"). Confirms the mutator now filters columns by
+    /// `is_btree_indexable` before picking.
+    #[test]
+    fn add_index_skips_non_btree_indexable_columns() {
+        use pgevolve_core::ir::column::Column;
+        use pgevolve_core::ir::column_type::ColumnType;
+        use pgevolve_core::ir::constraint::{Constraint, ConstraintKind};
+        use pgevolve_core::ir::table::Table;
+
+        let schema_name = Identifier::from_unquoted("app").unwrap();
+        let table_qname = QualifiedName::new(
+            schema_name.clone(),
+            Identifier::from_unquoted("docs").unwrap(),
+        );
+        let pk_col_name = Identifier::from_unquoted("id").unwrap();
+        let json_col_name = Identifier::from_unquoted("payload").unwrap();
+        let pk_constraint_name = Identifier::from_unquoted("docs_pkey").unwrap();
+
+        // Table with one btree-able PK column and one `json` non-PK column.
+        // Pre-fix, the mutator would pick the json column with some seeds
+        // and produce a btree index that PG rejects at apply time.
+        let table = Table {
+            qname: table_qname,
+            columns: vec![
+                Column {
+                    name: pk_col_name.clone(),
+                    ty: ColumnType::BigInt,
+                    nullable: false,
+                    default: None,
+                    identity: None,
+                    generated: None,
+                    collation: None,
+                    comment: None,
+                },
+                Column {
+                    name: json_col_name.clone(),
+                    ty: ColumnType::Json,
+                    nullable: true,
+                    default: None,
+                    identity: None,
+                    generated: None,
+                    collation: None,
+                    comment: None,
+                },
+            ],
+            constraints: vec![Constraint {
+                qname: QualifiedName::new(schema_name.clone(), pk_constraint_name),
+                kind: ConstraintKind::PrimaryKey {
+                    columns: vec![pk_col_name],
+                    include: vec![],
+                },
+                deferrable: pgevolve_core::ir::constraint::Deferrable::NotDeferrable,
+                comment: None,
+            }],
+            comment: None,
+        };
+        let mut catalog = Catalog {
+            schemas: vec![Schema {
+                name: schema_name,
+                comment: None,
+            }],
+            tables: vec![table],
+            indexes: vec![],
+            sequences: vec![],
+        };
+
+        // Try every seed in 0..16 (covering all column-pick positions and
+        // both modular outcomes for two-column tables). Pre-fix, seeds
+        // landing on the json column produced an invalid index. Post-fix,
+        // every index produced uses the PK column instead, and any seed
+        // that would have landed on json is a no-op.
+        for seed in 0..16usize {
+            let mut c = catalog.clone();
+            super::add_index(&mut c, seed);
+            // No index should target the json column. The PK column is the
+            // only btree-indexable candidate, so any added index uses it.
+            for idx in &c.indexes {
+                for ic in &idx.columns {
+                    if let IndexColumnExpr::Column(name) = &ic.expr {
+                        assert_ne!(
+                            name, &json_col_name,
+                            "seed {seed}: add_index produced a btree index on a json column",
+                        );
+                    }
+                }
+            }
+            catalog = c; // accumulate added indexes across seeds — they all
+                         // must target the bigint PK column, never json.
+        }
     }
 }
