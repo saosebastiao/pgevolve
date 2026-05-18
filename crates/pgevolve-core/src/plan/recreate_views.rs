@@ -18,7 +18,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::diff::change::{Change, MvChange, ViewChange};
+use crate::diff::change::{Change, MvChange, UserTypeChange, ViewChange};
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
 use crate::plan::edges::NodeId;
@@ -176,12 +176,20 @@ fn collect_upstream_triggers(changes: &[Change]) -> Vec<DepTrigger> {
     out
 }
 
-/// If `change` is a drop of a top-level object (table, view, MV), return its qname.
+/// If `change` is a drop (or destructive replace) of a top-level object
+/// (table, view, MV, or user-defined type), return its qname.
+///
+/// For `UserTypeChange::ReplaceWithCascade`, the type is effectively dropped
+/// and re-created — any view that depends on the type must be recreated.
 fn object_drop_qname(change: &Change) -> Option<QualifiedName> {
     match change {
         Change::DropTable { qname, .. }
         | Change::View(ViewChange::Drop(qname))
-        | Change::Mv(MvChange::Drop(qname)) => Some(qname.clone()),
+        | Change::Mv(MvChange::Drop(qname))
+        | Change::UserType(UserTypeChange::Drop(qname)) => Some(qname.clone()),
+        Change::UserType(UserTypeChange::ReplaceWithCascade { source, .. }) => {
+            Some(source.qname.clone())
+        }
         _ => None,
     }
 }
@@ -203,7 +211,9 @@ fn build_dep_index(
             .body_dependencies
             .iter()
             .filter_map(|dep| match &dep.to {
-                NodeId::Table(q) | NodeId::View(q) | NodeId::Mv(q) => Some((q.clone(), None)),
+                NodeId::Table(q) | NodeId::View(q) | NodeId::Mv(q) | NodeId::Type(q) => {
+                    Some((q.clone(), None))
+                }
                 // We don't have column-level NodeId granularity yet, so
                 // column-specific triggers fall back to object-level matching.
                 _ => None,
@@ -220,7 +230,9 @@ fn build_dep_index(
             .body_dependencies
             .iter()
             .filter_map(|dep| match &dep.to {
-                NodeId::Table(q) | NodeId::View(q) | NodeId::Mv(q) => Some((q.clone(), None)),
+                NodeId::Table(q) | NodeId::View(q) | NodeId::Mv(q) | NodeId::Type(q) => {
+                    Some((q.clone(), None))
+                }
                 _ => None,
             })
             .collect();
@@ -802,5 +814,166 @@ mod tests {
             1,
             "changes must not be modified when policy blocks"
         );
+    }
+
+    // ── User-type cascade tests ───────────────────────────────────────────────
+
+    use crate::diff::change::UserTypeChange;
+    use crate::ir::user_type::{UserType, UserTypeKind};
+
+    fn make_enum_type(schema: &str, name: &str) -> UserType {
+        UserType {
+            qname: qn(schema, name),
+            kind: UserTypeKind::Enum { values: vec![] },
+            comment: None,
+        }
+    }
+
+    fn type_dep_edge(from_view: &QualifiedName, to_type: &QualifiedName) -> DepEdge {
+        DepEdge {
+            from: NodeId::View(from_view.clone()),
+            to: NodeId::Type(to_type.clone()),
+            source: DepSource::AstExtracted,
+        }
+    }
+
+    fn mv_type_dep_edge(from_mv: &QualifiedName, to_type: &QualifiedName) -> DepEdge {
+        DepEdge {
+            from: NodeId::Mv(from_mv.clone()),
+            to: NodeId::Type(to_type.clone()),
+            source: DepSource::AstExtracted,
+        }
+    }
+
+    /// Dropping a type that a view depends on (via `body_dependencies`) causes
+    /// the walker to append a `ReplaceBody` for that view.
+    #[test]
+    fn type_drop_cascades_to_dependent_view() {
+        let status_type = qn("app", "status");
+        let v_qname = qn("app", "order_view");
+        let view = simple_view(
+            "app",
+            "order_view",
+            vec![type_dep_edge(&v_qname, &status_type)],
+        );
+
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view);
+
+        let mut changes = vec![Change::UserType(UserTypeChange::Drop(status_type.clone()))];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        // changes[0] = Drop type, changes[1] = ReplaceBody for order_view
+        assert_eq!(
+            changes.len(),
+            2,
+            "expected UserType::Drop + ReplaceBody for dependent view"
+        );
+        assert!(
+            matches!(
+                &changes[1],
+                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                if source.qname == v_qname
+            ),
+            "expected ReplaceBody for order_view, got: {:?}",
+            changes[1]
+        );
+    }
+
+    /// Replacing a type with cascade also triggers dependent view recreation.
+    #[test]
+    fn type_replace_with_cascade_cascades_to_dependent_view() {
+        let status_type = qn("app", "status");
+        let v_qname = qn("app", "order_view");
+        let view = simple_view(
+            "app",
+            "order_view",
+            vec![type_dep_edge(&v_qname, &status_type)],
+        );
+        let ut = make_enum_type("app", "status");
+
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view);
+
+        let mut changes = vec![Change::UserType(UserTypeChange::ReplaceWithCascade {
+            source: ut.clone(),
+            catalog: ut.clone(),
+        })];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        assert_eq!(
+            changes.len(),
+            2,
+            "expected ReplaceWithCascade + ReplaceBody for dependent view"
+        );
+        assert!(
+            matches!(
+                &changes[1],
+                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                if source.qname == v_qname
+            ),
+            "expected ReplaceBody for order_view on cascade replace, got: {:?}",
+            changes[1]
+        );
+    }
+
+    /// Dropping a type that a materialized view depends on triggers MV recreation.
+    #[test]
+    fn type_drop_cascades_to_dependent_mv() {
+        let status_type = qn("app", "status");
+        let mv_qname = qn("app", "type_summary");
+        let mv = simple_mv(
+            "app",
+            "type_summary",
+            vec![mv_type_dep_edge(&mv_qname, &status_type)],
+        );
+
+        let mut catalog = Catalog::empty();
+        catalog.materialized_views.push(mv);
+
+        let mut changes = vec![Change::UserType(UserTypeChange::Drop(status_type.clone()))];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        assert_eq!(
+            changes.len(),
+            2,
+            "expected UserType::Drop + MvChange::ReplaceBody"
+        );
+        assert!(
+            matches!(
+                &changes[1],
+                Change::Mv(MvChange::ReplaceBody { source, .. })
+                if source.qname == mv_qname
+            ),
+            "expected MvChange::ReplaceBody for type_summary, got: {:?}",
+            changes[1]
+        );
+    }
+
+    /// When policy blocks recreations and a type drop would force view recreation,
+    /// the error list includes the affected view name.
+    #[test]
+    fn type_drop_recreation_blocked_by_policy() {
+        let status_type = qn("app", "status");
+        let v_qname = qn("app", "order_view");
+        let view = simple_view(
+            "app",
+            "order_view",
+            vec![type_dep_edge(&v_qname, &status_type)],
+        );
+
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view);
+
+        let mut changes = vec![Change::UserType(UserTypeChange::Drop(status_type.clone()))];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_disabled());
+        assert!(result.is_err(), "policy must block recreation");
+        let affected = result.unwrap_err();
+        assert!(
+            affected.contains(&v_qname),
+            "expected order_view in error list: {affected:?}"
+        );
+        // Changes must not be modified when policy blocks.
+        assert_eq!(changes.len(), 1);
     }
 }

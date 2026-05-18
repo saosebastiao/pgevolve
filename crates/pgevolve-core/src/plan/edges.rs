@@ -16,8 +16,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
+use crate::ir::column_type::ColumnType;
 use crate::ir::constraint::ConstraintKind;
 use crate::ir::default_expr::DefaultExpr;
+use crate::ir::user_type::UserTypeKind;
 use crate::plan::graph::Graph;
 
 /// Identifies any IR object uniquely within a [`Catalog`].
@@ -46,12 +48,15 @@ pub enum NodeId {
     View(QualifiedName),
     /// A materialized view (`CREATE MATERIALIZED VIEW`).
     Mv(QualifiedName),
+    /// A user-defined type (enum, domain, or composite).
+    Type(QualifiedName),
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.
 ///
 /// Topologically sorting this graph yields **dependencies first**: schemas
 /// before tables, tables before indexes, referenced tables before FKs, etc.
+#[allow(clippy::too_many_lines)]
 pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     let mut g = Graph::new();
 
@@ -83,6 +88,51 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     }
     for mv in &catalog.materialized_views {
         g.add_node(NodeId::Mv(mv.qname.clone()));
+    }
+    // Register user-defined type nodes.
+    for t in &catalog.types {
+        g.add_node(NodeId::Type(t.qname.clone()));
+    }
+
+    // Phase 1b: type → type edges from composite attributes and domain bases.
+    // These edges ensure composites/domains that reference other user-defined
+    // types are created after those types.
+    for ut in &catalog.types {
+        match &ut.kind {
+            UserTypeKind::Composite { attributes } => {
+                for attr in attributes {
+                    if let ColumnType::UserDefined(dep_qname) = &attr.ty {
+                        g.add_edge(
+                            NodeId::Type(ut.qname.clone()),
+                            NodeId::Type(dep_qname.clone()),
+                        );
+                    }
+                }
+            }
+            UserTypeKind::Domain {
+                base: ColumnType::UserDefined(base_qname),
+                ..
+            } => {
+                g.add_edge(
+                    NodeId::Type(ut.qname.clone()),
+                    NodeId::Type(base_qname.clone()),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    // Phase 1c: table → type edges from columns with user-defined types.
+    // Tables that reference a user-defined type must be created after the type.
+    for t in &catalog.tables {
+        for col in &t.columns {
+            if let ColumnType::UserDefined(type_qname) = &col.ty {
+                g.add_edge(
+                    NodeId::Table(t.qname.clone()),
+                    NodeId::Type(type_qname.clone()),
+                );
+            }
+        }
     }
 
     // Phase 2: tables depend on their schema and on any sequence used as a
@@ -606,5 +656,152 @@ mod tests {
         });
         let g = build_create_graph(&c);
         assert!(g.topological_sort().is_ok());
+    }
+
+    // ── User-defined type edge tests ──────────────────────────────────────────
+
+    use crate::ir::user_type::{CompositeAttribute, UserType, UserTypeKind};
+
+    fn make_enum(schema: &str, name: &str) -> UserType {
+        UserType {
+            qname: qn(schema, name),
+            kind: UserTypeKind::Enum { values: vec![] },
+            comment: None,
+        }
+    }
+
+    fn make_composite_with_attr(schema: &str, name: &str, attr_type: ColumnType) -> UserType {
+        UserType {
+            qname: qn(schema, name),
+            kind: UserTypeKind::Composite {
+                attributes: vec![CompositeAttribute {
+                    name: id("val"),
+                    ty: attr_type,
+                    collation: None,
+                }],
+            },
+            comment: None,
+        }
+    }
+
+    fn make_domain_over(schema: &str, name: &str, base: ColumnType) -> UserType {
+        UserType {
+            qname: qn(schema, name),
+            kind: UserTypeKind::Domain {
+                base,
+                nullable: true,
+                default: None,
+                check_constraints: vec![],
+                collation: None,
+            },
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn type_nodes_registered() {
+        let mut c = Catalog::empty();
+        c.types.push(make_enum("app", "status"));
+        let g = build_create_graph(&c);
+        assert!(
+            g.dependencies_of(&NodeId::Type(qn("app", "status")))
+                .next()
+                .is_none()
+        );
+        // The node must exist in the graph (node_count includes it).
+        assert_eq!(g.node_count(), 1);
+    }
+
+    #[test]
+    fn table_depends_on_user_defined_column_type() {
+        let mut c = Catalog::empty();
+        c.types.push(make_enum("app", "status"));
+        c.tables.push(Table {
+            qname: qn("app", "orders"),
+            columns: vec![Column {
+                name: id("status"),
+                ty: ColumnType::UserDefined(qn("app", "status")),
+                nullable: false,
+                default: None,
+                identity: None,
+                generated: None,
+                collation: None,
+                comment: None,
+            }],
+            constraints: vec![],
+            comment: None,
+        });
+        let g = build_create_graph(&c);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Table(qn("app", "orders")),
+                &NodeId::Type(qn("app", "status"))
+            ),
+            "table must depend on its user-defined column type"
+        );
+    }
+
+    #[test]
+    fn composite_depends_on_user_defined_attribute_type() {
+        let mut c = Catalog::empty();
+        c.types.push(make_enum("app", "inner_t"));
+        c.types.push(make_composite_with_attr(
+            "app",
+            "outer_t",
+            ColumnType::UserDefined(qn("app", "inner_t")),
+        ));
+        let g = build_create_graph(&c);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Type(qn("app", "outer_t")),
+                &NodeId::Type(qn("app", "inner_t"))
+            ),
+            "composite must depend on the type of its user-defined attribute"
+        );
+    }
+
+    #[test]
+    fn domain_depends_on_user_defined_base_type() {
+        let mut c = Catalog::empty();
+        c.types.push(make_enum("app", "base_t"));
+        c.types.push(make_domain_over(
+            "app",
+            "derived_t",
+            ColumnType::UserDefined(qn("app", "base_t")),
+        ));
+        let g = build_create_graph(&c);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Type(qn("app", "derived_t")),
+                &NodeId::Type(qn("app", "base_t"))
+            ),
+            "domain must depend on its user-defined base type"
+        );
+    }
+
+    #[test]
+    fn type_create_ordering_respects_edges() {
+        // derived_t depends on base_t; topological sort must put base_t first.
+        let mut c = Catalog::empty();
+        c.types.push(make_enum("app", "base_t"));
+        c.types.push(make_domain_over(
+            "app",
+            "derived_t",
+            ColumnType::UserDefined(qn("app", "base_t")),
+        ));
+        let g = build_create_graph(&c);
+        let order = g.topological_sort().expect("no cycle expected");
+        let base_pos = order
+            .iter()
+            .position(|n| n == &NodeId::Type(qn("app", "base_t")))
+            .expect("base_t in order");
+        let derived_pos = order
+            .iter()
+            .position(|n| n == &NodeId::Type(qn("app", "derived_t")))
+            .expect("derived_t in order");
+        assert!(base_pos < derived_pos, "base_t must come before derived_t");
     }
 }

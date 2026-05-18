@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
-use crate::diff::change::{Change, ChangeEntry, MvChange, ViewChange};
+use crate::diff::change::{Change, ChangeEntry, MvChange, UserTypeChange, ViewChange};
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::TableOp;
 use crate::identifier::{Identifier, QualifiedName};
@@ -243,10 +243,23 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
                 | MvChange::SetComment { .. }
                 | MvChange::SetColumnComment { .. },
             ) => modifies.push(entry),
-            // UserType changes: T8 adds NodeId::Type and wires partition/change_node.
-            Change::UserType(_) => {
-                unimplemented!("Task 8 adds NodeId::Type and wires partition/change_node")
-            }
+            // UserType changes: bucket by lifecycle phase.
+            Change::UserType(utc) => match utc {
+                UserTypeChange::Create(_) => creates.push(entry),
+                UserTypeChange::Drop(_) | UserTypeChange::ReplaceWithCascade { .. } => {
+                    drops.push(entry);
+                }
+                UserTypeChange::EnumAddValue { .. }
+                | UserTypeChange::EnumRenameValue { .. }
+                | UserTypeChange::DomainAddCheck { .. }
+                | UserTypeChange::DomainDropCheck { .. }
+                | UserTypeChange::DomainSetDefault { .. }
+                | UserTypeChange::DomainSetNotNull { .. }
+                | UserTypeChange::CompositeAddAttribute { .. }
+                | UserTypeChange::CompositeDropAttribute { .. }
+                | UserTypeChange::CompositeAlterAttributeType { .. }
+                | UserTypeChange::SetComment { .. } => modifies.push(entry),
+            },
         }
     }
     (creates, modifies, drops)
@@ -293,9 +306,24 @@ fn change_node(change: &Change) -> NodeId {
             | MvChange::SetComment { qname, .. }
             | MvChange::SetColumnComment { qname, .. },
         ) => NodeId::Mv(qname.clone()),
-        // UserType changes: T8 adds NodeId::Type and wires change_node.
-        Change::UserType(_) => {
-            unimplemented!("Task 8 adds NodeId::Type and wires partition/change_node")
+        // UserType changes: extract the qualified name and return NodeId::Type.
+        Change::UserType(utc) => {
+            let qname = match utc {
+                UserTypeChange::Create(ut) => &ut.qname,
+                UserTypeChange::Drop(q) => q,
+                UserTypeChange::ReplaceWithCascade { source, .. } => &source.qname,
+                UserTypeChange::EnumAddValue { qname: q, .. }
+                | UserTypeChange::EnumRenameValue { qname: q, .. }
+                | UserTypeChange::DomainAddCheck { qname: q, .. }
+                | UserTypeChange::DomainDropCheck { qname: q, .. }
+                | UserTypeChange::DomainSetDefault { qname: q, .. }
+                | UserTypeChange::DomainSetNotNull { qname: q, .. }
+                | UserTypeChange::CompositeAddAttribute { qname: q, .. }
+                | UserTypeChange::CompositeDropAttribute { qname: q, .. }
+                | UserTypeChange::CompositeAlterAttributeType { qname: q, .. }
+                | UserTypeChange::SetComment { qname: q, .. } => q,
+            };
+            NodeId::Type(qname.clone())
         }
     }
 }
@@ -373,6 +401,7 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Constraint { table, name } => format!("constraint:{table}.{name}"),
         NodeId::View(q) => format!("view:{q}"),
         NodeId::Mv(q) => format!("mv:{q}"),
+        NodeId::Type(q) => format!("type:{q}"),
     }
 }
 
@@ -1203,6 +1232,168 @@ mod tests {
             result.drops.is_empty(),
             "DropIndex must be elided when an INCLUDEd column is dropped; got: {:?}",
             result.drops.iter().map(|e| &e.change).collect::<Vec<_>>()
+        );
+    }
+
+    // ── UserType partition / change_node tests ────────────────────────────────
+
+    use crate::diff::change::UserTypeChange;
+    use crate::ir::user_type::{UserType, UserTypeKind};
+
+    fn make_enum_type(schema: &str, name: &str) -> UserType {
+        UserType {
+            qname: qn(schema, name),
+            kind: UserTypeKind::Enum { values: vec![] },
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn user_type_create_lands_in_creates() {
+        let ut = make_enum_type("app", "status");
+        let mut source = Catalog::empty();
+        source.types.push(ut.clone());
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::UserType(UserTypeChange::Create(ut)),
+            Destructiveness::Safe,
+        );
+
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
+        assert_eq!(
+            result.creates_and_adds.len(),
+            1,
+            "Create must land in creates_and_adds"
+        );
+        assert!(result.modifies.is_empty());
+        assert!(result.drops.is_empty());
+    }
+
+    #[test]
+    fn user_type_drop_lands_in_drops() {
+        let ut = make_enum_type("app", "status");
+        let mut target = Catalog::empty();
+        target.types.push(ut);
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::UserType(UserTypeChange::Drop(qn("app", "status"))),
+            Destructiveness::RequiresApproval {
+                reason: "drop type".into(),
+            },
+        );
+
+        let result = order(&target, &Catalog::empty(), cs, &PlannerPolicy::default()).unwrap();
+        assert_eq!(result.drops.len(), 1, "Drop must land in drops");
+        assert!(result.creates_and_adds.is_empty());
+        assert!(result.modifies.is_empty());
+    }
+
+    #[test]
+    fn user_type_replace_with_cascade_lands_in_drops() {
+        let ut = make_enum_type("app", "status");
+        let mut target = Catalog::empty();
+        target.types.push(ut.clone());
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::UserType(UserTypeChange::ReplaceWithCascade {
+                source: ut.clone(),
+                catalog: ut,
+            }),
+            Destructiveness::RequiresApproval {
+                reason: "cascade replace".into(),
+            },
+        );
+
+        let result = order(&target, &Catalog::empty(), cs, &PlannerPolicy::default()).unwrap();
+        assert_eq!(
+            result.drops.len(),
+            1,
+            "ReplaceWithCascade must land in drops"
+        );
+        assert!(result.creates_and_adds.is_empty());
+        assert!(result.modifies.is_empty());
+    }
+
+    #[test]
+    fn user_type_enum_add_value_lands_in_modifies() {
+        let ut = make_enum_type("app", "status");
+        let mut source = Catalog::empty();
+        source.types.push(ut);
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::UserType(UserTypeChange::EnumAddValue {
+                qname: qn("app", "status"),
+                value: "archived".into(),
+                before: None,
+                after: None,
+            }),
+            Destructiveness::Safe,
+        );
+
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
+        assert_eq!(
+            result.modifies.len(),
+            1,
+            "EnumAddValue must land in modifies"
+        );
+        assert!(result.creates_and_adds.is_empty());
+        assert!(result.drops.is_empty());
+    }
+
+    #[test]
+    fn user_type_create_before_table_using_it() {
+        // When both a type create and a table create are in the changeset,
+        // the type must come first (table depends on it in the source graph).
+        use crate::ir::column::Column;
+
+        let ut = make_enum_type("app", "status");
+        let mut source = Catalog::empty();
+        source.types.push(ut.clone());
+        source.tables.push(Table {
+            qname: qn("app", "orders"),
+            columns: vec![Column {
+                name: id("status"),
+                ty: ColumnType::UserDefined(qn("app", "status")),
+                nullable: false,
+                default: None,
+                identity: None,
+                generated: None,
+                collation: None,
+                comment: None,
+            }],
+            constraints: vec![],
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        // Deliberately push table first to verify sorting.
+        cs.push(
+            Change::CreateTable(source.tables[0].clone()),
+            Destructiveness::Safe,
+        );
+        cs.push(
+            Change::UserType(UserTypeChange::Create(ut)),
+            Destructiveness::Safe,
+        );
+
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
+        let type_pos = result
+            .creates_and_adds
+            .iter()
+            .position(|e| matches!(&e.change, Change::UserType(UserTypeChange::Create(_))))
+            .expect("type create not found");
+        let table_pos = result
+            .creates_and_adds
+            .iter()
+            .position(|e| matches!(&e.change, Change::CreateTable(_)))
+            .expect("table create not found");
+        assert!(
+            type_pos < table_pos,
+            "type must be created before the table that uses it"
         );
     }
 }

@@ -70,10 +70,10 @@ fn format_node_chain(nodes: &[crate::plan::edges::NodeId]) -> String {
 }
 
 fn render_node(n: &crate::plan::edges::NodeId) -> String {
-    use crate::plan::edges::NodeId::{Constraint, Index, Mv, Schema, Sequence, Table, View};
+    use crate::plan::edges::NodeId::{Constraint, Index, Mv, Schema, Sequence, Table, Type, View};
     match n {
         Schema(s) => s.as_str().to_string(),
-        Table(q) | Index(q) | Sequence(q) | View(q) | Mv(q) => q.to_string(),
+        Table(q) | Index(q) | Sequence(q) | View(q) | Mv(q) | Type(q) => q.to_string(),
         Constraint { table, name } => format!("{}.{}", table, name.as_str()),
     }
 }

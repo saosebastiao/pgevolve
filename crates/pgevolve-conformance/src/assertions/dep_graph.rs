@@ -87,6 +87,7 @@ fn node_label(n: &NodeId) -> String {
         }
         NodeId::View(q) => format!("view:{q}"),
         NodeId::Mv(q) => format!("mv:{q}"),
+        NodeId::Type(q) => format!("type:{q}"),
     }
 }
 

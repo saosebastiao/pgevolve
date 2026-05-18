@@ -132,6 +132,7 @@ fn node_label(n: &NodeId) -> String {
         NodeId::Constraint { table, name } => format!("constraint:{table}.{}", name.as_str()),
         NodeId::View(q) => format!("view:{q}"),
         NodeId::Mv(q) => format!("mv:{q}"),
+        NodeId::Type(q) => format!("type:{q}"),
     }
 }
 
