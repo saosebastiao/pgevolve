@@ -84,7 +84,7 @@ async fn catalog_reads_domain_type() {
     }
     let sql = r"
         CREATE SCHEMA app;
-        CREATE DOMAIN app.positive_int AS integer NOT NULL
+        CREATE DOMAIN app.positive_int AS integer NOT NULL DEFAULT 1
             CONSTRAINT chk_positive CHECK (VALUE > 0);
     ";
     let catalog = read_catalog_from_sql(sql).await.expect("catalog read");
@@ -96,12 +96,18 @@ async fn catalog_reads_domain_type() {
     let UserTypeKind::Domain {
         base,
         nullable,
+        default,
         check_constraints,
         ..
     } = &ut.kind
     else {
         panic!("expected Domain, got {:?}", ut.kind);
     };
+
+    assert!(
+        default.is_some(),
+        "DEFAULT 1 must round-trip as Some(NormalizedExpr)",
+    );
 
     // Base type must be integer.
     let base_str = format!("{base:?}");

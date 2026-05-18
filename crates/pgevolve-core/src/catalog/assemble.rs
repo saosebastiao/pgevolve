@@ -1250,6 +1250,28 @@ mod tests {
     }
 
     #[test]
+    fn strip_check_wrapper_unwraps_single_paren_form() {
+        assert_eq!(strip_check_wrapper("CHECK (VALUE > 0)"), "VALUE > 0");
+    }
+
+    #[test]
+    fn strip_check_wrapper_unwraps_double_paren_form() {
+        // pg_get_constraintdef sometimes emits `CHECK ((expr))`; we strip
+        // exactly one layer, leaving inner parens for the parser to handle.
+        assert_eq!(strip_check_wrapper("CHECK ((VALUE > 0))"), "(VALUE > 0)");
+    }
+
+    #[test]
+    fn strip_check_wrapper_preserves_inner_function_parens() {
+        // Stripping a single trailing `)` must not eat the closing paren
+        // of an inner function call.
+        assert_eq!(
+            strip_check_wrapper("CHECK (length(x) > 0)"),
+            "length(x) > 0",
+        );
+    }
+
+    #[test]
     fn parse_default_recognizes_nextval() {
         let d =
             parse_default_expr_text("nextval('app.seq1'::regclass)", &ColumnType::BigInt).unwrap();
