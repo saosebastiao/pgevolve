@@ -43,6 +43,22 @@ pub enum PlanError {
     /// resolver runs after the initial parse pass).
     #[error("AST resolution failed during planning: {0}")]
     AstResolution(String),
+
+    /// The `view_drop_create_dependents` policy is `false` and at least one
+    /// change would force dependent views to be dropped and recreated. Carries
+    /// the names of the blocked views.
+    ///
+    /// Resolution: either enable `view_drop_create_dependents` in the planner
+    /// policy, or modify the migration to explicitly DROP + CREATE the listed
+    /// views.
+    #[error(
+        "view_drop_create_dependents is disabled but the following views would be \
+         force-recreated: {}", .views.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+    )]
+    DependentViewsBlocked {
+        /// Views that would need to be recreated.
+        views: Vec<crate::identifier::QualifiedName>,
+    },
 }
 
 fn format_node_chain(nodes: &[crate::plan::edges::NodeId]) -> String {
@@ -54,10 +70,10 @@ fn format_node_chain(nodes: &[crate::plan::edges::NodeId]) -> String {
 }
 
 fn render_node(n: &crate::plan::edges::NodeId) -> String {
-    use crate::plan::edges::NodeId::{Constraint, Index, Schema, Sequence, Table};
+    use crate::plan::edges::NodeId::{Constraint, Index, Mv, Schema, Sequence, Table, View};
     match n {
         Schema(s) => s.as_str().to_string(),
-        Table(q) | Index(q) | Sequence(q) => q.to_string(),
+        Table(q) | Index(q) | Sequence(q) | View(q) | Mv(q) => q.to_string(),
         Constraint { table, name } => format!("{}.{}", table, name.as_str()),
     }
 }

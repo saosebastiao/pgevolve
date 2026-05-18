@@ -42,6 +42,10 @@ pub enum NodeId {
         /// Constraint name (the `name` half of the constraint's qname).
         name: Identifier,
     },
+    /// A view (`CREATE VIEW`).
+    View(QualifiedName),
+    /// A materialized view (`CREATE MATERIALIZED VIEW`).
+    Mv(QualifiedName),
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.
@@ -72,6 +76,14 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
             });
         }
     }
+    // Register view and MV nodes so they participate in topological ordering
+    // and body-dependency edges are rooted correctly.
+    for v in &catalog.views {
+        g.add_node(NodeId::View(v.qname.clone()));
+    }
+    for mv in &catalog.materialized_views {
+        g.add_node(NodeId::Mv(mv.qname.clone()));
+    }
 
     // Phase 2: tables depend on their schema and on any sequence used as a
     // column default. We add the schema node implicitly via add_edge in case
@@ -92,22 +104,30 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
         }
     }
 
+    // Phase 2b: views and MVs depend on objects in their body_dependencies.
+    // `body_dependencies` edges use NodeId directly (already the correct
+    // variant); we just re-register each edge into the graph.
+    for v in &catalog.views {
+        for dep in &v.body_dependencies {
+            g.add_edge(dep.from.clone(), dep.to.clone());
+        }
+    }
+    for mv in &catalog.materialized_views {
+        for dep in &mv.body_dependencies {
+            g.add_edge(dep.from.clone(), dep.to.clone());
+        }
+    }
+
     // Phase 3: indexes depend on their parent (table or MV).
-    // TODO(T7): Until T7 adds `NodeId::Mv` and Phase 1 of build_create_graph
-    // registers MV nodes, an `IndexParent::Mv` index produces a dep edge to
-    // `NodeId::Table(mv_qname)` that doesn't exist in the graph. Unlike a
-    // proper "discard", `Graph::add_edge` actually inserts both endpoints as
-    // nodes (see `add_edge_internal`), so the phantom `NodeId::Table(mv_qname)`
-    // node will appear in topological output even though no `CREATE TABLE`
-    // step exists for it — planner output will be silently wrong. T5 (catalog
-    // assembly) must not ship without T7's NodeId::Mv variant + Phase-1
-    // MV node registration, or planner output will contain spurious ghost
-    // table nodes and miss ordering dependencies between MVs and their indexes.
+    // For `IndexParent::Mv`, we use `NodeId::Mv` so the graph correctly
+    // orders CREATE INDEX after CREATE MATERIALIZED VIEW.
     for i in &catalog.indexes {
-        g.add_edge(
-            NodeId::Index(i.qname.clone()),
-            NodeId::Table(i.on.qname().clone()),
-        );
+        use crate::ir::index::IndexParent;
+        let parent_node = match &i.on {
+            IndexParent::Table(q) => NodeId::Table(q.clone()),
+            IndexParent::Mv(q) => NodeId::Mv(q.clone()),
+        };
+        g.add_edge(NodeId::Index(i.qname.clone()), parent_node);
     }
 
     // Phase 4: constraints depend on their owning table; FKs additionally

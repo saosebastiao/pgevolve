@@ -18,6 +18,7 @@
 pub mod check_not_valid_validate;
 pub mod concurrent_index;
 pub mod fk_not_valid_validate;
+pub mod refresh_mv_concurrently;
 pub mod set_not_null_check_pattern;
 pub mod sql;
 pub mod views;
@@ -53,6 +54,11 @@ pub fn rewrite(
 
 /// Like [`rewrite`] but also accepts the source catalog for drift-recovery
 /// changes that need to look up source-side IR (e.g., `RecreateIndex`).
+///
+/// After all changes are emitted, the `refresh_mv_concurrently` rewrite pass
+/// upgrades `REFRESH MATERIALIZED VIEW` steps to `CONCURRENTLY` when the target
+/// MV has a unique index (spec §6.5). Lint findings from that pass are
+/// currently discarded here (T10 wires them into the plan's lint output).
 pub fn rewrite_with_source(
     ordered: OrderedChangeSet,
     target: &Catalog,
@@ -77,6 +83,11 @@ pub fn rewrite_with_source(
     for fk in ordered.deferred_fks {
         emit_deferred_fk(&fk, &ctx, &mut out);
     }
+    // Post-emit: upgrade REFRESH MATERIALIZED VIEW → CONCURRENTLY where eligible.
+    // Lint findings from this pass are discarded here; T10 wires them into the
+    // plan's lint output.
+    let mut findings_sink: Vec<crate::lint::Finding> = Vec::new();
+    refresh_mv_concurrently::rewrite(&mut out, target, policy, &mut findings_sink);
     out
 }
 
@@ -1005,7 +1016,7 @@ mod tests {
         changes: ChangeSet,
     ) -> Vec<RawStep> {
         let policy = PlannerPolicy::default();
-        let ordered = order(target, source, changes).unwrap();
+        let ordered = order(target, source, changes, &policy).unwrap();
         rewrite(ordered, target, &policy)
     }
 

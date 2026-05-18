@@ -74,11 +74,11 @@ pub fn render_plan(
     strategy: Strategy,
 ) -> Result<(Plan, String), PipelineError> {
     let (target, source, changes) = compute_changes(before_sql, after_sql)?;
-    let ordered = order(&target, &source, changes)?;
     let policy = PlannerPolicy {
         strategy,
         ..PlannerPolicy::default()
     };
+    let ordered = order(&target, &source, changes, &policy)?;
     let steps = rewrite(ordered, &target, &policy);
     let groups = group_steps(steps);
     let plan = Plan::from_grouped(

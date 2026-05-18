@@ -16,6 +16,7 @@ pub mod ordering;
 pub mod plan;
 pub mod policy;
 pub mod raw_step;
+pub mod recreate_views;
 pub mod rewrite;
 pub mod serialize;
 

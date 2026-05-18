@@ -265,8 +265,8 @@ fn lint_waiver_survives_intent_toml_round_trip() {
     let source = Catalog::empty();
     let target = Catalog::empty();
     let changes = pgevolve_core::diff::diff(&target, &source, &DriftReport::default());
-    let ordered = order(&target, &source, changes).expect("order");
     let policy = PlannerPolicy::default();
+    let ordered = order(&target, &source, changes, &policy).expect("order");
     let steps = rewrite(ordered, &target, &policy);
     let groups = group_steps(steps);
     let mut plan = Plan::from_grouped(

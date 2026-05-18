@@ -69,7 +69,8 @@ fn run_order_stage(fixture: &Fixture, exp: &ExpectFailure) -> Result<()> {
     let source = pgevolve_core::parse::parse_directory(tmp.path(), &[])?;
     let empty = pgevolve_core::ir::catalog::Catalog::default();
     let changes = diff(&empty, &source, &DriftReport::default());
-    let err = pgevolve_core::plan::order(&empty, &source, changes)
+    let policy = pgevolve_core::plan::PlannerPolicy::default();
+    let err = pgevolve_core::plan::order(&empty, &source, changes, &policy)
         .err()
         .ok_or_else(|| anyhow::anyhow!("expected order-stage failure, but order succeeded"))?;
     let msg = err.to_string();

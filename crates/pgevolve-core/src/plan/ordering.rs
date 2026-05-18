@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
 use crate::diff::change::{Change, ChangeEntry, MvChange, ViewChange};
+use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::TableOp;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
@@ -17,15 +18,23 @@ use crate::ir::index::IndexColumnExpr;
 use crate::plan::edges::{NodeId, build_create_graph, build_drop_graph};
 use crate::plan::error::PlanError;
 use crate::plan::ordered::{DeferredFkAdd, OrderedChangeSet};
+use crate::plan::policy::PlannerPolicy;
+use crate::plan::recreate_views;
 
 /// Order a `ChangeSet` into an [`OrderedChangeSet`] for plan emission.
 ///
 /// `target` is the live database catalog; `source` is the desired one. The
 /// create / modify graphs are built from `source`; the drop graph from `target`.
+///
+/// `policy` gates the dependent-view recreation walk: when
+/// `policy.view_drop_create_dependents()` is `false` and any change would
+/// force dependent views to be recreated, this function returns
+/// [`PlanError::DependentViewsBlocked`] naming the affected views.
 pub fn order(
     target: &Catalog,
     source: &Catalog,
     changes: ChangeSet,
+    policy: &PlannerPolicy,
 ) -> Result<OrderedChangeSet, PlanError> {
     // Elide DropIndex changes whose target index will be cascade-dropped by
     // an upstream `ALTER TABLE ... DROP COLUMN` in the same plan. Postgres
@@ -33,6 +42,38 @@ pub fn order(
     // key list or `INCLUDE` list); leaving the explicit `DROP INDEX` in the
     // plan causes the executor to fail with SQLSTATE 42704.
     let changes = elide_cascaded_index_drops(target, changes);
+
+    // Extend the changeset with explicit DROP + CREATE steps for every
+    // transitively-affected view (never CASCADE). This must happen before
+    // partitioning so the new ReplaceBody entries flow through the normal
+    // ordering pipeline.
+    //
+    // `extend_with_dependent_recreations` only appends to `raw_changes`; it
+    // never modifies existing entries. We preserve the original
+    // `Destructiveness` values for all original entries and assign `Safe` to
+    // any newly-appended ones (dependent view recreation is not destructive —
+    // the view body itself is unchanged).
+    let original_entries: Vec<crate::diff::change::ChangeEntry> = changes.entries;
+    let mut raw_changes: Vec<Change> = original_entries.iter().map(|e| e.change.clone()).collect();
+    recreate_views::extend_with_dependent_recreations(&mut raw_changes, target, policy)
+        .map_err(|views| PlanError::DependentViewsBlocked { views })?;
+    // Re-assemble ChangeSet preserving original destructiveness for original
+    // entries, and using Safe for any newly-added recreation entries.
+    let changes = ChangeSet {
+        entries: raw_changes
+            .into_iter()
+            .enumerate()
+            .map(|(i, change)| {
+                let destructiveness = original_entries
+                    .get(i)
+                    .map_or(Destructiveness::Safe, |e| e.destructiveness.clone());
+                crate::diff::change::ChangeEntry {
+                    change,
+                    destructiveness,
+                }
+            })
+            .collect(),
+    };
 
     // 1. Bucket entries by phase.
     let (creates, modifies, drops) = partition(changes);
@@ -231,24 +272,23 @@ fn change_node(change: &Change) -> NodeId {
         }
         // Drift-recovery changes: map to the table they affect.
         Change::ValidateConstraint { table, .. } => NodeId::Table(table.clone()),
-        // View changes: map to NodeId::Table using the view's qname.
-        // T7 will introduce NodeId::View once full dependency ordering is wired.
-        Change::View(ViewChange::Create(v)) => NodeId::Table(v.qname.clone()),
-        Change::View(ViewChange::ReplaceBody { source, .. }) => NodeId::Table(source.qname.clone()),
+        // View changes: use NodeId::View for correct topological ordering.
+        Change::View(ViewChange::Create(v)) => NodeId::View(v.qname.clone()),
+        Change::View(ViewChange::ReplaceBody { source, .. }) => NodeId::View(source.qname.clone()),
         Change::View(
             ViewChange::Drop(qname)
             | ViewChange::SetReloption { qname, .. }
             | ViewChange::SetComment { qname, .. }
             | ViewChange::SetColumnComment { qname, .. },
-        ) => NodeId::Table(qname.clone()),
-        // MV changes: same pattern.
-        Change::Mv(MvChange::Create(mv)) => NodeId::Table(mv.qname.clone()),
-        Change::Mv(MvChange::ReplaceBody { source, .. }) => NodeId::Table(source.qname.clone()),
+        ) => NodeId::View(qname.clone()),
+        // MV changes: use NodeId::Mv for correct topological ordering.
+        Change::Mv(MvChange::Create(mv)) => NodeId::Mv(mv.qname.clone()),
+        Change::Mv(MvChange::ReplaceBody { source, .. }) => NodeId::Mv(source.qname.clone()),
         Change::Mv(
             MvChange::Drop(qname)
             | MvChange::SetComment { qname, .. }
             | MvChange::SetColumnComment { qname, .. },
-        ) => NodeId::Table(qname.clone()),
+        ) => NodeId::Mv(qname.clone()),
     }
 }
 
@@ -323,6 +363,8 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Index(q) => format!("index:{q}"),
         NodeId::Sequence(q) => format!("sequence:{q}"),
         NodeId::Constraint { table, name } => format!("constraint:{table}.{name}"),
+        NodeId::View(q) => format!("view:{q}"),
+        NodeId::Mv(q) => format!("mv:{q}"),
     }
 }
 
@@ -442,7 +484,13 @@ mod tests {
     fn empty_changeset_yields_empty_ordered_set() {
         let target = Catalog::empty();
         let source = Catalog::empty();
-        let result = order(&target, &source, ChangeSet::new()).unwrap();
+        let result = order(
+            &target,
+            &source,
+            ChangeSet::new(),
+            &PlannerPolicy::default(),
+        )
+        .unwrap();
         assert!(result.is_empty());
     }
 
@@ -476,7 +524,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.creates_and_adds.len(), 3);
 
         let schema_pos = pos(&result.creates_and_adds, |c| {
@@ -530,7 +578,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert!(result.deferred_fks.is_empty());
         let orgs_pos = result
             .creates_and_adds
@@ -593,7 +641,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         // Both tables present in creates_and_adds, schema first.
         assert_eq!(result.creates_and_adds.len(), 3);
         // At least one FK was extracted.
@@ -652,7 +700,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&target, &Catalog::empty(), cs).unwrap();
+        let result = order(&target, &Catalog::empty(), cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.drops.len(), 3);
         let idx_pos = pos(&result.drops, |c| matches!(c, Change::DropIndex(_)));
         let table_pos = pos(&result.drops, |c| matches!(c, Change::DropTable { .. }));
@@ -684,7 +732,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.modifies.len(), 1);
         assert!(result.creates_and_adds.is_empty());
         assert!(result.drops.is_empty());
@@ -726,8 +774,9 @@ mod tests {
             cs
         };
 
-        let r1 = order(&Catalog::empty(), &source, mk_cs(false)).unwrap();
-        let r2 = order(&Catalog::empty(), &source, mk_cs(true)).unwrap();
+        let policy = PlannerPolicy::default();
+        let r1 = order(&Catalog::empty(), &source, mk_cs(false), &policy).unwrap();
+        let r2 = order(&Catalog::empty(), &source, mk_cs(true), &policy).unwrap();
         assert_eq!(r1, r2);
     }
 
@@ -754,7 +803,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.modifies.len(), 1);
     }
 
@@ -784,7 +833,7 @@ mod tests {
             Destructiveness::Safe,
         );
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.modifies.len(), 1);
     }
 
@@ -829,7 +878,7 @@ mod tests {
             cs.push(Change::CreateTable(t.clone()), Destructiveness::Safe);
         }
 
-        let result = order(&Catalog::empty(), &source, cs).unwrap();
+        let result = order(&Catalog::empty(), &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.creates_and_adds.len(), 4);
         assert!(!result.deferred_fks.is_empty());
     }
@@ -874,7 +923,7 @@ mod tests {
             );
         }
 
-        let result = order(&target, &Catalog::empty(), cs).unwrap();
+        let result = order(&target, &Catalog::empty(), cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.drops.len(), 4);
         // Every DropTable must precede the corresponding DropSchema.
         for table in &target.tables {
@@ -975,7 +1024,7 @@ mod tests {
             },
         );
 
-        let result = order(&target, &source, cs).unwrap();
+        let result = order(&target, &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.modifies.len(), 1, "AlterTable must stay in modifies");
         assert!(
             result.drops.is_empty(),
@@ -1060,7 +1109,7 @@ mod tests {
             },
         );
 
-        let result = order(&target, &source, cs).unwrap();
+        let result = order(&target, &source, cs, &PlannerPolicy::default()).unwrap();
         assert_eq!(result.modifies.len(), 1);
         assert_eq!(
             result.drops.len(),
@@ -1141,7 +1190,7 @@ mod tests {
             },
         );
 
-        let result = order(&target, &source, cs).unwrap();
+        let result = order(&target, &source, cs, &PlannerPolicy::default()).unwrap();
         assert!(
             result.drops.is_empty(),
             "DropIndex must be elided when an INCLUDEd column is dropped; got: {:?}",

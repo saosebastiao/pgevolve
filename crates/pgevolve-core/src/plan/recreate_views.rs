@@ -1,0 +1,673 @@
+//! Identifies every catalog view (transitively) affected by upstream
+//! changes in the diff, and emits explicit `DROP + CREATE` steps for them.
+//!
+//! # Why not CASCADE?
+//!
+//! pgevolve never issues `DROP ... CASCADE`. The CASCADE path hides which
+//! objects were destroyed, making the plan non-auditable. Instead we walk
+//! the `body_dependencies` graph to find every transitively-affected view,
+//! then emit an explicit `ReplaceBody { compatible: false }` change for each
+//! one. The resulting DROP + CREATE chain is deterministic and visible.
+//!
+//! # Policy gate
+//!
+//! When [`PlannerPolicy::view_drop_create_dependents`] is `false`, the walk
+//! still runs to detect affected views, but instead of emitting recreations
+//! the function returns `Err(affected)` so the caller can surface a
+//! human-readable error naming every affected view.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use crate::diff::change::{Change, MvChange, ViewChange};
+use crate::identifier::QualifiedName;
+use crate::ir::catalog::Catalog;
+use crate::plan::edges::NodeId;
+use crate::plan::policy::PlannerPolicy;
+
+/// A trigger: an upstream object (or column on it) whose change forces every
+/// view with a matching `body_dependencies` edge to be recreated.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct DepTrigger {
+    /// Object whose change was detected.
+    qname: QualifiedName,
+    /// `None` means "any dep on this object" (table/view/mv drop, view body
+    /// replace-incompatible). `Some(col)` means "deps on this specific column"
+    /// (column drop, rename, type change).
+    column: Option<String>,
+}
+
+/// Extend `changes` with explicit `Drop + Create` steps for every transitively-
+/// affected view in `target_catalog`.
+///
+/// Returns `Ok(())` when the policy permits dependent recreation (or when no
+/// views are affected).  Returns `Err(affected)` — a list of view qnames —
+/// when the policy has `view_drop_create_dependents = false` and at least one
+/// view would need recreation (the caller surfaces an appropriate error).
+///
+/// The function appends [`Change::View(ViewChange::ReplaceBody { compatible: false })`]
+/// for every affected view **not already present** in `changes` (to avoid
+/// duplicate recreation of a view that the differ itself already marked for
+/// replacement). Views are appended in topological order relative to each
+/// other (dependencies first, so the DROP + CREATE sequence is correct).
+pub fn extend_with_dependent_recreations(
+    changes: &mut Vec<Change>,
+    target_catalog: &Catalog,
+    policy: &PlannerPolicy,
+) -> Result<(), Vec<QualifiedName>> {
+    let triggers = collect_upstream_triggers(changes);
+    if triggers.is_empty() {
+        return Ok(());
+    }
+
+    let affected = walk_transitive(&triggers, target_catalog);
+    if affected.is_empty() {
+        return Ok(());
+    }
+
+    // Collect the set of view qnames already present in changes (those the
+    // differ already produced a ReplaceBody for) so we don't double-emit.
+    let already_in_changes: BTreeSet<QualifiedName> = changes
+        .iter()
+        .filter_map(|c| match c {
+            Change::View(ViewChange::ReplaceBody { source, .. }) => Some(source.qname.clone()),
+            Change::View(ViewChange::Drop(q)) => Some(q.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let new_affected: Vec<QualifiedName> = affected
+        .into_iter()
+        .filter(|q| !already_in_changes.contains(q))
+        .collect();
+
+    if new_affected.is_empty() {
+        return Ok(());
+    }
+
+    if !policy.view_drop_create_dependents() {
+        return Err(new_affected);
+    }
+
+    for view_qname in new_affected {
+        if let Some(cat) = target_catalog.views.iter().find(|v| v.qname == view_qname) {
+            changes.push(Change::View(ViewChange::ReplaceBody {
+                // source = the desired state; for recreations triggered by
+                // upstream changes, the target catalog's version *is* the
+                // desired version (the view body itself is unchanged — only its
+                // dependencies changed).
+                source: cat.clone(),
+                catalog: cat.clone(),
+                compatible: false,
+            }));
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Trigger collection
+// ---------------------------------------------------------------------------
+
+/// Scan the already-computed `changes` list for events that force dependent
+/// views to be recreated.
+fn collect_upstream_triggers(changes: &[Change]) -> Vec<DepTrigger> {
+    let mut out = Vec::new();
+    for change in changes {
+        // Extract the object qname(s) that this change triggers on.
+        if let Some(trigger_qname) = object_drop_qname(change) {
+            // Table, view, or MV drop — any dep on that object triggers recreation.
+            out.push(DepTrigger {
+                qname: trigger_qname,
+                column: None,
+            });
+        } else {
+            match change {
+                // Column drops and type changes trigger views that reference
+                // the specific column.
+                Change::AlterTable { qname, ops } => {
+                    for op_entry in ops {
+                        match &op_entry.op {
+                            crate::diff::table_op::TableOp::DropColumn { name, .. }
+                            | crate::diff::table_op::TableOp::AlterColumnType { name, .. } => {
+                                out.push(DepTrigger {
+                                    qname: qname.clone(),
+                                    column: Some(name.as_str().to_string()),
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                // Incompatible view body replaces trigger dependents.
+                Change::View(ViewChange::ReplaceBody {
+                    catalog,
+                    compatible: false,
+                    ..
+                }) => out.push(DepTrigger {
+                    qname: catalog.qname.clone(),
+                    column: None,
+                }),
+                // Compatible view body replaces use `CREATE OR REPLACE VIEW` and
+                // do NOT break dependents — that is the point of OR REPLACE.
+
+                // MV body replaces also trigger dependent recreation.
+                Change::Mv(MvChange::ReplaceBody { catalog, .. }) => out.push(DepTrigger {
+                    qname: catalog.qname.clone(),
+                    column: None,
+                }),
+
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// If `change` is a drop of a top-level object (table, view, MV), return its qname.
+fn object_drop_qname(change: &Change) -> Option<QualifiedName> {
+    match change {
+        Change::DropTable { qname, .. }
+        | Change::View(ViewChange::Drop(qname))
+        | Change::Mv(MvChange::Drop(qname)) => Some(qname.clone()),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transitive walk
+// ---------------------------------------------------------------------------
+
+/// Build an index: qname → list of `(dep_qname, column_or_none)` for quick lookup.
+///
+/// For each view, we record every (object, column) pair that it depends on,
+/// derived from its `body_dependencies`.
+fn build_dep_index(
+    catalog: &Catalog,
+) -> BTreeMap<QualifiedName, Vec<(QualifiedName, Option<String>)>> {
+    let mut index: BTreeMap<QualifiedName, Vec<(QualifiedName, Option<String>)>> = BTreeMap::new();
+    for v in &catalog.views {
+        let deps: Vec<(QualifiedName, Option<String>)> = v
+            .body_dependencies
+            .iter()
+            .filter_map(|dep| match &dep.to {
+                NodeId::Table(q) | NodeId::View(q) | NodeId::Mv(q) => Some((q.clone(), None)),
+                // We don't have column-level NodeId granularity yet, so
+                // column-specific triggers fall back to object-level matching.
+                _ => None,
+            })
+            .collect();
+        if !deps.is_empty() {
+            index.insert(v.qname.clone(), deps);
+        }
+    }
+    index
+}
+
+/// Compute the transitive closure of views affected by `triggers`.
+///
+/// Returns a `Vec` in topological order: if view B depends on view A, A comes
+/// first (so its DROP precedes B's DROP when we later emit DROP + CREATE).
+fn walk_transitive(triggers: &[DepTrigger], catalog: &Catalog) -> Vec<QualifiedName> {
+    // Build quick lookup: object qname → set of views directly depending on it.
+    let dep_index = build_dep_index(catalog);
+
+    // Reverse index: for each object, which views reference it?
+    let mut reverse: BTreeMap<QualifiedName, BTreeSet<QualifiedName>> = BTreeMap::new();
+    for (view_qname, deps) in &dep_index {
+        for (dep_qname, _col) in deps {
+            reverse
+                .entry(dep_qname.clone())
+                .or_default()
+                .insert(view_qname.clone());
+        }
+    }
+
+    // Start with the initial set of affected views from direct trigger hits.
+    let mut affected: BTreeSet<QualifiedName> = BTreeSet::new();
+    let mut work_queue: Vec<QualifiedName> = Vec::new();
+
+    for trigger in triggers {
+        // Find views that reference the trigger's object.
+        // For column-level triggers, we only match dep edges that reference
+        // the same object (at object granularity — column granularity not yet
+        // available in the edge model).
+        if let Some(dependent_views) = reverse.get(&trigger.qname) {
+            for view_qname in dependent_views {
+                if affected.insert(view_qname.clone()) {
+                    work_queue.push(view_qname.clone());
+                }
+            }
+        }
+    }
+
+    // Iteratively expand: newly-affected views may themselves be depended on
+    // by further views.
+    while let Some(trigger_qname) = work_queue.pop() {
+        if let Some(dependent_views) = reverse.get(&trigger_qname) {
+            for view_qname in dependent_views {
+                if affected.insert(view_qname.clone()) {
+                    work_queue.push(view_qname.clone());
+                }
+            }
+        }
+    }
+
+    if affected.is_empty() {
+        return Vec::new();
+    }
+
+    // Topological sort: dependencies first.
+    // We use Kahn's algorithm over the subgraph induced by `affected`.
+    topological_sort_affected(&affected, &dep_index)
+}
+
+/// Kahn's algorithm over the set of affected views to produce a topological
+/// ordering (dependency-first). Views with no edges within `affected` come
+/// first; views that depend on other affected views come later.
+fn topological_sort_affected(
+    affected: &BTreeSet<QualifiedName>,
+    dep_index: &BTreeMap<QualifiedName, Vec<(QualifiedName, Option<String>)>>,
+) -> Vec<QualifiedName> {
+    // Build in-degree map for affected views (counting only edges within the
+    // affected set — cross-edges to non-affected objects are irrelevant here).
+    let mut in_degree: BTreeMap<&QualifiedName, usize> = affected.iter().map(|q| (q, 0)).collect();
+    // adjacency: from -> list of views that depend on `from` (within affected).
+    let mut adj: BTreeMap<&QualifiedName, Vec<&QualifiedName>> = BTreeMap::new();
+
+    for view_qname in affected {
+        if let Some(deps) = dep_index.get(view_qname) {
+            for (dep_qname, _) in deps {
+                if affected.contains(dep_qname) {
+                    // view_qname depends on dep_qname => dep_qname -> view_qname edge.
+                    adj.entry(dep_qname).or_default().push(view_qname);
+                    *in_degree.entry(view_qname).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
+    // Start with nodes of in-degree 0 (sorted for determinism).
+    let mut queue: std::collections::BinaryHeap<std::cmp::Reverse<&QualifiedName>> = in_degree
+        .iter()
+        .filter(|(_, deg)| **deg == 0)
+        .map(|(q, _)| std::cmp::Reverse(*q))
+        .collect();
+
+    let mut result = Vec::with_capacity(affected.len());
+    while let Some(std::cmp::Reverse(node)) = queue.pop() {
+        result.push(node.clone());
+        if let Some(dependents) = adj.get(node) {
+            for dep in dependents {
+                let entry = in_degree.entry(dep).or_insert(0);
+                if *entry > 0 {
+                    *entry -= 1;
+                    if *entry == 0 {
+                        queue.push(std::cmp::Reverse(dep));
+                    }
+                }
+            }
+        }
+    }
+
+    // If result.len() < affected.len() there's a cycle within views; emit
+    // remaining in name-sorted order as a safe fallback.
+    if result.len() < affected.len() {
+        let emitted: BTreeSet<QualifiedName> = result.iter().cloned().collect();
+        for q in affected {
+            if !emitted.contains(q) {
+                result.push(q.clone());
+            }
+        }
+    }
+
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[allow(clippy::redundant_clone)] // test helpers use clone for clarity
+mod tests {
+    use super::*;
+    use crate::diff::destructiveness::Destructiveness;
+    use crate::diff::table_op::{TableOp, TableOpEntry};
+    use crate::identifier::Identifier;
+    use crate::ir::catalog::Catalog;
+    use crate::ir::column_type::ColumnType;
+    use crate::ir::view::{View, ViewColumn};
+    use crate::parse::normalize_body::NormalizedBody;
+    use crate::plan::edges::{DepEdge, DepSource, NodeId};
+    use crate::plan::policy::PlannerPolicy;
+
+    fn id(s: &str) -> Identifier {
+        Identifier::from_unquoted(s).unwrap()
+    }
+
+    fn qn(schema: &str, name: &str) -> QualifiedName {
+        QualifiedName::new(id(schema), id(name))
+    }
+
+    fn body(sql: &str) -> NormalizedBody {
+        NormalizedBody::from_sql(sql).unwrap()
+    }
+
+    fn simple_view(schema: &str, name: &str, deps: Vec<DepEdge>) -> View {
+        View {
+            qname: qn(schema, name),
+            columns: vec![ViewColumn {
+                name: id("id"),
+                column_type: ColumnType::BigInt,
+                comment: None,
+            }],
+            body_canonical: body("SELECT 1"),
+            body_dependencies: deps,
+            security_barrier: None,
+            security_invoker: None,
+            comment: None,
+            raw_body: String::new(),
+        }
+    }
+
+    fn dep_edge(from_view: &QualifiedName, to_table: &QualifiedName) -> DepEdge {
+        DepEdge {
+            from: NodeId::View(from_view.clone()),
+            to: NodeId::Table(to_table.clone()),
+            source: DepSource::AstExtracted,
+        }
+    }
+
+    fn view_to_view_edge(from_view: &QualifiedName, to_view: &QualifiedName) -> DepEdge {
+        DepEdge {
+            from: NodeId::View(from_view.clone()),
+            to: NodeId::View(to_view.clone()),
+            source: DepSource::AstExtracted,
+        }
+    }
+
+    fn drop_table_change(qname: QualifiedName) -> Change {
+        Change::DropTable {
+            qname,
+            row_count_estimate: None,
+        }
+    }
+
+    fn alter_drop_col(table: QualifiedName, col: &str) -> Change {
+        Change::AlterTable {
+            qname: table,
+            ops: vec![TableOpEntry {
+                op: TableOp::DropColumn {
+                    name: id(col),
+                    is_populated: false,
+                },
+                destructiveness: Destructiveness::Safe,
+            }],
+        }
+    }
+
+    fn alter_col_type(table: QualifiedName, col: &str) -> Change {
+        Change::AlterTable {
+            qname: table,
+            ops: vec![TableOpEntry {
+                op: TableOp::AlterColumnType {
+                    name: id(col),
+                    from: ColumnType::BigInt,
+                    to: ColumnType::Text,
+                    using: None,
+                },
+                destructiveness: Destructiveness::Safe,
+            }],
+        }
+    }
+
+    fn policy_enabled() -> PlannerPolicy {
+        PlannerPolicy::default()
+    }
+
+    fn policy_disabled() -> PlannerPolicy {
+        let mut p = PlannerPolicy::default();
+        p.online.view_drop_create_dependents = false;
+        p
+    }
+
+    // --- collect_upstream_triggers ---
+
+    #[test]
+    fn drop_table_produces_trigger() {
+        let changes = vec![drop_table_change(qn("app", "users"))];
+        let triggers = collect_upstream_triggers(&changes);
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].qname, qn("app", "users"));
+        assert!(triggers[0].column.is_none());
+    }
+
+    #[test]
+    fn drop_column_produces_column_trigger() {
+        let changes = vec![alter_drop_col(qn("app", "users"), "email")];
+        let triggers = collect_upstream_triggers(&changes);
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].qname, qn("app", "users"));
+        assert_eq!(triggers[0].column.as_deref(), Some("email"));
+    }
+
+    #[test]
+    fn alter_column_type_produces_trigger() {
+        let changes = vec![alter_col_type(qn("app", "users"), "name")];
+        let triggers = collect_upstream_triggers(&changes);
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].column.as_deref(), Some("name"));
+    }
+
+    #[test]
+    fn compatible_body_replace_does_not_trigger() {
+        let view = simple_view("app", "v", vec![]);
+        let changes = vec![Change::View(ViewChange::ReplaceBody {
+            source: view.clone(),
+            catalog: view,
+            compatible: true,
+        })];
+        let triggers = collect_upstream_triggers(&changes);
+        assert!(triggers.is_empty(), "compatible replace must not trigger");
+    }
+
+    #[test]
+    fn incompatible_body_replace_triggers() {
+        let view = simple_view("app", "v", vec![]);
+        let changes = vec![Change::View(ViewChange::ReplaceBody {
+            source: view.clone(),
+            catalog: view,
+            compatible: false,
+        })];
+        let triggers = collect_upstream_triggers(&changes);
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].qname, qn("app", "v"));
+    }
+
+    #[test]
+    fn mv_drop_triggers() {
+        let changes = vec![Change::Mv(MvChange::Drop(qn("app", "mv")))];
+        let triggers = collect_upstream_triggers(&changes);
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].qname, qn("app", "mv"));
+    }
+
+    // --- walk_transitive ---
+
+    #[test]
+    fn single_dependent_view_is_found() {
+        // view "v" depends on table "users". Drop "users" → recreate "v".
+        let v_qname = qn("app", "v");
+        let users = qn("app", "users");
+        let v = simple_view("app", "v", vec![dep_edge(&v_qname, &users)]);
+        let mut catalog = Catalog::empty();
+        catalog.views.push(v);
+
+        let triggers = vec![DepTrigger {
+            qname: users.clone(),
+            column: None,
+        }];
+        let affected = walk_transitive(&triggers, &catalog);
+        assert_eq!(affected, vec![v_qname]);
+    }
+
+    #[test]
+    fn chain_a_b_c_all_affected() {
+        // a: depends on table T
+        // b: depends on view a
+        // c: depends on view b
+        // Trigger on T → affects a, b, c (topological: a before b before c)
+        let t = qn("app", "t");
+        let a = qn("app", "a");
+        let b = qn("app", "b");
+        let c = qn("app", "c");
+
+        let view_a = simple_view("app", "a", vec![dep_edge(&a, &t)]);
+        let view_b = simple_view("app", "b", vec![view_to_view_edge(&b, &a)]);
+        let view_c = simple_view("app", "c", vec![view_to_view_edge(&c, &b)]);
+
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view_a);
+        catalog.views.push(view_b);
+        catalog.views.push(view_c);
+
+        let triggers = vec![DepTrigger {
+            qname: t.clone(),
+            column: None,
+        }];
+        let affected = walk_transitive(&triggers, &catalog);
+        // All three must be present; a must come before b, b before c.
+        assert!(
+            affected.contains(&a),
+            "view a must be in affected: {affected:?}"
+        );
+        assert!(
+            affected.contains(&b),
+            "view b must be in affected: {affected:?}"
+        );
+        assert!(
+            affected.contains(&c),
+            "view c must be in affected: {affected:?}"
+        );
+        let pos_a = affected.iter().position(|q| q == &a).unwrap();
+        let pos_b = affected.iter().position(|q| q == &b).unwrap();
+        let pos_c = affected.iter().position(|q| q == &c).unwrap();
+        assert!(pos_a < pos_b, "a must come before b: {affected:?}");
+        assert!(pos_b < pos_c, "b must come before c: {affected:?}");
+    }
+
+    #[test]
+    fn unrelated_view_not_included() {
+        // view "v1" depends on table "users"
+        // view "v2" depends on table "orders"
+        // Trigger on "users" → only "v1" affected.
+        let users = qn("app", "users");
+        let orders = qn("app", "orders");
+        let v1 = qn("app", "v1");
+        let v2 = qn("app", "v2");
+
+        let view_v1 = simple_view("app", "v1", vec![dep_edge(&v1, &users)]);
+        let view_v2 = simple_view("app", "v2", vec![dep_edge(&v2, &orders)]);
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view_v1);
+        catalog.views.push(view_v2);
+
+        let triggers = vec![DepTrigger {
+            qname: users.clone(),
+            column: None,
+        }];
+        let affected = walk_transitive(&triggers, &catalog);
+        assert_eq!(affected, vec![v1]);
+    }
+
+    #[test]
+    fn no_triggers_no_affected() {
+        let v = simple_view("app", "v", vec![]);
+        let mut catalog = Catalog::empty();
+        catalog.views.push(v);
+        let affected = walk_transitive(&[], &catalog);
+        assert!(affected.is_empty());
+    }
+
+    // --- extend_with_dependent_recreations ---
+
+    #[test]
+    fn extend_adds_replace_body_for_affected_view() {
+        let users = qn("app", "users");
+        let v_qname = qn("app", "v");
+        let view = simple_view("app", "v", vec![dep_edge(&v_qname, &users)]);
+
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view);
+
+        let mut changes = vec![drop_table_change(users.clone())];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        // changes[0] = DropTable, changes[1] = ReplaceBody for "v"
+        assert_eq!(changes.len(), 2);
+        assert!(
+            matches!(
+                &changes[1],
+                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                if source.qname == v_qname
+            ),
+            "expected ReplaceBody for v, got: {:?}",
+            changes[1]
+        );
+    }
+
+    #[test]
+    fn extend_does_not_duplicate_already_replaced_view() {
+        let users = qn("app", "users");
+        let v_qname = qn("app", "v");
+        let view = simple_view("app", "v", vec![dep_edge(&v_qname, &users)]);
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view.clone());
+
+        // Differ already produced a ReplaceBody for "v".
+        let mut changes = vec![
+            drop_table_change(users.clone()),
+            Change::View(ViewChange::ReplaceBody {
+                source: view.clone(),
+                catalog: view,
+                compatible: false,
+            }),
+        ];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        // Still 2 changes — no duplicate.
+        assert_eq!(changes.len(), 2);
+    }
+
+    #[test]
+    fn policy_disabled_returns_error_with_names() {
+        let users = qn("app", "users");
+        let v_qname = qn("app", "v");
+        let view = simple_view("app", "v", vec![dep_edge(&v_qname, &users)]);
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view);
+
+        let mut changes = vec![drop_table_change(users.clone())];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_disabled());
+        assert!(result.is_err());
+        let affected = result.unwrap_err();
+        assert!(
+            affected.contains(&v_qname),
+            "expected v in error list: {affected:?}"
+        );
+        // Changes should NOT be modified when policy blocks.
+        assert_eq!(changes.len(), 1);
+    }
+
+    #[test]
+    fn no_changes_no_recreation() {
+        let view = simple_view("app", "v", vec![]);
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view);
+
+        let mut changes = vec![];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        assert!(changes.is_empty());
+    }
+}

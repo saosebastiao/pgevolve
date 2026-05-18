@@ -81,11 +81,11 @@ fn render_plan_with_views_once() -> String {
         &source,
         &pgevolve_core::catalog::DriftReport::default(),
     );
-    let ordered = order(&target, &source, changes).expect("order");
     let policy = PlannerPolicy {
         strategy: Strategy::Online,
         ..PlannerPolicy::default()
     };
+    let ordered = order(&target, &source, changes, &policy).expect("order");
     let steps = rewrite(ordered, &target, &policy);
     let groups = group_steps(steps);
     let plan = Plan::from_grouped(
@@ -118,11 +118,11 @@ fn render_plan_once() -> String {
         &source,
         &pgevolve_core::catalog::DriftReport::default(),
     );
-    let ordered = order(&target, &source, changes).expect("order");
     let policy = PlannerPolicy {
         strategy: Strategy::Online,
         ..PlannerPolicy::default()
     };
+    let ordered = order(&target, &source, changes, &policy).expect("order");
     let steps = rewrite(ordered, &target, &policy);
     let groups = group_steps(steps);
     // Fixed target identity so plan IDs are reproducible. Any stable string

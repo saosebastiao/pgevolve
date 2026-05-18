@@ -158,6 +158,15 @@ pub struct PlannerOnlineRewrites {
     /// Rewrite SET NOT NULL on populated columns via the CHECK pattern.
     #[serde(default = "default_true")]
     pub not_null_via_check_pattern: bool,
+    /// Upgrade REFRESH MATERIALIZED VIEW to REFRESH CONCURRENTLY when the MV
+    /// has at least one unique index (online strategy only). Default `true`.
+    #[serde(default = "default_true")]
+    pub refresh_mv_concurrently: bool,
+    /// Walk transitively-affected views and emit explicit DROP + CREATE steps
+    /// instead of relying on CASCADE. When `false`, the planner errors on any
+    /// change that would force dependent view recreations. Default `true`.
+    #[serde(default = "default_true")]
+    pub view_drop_create_dependents: bool,
 }
 
 impl Default for PlannerOnlineRewrites {
@@ -167,6 +176,8 @@ impl Default for PlannerOnlineRewrites {
             fk_not_valid_then_validate: true,
             check_not_valid_then_validate: true,
             not_null_via_check_pattern: true,
+            refresh_mv_concurrently: true,
+            view_drop_create_dependents: true,
         }
     }
 }
