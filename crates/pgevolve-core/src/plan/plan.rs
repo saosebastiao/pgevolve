@@ -287,6 +287,13 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::DropSequence => "drop_sequence",
         K::AlterSequence => "alter_sequence",
         K::AddCheckForNotNull => "add_check_for_not_null",
+        K::CreateView => "create_view",
+        K::DropView => "drop_view",
+        K::CreateMaterializedView => "create_materialized_view",
+        K::DropMaterializedView => "drop_materialized_view",
+        K::RefreshMaterializedView => "refresh_materialized_view",
+        K::AlterViewSetReloption => "alter_view_set_reloption",
+        K::CommentOnView => "comment_on_view",
     }
 }
 
@@ -321,6 +328,13 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "drop_sequence" => K::DropSequence,
         "alter_sequence" => K::AlterSequence,
         "add_check_for_not_null" => K::AddCheckForNotNull,
+        "create_view" => K::CreateView,
+        "drop_view" => K::DropView,
+        "create_materialized_view" => K::CreateMaterializedView,
+        "drop_materialized_view" => K::DropMaterializedView,
+        "refresh_materialized_view" => K::RefreshMaterializedView,
+        "alter_view_set_reloption" => K::AlterViewSetReloption,
+        "comment_on_view" => K::CommentOnView,
         _ => return None,
     })
 }

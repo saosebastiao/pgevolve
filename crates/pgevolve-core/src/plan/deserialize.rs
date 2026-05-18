@@ -723,4 +723,111 @@ COMMIT;
         assert!(body.contains("id bigint NOT NULL,"));
         assert!(body.ends_with(");"));
     }
+
+    #[test]
+    fn read_plan_dir_round_trips_view_and_mv_step_kinds() {
+        use crate::ir::catalog::Catalog;
+        use crate::ir::schema::Schema;
+        use crate::plan::grouping::TransactionGroup;
+        use crate::plan::plan::Plan;
+        use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
+        use crate::plan::serialize::write_plan_dir;
+
+        let id_id = |s: &str| Identifier::from_unquoted(s).unwrap();
+        let qn = |schema: &str, name: &str| QualifiedName::new(id_id(schema), id_id(name));
+
+        let view_step = |kind: StepKind, sql: &str, destructive: bool| -> RawStep {
+            RawStep {
+                step_no: 0,
+                kind,
+                destructive,
+                destructive_reason: destructive.then(|| "test".to_string()),
+                intent_id: None,
+                targets: vec![qn("app", "my_view")],
+                sql: sql.to_string(),
+                transactional: TransactionConstraint::InTransaction,
+            }
+        };
+
+        let groups = vec![TransactionGroup {
+            id: 1,
+            transactional: true,
+            steps: vec![
+                view_step(
+                    StepKind::CreateView,
+                    "CREATE VIEW app.my_view AS\nSELECT 1;",
+                    false,
+                ),
+                view_step(StepKind::DropView, "DROP VIEW app.my_view;", true),
+                view_step(
+                    StepKind::CreateMaterializedView,
+                    "CREATE MATERIALIZED VIEW app.my_view AS\nSELECT 1\nWITH NO DATA;",
+                    false,
+                ),
+                view_step(
+                    StepKind::DropMaterializedView,
+                    "DROP MATERIALIZED VIEW app.my_view;",
+                    false,
+                ),
+                view_step(
+                    StepKind::RefreshMaterializedView,
+                    "REFRESH MATERIALIZED VIEW app.my_view;",
+                    false,
+                ),
+                view_step(
+                    StepKind::AlterViewSetReloption,
+                    "ALTER VIEW app.my_view SET (security_barrier = true);",
+                    false,
+                ),
+                view_step(
+                    StepKind::CommentOnView,
+                    "COMMENT ON VIEW app.my_view IS 'a view';",
+                    false,
+                ),
+            ],
+        }];
+
+        let mut snapshot = Catalog::empty();
+        snapshot.schemas.push(Schema::new(id_id("app")));
+        let plan = Plan::from_grouped(
+            groups,
+            &Catalog::empty(),
+            &snapshot,
+            "test-views-target".into(),
+            None,
+            "0.2.0",
+            2,
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        write_plan_dir(&plan, dir.path()).unwrap();
+        let recovered = read_plan_dir(dir.path()).unwrap();
+
+        assert_eq!(recovered.groups.len(), 1);
+        let steps = &recovered.groups[0].steps;
+        assert_eq!(steps.len(), 7);
+        assert_eq!(steps[0].kind, StepKind::CreateView);
+        assert_eq!(steps[1].kind, StepKind::DropView);
+        assert_eq!(steps[2].kind, StepKind::CreateMaterializedView);
+        assert_eq!(steps[3].kind, StepKind::DropMaterializedView);
+        assert_eq!(steps[4].kind, StepKind::RefreshMaterializedView);
+        assert_eq!(steps[5].kind, StepKind::AlterViewSetReloption);
+        assert_eq!(steps[6].kind, StepKind::CommentOnView);
+
+        // Destructive step (DropView) gets an intent_id.
+        assert_eq!(steps[1].intent_id, Some(1));
+        assert!(steps[1].destructive);
+
+        // Non-destructive steps have no intent_id.
+        assert!(steps[0].intent_id.is_none());
+        assert!(steps[3].intent_id.is_none()); // DropMaterializedView is NOT destructive
+
+        // SQL bodies survive the round-trip.
+        assert_eq!(steps[0].sql, "CREATE VIEW app.my_view AS\nSELECT 1;");
+        assert_eq!(
+            steps[2].sql,
+            "CREATE MATERIALIZED VIEW app.my_view AS\nSELECT 1\nWITH NO DATA;"
+        );
+        assert_eq!(steps[4].sql, "REFRESH MATERIALIZED VIEW app.my_view;");
+    }
 }
