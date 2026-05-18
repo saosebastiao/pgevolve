@@ -49,6 +49,12 @@ pub struct View {
     pub security_invoker: Option<bool>,
     /// Optional `COMMENT ON VIEW` text.
     pub comment: Option<String>,
+    /// Raw SELECT body text from source SQL. Populated by the parser (T3);
+    /// consumed by the AST canonicalization pass (T4) to fill
+    /// `body_canonical` and `body_dependencies`. Not serialized to plan
+    /// output or JSON (T4 produces the canonical form which IS serialized).
+    #[serde(skip, default)]
+    pub(crate) raw_body: String,
 }
 
 /// A Postgres `CREATE MATERIALIZED VIEW`.
@@ -68,6 +74,12 @@ pub struct MaterializedView {
     pub body_dependencies: Vec<DepEdge>,
     /// Optional `COMMENT ON MATERIALIZED VIEW` text.
     pub comment: Option<String>,
+    /// Raw SELECT body text from source SQL. Populated by the parser (T3);
+    /// consumed by the AST canonicalization pass (T4) to fill
+    /// `body_canonical` and `body_dependencies`. Not serialized to plan
+    /// output or JSON (T4 produces the canonical form which IS serialized).
+    #[serde(skip, default)]
+    pub(crate) raw_body: String,
 }
 
 impl Diff for View {
@@ -243,6 +255,7 @@ mod tests {
             security_barrier: None,
             security_invoker: None,
             comment: None,
+            raw_body: String::new(),
         }
     }
 
@@ -253,6 +266,7 @@ mod tests {
             body_canonical: body("SELECT 1"),
             body_dependencies: vec![],
             comment: None,
+            raw_body: String::new(),
         }
     }
 
@@ -270,6 +284,7 @@ mod tests {
             security_barrier: None,
             security_invoker: None,
             comment: None,
+            raw_body: String::new(),
         };
         assert_eq!(v1, v2);
     }
@@ -289,6 +304,7 @@ mod tests {
                 source: DepSource::AstExtracted,
             }],
             comment: Some("materialized summary".to_string()),
+            raw_body: String::new(),
         };
         let json = serde_json::to_string(&mv).expect("serialization must succeed");
         let roundtripped: MaterializedView =

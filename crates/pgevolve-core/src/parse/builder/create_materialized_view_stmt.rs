@@ -38,13 +38,62 @@ pub(crate) fn build_materialized_view(
     let qname = shared::resolve_qname(rel, default_schema, location)?;
     let columns = mv_columns_from_col_names(&into.col_names, location)?;
 
+    // Extract a deparseable SELECT body from the query node. T4's
+    // canonicalization pass will re-parse this string to fill
+    // body_canonical and body_dependencies.
+    let raw_body = extract_query_body(stmt.query.as_deref(), location)?;
+
     Ok(MaterializedView {
         qname,
         columns,
         body_canonical: NormalizedBody::empty(),
         body_dependencies: Vec::new(),
         comment: None,
+        raw_body,
     })
+}
+
+/// Deparse the query node of a `CREATE MATERIALIZED VIEW` into a SELECT SQL
+/// string.
+///
+/// The deparsed text may differ in whitespace and keyword case from the
+/// original source, but is semantically equivalent. T4 canonicalizes it
+/// further via [`NormalizedBody::from_sql`].
+fn extract_query_body(
+    query_node: Option<&pg_query::protobuf::Node>,
+    location: &SourceLocation,
+) -> Result<String, ParseError> {
+    let Some(node) = query_node else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: "CREATE MATERIALIZED VIEW missing query body".into(),
+        });
+    };
+    let Some(node_inner) = &node.node else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: "CREATE MATERIALIZED VIEW query body node is empty".into(),
+        });
+    };
+    // Use NodeRef::deparse() which correctly sets PG_VERSION_NUM in the
+    // internal ParseResult it builds.
+    let deparsed = node_inner
+        .to_ref()
+        .deparse()
+        .map_err(|e| ParseError::Structural {
+            location: location.clone(),
+            message: format!("failed to deparse materialized view query body: {e}"),
+        })?;
+    if deparsed.trim().is_empty() {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "deparsed materialized view query body is empty (node type: {:?})",
+                std::mem::discriminant(node_inner)
+            ),
+        });
+    }
+    Ok(deparsed)
 }
 
 /// Extract explicit column alias list from

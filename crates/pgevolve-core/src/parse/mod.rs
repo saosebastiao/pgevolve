@@ -4,6 +4,7 @@
 //! [`crate::ir::catalog::Catalog`]. Construction is I/O-free at the type level —
 //! the only I/O is performed by [`parse_directory`] on behalf of callers.
 
+pub mod ast_canon;
 mod ast_resolution;
 pub mod builder;
 pub mod directives;
@@ -118,6 +119,13 @@ pub fn parse_directory_with_locations(
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
     ast_resolution::resolve(&catalog, &locations).map_err(ParseError::AstResolution)?;
+
+    // AST canonicalization pass: fill body_canonical, body_dependencies, and
+    // (when needed) columns for all views and materialized views. Skipped when
+    // the catalog has no views, so v0.1 fixtures pay no overhead.
+    if !catalog.views.is_empty() || !catalog.materialized_views.is_empty() {
+        ast_canon::canonicalize_view_bodies(&mut catalog).map_err(ParseError::AstCanon)?;
+    }
 
     let canonical = catalog
         .canonicalize()

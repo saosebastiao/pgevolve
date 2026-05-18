@@ -30,6 +30,11 @@ pub(crate) fn build_view(
     let columns = view_columns_from_aliases(&stmt.aliases, location)?;
     let (security_barrier, security_invoker) = view_reloptions(&stmt.options, location)?;
 
+    // Extract a deparseable SELECT body from the query node. T4's
+    // canonicalization pass will re-parse this string to fill
+    // body_canonical and body_dependencies.
+    let raw_body = extract_query_body(stmt.query.as_deref(), location)?;
+
     Ok(View {
         qname,
         columns,
@@ -38,7 +43,50 @@ pub(crate) fn build_view(
         security_barrier,
         security_invoker,
         comment: None,
+        raw_body,
     })
+}
+
+/// Deparse the query node of a `CREATE VIEW` into a SELECT SQL string.
+///
+/// The deparsed text may differ in whitespace and keyword case from the
+/// original source, but is semantically equivalent. T4 canonicalizes it
+/// further via [`NormalizedBody::from_sql`].
+fn extract_query_body(
+    query_node: Option<&pg_query::protobuf::Node>,
+    location: &SourceLocation,
+) -> Result<String, ParseError> {
+    let Some(node) = query_node else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: "CREATE VIEW missing query body".into(),
+        });
+    };
+    let Some(node_inner) = &node.node else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: "CREATE VIEW query body node is empty".into(),
+        });
+    };
+    // Use NodeRef::deparse() which correctly sets PG_VERSION_NUM in the
+    // internal ParseResult it builds.
+    let deparsed = node_inner
+        .to_ref()
+        .deparse()
+        .map_err(|e| ParseError::Structural {
+            location: location.clone(),
+            message: format!("failed to deparse view query body: {e}"),
+        })?;
+    if deparsed.trim().is_empty() {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "deparsed view query body is empty (node type: {:?})",
+                std::mem::discriminant(node_inner)
+            ),
+        });
+    }
+    Ok(deparsed)
 }
 
 /// Extract explicit column alias list from `CREATE VIEW v(a, b, ...) AS ...`.
