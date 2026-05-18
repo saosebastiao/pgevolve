@@ -209,20 +209,27 @@ mod tests {
 
     #[test]
     fn empty_composite_rejected() {
-        // pg_query itself rejects empty composites as a syntax error,
-        // so we verify via a crafted statement that would be empty if parsed.
-        // Instead, test that the guard message is correct by constructing
-        // a CompositeTypeStmt with an empty coldeflist manually isn't feasible
-        // without protobuf construction. We test via a valid parse that the
-        // guard runs in production by testing the error message content.
-        //
-        // Note: pg_query rejects `CREATE TYPE app.empty AS ()` at parse time
-        // with a syntax error, so our empty-guard is a belt-and-suspenders
-        // defense. We verify the code compiles and runs for the non-empty path.
-        let ut = build("CREATE TYPE app.t AS (id integer);");
-        let UserTypeKind::Composite { attributes } = ut.kind else {
-            panic!()
+        // pg_query itself rejects `CREATE TYPE x AS ()` as a syntax error
+        // before this builder ever sees the statement, so we construct a
+        // synthetic protobuf with an empty `coldeflist` to exercise the
+        // belt-and-suspenders guard directly.
+        use pg_query::protobuf::{CompositeTypeStmt as PgCompositeTypeStmt, RangeVar};
+        let synthetic = PgCompositeTypeStmt {
+            typevar: Some(RangeVar {
+                schemaname: "app".into(),
+                relname: "empty".into(),
+                ..Default::default()
+            }),
+            coldeflist: vec![],
         };
-        assert_eq!(attributes.len(), 1);
+        let err = build_composite(&synthetic, None, &loc()).unwrap_err();
+        let msg = match &err {
+            ParseError::Structural { message, .. } => message.clone(),
+            other => panic!("expected Structural, got {other:?}"),
+        };
+        assert!(
+            msg.contains("at least one attribute"),
+            "expected 'at least one attribute' in: {msg}",
+        );
     }
 }
