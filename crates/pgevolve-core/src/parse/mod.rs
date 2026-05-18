@@ -231,6 +231,38 @@ fn process_file(
             Statement::Comment(s) => {
                 deferred_comments.push((s, location, directives.schema.clone()));
             }
+            Statement::CreateView(s) => {
+                let view = builder::create_view_stmt::build_view(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                )?;
+                if let Some(prior) = locations.get(&view.qname.to_string()) {
+                    return Err(ParseError::DuplicateObject {
+                        qname: view.qname.to_string(),
+                        first: prior.clone(),
+                        second: location,
+                    });
+                }
+                locations.insert(view.qname.to_string(), location.clone());
+                catalog.views.push(view);
+            }
+            Statement::CreateMaterializedView(s) => {
+                let mv = builder::create_materialized_view_stmt::build_materialized_view(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                )?;
+                if let Some(prior) = locations.get(&mv.qname.to_string()) {
+                    return Err(ParseError::DuplicateObject {
+                        qname: mv.qname.to_string(),
+                        first: prior.clone(),
+                        second: location,
+                    });
+                }
+                locations.insert(mv.qname.to_string(), location.clone());
+                catalog.materialized_views.push(mv);
+            }
         }
     }
     Ok(())

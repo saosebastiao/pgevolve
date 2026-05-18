@@ -35,6 +35,17 @@ pub enum BodyError {
 }
 
 impl NormalizedBody {
+    /// Sentinel for source-parse provisional records.
+    ///
+    /// T4's AST canonicalization pass overwrites this immediately after the
+    /// source IR is assembled. Never serialized to plan output.
+    pub const fn empty() -> Self {
+        Self {
+            canonical_text: String::new(),
+            canonical_hash: [0u8; 32],
+        }
+    }
+
     /// Canonicalize a body given its raw SQL text.
     ///
     /// The body may be any complete SQL statement (`SELECT`, `CREATE VIEW`,

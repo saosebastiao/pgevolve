@@ -1,0 +1,1 @@
+CREATE VIEW with explicit column alias list — both produce identical provisional IR with named columns.
