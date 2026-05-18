@@ -21,9 +21,10 @@
 //! behaviour is intentional for v0.1, where every object referenced in source
 //! DDL must itself be declared in source DDL.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::ir::catalog::Catalog;
+use crate::ir::column_type::ColumnType;
 use crate::parse::error::SourceLocation;
 
 /// One unresolved reference in the source IR.
@@ -61,6 +62,7 @@ pub fn resolve(
     let mut errors = Vec::new();
     resolve_fk_references(catalog, locations, &mut errors);
     resolve_default_sequence_references(catalog, locations, &mut errors);
+    resolve_user_defined_references(catalog, locations, &mut errors);
     if errors.is_empty() {
         Ok(())
     } else {
@@ -106,7 +108,7 @@ fn resolve_default_sequence_references(
 ) {
     use crate::ir::default_expr::DefaultExpr;
 
-    let known_sequences: std::collections::BTreeSet<_> = catalog
+    let known_sequences: BTreeSet<_> = catalog
         .sequences
         .iter()
         .map(|s| s.qname.to_string())
@@ -128,6 +130,76 @@ fn resolve_default_sequence_references(
                         location,
                     });
                 }
+            }
+        }
+    }
+}
+
+fn resolve_user_defined_references(
+    catalog: &Catalog,
+    locations: &HashMap<String, SourceLocation>,
+    errors: &mut Vec<AstResolutionError>,
+) {
+    use crate::ir::user_type::UserTypeKind;
+
+    let known_types: BTreeSet<String> = catalog.types.iter().map(|t| t.qname.to_string()).collect();
+
+    // 1. Walk table columns.
+    for table in &catalog.tables {
+        for column in &table.columns {
+            if let ColumnType::UserDefined(qname) = &column.ty {
+                let key = qname.to_string();
+                if !known_types.contains(&key) {
+                    let location = locations.get(&table.qname.to_string()).cloned();
+                    errors.push(AstResolutionError {
+                        message: format!(
+                            "column {}.{} has type {} which is not declared in source",
+                            table.qname, column.name, qname,
+                        ),
+                        location,
+                    });
+                }
+            }
+        }
+    }
+
+    // 2. Walk composite attributes and domain bases.
+    for ut in &catalog.types {
+        match &ut.kind {
+            UserTypeKind::Composite { attributes } => {
+                for attr in attributes {
+                    if let ColumnType::UserDefined(qname) = &attr.ty {
+                        let key = qname.to_string();
+                        if !known_types.contains(&key) {
+                            let location = locations.get(&ut.qname.to_string()).cloned();
+                            errors.push(AstResolutionError {
+                                message: format!(
+                                    "composite type {}.{} has type {} which is not declared in source",
+                                    ut.qname, attr.name, qname,
+                                ),
+                                location,
+                            });
+                        }
+                    }
+                }
+            }
+            UserTypeKind::Domain { base, .. } => {
+                if let ColumnType::UserDefined(qname) = base {
+                    let key = qname.to_string();
+                    if !known_types.contains(&key) {
+                        let location = locations.get(&ut.qname.to_string()).cloned();
+                        errors.push(AstResolutionError {
+                            message: format!(
+                                "domain {} base type {} is not declared in source",
+                                ut.qname, qname,
+                            ),
+                            location,
+                        });
+                    }
+                }
+            }
+            UserTypeKind::Enum { .. } => {
+                // Enums have no UserDefined references — their values are bare labels.
             }
         }
     }

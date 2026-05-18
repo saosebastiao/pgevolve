@@ -141,10 +141,44 @@ fn literal_arg_to_string(c: &AConst) -> Option<String> {
 }
 
 /// Convert a `TypeName` into a [`ColumnType`], propagating parser errors.
+///
+/// When `TypeName.names` contains two String nodes and the first is not
+/// `pg_catalog`, the type is schema-qualified by the user (e.g. `app.order_status`).
+/// In that case we emit `ColumnType::UserDefined(QualifiedName)` so that the
+/// AST resolution pass can validate that the referenced type is declared in source.
+///
+/// Unqualified single-segment names are handled by the usual string path; if they
+/// don't match any built-in they fall through to `ColumnType::Other`, which is
+/// intentional — unqualified user types must be resolved via `default_schema` at
+/// domain/composite parse time rather than here.
 pub fn type_name_to_column_type(
     type_name: &TypeName,
     location: &SourceLocation,
 ) -> Result<ColumnType, ParseError> {
+    // Collect String nodes from names.
+    let name_strings: Vec<&str> = type_name
+        .names
+        .iter()
+        .filter_map(|n| {
+            if let Some(NodeEnum::String(s)) = &n.node {
+                Some(s.sval.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Two-segment, non-pg_catalog prefix → user-defined type reference.
+    if let [schema, name] = name_strings.as_slice()
+        && *schema != "pg_catalog"
+    {
+        let schema_id = ident(schema, location)?;
+        let name_id = ident(name, location)?;
+        return Ok(ColumnType::UserDefined(QualifiedName::new(
+            schema_id, name_id,
+        )));
+    }
+
     let s = render_type_name_to_string(type_name).ok_or_else(|| ParseError::Structural {
         location: location.clone(),
         message: "could not stringify type name".into(),

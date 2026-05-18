@@ -166,3 +166,120 @@ fn body_cycle_variant_renders_node_names() {
     assert!(msg.contains("app.a"), "should name 'app.a': {msg}");
     assert!(msg.contains("app.b"), "should name 'app.b': {msg}");
 }
+
+// ---------------------------------------------------------------------------
+// UserDefined type reference resolution (T5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn table_column_with_undeclared_user_type_fails() {
+    let tmp = tempdir().unwrap();
+    let dir = tmp.path();
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
+    write(
+        dir,
+        "app/orders.sql",
+        "-- @pgevolve schema=app\n\
+         CREATE TABLE app.orders (\n\
+             id bigint PRIMARY KEY,\n\
+             status app.order_status NOT NULL\n\
+         );\n",
+    );
+    // app.order_status is NOT declared — must fail.
+
+    let err = parse_directory(dir, &[]).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("app.order_status"),
+        "error should name the missing type: {msg}",
+    );
+    // Error must indicate it's not declared/resolved.
+    assert!(
+        msg.contains("not declared") || msg.contains("undeclared") || msg.contains("not found"),
+        "error should indicate undeclared type: {msg}",
+    );
+}
+
+#[test]
+fn table_column_with_declared_user_type_resolves() {
+    let tmp = tempdir().unwrap();
+    let dir = tmp.path();
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
+    write(
+        dir,
+        "app/order_status.sql",
+        "-- @pgevolve schema=app\n\
+         CREATE TYPE app.order_status AS ENUM ('pending', 'shipped');\n",
+    );
+    write(
+        dir,
+        "app/orders.sql",
+        "-- @pgevolve schema=app\n\
+         CREATE TABLE app.orders (\n\
+             id bigint PRIMARY KEY,\n\
+             status app.order_status NOT NULL\n\
+         );\n",
+    );
+
+    let catalog = parse_directory(dir, &[]).expect("declared user type should resolve");
+    assert_eq!(catalog.types.len(), 1, "should have 1 type");
+    assert_eq!(catalog.tables.len(), 1, "should have 1 table");
+}
+
+#[test]
+fn domain_base_with_undeclared_type_fails() {
+    let tmp = tempdir().unwrap();
+    let dir = tmp.path();
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
+    write(
+        dir,
+        "app/my_domain.sql",
+        "-- @pgevolve schema=app\n\
+         CREATE DOMAIN app.my_domain AS app.nonexistent;\n",
+    );
+    // app.nonexistent is NOT declared — must fail.
+
+    let err = parse_directory(dir, &[]).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("app.nonexistent"),
+        "error should name the missing base type: {msg}",
+    );
+}
+
+#[test]
+fn composite_attribute_with_undeclared_type_fails() {
+    let tmp = tempdir().unwrap();
+    let dir = tmp.path();
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
+    write(
+        dir,
+        "app/my_composite.sql",
+        "-- @pgevolve schema=app\n\
+         CREATE TYPE app.my_composite AS (foo app.nonexistent);\n",
+    );
+    // app.nonexistent is NOT declared — must fail.
+
+    let err = parse_directory(dir, &[]).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("app.nonexistent"),
+        "error should name the missing attribute type: {msg}",
+    );
+}
