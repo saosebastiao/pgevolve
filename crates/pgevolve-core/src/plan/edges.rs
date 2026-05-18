@@ -93,10 +93,16 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     }
 
     // Phase 3: indexes depend on their parent (table or MV).
-    // For v0.2 the dep graph only has a Table NodeId variant; MV NodeIds are
-    // introduced in T7+. Until then, both IndexParent::Table and
-    // IndexParent::Mv route to NodeId::Table so existing edges still compile.
-    // TODO(T7): add NodeId::Mv and route IndexParent::Mv to it here.
+    // TODO(T7): Until T7 adds `NodeId::Mv` and Phase 1 of build_create_graph
+    // registers MV nodes, an `IndexParent::Mv` index produces a dep edge to
+    // `NodeId::Table(mv_qname)` that doesn't exist in the graph. Unlike a
+    // proper "discard", `Graph::add_edge` actually inserts both endpoints as
+    // nodes (see `add_edge_internal`), so the phantom `NodeId::Table(mv_qname)`
+    // node will appear in topological output even though no `CREATE TABLE`
+    // step exists for it — planner output will be silently wrong. T5 (catalog
+    // assembly) must not ship without T7's NodeId::Mv variant + Phase-1
+    // MV node registration, or planner output will contain spurious ghost
+    // table nodes and miss ordering dependencies between MVs and their indexes.
     for i in &catalog.indexes {
         g.add_edge(
             NodeId::Index(i.qname.clone()),

@@ -116,6 +116,14 @@ fn closed_world_references(tree: &SourceTree) -> Vec<Finding> {
         }
     }
 
+    // TODO(T10): When T3 + T5 land, materialized_views can also serve as
+    // index parents (IndexParent::Mv). The check below only consults
+    // `table_names` — for MV indexes it would emit a false-positive
+    // "unknown table" error. T10 (lints task) must either union
+    // `materialized_views` qnames into the candidate set or branch on
+    // `idx.on.is_mv()` with a separate `mv_names` lookup. Until T10 lands,
+    // this is latent because no MV indexes can reach the linter yet (no
+    // MVs in the IR).
     // Indexes' parent references (table or MV).
     for idx in &tree.catalog.indexes {
         if !table_names.contains(idx.on.qname()) {
