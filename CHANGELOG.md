@@ -48,7 +48,7 @@ Extends the v0.1 surface with **views and materialized views** as fully-managed 
 
 - `arb_view_dependency_graph` proptest (spec §12 step 12.2) — deferred post-v0.2; requires substantial generator engineering and is not load-bearing for the closure invariant.
 
-## [0.1.0] — Unreleased
+## [0.1.0] — 2026-05-17
 
 First tagged release. The v0.1 surface manages **schemas, tables (with
 columns/constraints/comments), indexes, and sequences** against Postgres

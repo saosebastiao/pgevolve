@@ -8,7 +8,7 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-> **Status:** v0.1.0 released; v0.2 in progress — views and materialized views implemented. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
+> **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-spec #1 (views and materialized views) merged 2026-05-18. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
 
 ## Usage at a glance
 
@@ -125,7 +125,23 @@ libpq env (`PGHOST`, `PGUSER`, ...).
 | 11    | Testkit                      | done     |
 | 12    | Shadow                       | done     |
 
-### v0.2 feature progress
+### v0.2 sub-spec progress
+
+Per the [arch-readiness spec §16](./docs/superpowers/specs/2026-05-15-v0.2-architecture-review-design.md), v0.2 ships as a sequence of per-object-family sub-specs on the v0.2-readiness foundation.
+
+| # | Sub-spec | Status |
+|---|---|---|
+| 0 | Architecture readiness (foundation) | ✅ Landed `26d8ebc..ec774ff` |
+| 1 | Views and materialized views | ✅ Landed `0e2a7a0` (T13 deferred) |
+| 2 | Types (enums, domains, composites) | 📋 Planned |
+| 3 | Extensions | 📋 Planned |
+| 4 | Functions and procedures | 📋 Planned |
+| 5 | Triggers | 📋 Planned |
+| 6 | Declarative partitioning + table reloptions | 📋 Planned |
+
+v0.3+ work (cluster-level surface — roles, GRANTs, `postgresql.conf`, RLS) is sketched in the arch spec §17 but not yet designed.
+
+### v0.2 views/MVs — what's in `0e2a7a0`
 
 | Feature | Status |
 |---|---|
@@ -133,15 +149,12 @@ libpq env (`PGHOST`, `PGUSER`, ...).
 | Materialized views (`CREATE MATERIALIZED VIEW`, `REFRESH [CONCURRENTLY]`) | ✅ Implemented |
 | AST body canonicalization (`NormalizedBody::from_sql`) | ✅ Implemented |
 | OR-REPLACE compatibility predicate | ✅ Implemented |
-| Dependent-view recreation cascade | ✅ Implemented |
+| Dependent-view recreation cascade (transitive, topologically ordered) | ✅ Implemented |
 | Online rewrite: `REFRESH CONCURRENTLY` (when unique index present) | ✅ Implemented |
 | `[[step_override]]` in `intent.toml` | ✅ Implemented |
 | 3 new lint rules (`view-shadows-table`, `mv-no-unique-index`, `view-body-references-unmanaged-schema`) | ✅ Implemented |
 | 15 conformance fixtures (views, MVs, intent, dep-chains) | ✅ Implemented |
-| Declarative partitioning | 📋 Planned |
-| Functions, procedures, triggers | 📋 Planned |
-| Enums, domains, composite types | 📋 Planned |
-| Extensions | 📋 Planned |
+| `--shadow-validate` cross-check extended for view bodies | 📋 Deferred — [plan filed](./docs/superpowers/plans/2026-05-18-t13-shadow-validate-views.md) |
 
 ## Workspace layout
 
