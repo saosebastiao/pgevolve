@@ -16,6 +16,7 @@ pub mod schema;
 pub mod sequence;
 pub mod table;
 pub mod view;
+pub use view::*;
 
 use thiserror::Error;
 

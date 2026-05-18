@@ -4,11 +4,13 @@
 //! They reference [`NormalizedBody`] for the canonicalized SELECT body and
 //! [`DepEdge`] for body-extracted dependency provenance.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::difference::Difference;
-use crate::ir::eq::Diff;
+use crate::ir::eq::{Diff, diff_field};
 use crate::parse::normalize_body::NormalizedBody;
 use crate::plan::edges::DepEdge;
 
@@ -17,7 +19,7 @@ use crate::plan::edges::DepEdge;
 /// Postgres allows column alias lists on `CREATE VIEW` to override the
 /// column names derived from the SELECT list. This struct records the
 /// (possibly overridden) column name and any attached comment.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ViewColumn {
     /// Column name as it appears in the view definition (or is aliased).
     pub name: Identifier,
@@ -31,7 +33,7 @@ pub struct ViewColumn {
 /// canonical form. `body_dependencies` lists the IR objects the body
 /// references, extracted from the AST (v0.2 task 4; initially empty until
 /// the AST-walk pass lands).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct View {
     /// Schema-qualified view name.
     pub qname: QualifiedName,
@@ -54,7 +56,7 @@ pub struct View {
 /// Unlike regular views, materialized views are physically stored.
 /// They lack the `security_barrier` / `security_invoker` options of regular
 /// views but are otherwise structurally similar.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MaterializedView {
     /// Schema-qualified materialized view name.
     pub qname: QualifiedName,
@@ -70,29 +72,143 @@ pub struct MaterializedView {
 
 impl Diff for View {
     fn diff(&self, other: &Self) -> Vec<Difference> {
-        if self == other {
-            Vec::new()
-        } else {
-            vec![Difference::new(
-                "",
-                self.qname.to_string(),
-                other.qname.to_string(),
-            )]
+        let mut out = Vec::new();
+        out.extend(diff_field("qname", &self.qname, &other.qname));
+        out.extend(diff_field(
+            "body_canonical",
+            &self.body_canonical.canonical_text(),
+            &other.body_canonical.canonical_text(),
+        ));
+        out.extend(diff_field(
+            "security_barrier",
+            &format!("{:?}", self.security_barrier),
+            &format!("{:?}", other.security_barrier),
+        ));
+        out.extend(diff_field(
+            "security_invoker",
+            &format!("{:?}", self.security_invoker),
+            &format!("{:?}", other.security_invoker),
+        ));
+        out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+
+        // Column diff: pair by name.
+        let lhs: BTreeMap<_, _> = self.columns.iter().map(|c| (c.name.as_str(), c)).collect();
+        let rhs: BTreeMap<_, _> = other.columns.iter().map(|c| (c.name.as_str(), c)).collect();
+        for (name, l) in &lhs {
+            match rhs.get(name) {
+                None => out.push(Difference::new(
+                    format!("columns.{name}"),
+                    "present",
+                    "removed",
+                )),
+                Some(r) => {
+                    if l.comment != r.comment {
+                        out.push(Difference::new(
+                            format!("columns.{name}.comment"),
+                            format!("{:?}", l.comment),
+                            format!("{:?}", r.comment),
+                        ));
+                    }
+                }
+            }
         }
+        for name in rhs.keys() {
+            if !lhs.contains_key(name) {
+                out.push(Difference::new(
+                    format!("columns.{name}"),
+                    "missing",
+                    "added",
+                ));
+            }
+        }
+        let lhs_order: Vec<&str> = self.columns.iter().map(|c| c.name.as_str()).collect();
+        let rhs_order: Vec<&str> = other.columns.iter().map(|c| c.name.as_str()).collect();
+        if lhs_order != rhs_order {
+            out.push(Difference::new(
+                "columns.<order>",
+                lhs_order.join(","),
+                rhs_order.join(","),
+            ));
+        }
+
+        // Dependency-edge diff: format vec for comparison.
+        out.extend(diff_field(
+            "body_dependencies",
+            &format!("{:?}", self.body_dependencies),
+            &format!("{:?}", other.body_dependencies),
+        ));
+
+        out
     }
 }
 
 impl Diff for MaterializedView {
     fn diff(&self, other: &Self) -> Vec<Difference> {
-        if self == other {
-            Vec::new()
-        } else {
-            vec![Difference::new(
-                "",
-                self.qname.to_string(),
-                other.qname.to_string(),
-            )]
+        let mut out = Vec::new();
+        out.extend(diff_field("qname", &self.qname, &other.qname));
+        out.extend(diff_field(
+            "body_canonical",
+            &self.body_canonical.canonical_text(),
+            &other.body_canonical.canonical_text(),
+        ));
+        out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+
+        // Column diff: pair by name.
+        let lhs: BTreeMap<_, _> = self.columns.iter().map(|c| (c.name.as_str(), c)).collect();
+        let rhs: BTreeMap<_, _> = other.columns.iter().map(|c| (c.name.as_str(), c)).collect();
+        for (name, l) in &lhs {
+            match rhs.get(name) {
+                None => out.push(Difference::new(
+                    format!("columns.{name}"),
+                    "present",
+                    "removed",
+                )),
+                Some(r) => {
+                    if l.comment != r.comment {
+                        out.push(Difference::new(
+                            format!("columns.{name}.comment"),
+                            format!("{:?}", l.comment),
+                            format!("{:?}", r.comment),
+                        ));
+                    }
+                }
+            }
         }
+        for name in rhs.keys() {
+            if !lhs.contains_key(name) {
+                out.push(Difference::new(
+                    format!("columns.{name}"),
+                    "missing",
+                    "added",
+                ));
+            }
+        }
+        let lhs_order: Vec<&str> = self.columns.iter().map(|c| c.name.as_str()).collect();
+        let rhs_order: Vec<&str> = other.columns.iter().map(|c| c.name.as_str()).collect();
+        if lhs_order != rhs_order {
+            out.push(Difference::new(
+                "columns.<order>",
+                lhs_order.join(","),
+                rhs_order.join(","),
+            ));
+        }
+
+        // Dependency-edge diff: format vec for comparison.
+        out.extend(diff_field(
+            "body_dependencies",
+            &format!("{:?}", self.body_dependencies),
+            &format!("{:?}", other.body_dependencies),
+        ));
+
+        out
     }
 }
 
@@ -208,6 +324,19 @@ mod tests {
         assert!(
             matches!(result, Err(IrError::InvalidIdentifier(_))),
             "expected duplicate-view error, got: {result:?}",
+        );
+    }
+
+    #[test]
+    fn catalog_rejects_duplicate_materialized_view_qname() {
+        let mut c = Catalog::empty();
+        c.materialized_views.push(simple_mv("app", "my_mv"));
+        c.materialized_views.push(simple_mv("app", "my_mv"));
+
+        let result = c.canonicalize();
+        assert!(
+            matches!(result, Err(IrError::InvalidIdentifier(_))),
+            "expected duplicate-mv error, got: {result:?}",
         );
     }
 }

@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A canonicalized statement-scope body.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NormalizedBody {
     canonical_text: String,
     canonical_hash: [u8; 32],
