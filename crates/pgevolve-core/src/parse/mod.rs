@@ -127,6 +127,13 @@ pub fn parse_directory_with_locations(
         ast_canon::canonicalize_view_bodies(&mut catalog).map_err(ParseError::AstCanon)?;
     }
 
+    // MV index parent promotion: source-side `CREATE INDEX ON mv_name (...)` is
+    // initially parsed as `IndexParent::Table` because the parser doesn't know
+    // whether the relation is a table or an MV. Now that both the indexes and
+    // the MVs are in the catalog, promote any `IndexParent::Table(q)` where `q`
+    // is actually a materialized view.
+    ast_canon::promote_mv_index_parents(&mut catalog);
+
     let canonical = catalog
         .canonicalize()
         .map_err(|e: IrError| translate_canonicalize_error(e, &locations))?;

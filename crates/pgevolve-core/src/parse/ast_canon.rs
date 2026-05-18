@@ -21,6 +21,7 @@ use std::collections::BTreeSet;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::ir::column_type::ColumnType;
+use crate::ir::index::IndexParent;
 use crate::ir::view::ViewColumn;
 use crate::parse::normalize_body::NormalizedBody;
 use crate::plan::edges::{DepEdge, DepSource, NodeId};
@@ -102,6 +103,41 @@ pub fn canonicalize_view_bodies(catalog: &mut Catalog) -> Result<(), AstCanonErr
     }
 
     Ok(())
+}
+
+/// Promote `IndexParent::Table(q)` to `IndexParent::Mv(q)` for every source-
+/// side index whose parent qname actually belongs to a materialized view.
+///
+/// The source parser (`parse/builder/index_stmt.rs`) hardcodes
+/// `IndexParent::Table` for all `CREATE INDEX` statements because at parse
+/// time it does not yet know whether the relation name refers to a table or an
+/// MV. This pass runs after both the indexes *and* the MVs are in the catalog
+/// and corrects the parent variant.
+///
+/// Consequences of the promotion:
+/// - `mv_has_unique_index` (in `plan/rewrite/refresh_mv_concurrently`) matches
+///   `IndexParent::Mv` — REFRESH CONCURRENTLY now fires.
+/// - `build_create_graph` routes `IndexParent::Mv(q)` to `NodeId::Mv(q)`, so
+///   the dep-graph correctly orders `CREATE MATERIALIZED VIEW` before
+///   `CREATE INDEX` on that MV.
+/// - The `mv-no-unique-index` lint no longer false-positives for source-
+///   defined MVs with source-defined unique indexes.
+pub fn promote_mv_index_parents(catalog: &mut Catalog) {
+    let mv_qnames: BTreeSet<QualifiedName> = catalog
+        .materialized_views
+        .iter()
+        .map(|mv| mv.qname.clone())
+        .collect();
+    if mv_qnames.is_empty() {
+        return;
+    }
+    for idx in &mut catalog.indexes {
+        if let IndexParent::Table(qname) = &idx.on
+            && mv_qnames.contains(qname)
+        {
+            idx.on = IndexParent::Mv(qname.clone());
+        }
+    }
 }
 
 /// Snapshot of the qualified names known in the catalog, used for reference
@@ -404,5 +440,143 @@ fn extract_column_ref_name(node: &pg_query::protobuf::Node) -> Option<Identifier
         // TypeCast: `expr::type` — the name comes from the inner expression.
         Some(N::TypeCast(tc)) => tc.arg.as_deref().and_then(extract_column_ref_name),
         _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::catalog::Catalog;
+    use crate::ir::index::{
+        Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder,
+    };
+    use crate::ir::view::MaterializedView;
+    use crate::parse::normalize_body::NormalizedBody;
+
+    fn id(s: &str) -> Identifier {
+        Identifier::from_unquoted(s).unwrap()
+    }
+
+    fn qn(schema: &str, name: &str) -> QualifiedName {
+        QualifiedName::new(id(schema), id(name))
+    }
+
+    fn simple_index(name: &str, on: IndexParent, unique: bool) -> Index {
+        Index {
+            qname: qn("app", name),
+            on,
+            method: IndexMethod::BTree,
+            columns: vec![IndexColumn {
+                expr: IndexColumnExpr::Column(id("k")),
+                collation: None,
+                opclass: None,
+                sort_order: SortOrder::Asc,
+                nulls_order: NullsOrder::NullsLast,
+            }],
+            include: vec![],
+            unique,
+            nulls_not_distinct: false,
+            predicate: None,
+            tablespace: None,
+            comment: None,
+        }
+    }
+
+    fn simple_mv(schema: &str, name: &str) -> MaterializedView {
+        MaterializedView {
+            qname: qn(schema, name),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![],
+            comment: None,
+            raw_body: String::new(),
+        }
+    }
+
+    // ── promote_mv_index_parents ─────────────────────────────────────────────
+
+    /// A source-SQL unique index on an MV (`CREATE UNIQUE INDEX ... ON app.mv`)
+    /// starts life as `IndexParent::Table` and must be promoted to
+    /// `IndexParent::Mv` by the pass.
+    #[test]
+    fn unique_index_on_mv_is_promoted_to_mv_parent() {
+        let mv_qname = qn("app", "mv");
+        let mut catalog = Catalog::empty();
+        catalog.materialized_views.push(simple_mv("app", "mv"));
+        // Initially parsed as Table (as the source parser always does).
+        catalog.indexes.push(simple_index(
+            "mv_uk",
+            IndexParent::Table(mv_qname.clone()),
+            true,
+        ));
+
+        promote_mv_index_parents(&mut catalog);
+
+        assert!(
+            matches!(&catalog.indexes[0].on, IndexParent::Mv(q) if q == &mv_qname),
+            "expected IndexParent::Mv after promotion, got {:?}",
+            catalog.indexes[0].on,
+        );
+    }
+
+    /// An index on a *table* must not be promoted, even if a same-named MV
+    /// does not exist.
+    #[test]
+    fn index_on_table_is_not_promoted() {
+        let table_qname = qn("app", "users");
+        let mut catalog = Catalog::empty();
+        // No MVs in the catalog.
+        catalog.indexes.push(simple_index(
+            "users_idx",
+            IndexParent::Table(table_qname.clone()),
+            false,
+        ));
+
+        promote_mv_index_parents(&mut catalog);
+
+        assert!(
+            matches!(&catalog.indexes[0].on, IndexParent::Table(q) if q == &table_qname),
+            "Table index must not be promoted: {:?}",
+            catalog.indexes[0].on,
+        );
+    }
+
+    /// When the catalog contains no MVs the pass is a no-op (early return).
+    #[test]
+    fn no_mvs_no_promotion() {
+        let mut catalog = Catalog::empty();
+        catalog.indexes.push(simple_index(
+            "some_idx",
+            IndexParent::Table(qn("app", "t")),
+            false,
+        ));
+        promote_mv_index_parents(&mut catalog);
+        assert!(matches!(&catalog.indexes[0].on, IndexParent::Table(_)));
+    }
+
+    /// An index that already has `IndexParent::Mv` (e.g., from the live-catalog
+    /// reader) must be left unchanged.
+    #[test]
+    fn already_mv_parent_is_unchanged() {
+        let mv_qname = qn("app", "mv");
+        let mut catalog = Catalog::empty();
+        catalog.materialized_views.push(simple_mv("app", "mv"));
+        catalog.indexes.push(simple_index(
+            "mv_idx",
+            IndexParent::Mv(mv_qname.clone()),
+            false,
+        ));
+
+        promote_mv_index_parents(&mut catalog);
+
+        assert!(
+            matches!(&catalog.indexes[0].on, IndexParent::Mv(q) if q == &mv_qname),
+            "already-Mv parent must remain Mv: {:?}",
+            catalog.indexes[0].on,
+        );
     }
 }

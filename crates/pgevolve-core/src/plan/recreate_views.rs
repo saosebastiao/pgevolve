@@ -64,13 +64,16 @@ pub fn extend_with_dependent_recreations(
         return Ok(());
     }
 
-    // Collect the set of view qnames already present in changes (those the
+    // Collect the set of view/MV qnames already present in changes (those the
     // differ already produced a ReplaceBody for) so we don't double-emit.
+    #[allow(clippy::match_same_arms)] // source fields differ by type (View vs MaterializedView)
     let already_in_changes: BTreeSet<QualifiedName> = changes
         .iter()
         .filter_map(|c| match c {
             Change::View(ViewChange::ReplaceBody { source, .. }) => Some(source.qname.clone()),
             Change::View(ViewChange::Drop(q)) => Some(q.clone()),
+            Change::Mv(MvChange::ReplaceBody { source, .. }) => Some(source.qname.clone()),
+            Change::Mv(MvChange::Drop(q)) => Some(q.clone()),
             _ => None,
         })
         .collect();
@@ -88,8 +91,8 @@ pub fn extend_with_dependent_recreations(
         return Err(new_affected);
     }
 
-    for view_qname in new_affected {
-        if let Some(cat) = target_catalog.views.iter().find(|v| v.qname == view_qname) {
+    for obj_qname in new_affected {
+        if let Some(cat) = target_catalog.views.iter().find(|v| v.qname == obj_qname) {
             changes.push(Change::View(ViewChange::ReplaceBody {
                 // source = the desired state; for recreations triggered by
                 // upstream changes, the target catalog's version *is* the
@@ -98,6 +101,16 @@ pub fn extend_with_dependent_recreations(
                 source: cat.clone(),
                 catalog: cat.clone(),
                 compatible: false,
+            }));
+        } else if let Some(cat_mv) = target_catalog
+            .materialized_views
+            .iter()
+            .find(|mv| mv.qname == obj_qname)
+        {
+            // MVs do not support CREATE OR REPLACE — always DROP + CREATE + REFRESH.
+            changes.push(Change::Mv(MvChange::ReplaceBody {
+                source: cat_mv.clone(),
+                catalog: cat_mv.clone(),
             }));
         }
     }
@@ -179,8 +192,8 @@ fn object_drop_qname(change: &Change) -> Option<QualifiedName> {
 
 /// Build an index: qname → list of `(dep_qname, column_or_none)` for quick lookup.
 ///
-/// For each view, we record every (object, column) pair that it depends on,
-/// derived from its `body_dependencies`.
+/// For each view *and* materialized view, we record every (object, column) pair
+/// that it depends on, derived from its `body_dependencies`.
 fn build_dep_index(
     catalog: &Catalog,
 ) -> BTreeMap<QualifiedName, Vec<(QualifiedName, Option<String>)>> {
@@ -198,6 +211,21 @@ fn build_dep_index(
             .collect();
         if !deps.is_empty() {
             index.insert(v.qname.clone(), deps);
+        }
+    }
+    // Materialized views are also dependency sinks: if their upstream changes,
+    // they must be recreated (DROP + CREATE + REFRESH).
+    for mv in &catalog.materialized_views {
+        let deps: Vec<(QualifiedName, Option<String>)> = mv
+            .body_dependencies
+            .iter()
+            .filter_map(|dep| match &dep.to {
+                NodeId::Table(q) | NodeId::View(q) | NodeId::Mv(q) => Some((q.clone(), None)),
+                _ => None,
+            })
+            .collect();
+        if !deps.is_empty() {
+            index.insert(mv.qname.clone(), deps);
         }
     }
     index
@@ -669,5 +697,110 @@ mod tests {
         let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
         assert!(result.is_ok());
         assert!(changes.is_empty());
+    }
+
+    // ── MV-specific tests ────────────────────────────────────────────────────
+
+    fn simple_mv(
+        schema: &str,
+        name: &str,
+        deps: Vec<DepEdge>,
+    ) -> crate::ir::view::MaterializedView {
+        crate::ir::view::MaterializedView {
+            qname: qn(schema, name),
+            columns: vec![],
+            body_canonical: body("SELECT 1"),
+            body_dependencies: deps,
+            comment: None,
+            raw_body: String::new(),
+        }
+    }
+
+    fn mv_dep_edge(from_mv: &QualifiedName, to_table: &QualifiedName) -> DepEdge {
+        DepEdge {
+            from: NodeId::Mv(from_mv.clone()),
+            to: NodeId::Table(to_table.clone()),
+            source: DepSource::AstExtracted,
+        }
+    }
+
+    /// A single MV with a `body_dependency` on a table; a table-drop trigger
+    /// should produce an `MvChange::ReplaceBody` for that MV.
+    #[test]
+    fn mv_with_body_dep_on_table_is_recreated_on_table_drop() {
+        let orders = qn("app", "orders");
+        let mv_qname = qn("app", "totals");
+        let mv = simple_mv("app", "totals", vec![mv_dep_edge(&mv_qname, &orders)]);
+        let mut catalog = Catalog::empty();
+        catalog.materialized_views.push(mv);
+
+        let mut changes = vec![drop_table_change(orders.clone())];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        // changes[0] = DropTable, changes[1] = ReplaceBody for "totals"
+        assert_eq!(
+            changes.len(),
+            2,
+            "expected DropTable + MvChange::ReplaceBody"
+        );
+        assert!(
+            matches!(
+                &changes[1],
+                Change::Mv(MvChange::ReplaceBody { source, .. })
+                if source.qname == mv_qname
+            ),
+            "expected MvChange::ReplaceBody for totals, got: {:?}",
+            changes[1]
+        );
+    }
+
+    /// An MV `ReplaceBody` that is already in changes is not double-emitted.
+    #[test]
+    fn mv_replace_body_not_duplicated() {
+        let orders = qn("app", "orders");
+        let mv_qname = qn("app", "totals");
+        let mv = simple_mv("app", "totals", vec![mv_dep_edge(&mv_qname, &orders)]);
+        let mut catalog = Catalog::empty();
+        catalog.materialized_views.push(mv.clone());
+
+        let mut changes = vec![
+            drop_table_change(orders.clone()),
+            Change::Mv(MvChange::ReplaceBody {
+                source: mv.clone(),
+                catalog: mv,
+            }),
+        ];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        // Still 2 changes — no duplicate.
+        assert_eq!(
+            changes.len(),
+            2,
+            "should not duplicate MvChange::ReplaceBody"
+        );
+    }
+
+    /// When policy blocks recreations, affected MV qnames appear in the error.
+    #[test]
+    fn mv_recreation_blocked_by_policy_returns_error() {
+        let orders = qn("app", "orders");
+        let mv_qname = qn("app", "totals");
+        let mv = simple_mv("app", "totals", vec![mv_dep_edge(&mv_qname, &orders)]);
+        let mut catalog = Catalog::empty();
+        catalog.materialized_views.push(mv);
+
+        let mut changes = vec![drop_table_change(orders.clone())];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_disabled());
+        assert!(result.is_err(), "policy disabled must return Err");
+        let affected = result.unwrap_err();
+        assert!(
+            affected.contains(&mv_qname),
+            "expected totals in error list: {affected:?}"
+        );
+        assert_eq!(
+            changes.len(),
+            1,
+            "changes must not be modified when policy blocks"
+        );
     }
 }
