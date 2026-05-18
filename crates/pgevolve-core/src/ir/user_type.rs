@@ -90,6 +90,9 @@ pub struct CompositeAttribute {
 }
 
 impl Diff for UserType {
+    // TODO(T7): expand to field-level diffs (per-value for enums, per-attr
+    // for composites, per-CHECK for domains) once the differ lands. The
+    // top-level blob form is intentional for the IR-only T1 stub.
     fn diff(&self, other: &Self) -> Vec<Difference> {
         if self == other {
             Vec::new()
@@ -204,6 +207,8 @@ mod tests {
 
     #[test]
     fn catalog_rejects_duplicate_user_type_qname() {
+        use crate::ir::IrError;
+
         let mut c = Catalog::empty();
         c.schemas.push(Schema {
             name: ident("app"),
@@ -212,12 +217,12 @@ mod tests {
         c.types.push(sample_enum());
         c.types.push(sample_enum()); // duplicate qname
 
-        let err = c.canonicalize().expect_err("duplicate must fail");
-        let msg = err.to_string();
+        let result = c.canonicalize();
         assert!(
-            msg.to_lowercase().contains("duplicate"),
-            "expected duplicate error: {msg}"
+            matches!(result, Err(IrError::InvalidIdentifier(_))),
+            "expected IrError::InvalidIdentifier, got {result:?}",
         );
+        let msg = result.unwrap_err().to_string();
         assert!(msg.contains("order_status"), "should name the qname: {msg}");
     }
 
