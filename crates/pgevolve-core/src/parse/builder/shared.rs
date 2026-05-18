@@ -57,14 +57,17 @@ pub fn qname_from_string_list(
 ) -> Result<QualifiedName, ParseError> {
     let strings: Vec<&str> = nodes
         .iter()
-        .filter_map(|n| {
-            if let Some(NodeEnum::String(s)) = n.node.as_ref() {
-                Some(s.sval.as_str())
-            } else {
-                None
-            }
+        .map(|n| match n.node.as_ref() {
+            Some(NodeEnum::String(s)) => Ok(s.sval.as_str()),
+            other => Err(ParseError::Structural {
+                location: location.clone(),
+                message: format!(
+                    "expected String node in type-name list, got {:?}",
+                    other.map(std::mem::discriminant),
+                ),
+            }),
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     match strings.as_slice() {
         [name] => {
             let name_id = ident(name, location)?;

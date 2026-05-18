@@ -72,10 +72,10 @@ fn string_val_from_node(
             // pg_query sometimes wraps enum labels in AConst Sval nodes.
             use pg_query::protobuf::a_const;
             match c.val.as_ref() {
-                Some(a_const::Val::Sval(s)) => Ok(s.sval.clone()),
+                Some(a_const::Val::Sval(s)) if !s.sval.is_empty() => Ok(s.sval.clone()),
                 _ => Err(ParseError::Structural {
                     location: location.clone(),
-                    message: "expected string AConst for enum label".into(),
+                    message: "expected non-empty string AConst for enum label".into(),
                 }),
             }
         }
