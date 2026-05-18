@@ -11,10 +11,13 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::column_type::ColumnType;
+use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::index::Index;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
+use crate::ir::user_type::{CompositeAttribute, DomainCheck, UserType};
 use crate::ir::view::{MaterializedView, View};
 
 use super::destructiveness::Destructiveness;
@@ -116,6 +119,113 @@ pub enum Change {
     View(ViewChange),
     /// A materialized-view-level change.
     Mv(MvChange),
+    /// A user-defined type change (enum, domain, composite).
+    UserType(UserTypeChange),
+}
+
+/// A structural change to a single user-defined type.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum UserTypeChange {
+    /// Create a new user-defined type.
+    Create(UserType),
+    /// Drop a user-defined type by qualified name.
+    Drop(QualifiedName),
+
+    /// Add a new label to an existing enum type.
+    EnumAddValue {
+        /// Qualified name of the enum type.
+        qname: QualifiedName,
+        /// The new label string.
+        value: String,
+        /// If `Some`, the new value is placed immediately before this label.
+        before: Option<String>,
+        /// If `Some`, the new value is placed immediately after this label.
+        after: Option<String>,
+    },
+    /// Rename an existing enum label.
+    EnumRenameValue {
+        /// Qualified name of the enum type.
+        qname: QualifiedName,
+        /// The existing label to rename.
+        from: String,
+        /// The new label name.
+        to: String,
+    },
+
+    /// Add a CHECK constraint to a domain.
+    DomainAddCheck {
+        /// Qualified name of the domain type.
+        qname: QualifiedName,
+        /// The constraint to add.
+        constraint: DomainCheck,
+    },
+    /// Drop a named CHECK constraint from a domain.
+    DomainDropCheck {
+        /// Qualified name of the domain type.
+        qname: QualifiedName,
+        /// The constraint name to drop.
+        name: Identifier,
+    },
+    /// Set (or clear) the DEFAULT expression on a domain.
+    DomainSetDefault {
+        /// Qualified name of the domain type.
+        qname: QualifiedName,
+        /// New default expression (`None` clears the default).
+        default: Option<NormalizedExpr>,
+    },
+    /// Toggle the `NOT NULL` constraint on a domain.
+    DomainSetNotNull {
+        /// Qualified name of the domain type.
+        qname: QualifiedName,
+        /// `true` means NOT NULL (i.e., `nullable = false`).
+        not_null: bool,
+    },
+
+    /// Add a new attribute to a composite type.
+    CompositeAddAttribute {
+        /// Qualified name of the composite type.
+        qname: QualifiedName,
+        /// The attribute to add.
+        attribute: CompositeAttribute,
+    },
+    /// Drop an attribute from a composite type.
+    CompositeDropAttribute {
+        /// Qualified name of the composite type.
+        qname: QualifiedName,
+        /// The attribute name to drop.
+        name: Identifier,
+    },
+    /// Change the type of an existing composite attribute.
+    CompositeAlterAttributeType {
+        /// Qualified name of the composite type.
+        qname: QualifiedName,
+        /// The attribute name whose type is being changed.
+        attribute: Identifier,
+        /// The new column type.
+        new_type: ColumnType,
+    },
+
+    /// Set (or clear) the `COMMENT ON TYPE` for this type.
+    SetComment {
+        /// Qualified name of the type.
+        qname: QualifiedName,
+        /// New comment (`None` clears the comment).
+        comment: Option<String>,
+    },
+
+    /// Emitted when the requested change cannot be done in place via `ALTER`.
+    ///
+    /// T8's dependent-recreation walker expands this into `DROP TYPE` + `CREATE
+    /// TYPE` plus per-dependent drop/recreate. The planner never emits this as
+    /// a single step.
+    ReplaceWithCascade {
+        /// The desired type (source).
+        source: UserType,
+        /// The existing type (catalog / live database).
+        catalog: UserType,
+    },
 }
 
 /// A structural change to a single view.

@@ -75,6 +75,7 @@ pub async fn run(args: DiffArgs, cfg: &PgevolveConfig, format: OutputFormat) -> 
     Ok(0)
 }
 
+#[allow(clippy::too_many_lines)]
 fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
     if changes.is_empty() {
         println!("No changes.");
@@ -176,6 +177,48 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            pgevolve_core::diff::change::Change::UserType(utc) => {
+                use pgevolve_core::diff::change::UserTypeChange;
+                match utc {
+                    UserTypeChange::Create(t) => println!("      create type {}", t.qname),
+                    UserTypeChange::Drop(q) => println!("      drop type {q}"),
+                    UserTypeChange::EnumAddValue { qname, value, .. } => {
+                        println!("      enum {qname}: add value {value}");
+                    }
+                    UserTypeChange::EnumRenameValue { qname, from, to } => {
+                        println!("      enum {qname}: rename {from} -> {to}");
+                    }
+                    UserTypeChange::DomainAddCheck { qname, .. } => {
+                        println!("      domain {qname}: add check");
+                    }
+                    UserTypeChange::DomainDropCheck { qname, name } => {
+                        println!("      domain {qname}: drop check {name}");
+                    }
+                    UserTypeChange::DomainSetDefault { qname, .. } => {
+                        println!("      domain {qname}: set default");
+                    }
+                    UserTypeChange::DomainSetNotNull { qname, not_null } => {
+                        println!("      domain {qname}: set not null = {not_null}");
+                    }
+                    UserTypeChange::CompositeAddAttribute { qname, attribute } => {
+                        println!("      composite {qname}: add attribute {}", attribute.name);
+                    }
+                    UserTypeChange::CompositeDropAttribute { qname, name } => {
+                        println!("      composite {qname}: drop attribute {name}");
+                    }
+                    UserTypeChange::CompositeAlterAttributeType {
+                        qname, attribute, ..
+                    } => {
+                        println!("      composite {qname}: alter attribute type {attribute}");
+                    }
+                    UserTypeChange::SetComment { qname, .. } => {
+                        println!("      set type comment {qname}");
+                    }
+                    UserTypeChange::ReplaceWithCascade { source, .. } => {
+                        println!("      replace type {} with cascade", source.qname);
+                    }
+                }
+            }
         }
     }
 }
@@ -262,5 +305,40 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Mv(MvChange::ReplaceBody { .. }) => "ReplaceMvBody",
         Change::Mv(MvChange::SetComment { .. }) => "SetMvComment",
         Change::Mv(MvChange::SetColumnComment { .. }) => "SetMvColumnComment",
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::Create(_)) => "CreateType",
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::Drop(_)) => "DropType",
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::EnumAddValue { .. }) => {
+            "EnumAddValue"
+        }
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::EnumRenameValue {
+            ..
+        }) => "EnumRenameValue",
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::DomainAddCheck {
+            ..
+        }) => "DomainAddCheck",
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::DomainDropCheck {
+            ..
+        }) => "DomainDropCheck",
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::DomainSetDefault {
+            ..
+        }) => "DomainSetDefault",
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::DomainSetNotNull {
+            ..
+        }) => "DomainSetNotNull",
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::CompositeAddAttribute {
+            ..
+        }) => "CompositeAddAttribute",
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::CompositeDropAttribute {
+            ..
+        }) => "CompositeDropAttribute",
+        Change::UserType(
+            pgevolve_core::diff::change::UserTypeChange::CompositeAlterAttributeType { .. },
+        ) => "CompositeAlterAttributeType",
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::SetComment { .. }) => {
+            "SetTypeComment"
+        }
+        Change::UserType(pgevolve_core::diff::change::UserTypeChange::ReplaceWithCascade {
+            ..
+        }) => "ReplaceTypeWithCascade",
     }
 }

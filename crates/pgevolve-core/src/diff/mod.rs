@@ -22,9 +22,10 @@ pub mod sequence_op;
 pub mod sequences;
 pub mod table_op;
 pub mod tables;
+pub mod types;
 pub mod views;
 
-pub use change::{Change, ChangeEntry, MvChange, ViewChange};
+pub use change::{Change, ChangeEntry, MvChange, UserTypeChange, ViewChange};
 pub use changeset::ChangeSet;
 pub use destructiveness::Destructiveness;
 pub use sequence_op::{SequenceOp, SequenceOpEntry};
@@ -75,6 +76,7 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
         &source.materialized_views,
         &mut out,
     );
+    types::diff_user_types(&target.types, &source.types, &mut out);
     out
 }
 

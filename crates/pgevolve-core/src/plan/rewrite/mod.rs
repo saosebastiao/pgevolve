@@ -404,6 +404,10 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
 
         Change::View(vc) => emit_view_change(vc, destructive, destructive_reason, out),
         Change::Mv(mc) => emit_mv_change(mc, destructive, destructive_reason, out),
+        // UserType SQL emission is wired in Task 9.
+        Change::UserType(_) => {
+            unimplemented!("Task 9 emits SQL for user-type changes")
+        }
     }
 }
 

@@ -243,6 +243,10 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
                 | MvChange::SetComment { .. }
                 | MvChange::SetColumnComment { .. },
             ) => modifies.push(entry),
+            // UserType changes: T8 adds NodeId::Type and wires partition/change_node.
+            Change::UserType(_) => {
+                unimplemented!("Task 8 adds NodeId::Type and wires partition/change_node")
+            }
         }
     }
     (creates, modifies, drops)
@@ -289,6 +293,10 @@ fn change_node(change: &Change) -> NodeId {
             | MvChange::SetComment { qname, .. }
             | MvChange::SetColumnComment { qname, .. },
         ) => NodeId::Mv(qname.clone()),
+        // UserType changes: T8 adds NodeId::Type and wires change_node.
+        Change::UserType(_) => {
+            unimplemented!("Task 8 adds NodeId::Type and wires partition/change_node")
+        }
     }
 }
 
