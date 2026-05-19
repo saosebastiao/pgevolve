@@ -8,7 +8,7 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-> **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-spec #1 (views and materialized views) merged 2026-05-18. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
+> **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-specs #1 (views/MVs), #2 (types), and #4 (functions/procedures) merged 2026-05-18. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
 
 ## Usage at a glance
 
@@ -135,7 +135,7 @@ Per the [arch-readiness spec §16](./docs/superpowers/specs/2026-05-15-v0.2-arch
 | 1 | Views and materialized views | ✅ Landed `0e2a7a0` (T13 deferred) |
 | 2 | Types (enums, domains, composites) | ✅ Landed `6127bdd` |
 | 3 | Extensions | 📋 Planned |
-| 4 | Functions and procedures | 📋 Planned |
+| 4 | Functions and procedures | ✅ Landed |
 | 5 | Triggers | 📋 Planned |
 | 6 | Declarative partitioning + table reloptions | 📋 Planned |
 

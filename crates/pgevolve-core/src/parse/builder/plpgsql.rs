@@ -16,7 +16,7 @@ use crate::plan::edges::{DepEdge, DepSource, NodeId};
 ///
 /// `commits_in_body` is only meaningful for procedures; it is always `false`
 /// for SQL-language bodies (SQL functions cannot issue COMMIT/ROLLBACK).
-pub(crate) fn parse_routine_body(
+pub fn parse_routine_body(
     body_text: &str,
     language: FunctionLanguage,
     routine_qname: &QualifiedName,

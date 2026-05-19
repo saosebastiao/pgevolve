@@ -31,6 +31,7 @@ pub fn apply_comment(
     apply_comment_inner(stmt, catalog, default_schema, location, kind, comment)
 }
 
+#[allow(clippy::too_many_lines)]
 fn apply_comment_inner(
     stmt: &CommentStmt,
     catalog: &mut Catalog,
@@ -718,10 +719,7 @@ mod tests {
         });
         let stmt = parse_first("COMMENT ON FUNCTION app.double(integer) IS 'doubles the value';");
         apply_comment(&stmt, &mut c, None, &loc()).unwrap();
-        assert_eq!(
-            c.functions[0].comment.as_deref(),
-            Some("doubles the value")
-        );
+        assert_eq!(c.functions[0].comment.as_deref(), Some("doubles the value"));
     }
 
     #[test]

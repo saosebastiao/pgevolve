@@ -9,7 +9,39 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.2.0] — Unreleased
 
-Extends the v0.1 surface with **views, materialized views, and user-defined types** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
+Extends the v0.1 surface with **views, materialized views, user-defined types, and functions/procedures** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
+
+### Added — IR (functions and procedures)
+
+- `Function { qname, args, arg_types_normalized, return_type, language, body, body_dependencies, volatility, strict, security, parallel, leakproof, cost, rows, comment }` flat IR type in `pgevolve-core::ir::function`.
+- `Procedure { qname, args, language, body, body_dependencies, security, commits_in_body, comment }` flat IR type in `pgevolve-core::ir::procedure`.
+- `FunctionArg { name, mode: ArgMode, ty, default }` — argument declaration with IN/OUT/INOUT/VARIADIC modes.
+- `NormalizedArgTypes { types, canonical_hash }` — BLAKE3 hash over comma-joined IN/INOUT/VARIADIC type strings; the function identity disambiguator for overloads.
+- `ReturnType` — `Scalar`, `SetOf`, `Table { columns }`, `Trigger`, `EventTrigger`, `Void`.
+- `FunctionLanguage` — `Sql` | `PlPgSql`.
+- `Catalog::functions: Vec<Function>` and `Catalog::procedures: Vec<Procedure>` — flat collections, sorted by `(qname, arg_types_normalized)` / `qname` after `canonicalize()`.
+
+### Added — pipeline (functions and procedures)
+
+- **Source parser** — `CREATE FUNCTION` and `CREATE PROCEDURE` parse into the `Function` / `Procedure` IR. Full attribute matrix (volatility, strict, security, parallel, leakproof, cost, rows). Dollar-quote body extraction for both SQL and PL/pgSQL languages.
+- **PL/pgSQL body parser** (`parse/builder/plpgsql.rs`) — wraps the body in a synthetic `CREATE FUNCTION` and calls `pg_query::parse_plpgsql`. Extracts static embedded SQL dep edges (`PLpgSQL_stmt_execsql`), detects `COMMIT`/`ROLLBACK` nodes for `commits_in_body`, and scans `-- @pgevolve dep:` directives for dynamic SQL.
+- **AST resolution** — validates routine body dep edges against the catalog; unresolved managed-schema references surface as warnings.
+- **Catalog reader** — queries `pg_proc` (with `pg_language`, `pg_type`, `pg_namespace`) to reconstruct `Function` and `Procedure` from a live database. Handles multi-arg functions, OUT args, overloads, and all attribute columns.
+- **Differ** — `FunctionChange` variants: `Create`, `Drop`, `OrReplace`, `ReplaceWithCascade`, `CommentOn`. `ProcedureChange` variants: `Create`, `Drop`, `OrReplace`, `CommentOn`.
+- **OR-REPLACE compatibility predicate** (`function_can_or_replace`) — returns `true` when language, return type, and OUT/INOUT parameters are all unchanged; falls back to `ReplaceWithCascade` otherwise.
+- **Planner** — 6 new step kinds: `CreateOrReplaceFunction`, `DropFunction`, `CommentOnFunction`, `CreateOrReplaceProcedure`, `DropProcedure`, `CommentOnProcedure`. Procedures with `commits_in_body = true` are placed in non-transactional steps.
+- **`NodeId::Function` / `NodeId::Procedure`** — added to the dep graph; body dep edges drive correct creation/drop ordering relative to their referenced tables, views, and types.
+
+### Added — lint rules (functions and procedures)
+
+- `plpgsql-dynamic-sql` (Error) — PL/pgSQL body uses `EXECUTE` without a `-- @pgevolve dep:` directive.
+- `procedure-contains-commit` (Warning) — procedure body contains `COMMIT` or `ROLLBACK`; runs with `transactional=OutsideTransaction`.
+- `function-references-unmanaged-schema` (Warning) — routine body dep edge targets an unmanaged schema.
+
+### Added — tests (functions and procedures)
+
+- **~22 conformance fixtures** (Tier C): `objects/functions/` and `objects/procedures/` covering SQL functions, PL/pgSQL functions, procedures, overloads, dep-edge extraction, `ReplaceWithCascade`, and all three lint rules.
+- **Property test** `plpgsql_canonicalization_is_idempotent` (`#[ignore]`, pure, no Docker) — for each body in the representative `PLPGSQL_BODIES` corpus, `parse_routine_body → canonical_text → re-parse → canonical_text` produces byte-identical output. Closes the round-trip invariant the differ relies on.
 
 ### Added — IR (user-defined types)
 

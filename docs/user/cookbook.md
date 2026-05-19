@@ -401,6 +401,135 @@ DROP TYPE app.address CASCADE;
 CREATE TYPE app.address AS (street text, city text);
 ```
 
+## Managing functions and procedures
+
+### Define a simple SQL function
+
+```sql
+-- schema/app/functions/add_one.sql
+CREATE FUNCTION app.add_one(x integer)
+  RETURNS integer
+  LANGUAGE sql
+  IMMUTABLE STRICT
+AS $$
+  SELECT x + 1
+$$;
+```
+
+`pgevolve plan` emits one `create_or_replace_function` step.
+
+### Define a PL/pgSQL function with a static body
+
+```sql
+-- schema/app/functions/get_active_user.sql
+CREATE FUNCTION app.get_active_user(p_id bigint)
+  RETURNS app.users
+  LANGUAGE plpgsql
+  STABLE
+AS $$
+DECLARE
+  r app.users;
+BEGIN
+  SELECT * INTO r FROM app.users WHERE id = p_id AND deleted_at IS NULL;
+  RETURN r;
+END
+$$;
+```
+
+pgevolve extracts the `app.users` dep edge from the static `SELECT` statement at parse time.
+
+### Replace a function body (in-place)
+
+Edit the function's SQL or PL/pgSQL body. If the language and return type are unchanged, `pgevolve plan` emits a single `create_or_replace_function` step — no DROP needed.
+
+```sql
+-- After: tighten to active users only
+CREATE FUNCTION app.get_active_user(p_id bigint)
+  RETURNS app.users
+  LANGUAGE plpgsql
+  STABLE
+AS $$
+DECLARE
+  r app.users;
+BEGIN
+  SELECT * INTO r
+  FROM app.users
+  WHERE id = p_id AND deleted_at IS NULL AND suspended = false;
+  RETURN r;
+END
+$$;
+```
+
+```sql
+-- @pgevolve step=1 kind=create_or_replace_function destructive=false targets=app.get_active_user
+CREATE OR REPLACE FUNCTION app.get_active_user(p_id bigint) ...;
+```
+
+No intent required. If the return type or language changes, pgevolve falls back to `DROP FUNCTION CASCADE` + `CREATE OR REPLACE FUNCTION` (destructive — requires intent approval).
+
+### Add an overload (same name, different arg types)
+
+PL/pgSQL functions support overloading on arg types. Just add the second definition:
+
+```sql
+-- schema/app/functions/format_name.sql  (integer overload)
+CREATE FUNCTION app.format_name(user_id integer)
+  RETURNS text
+  LANGUAGE sql STABLE
+AS $$
+  SELECT first_name || ' ' || last_name FROM app.users WHERE id = user_id
+$$;
+
+-- schema/app/functions/format_name_text.sql  (text overload)
+CREATE FUNCTION app.format_name(raw_name text)
+  RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT
+AS $$
+  SELECT initcap(raw_name)
+$$;
+```
+
+pgevolve tracks each overload independently; the identity is `qname + arg_types_normalized`.
+
+### Define a procedure with COMMIT in the body
+
+```sql
+-- schema/app/procedures/process_batch.sql
+CREATE PROCEDURE app.process_batch(batch_size integer)
+  LANGUAGE plpgsql
+AS $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN SELECT id FROM app.jobs WHERE status = 'pending' LIMIT batch_size LOOP
+    UPDATE app.jobs SET status = 'done' WHERE id = r.id;
+    COMMIT;
+  END LOOP;
+END
+$$;
+```
+
+pgevolve detects `COMMIT` in the body and emits the step with `transactional=false` (outside a transaction block). The `procedure-contains-commit` lint warning fires as a reminder that the procedure cannot participate in a larger transaction.
+
+### Use `-- @pgevolve dep:` for dynamic SQL
+
+If a function uses `EXECUTE` (dynamic SQL), pgevolve cannot extract deps statically. Declare them with a directive:
+
+```sql
+-- schema/app/functions/refresh_summary.sql
+CREATE FUNCTION app.refresh_summary()
+  RETURNS void
+  LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- @pgevolve dep: app.summary
+  EXECUTE 'REFRESH MATERIALIZED VIEW app.summary';
+END
+$$;
+```
+
+Without the directive, the `plpgsql-dynamic-sql` lint rule fires as an Error. The directive tells pgevolve that `app.summary` is a dependency, so the planner can order the refresh after any changes to that MV.
+
 ## Run the same plan against multiple environments
 
 A plan is bound to a specific `target_identity`. If you generate

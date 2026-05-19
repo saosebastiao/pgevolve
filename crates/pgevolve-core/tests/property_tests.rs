@@ -17,10 +17,13 @@
 //! 3. **`enum_add_value_preserves_existing_values`** — for any random initial
 //!    enum label list and a new (distinct) label, `diff_user_types` emits
 //!    exactly one `EnumAddValue` change. Pure; no Docker.
+//! 4. **`plpgsql_canonicalization_is_idempotent`** — for a random PL/pgSQL
+//!    body, parsing then re-canonicalizing produces byte-identical
+//!    `canonical_text` and `canonical_hash`. Pure; no Docker.
 //!
 //! ### v0.2 (Docker-bound)
 //!
-//! 4. **`view_canonicalization_closed_under_pg_rewrite`** — verifies the
+//! 5. **`view_canonicalization_closed_under_pg_rewrite`** — verifies the
 //!    v0.2 invariant: `NormalizedBody::from_sql` applied to a view body
 //!    yields the same canonical text as `NormalizedBody::from_sql` applied
 //!    to the body Postgres stores in `pg_get_viewdef`. In other words,
@@ -61,6 +64,34 @@ const VIEW_BODIES: &[&str] = &[
     "SELECT u.id, u.email FROM app.users u WHERE u.id IS NOT NULL",
     "SELECT 1 AS one",
     "SELECT id AS user_id, email AS user_email FROM app.users",
+];
+
+// ---------------------------------------------------------------------------
+// v0.2: representative PL/pgSQL bodies for the canonicalization idempotency test
+// ---------------------------------------------------------------------------
+
+/// A fixed set of representative PL/pgSQL bodies.
+///
+/// These are kept as a const array rather than an arbitrary regex generator
+/// because constructing syntactically valid PL/pgSQL programmatically is
+/// impractical — PL/pgSQL requires `DECLARE` for any variables and has strict
+/// statement-list rules. The corpus covers the key structural forms: simple
+/// NULL body, PERFORM, RAISE, IF/ELSE, LOOP, static embedded SQL
+/// (`INSERT`/`SELECT`), `COMMIT`/`ROLLBACK`, and `-- @pgevolve dep:`
+/// directives.
+const PLPGSQL_BODIES: &[&str] = &[
+    "BEGIN NULL; END",
+    "BEGIN PERFORM 1; END",
+    "BEGIN\n  PERFORM 1;\nEND",
+    "DECLARE\n  v integer := 0;\nBEGIN\n  v := 1;\nEND",
+    "BEGIN\n  IF true THEN\n    PERFORM 1;\n  END IF;\nEND",
+    "BEGIN\n  IF true THEN\n    PERFORM 1;\n  ELSE\n    PERFORM 2;\n  END IF;\nEND",
+    "BEGIN\n  FOR i IN 1..10 LOOP\n    PERFORM i;\n  END LOOP;\nEND",
+    "BEGIN\n  INSERT INTO app.log(msg) VALUES ('x');\nEND",
+    "BEGIN\n  INSERT INTO app.log(msg) VALUES ('x');\n  COMMIT;\nEND",
+    "-- @pgevolve dep: app.summary\nBEGIN EXECUTE 'REFRESH MATERIALIZED VIEW app.summary'; END",
+    "BEGIN\n  RAISE NOTICE 'hello';\nEND",
+    "DECLARE\n  r record;\nBEGIN\n  FOR r IN SELECT id FROM app.users LOOP\n    PERFORM r.id;\n  END LOOP;\nEND",
 ];
 
 proptest! {
@@ -270,6 +301,61 @@ proptest! {
         prop_assert!(
             matches!(&entry.change, Change::UserType(UserTypeChange::EnumAddValue { value, .. }) if value == &new_value),
             "expected EnumAddValue for {:?}, got: {:?}", new_value, entry.change,
+        );
+    }
+
+    /// For a random PL/pgSQL body from the representative corpus, parsing then
+    /// re-canonicalizing produces byte-identical `canonical_text` and
+    /// `canonical_hash`. Pure; no Docker.
+    ///
+    /// The differ relies on this round-trip invariant: if
+    /// `parse_routine_body(body1.canonical_text())` produces a different
+    /// canonical text than `parse_routine_body(body)`, the planner would
+    /// see a spurious change on every plan even though nothing changed.
+    ///
+    /// A fixed corpus (rather than an unconstrained regex generator) is used
+    /// because constructing syntactically valid PL/pgSQL with a proptest
+    /// string strategy is impractical — PL/pgSQL requires `DECLARE` for any
+    /// variables and has strict statement-list rules. The corpus covers the
+    /// key structural forms: assignment, PERFORM, RAISE, IF, LOOP, embedded
+    /// static SQL, COMMIT/ROLLBACK, and `-- @pgevolve dep:` directives.
+    #[test]
+    #[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
+    fn plpgsql_canonicalization_is_idempotent(
+        body_idx in 0usize..PLPGSQL_BODIES.len(),
+    ) {
+        use pgevolve_core::identifier::{Identifier, QualifiedName};
+        use pgevolve_core::ir::function::FunctionLanguage;
+        use pgevolve_core::parse::builder::plpgsql::parse_routine_body;
+        use pgevolve_core::parse::error::SourceLocation;
+
+        let qname = QualifiedName::new(
+            Identifier::from_unquoted("app").unwrap(),
+            Identifier::from_unquoted("f").unwrap(),
+        );
+        let loc = SourceLocation::new(std::path::PathBuf::from("test.sql"), 1, 1);
+        let body = PLPGSQL_BODIES[body_idx];
+
+        let r1 = parse_routine_body(body, FunctionLanguage::PlPgSql, &qname, &loc);
+        prop_assume!(r1.is_ok());
+        let (body1, _deps1, _commits1) = r1.unwrap();
+
+        // Re-canonicalize: feed canonical_text back through parse_routine_body.
+        let r2 = parse_routine_body(body1.canonical_text(), FunctionLanguage::PlPgSql, &qname, &loc);
+        prop_assume!(r2.is_ok());
+        let (body2, _, _) = r2.unwrap();
+
+        prop_assert_eq!(
+            body1.canonical_text(),
+            body2.canonical_text(),
+            "canonical_text diverged on re-parse for body {:?}",
+            body,
+        );
+        prop_assert_eq!(
+            body1.canonical_hash(),
+            body2.canonical_hash(),
+            "canonical_hash diverged on re-parse for body {:?}",
+            body,
         );
     }
 }

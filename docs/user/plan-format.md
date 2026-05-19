@@ -112,6 +112,21 @@ The following step kinds were added in v0.2 alongside enum, domain, and composit
 
 > **`ReplaceWithCascade`.** When a type change cannot be applied in place (e.g., dropping or reordering enum values, reordering composite attributes, or changing a domain's base type), the planner emits `DROP TYPE <qname> CASCADE` followed by `CREATE TYPE`. Both steps appear in the plan as `drop_type` (destructive — requires intent approval) and `create_type`.
 
+### Step kinds — v0.2 additions (functions and procedures)
+
+The following step kinds were added in v0.2 alongside function and procedure support:
+
+| Kind | Description |
+|---|---|
+| `create_or_replace_function` | Idempotent `CREATE OR REPLACE FUNCTION`. Covers both initial create and in-place body/attribute changes when the language and return type are compatible. |
+| `drop_function` | `DROP FUNCTION <qname>(<arg_signature>)`. Destructive — requires intent approval. |
+| `comment_on_function` | `COMMENT ON FUNCTION <qname>(<args>) IS '…'`. |
+| `create_or_replace_procedure` | `CREATE OR REPLACE PROCEDURE`. If the body contains `COMMIT` or `ROLLBACK`, the step runs outside a transaction. |
+| `drop_procedure` | `DROP PROCEDURE <qname>`. Destructive — requires intent approval. |
+| `comment_on_procedure` | `COMMENT ON PROCEDURE <qname> IS '…'`. |
+
+> **`ReplaceWithCascade` for functions.** When a function's language or return type changes, `CREATE OR REPLACE FUNCTION` is not safe. The planner emits `DROP FUNCTION <qname> CASCADE` (destructive — requires intent approval) followed by `create_or_replace_function`. The `CASCADE` propagates to all dependent views and functions automatically.
+
 ## `intent.toml`
 
 ```toml

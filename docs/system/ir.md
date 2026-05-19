@@ -391,6 +391,74 @@ pub struct CompositeAttribute {
 }
 ```
 
+## `Function`
+
+Added in v0.2. Source: `crates/pgevolve-core/src/ir/function.rs`.
+
+```rust
+pub struct Function {
+    pub qname:                 QualifiedName,
+    pub args:                  Vec<FunctionArg>,
+    pub arg_types_normalized:  NormalizedArgTypes,
+    pub return_type:           ReturnType,
+    pub language:              FunctionLanguage,
+    pub body:                  NormalizedBody,
+    pub body_dependencies:     Vec<DepEdge>,
+    pub volatility:            Volatility,
+    pub strict:                bool,
+    pub security:              SecurityMode,
+    pub parallel:              ParallelSafety,
+    pub leakproof:             bool,
+    pub cost:                  Option<f32>,
+    pub rows:                  Option<f32>,
+    pub comment:               Option<String>,
+}
+```
+
+`Function`s live in `Catalog::functions: Vec<Function>`, sorted by `(qname, arg_types_normalized)` after `canonicalize()`.
+
+### Identity rule
+
+Function identity is `(qname, arg_types_normalized)`. `arg_types_normalized` covers the IN/INOUT/VARIADIC args only (mirrors Postgres's `proargtypes`), enabling overloads with the same name but different input signatures to coexist.
+
+`NormalizedArgTypes` stores the canonical type list and a BLAKE3 hash of the comma-joined type strings for fast equality and ordering.
+
+### `body_dependencies: Vec<DepEdge>`
+
+Dependency edges extracted from the body AST by the T4 body parser (`parse/builder/plpgsql.rs`):
+
+- SQL bodies: extracted from `RangeVar` nodes in the SQL AST (schema-qualified references only).
+- PL/pgSQL bodies: extracted from static embedded SQL statements (`PLpgSQL_stmt_execsql`). Dynamic SQL (`EXECUTE`) edges must be declared explicitly via `-- @pgevolve dep: schema.name` directives; undeclared `EXECUTE` sites fire the `plpgsql-dynamic-sql` lint rule.
+
+`DepEdge.source` is `DepSource::AstExtracted` for parsed edges and `DepSource::AstDeclared` for directive edges.
+
+## `Procedure`
+
+Added in v0.2. Source: `crates/pgevolve-core/src/ir/procedure.rs`.
+
+```rust
+pub struct Procedure {
+    pub qname:             QualifiedName,
+    pub args:              Vec<FunctionArg>,
+    pub language:          FunctionLanguage,
+    pub body:              NormalizedBody,
+    pub body_dependencies: Vec<DepEdge>,
+    pub security:          SecurityMode,
+    pub commits_in_body:   bool,
+    pub comment:           Option<String>,
+}
+```
+
+`Procedure`s live in `Catalog::procedures: Vec<Procedure>`, sorted by `qname` after `canonicalize()`.
+
+### Identity rule
+
+Procedure identity is `qname` only (no arg-type disambiguation). pgevolve v0.2 deliberately restricts procedures to a single definition per qualified name. This simplifies the plan-format and intent model; overloading can be added in a future sub-spec.
+
+### `commits_in_body`
+
+Set to `true` by the PL/pgSQL body parser when it detects `PLpgSQL_stmt_commit` or `PLpgSQL_stmt_rollback` nodes anywhere in the body AST (including inside `IF`, `LOOP`, etc.). The planner uses this flag to emit the step with `TransactionConstraint::OutsideTransaction`, since a procedure containing `COMMIT`/`ROLLBACK` cannot run inside an outer `BEGIN … COMMIT` block.
+
 ## `Sequence`
 
 ```rust

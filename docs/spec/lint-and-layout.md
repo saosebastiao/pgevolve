@@ -31,7 +31,9 @@ time. The lint engine runs them defensively over a built `SourceTree`.
 | `enum-value-collision` — an enum type declares duplicate value labels | ✅ Implemented | Severity `Error`. Defense-in-depth; the source parser also rejects duplicates. |
 | `composite-attribute-collision` — a composite type declares duplicate attribute names | ✅ Implemented | Severity `Error`. Defense-in-depth; the source parser also rejects duplicates. |
 | `domain-check-references-unmanaged-type` — a domain's CHECK expression references a schema not in `[managed].schemas` | ✅ Implemented | Severity `Warning`. pgevolve cannot track changes to objects it does not manage; the reference is a portability risk. Silent when `[managed].schemas` is empty. |
-| `plpgsql-dynamic-sql` — PL/pgSQL function body contains opaque `EXECUTE` patterns | 📋 Planned, v0.2 | Severity `Warning`. Resolved by adding `-- @pgevolve dep:` directives. |
+| `plpgsql-dynamic-sql` — PL/pgSQL body uses `EXECUTE` without a `-- @pgevolve dep:` directive | ✅ Implemented | Severity `Error`. Resolved by adding `-- @pgevolve dep: schema.name` directives to declare the dynamic references explicitly. |
+| `procedure-contains-commit` — procedure body contains `COMMIT` or `ROLLBACK` | ✅ Implemented | Severity `Warning`. pgevolve auto-detects transaction control statements and runs the step with `transactional=OutsideTransaction`. |
+| `function-references-unmanaged-schema` — routine body dep edge targets an unmanaged schema | ✅ Implemented | Severity `Warning`. pgevolve cannot track changes to objects it does not manage; the cross-schema dependency is a portability risk. Silent when `[managed].schemas` is empty. |
 
 ## Severity tiers
 

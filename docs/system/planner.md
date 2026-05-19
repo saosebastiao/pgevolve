@@ -311,6 +311,33 @@ When either predicate returns `false`, or when a domain's base type changes, the
 
 Both steps go into the same transactional group. The `CASCADE` propagates automatically to all dependent columns, views, and functions, so no additional dependent-recreation walk is needed for types (unlike views, which require the explicit `extend_with_dependent_recreations` pass).
 
+### Function OR-REPLACE predicate
+
+Source: `crates/pgevolve-core/src/diff/routines.rs` — `function_can_or_replace`.
+
+```rust
+pub(crate) fn function_can_or_replace(catalog: &Function, source: &Function) -> bool
+```
+
+Returns `true` (safe to use `CREATE OR REPLACE FUNCTION`) when:
+
+1. The **language** is unchanged (`sql` → `sql` or `plpgsql` → `plpgsql`).
+2. The **return type** is unchanged (same `ReturnType` variant and inner type). Any return-type change (scalar → void, etc.) forces a DROP + CREATE path.
+3. The **OUT / INOUT parameter names and types** are unchanged. These form part of the effective return type in Postgres and are rejected by `CREATE OR REPLACE FUNCTION` if they differ.
+
+When the predicate returns `false`, the differ emits `FunctionChange::ReplaceWithCascade { source, catalog }`. The planner converts this into:
+
+1. `DROP FUNCTION <qname>(<arg_sig>) CASCADE` (`drop_function`, destructive — requires intent approval).
+2. `CREATE OR REPLACE FUNCTION …` (`create_or_replace_function`, safe).
+
+Both steps go into the same transactional group.
+
+### Routine-cascade extension to the dep walker
+
+The dependent-recreation walk (`recreate_views.rs`) is extended for routines: if a `DROP TABLE` or a `DROP VIEW` would orphan a function or procedure body dependency, the cascade also includes the affected routines as `ReplaceWithCascade` entries. This mirrors the view-cascade behaviour — no hidden `CASCADE` drops; every affected object appears explicitly in the plan.
+
+Procedures with `commits_in_body = true` are placed in their own non-transactional step regardless of the surrounding group (matching the `OutsideTransaction` constraint emitted by the planner for those procedures).
+
 ### Atomic mode
 
 `Strategy::Atomic` short-circuits **every** online rewrite — every

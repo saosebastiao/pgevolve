@@ -37,10 +37,10 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Object | Status | Notes |
 |---|---|---|
-| `FUNCTION` (SQL language body) | 📋 Planned, v0.2 | Source-side: function definitions live in `schema/<schema>/functions/<name>.sql`. Replace-on-change semantics. |
-| `FUNCTION` (PL/pgSQL body) | 📋 Planned, v0.2 | Same model as SQL functions; body is opaque text canonicalized to a normal form for diff. |
+| `FUNCTION` (SQL language body) | ✅ Implemented | SQL bodies canonicalized via `NormalizedBody`. `CREATE OR REPLACE FUNCTION` for in-place changes; signature changes are Drop + Create. Full attribute matrix (volatility, strict, security, parallel, leakproof, cost, rows). change_kinds: [create, drop, create_or_replace, replace_with_cascade, comment_on] |
+| `FUNCTION` (PL/pgSQL body) | ✅ Implemented | PL/pgSQL bodies parsed via `pg_query::parse_plpgsql`; static SQL deps extracted; dynamic SQL closed by `-- @pgevolve dep:` directives. change_kinds: [create, drop, create_or_replace, replace_with_cascade, comment_on] |
 | `FUNCTION` (other PL languages — PL/Python, PL/Perl, etc.) | 🔮 Future | Requires support for `CREATE EXTENSION` for the language first. |
-| `PROCEDURE` | 📋 Planned, v0.2 | Same shape as functions. |
+| `PROCEDURE` | ✅ Implemented | Same as functions, qname-only identity. COMMIT/ROLLBACK in body auto-detected; step runs with transactional=OutsideTransaction. change_kinds: [create, drop, create_or_replace, comment_on] |
 | `TRIGGER` | 📋 Planned, v0.2 | Both row- and statement-level; before/after/instead-of. Constraint triggers as a subkind. |
 | `EVENT TRIGGER` | 🔮 Future | Lower priority; intersects with admin/security tooling. |
 | `AGGREGATE` | 🔮 Future | Custom aggregates require user-defined functions; lands with PL languages. |
