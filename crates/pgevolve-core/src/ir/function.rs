@@ -86,14 +86,29 @@ impl std::hash::Hash for Function {
 }
 
 impl Diff for Function {
+    // The structural differ at the change level lives in `crate::diff::routines`
+    // (T8) and produces granular FunctionChange variants. This `Diff` impl is
+    // the debug/equivalence-rule hook used by `Catalog::diff` for reporting
+    // only; a single top-level entry per changed function — keyed by qname
+    // and arg signature — is intentional here. Format the body hash hex
+    // rather than the whole struct to keep output legible.
     fn diff(&self, other: &Self) -> Vec<Difference> {
         if self == other {
             Vec::new()
         } else {
+            let key = format!(
+                "{}({})",
+                self.qname,
+                self.args
+                    .iter()
+                    .map(|a| a.ty.render_sql())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
             vec![Difference::new(
-                "",
-                format!("{self:?}"),
-                format!("{other:?}"),
+                key,
+                format!("body_hash={}", hex::encode(self.body.canonical_hash())),
+                format!("body_hash={}", hex::encode(other.body.canonical_hash())),
             )]
         }
     }
@@ -113,7 +128,7 @@ pub struct FunctionArg {
 }
 
 /// Argument passing mode.
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArgMode {
     /// Standard input argument.
