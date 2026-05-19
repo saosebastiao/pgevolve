@@ -66,57 +66,12 @@ impl Catalog {
     }
 
     /// Sort each collection by its canonical key and reject duplicates.
-    #[allow(clippy::too_many_lines)]
     pub fn canonicalize(mut self) -> Result<Self, IrError> {
-        self.schemas.sort_by(|a, b| a.name.cmp(&b.name));
-        if let Some(dupe) = first_duplicate(self.schemas.iter().map(|s| s.name.as_str())) {
-            return Err(IrError::InvalidIdentifier(format!(
-                "duplicate schema: {dupe}"
-            )));
-        }
-
-        self.tables.sort_by(|a, b| a.qname.cmp(&b.qname));
-        if let Some(dupe) = first_duplicate(self.tables.iter().map(|t| t.qname.to_string())) {
-            return Err(IrError::InvalidIdentifier(format!(
-                "duplicate table: {dupe}"
-            )));
-        }
-
-        self.indexes.sort_by(|a, b| a.qname.cmp(&b.qname));
-        if let Some(dupe) = first_duplicate(self.indexes.iter().map(|i| i.qname.to_string())) {
-            return Err(IrError::InvalidIdentifier(format!(
-                "duplicate index: {dupe}"
-            )));
-        }
-
         self.sequences = self
             .sequences
             .into_iter()
             .map(Sequence::canonicalize)
             .collect();
-        self.sequences.sort_by(|a, b| a.qname.cmp(&b.qname));
-        if let Some(dupe) = first_duplicate(self.sequences.iter().map(|s| s.qname.to_string())) {
-            return Err(IrError::InvalidIdentifier(format!(
-                "duplicate sequence: {dupe}"
-            )));
-        }
-
-        self.views.sort_by(|a, b| a.qname.cmp(&b.qname));
-        if let Some(dupe) = first_duplicate(self.views.iter().map(|v| v.qname.to_string())) {
-            return Err(IrError::InvalidIdentifier(format!(
-                "duplicate view: {dupe}"
-            )));
-        }
-
-        self.materialized_views
-            .sort_by(|a, b| a.qname.cmp(&b.qname));
-        if let Some(dupe) =
-            first_duplicate(self.materialized_views.iter().map(|m| m.qname.to_string()))
-        {
-            return Err(IrError::InvalidIdentifier(format!(
-                "duplicate materialized view: {dupe}"
-            )));
-        }
 
         // View / MV column types: source-side parsing produces placeholder
         // sentinel `ColumnType::Other { raw: "unresolved" }` / `"expression"`
@@ -150,12 +105,6 @@ impl Catalog {
             }
         }
 
-        self.types.sort_by(|a, b| a.qname.cmp(&b.qname));
-        if let Some(dupe) = first_duplicate(self.types.iter().map(|t| t.qname.to_string())) {
-            return Err(IrError::InvalidIdentifier(format!(
-                "duplicate type: {dupe}"
-            )));
-        }
         // Normalize enum sort_order to sequential 1.0, 2.0, ... regardless of
         // PG's underlying float values. Source IR assigns 1.0, 2.0, 3.0 in
         // declaration order; catalog reader receives whatever floats PG
@@ -180,60 +129,10 @@ impl Catalog {
             }
         }
 
-        // Functions: identity is (qname, arg_types_normalized.canonical_hash).
-        // Overloads with the same qname but different arg types are permitted.
-        self.functions.sort_by(|a, b| {
-            a.qname.cmp(&b.qname).then_with(|| {
-                a.arg_types_normalized
-                    .canonical_hash
-                    .cmp(&b.arg_types_normalized.canonical_hash)
-            })
-        });
-        if let Some(dupe) = first_duplicate(self.functions.iter().map(|f| {
-            format!(
-                "{}({})",
-                f.qname,
-                f.arg_types_normalized
-                    .types
-                    .iter()
-                    .map(crate::ir::column_type::ColumnType::render_sql)
-                    .collect::<Vec<_>>()
-                    .join(",")
-            )
-        })) {
-            return Err(IrError::InvalidIdentifier(format!(
-                "duplicate function: {dupe}"
-            )));
-        }
-
-        self.procedures.sort_by(|a, b| a.qname.cmp(&b.qname));
-        if let Some(dupe) = first_duplicate(self.procedures.iter().map(|p| p.qname.to_string())) {
-            return Err(IrError::InvalidIdentifier(format!(
-                "duplicate procedure: {dupe}"
-            )));
-        }
-
-        // Delegate to the unified canon pipeline. Currently a no-op;
-        // existing rules below still run inline (they move into the
-        // pipeline in subsequent commits).
         crate::ir::canon::canonicalize(&mut self)?;
 
         Ok(self)
     }
-}
-
-fn first_duplicate<T: Ord, I: IntoIterator<Item = T>>(items: I) -> Option<T> {
-    let mut seen: Vec<T> = items.into_iter().collect();
-    seen.sort();
-    let mut iter = seen.into_iter();
-    let mut prev = iter.next()?;
-    for cur in iter {
-        if cur == prev {
-            return Some(cur);
-        }
-        prev = cur;
-    }
-    None
 }
 
 impl Diff for Catalog {
