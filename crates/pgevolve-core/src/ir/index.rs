@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_expr::NormalizedExpr;
-use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::DiffMacro;
 
 /// The parent object of an [`Index`]: either a table or a materialized view.
 ///
@@ -34,27 +33,34 @@ impl IndexParent {
 }
 
 /// A Postgres index.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
 pub struct Index {
     /// Schema-qualified index name.
     pub qname: QualifiedName,
     /// The parent table or materialized view this index is defined on.
+    #[diff(via_debug)]
     pub on: IndexParent,
     /// Index access method.
+    #[diff(via_debug)]
     pub method: IndexMethod,
     /// Indexed columns / expressions; order is significant.
+    #[diff(via_debug)]
     pub columns: Vec<IndexColumn>,
     /// `INCLUDE (cols)` covering columns.
+    #[diff(via_debug)]
     pub include: Vec<Identifier>,
     /// True for `UNIQUE` indexes.
     pub unique: bool,
     /// PG 15+ `NULLS NOT DISTINCT`.
     pub nulls_not_distinct: bool,
     /// Optional partial-index predicate.
+    #[diff(via_debug)]
     pub predicate: Option<NormalizedExpr>,
     /// Optional tablespace.
+    #[diff(via_debug)]
     pub tablespace: Option<Identifier>,
     /// Optional comment.
+    #[diff(via_debug)]
     pub comment: Option<String>,
 }
 
@@ -121,70 +127,10 @@ pub enum NullsOrder {
     NullsLast,
 }
 
-fn render_idents(v: &[Identifier]) -> String {
-    let mut s = String::from("[");
-    for (i, id) in v.iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        s.push_str(id.as_str());
-    }
-    s.push(']');
-    s
-}
-
-impl Diff for Index {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
-        let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field(
-            "on",
-            &format!("{:?}", self.on),
-            &format!("{:?}", other.on),
-        ));
-        out.extend(diff_field(
-            "method",
-            &format!("{:?}", self.method),
-            &format!("{:?}", other.method),
-        ));
-        out.extend(diff_field(
-            "columns",
-            &format!("{:?}", self.columns),
-            &format!("{:?}", other.columns),
-        ));
-        out.extend(diff_field(
-            "include",
-            &render_idents(&self.include),
-            &render_idents(&other.include),
-        ));
-        out.extend(diff_field("unique", &self.unique, &other.unique));
-        out.extend(diff_field(
-            "nulls_not_distinct",
-            &self.nulls_not_distinct,
-            &other.nulls_not_distinct,
-        ));
-        out.extend(diff_field(
-            "predicate",
-            &format!("{:?}", self.predicate),
-            &format!("{:?}", other.predicate),
-        ));
-        out.extend(diff_field(
-            "tablespace",
-            &format!("{:?}", self.tablespace),
-            &format!("{:?}", other.tablespace),
-        ));
-        out.extend(diff_field(
-            "comment",
-            &format!("{:?}", self.comment),
-            &format!("{:?}", other.comment),
-        ));
-        out
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::eq::Diff;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
