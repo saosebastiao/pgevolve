@@ -176,7 +176,7 @@ equality checks and as a stable identity for an expression.
 ```rust
 pub struct NormalizedBody {
     pub canonical_text: String,
-    pub ast_hash:       [u8; 32],
+    pub canonical_hash: [u8; 32],
 }
 ```
 
@@ -185,7 +185,12 @@ Where `NormalizedExpr` canonicalizes a single expression (e.g., a column
 default or a CHECK predicate), `NormalizedBody` canonicalizes the body
 of a body-bearing object — a view's `SELECT` statement, a function's
 body, a trigger's action. The same canonicalization rules apply (keyword
-case, redundant parens, etc.).
+case, redundant parens, etc.), plus one cross-version normalization:
+for any `SelectStmt` whose `FROM` names exactly one relation, the
+canonicalizer rewrites `ColumnRef [<from-alias>, <col>]` → `[<col>]`.
+PG14's `pg_get_viewdef` keeps the redundant qualifier while PG17 strips
+it; this pass makes both forms equal so the differ doesn't see a
+phantom body change on PG14.
 
 In v0.1 no objects carry a body; `NormalizedBody` is scaffolding for
 v0.2 views and functions. It is kept in `pgevolve-core::parse::normalize_body`
@@ -291,11 +296,13 @@ pub struct MaterializedView {
 
 The canonicalized SELECT body. `NormalizedBody::from_sql` (in
 `parse/normalize_body.rs`) feeds the raw SQL through `pg_query`'s
-parse + deparse cycle and collapses whitespace. The same function is
-called on the source side (T3/T4 parse pass) and the catalog side (T5
-reader, which calls `pg_get_viewdef`). Because both sides go through
-the same normalization, the differ compares canonical texts directly
-without knowing anything about SQL semantics.
+parse + deparse cycle, strips redundant table-qualifier prefixes from
+column refs whose FROM names a single relation (see `NormalizedBody`
+above), and collapses whitespace. The same function is called on the
+source side (T3/T4 parse pass) and the catalog side (T5 reader, which
+calls `pg_get_viewdef`). Because both sides go through the same
+normalization, the differ compares canonical texts directly without
+knowing anything about SQL semantics.
 
 `canonical_hash` (BLAKE3 of the text, domain-separated with
 `pgevolve-normalized-body-v1\n`) is kept for fast equality checks and

@@ -52,7 +52,7 @@ The same `NormalizedBody::from_sql` call is used on the catalog side (T5 reader 
 
 | Aspect | Status | Notes |
 |---|---|---|
-| `NormalizedBody::from_sql` canonicalization | ✅ Implemented | `pg_query` parse + deparse + whitespace collapse. Source: `parse/normalize_body.rs`. |
+| `NormalizedBody::from_sql` canonicalization | ✅ Implemented | `pg_query` parse + deparse + redundant-qualifier strip (`SELECT users.id FROM app.users` → `SELECT id FROM app.users` for single-relation `FROM` clauses, so PG14's qualified `pg_get_viewdef` output matches PG17's unqualified form) + whitespace collapse. Source: `parse/normalize_body.rs`. |
 | Dep-edge extraction from view body AST | ✅ Implemented | `DepEdge { from: NodeId::View, to: NodeId::Table/View/Mv, source: AstExtracted }`. |
 | `body_dependencies` integration into planner ordering | ✅ Implemented | View → table and view → view edges are part of the dep-graph; creates and drops respect the topo order. |
 
@@ -75,7 +75,7 @@ Runs after the AST canonicalization pass. Validates structural references before
 | Schemas, tables, columns, constraints, indexes, sequences | ✅ Implemented | Mirrors the v0.1 IR surface. |
 | Dependencies (sequence `OWNED BY`, default → sequence) | ✅ Implemented | |
 | `pg_catalog.default` collation normalized to "none" | ✅ Implemented | Avoids phantom drift on every text column. |
-| Sequence type-default min/max normalized to "unspecified" | ✅ Implemented | Same reason — PG stores explicit values even when the user didn't specify them. |
+| Sequence type-default min/max normalized to "unspecified" | ✅ Implemented | Same reason — PG stores explicit values even when the user didn't specify them. `Catalog::canonicalize` applies the same normalization on the source side, so a hand-written `MINVALUE 1` (bigint default) round-trips equal to a catalog read that returns `None`. |
 | Views and materialized views | ✅ Implemented | `read_views` and `read_materialized_views` query `pg_views` / `pg_matviews`, call `pg_get_viewdef` for the body text, and feed it through `NormalizedBody::from_sql` so the catalog-side canonical text is directly comparable with the source-side canonical text. |
 | Object kinds beyond v0.1/v0.2 views (functions, triggers, types, …) | 📋 Planned, v0.2+ | Lands with the corresponding object-kind support. |
 | Catalog filtering by `[managed]` schemas + `[managed].ignore_objects` globs | ✅ Implemented | Unmanaged schemas don't appear in the IR at all. |
