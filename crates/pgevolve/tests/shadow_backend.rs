@@ -73,9 +73,11 @@ async fn testcontainers_backend_checkouts_when_docker_available() {
     };
     let backend = resolve(&cfg).expect("resolve should succeed");
     let guard = backend.checkout(17).await.expect("checkout should succeed");
+    // Both `postgres://` and `postgresql://` are valid libpq URI schemes; the
+    // testcontainers backend emits the canonical longer form (`postgresql://`).
+    let url = guard.url();
     assert!(
-        guard.url().starts_with("postgres://"),
-        "url should be a real DSN: {}",
-        guard.url(),
+        url.starts_with("postgres://") || url.starts_with("postgresql://"),
+        "url should be a real DSN: {url}",
     );
 }

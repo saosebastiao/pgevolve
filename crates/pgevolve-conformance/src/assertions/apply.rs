@@ -220,16 +220,35 @@ fn collect_managed_schemas(after_sql: &str) -> Vec<String> {
 fn cargo_bin() -> PathBuf {
     // CARGO_BIN_EXE_pgevolve is injected by Cargo when the integration test
     // binary declares pgevolve as a [[bin]] dependency in the *same* package.
-    // For cross-package dev-deps, the env var is not set; fall back to the
-    // absolute workspace debug path derived from CARGO_MANIFEST_DIR.
+    // For cross-package dev-deps, the env var is not set; fall back to a
+    // workspace-relative path. The fallback must match the profile under
+    // which the tests are running (debug for `cargo test`, release for
+    // `cargo test --release` — the weekly soak workflow uses release).
     option_env!("CARGO_BIN_EXE_pgevolve")
         .map(PathBuf::from)
         .filter(|p| p.exists())
         .unwrap_or_else(|| {
-            // CARGO_MANIFEST_DIR is the crate root of pgevolve-conformance.
-            // The workspace root is two levels up (../../).
             let manifest_dir = env!("CARGO_MANIFEST_DIR");
-            PathBuf::from(manifest_dir).join("../../target/debug/pgevolve")
+            let workspace_target = PathBuf::from(manifest_dir).join("../../target");
+            // Prefer the binary matching the current build profile; fall back
+            // to the other profile only if the matching one doesn't exist
+            // (e.g., a dev who built `--release` then ran debug tests).
+            let primary = if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            };
+            let secondary = if cfg!(debug_assertions) {
+                "release"
+            } else {
+                "debug"
+            };
+            let primary_path = workspace_target.join(primary).join("pgevolve");
+            if primary_path.exists() {
+                primary_path
+            } else {
+                workspace_target.join(secondary).join("pgevolve")
+            }
         })
 }
 
