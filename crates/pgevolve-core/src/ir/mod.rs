@@ -4,6 +4,7 @@
 //! parser and the catalog reader produce these types; the differ, dependency
 //! analyzer, and planner consume them.
 
+pub mod canon;
 pub mod catalog;
 pub mod column;
 pub mod column_type;

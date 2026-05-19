@@ -213,6 +213,11 @@ impl Catalog {
             )));
         }
 
+        // Delegate to the unified canon pipeline. Currently a no-op;
+        // existing rules below still run inline (they move into the
+        // pipeline in subsequent commits).
+        crate::ir::canon::canonicalize(&mut self)?;
+
         Ok(self)
     }
 }
