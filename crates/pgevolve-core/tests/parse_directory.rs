@@ -107,15 +107,10 @@ fn unsupported_object_kind_rejected() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
 
-    write(
-        &root.join("bad.sql"),
-        "CREATE FUNCTION app.f() RETURNS integer LANGUAGE sql AS $$ SELECT 1; $$;\n",
-    );
+    write(&root.join("bad.sql"), "CREATE EXTENSION pgcrypto;\n");
     let err = parse::parse_directory(root, &[]).unwrap_err();
     match err {
-        parse::ParseError::UnsupportedObjectKind { kind, .. } => {
-            assert_eq!(kind, "CREATE FUNCTION/PROCEDURE");
-        }
+        parse::ParseError::UnsupportedObjectKind { .. } => {}
         other => panic!("expected UnsupportedObjectKind, got {other:?}"),
     }
 }

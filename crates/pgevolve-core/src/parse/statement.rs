@@ -35,6 +35,10 @@ pub enum Statement {
     CreateDomain(protobuf::CreateDomainStmt),
     /// `CREATE TYPE ... AS (...)` (composite).
     CreateCompositeType(protobuf::CompositeTypeStmt),
+    /// `CREATE [OR REPLACE] FUNCTION ...`.
+    CreateFunction(protobuf::CreateFunctionStmt),
+    /// `CREATE [OR REPLACE] PROCEDURE ...`.
+    CreateProcedure(protobuf::CreateFunctionStmt),
 }
 
 impl Statement {
@@ -52,6 +56,13 @@ impl Statement {
             NodeEnum::CreateEnumStmt(s) => Ok(Self::CreateEnum(s)),
             NodeEnum::CreateDomainStmt(s) => Ok(Self::CreateDomain(*s)),
             NodeEnum::CompositeTypeStmt(s) => Ok(Self::CreateCompositeType(s)),
+            NodeEnum::CreateFunctionStmt(s) => {
+                if s.is_procedure {
+                    Ok(Self::CreateProcedure(*s))
+                } else {
+                    Ok(Self::CreateFunction(*s))
+                }
+            }
             NodeEnum::CreateTableAsStmt(s) => {
                 // `CREATE TABLE ... AS SELECT` and `CREATE MATERIALIZED VIEW`
                 // both arrive as CreateTableAsStmt. Route by the objtype field.
@@ -75,7 +86,7 @@ const fn friendly_kind(node: &NodeEnum) -> &'static str {
     match node {
         NodeEnum::ViewStmt(_) => "CREATE VIEW", // never reached — routed above
         NodeEnum::CreateEnumStmt(_) => "CREATE TYPE ... AS ENUM", // never reached — routed above
-        NodeEnum::CreateFunctionStmt(_) => "CREATE FUNCTION/PROCEDURE",
+        NodeEnum::CreateFunctionStmt(_) => "CREATE FUNCTION/PROCEDURE", // never reached — routed above
         NodeEnum::CreateTrigStmt(_) => "CREATE TRIGGER",
         NodeEnum::CreateRangeStmt(_) => "CREATE TYPE ... AS RANGE",
         NodeEnum::CreateExtensionStmt(_) => "CREATE EXTENSION",
@@ -199,11 +210,19 @@ mod tests {
     }
 
     #[test]
-    fn create_function_unsupported() {
+    fn create_function_classifies() {
         let node =
             first_node("CREATE FUNCTION app.f() RETURNS integer AS $$ SELECT 1; $$ LANGUAGE sql;");
-        let err = Statement::classify(node, loc()).unwrap_err();
-        assert!(matches!(err, ParseError::UnsupportedObjectKind { .. }));
+        let stmt = Statement::classify(node, loc()).unwrap();
+        assert!(matches!(stmt, Statement::CreateFunction(_)));
+    }
+
+    #[test]
+    fn create_procedure_classifies() {
+        let node =
+            first_node("CREATE PROCEDURE app.p() LANGUAGE plpgsql AS $$ BEGIN NULL; END $$;");
+        let stmt = Statement::classify(node, loc()).unwrap();
+        assert!(matches!(stmt, Statement::CreateProcedure(_)));
     }
 
     #[test]

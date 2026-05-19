@@ -1,1 +1,0 @@
-CREATE FUNCTION app.f() RETURNS integer AS $$ SELECT 1; $$ LANGUAGE sql;

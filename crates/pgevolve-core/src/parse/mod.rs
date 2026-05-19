@@ -326,6 +326,66 @@ fn process_file(
                 locations.insert(ut.qname.to_string(), location.clone());
                 catalog.types.push(ut);
             }
+            Statement::CreateFunction(s) => {
+                let routine = builder::create_function_stmt::build_function_or_procedure(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                )?;
+                let builder::create_function_stmt::Routine::Function(f) = routine else {
+                    return Err(ParseError::Structural {
+                        location,
+                        message: "internal error: expected Function from non-procedure stmt".into(),
+                    });
+                };
+                let arg_sig = f
+                    .args
+                    .iter()
+                    .filter(|a| {
+                        matches!(
+                            a.mode,
+                            crate::ir::function::ArgMode::In
+                                | crate::ir::function::ArgMode::InOut
+                                | crate::ir::function::ArgMode::Variadic
+                        )
+                    })
+                    .map(|a| a.ty.render_sql())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let key = format!("functions.{}({arg_sig})", f.qname);
+                if let Some(prior) = locations.get(&key) {
+                    return Err(ParseError::DuplicateObject {
+                        qname: key,
+                        first: prior.clone(),
+                        second: location,
+                    });
+                }
+                locations.insert(key, location.clone());
+                catalog.functions.push(f);
+            }
+            Statement::CreateProcedure(s) => {
+                let routine = builder::create_function_stmt::build_function_or_procedure(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                )?;
+                let builder::create_function_stmt::Routine::Procedure(p) = routine else {
+                    return Err(ParseError::Structural {
+                        location,
+                        message: "internal error: expected Procedure from procedure stmt".into(),
+                    });
+                };
+                let key = format!("procedures.{}", p.qname);
+                if let Some(prior) = locations.get(&key) {
+                    return Err(ParseError::DuplicateObject {
+                        qname: key,
+                        first: prior.clone(),
+                        second: location,
+                    });
+                }
+                locations.insert(key, location.clone());
+                catalog.procedures.push(p);
+            }
         }
     }
     Ok(())
