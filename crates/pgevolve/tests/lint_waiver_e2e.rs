@@ -63,9 +63,14 @@ fn run_plan(project: &Path, bin: &Path) -> std::process::Output {
 }
 
 /// Apply DDL directly to the DB to set up the pre-existing state.
+///
+/// Use `batch_execute` (simple protocol) — the test fixtures pass
+/// multi-statement strings (`CREATE SCHEMA app; CREATE TABLE app.users …`)
+/// which `execute` (extended protocol / prepared statements) rejects with
+/// PG error 42601 "cannot insert multiple commands into a prepared statement".
 async fn exec_sql(pg: &EphemeralPostgres, sql: &str) {
     let client = pg.connect().await.expect("connect");
-    client.execute(sql, &[]).await.expect("exec sql");
+    client.batch_execute(sql).await.expect("exec sql");
 }
 
 // ---------------------------------------------------------------------------
