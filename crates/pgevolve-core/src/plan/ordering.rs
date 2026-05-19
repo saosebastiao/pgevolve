@@ -8,7 +8,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
-use crate::diff::change::{Change, ChangeEntry, MvChange, UserTypeChange, ViewChange};
+use crate::diff::change::{
+    Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, UserTypeChange, ViewChange,
+};
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::TableOp;
 use crate::identifier::{Identifier, QualifiedName};
@@ -260,14 +262,24 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
                 | UserTypeChange::CompositeAlterAttributeType { .. }
                 | UserTypeChange::SetComment { .. } => modifies.push(entry),
             },
-            // Function / Procedure changes — T9 wires NodeId::Function/Procedure
-            // and the correct partition buckets.
-            Change::Function(_) => {
-                unimplemented!("Task 9 wires NodeId::Function and partition for function changes")
-            }
-            Change::Procedure(_) => {
-                unimplemented!("Task 9 wires NodeId::Procedure and partition for procedure changes")
-            }
+            // Function changes: bucket by lifecycle phase.
+            Change::Function(fc) => match fc {
+                FunctionChange::Create(_) => creates.push(entry),
+                FunctionChange::Drop { .. } | FunctionChange::ReplaceWithCascade { .. } => {
+                    drops.push(entry);
+                }
+                FunctionChange::CreateOrReplace(_) | FunctionChange::SetComment { .. } => {
+                    modifies.push(entry);
+                }
+            },
+            // Procedure changes: bucket by lifecycle phase.
+            Change::Procedure(pc) => match pc {
+                ProcedureChange::Create(_) => creates.push(entry),
+                ProcedureChange::Drop(_) => drops.push(entry),
+                ProcedureChange::CreateOrReplace(_) | ProcedureChange::SetComment { .. } => {
+                    modifies.push(entry);
+                }
+            },
         }
     }
     (creates, modifies, drops)
@@ -333,12 +345,26 @@ fn change_node(change: &Change) -> NodeId {
             };
             NodeId::Type(qname.clone())
         }
-        // Function / Procedure node mapping — T9 adds NodeId::Function / NodeId::Procedure.
-        Change::Function(_) => {
-            unimplemented!("Task 9 wires NodeId::Function and change_node for function changes")
-        }
-        Change::Procedure(_) => {
-            unimplemented!("Task 9 wires NodeId::Procedure and change_node for procedure changes")
+        // Function node mapping.
+        Change::Function(fc) => match fc {
+            FunctionChange::Create(f) | FunctionChange::CreateOrReplace(f) => {
+                NodeId::Function(f.qname.clone(), f.arg_types_normalized.clone())
+            }
+            FunctionChange::ReplaceWithCascade { source: f, .. } => {
+                NodeId::Function(f.qname.clone(), f.arg_types_normalized.clone())
+            }
+            FunctionChange::Drop { qname, args } => NodeId::Function(qname.clone(), args.clone()),
+            FunctionChange::SetComment { qname, args, .. } => {
+                NodeId::Function(qname.clone(), args.clone())
+            }
+        },
+        // Procedure node mapping.
+        Change::Procedure(pc) => {
+            let qname = match pc {
+                ProcedureChange::Create(p) | ProcedureChange::CreateOrReplace(p) => &p.qname,
+                ProcedureChange::Drop(q) | ProcedureChange::SetComment { qname: q, .. } => q,
+            };
+            NodeId::Procedure(qname.clone())
         }
     }
 }
@@ -417,6 +443,16 @@ fn render_node(n: &NodeId) -> String {
         NodeId::View(q) => format!("view:{q}"),
         NodeId::Mv(q) => format!("mv:{q}"),
         NodeId::Type(q) => format!("type:{q}"),
+        NodeId::Procedure(q) => format!("procedure:{q}"),
+        NodeId::Function(q, args) => format!(
+            "function:{}({})",
+            q,
+            args.types
+                .iter()
+                .map(crate::ir::column_type::ColumnType::render_sql)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
     }
 }
 

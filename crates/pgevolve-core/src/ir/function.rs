@@ -242,6 +242,19 @@ pub struct NormalizedArgTypes {
     pub canonical_hash: [u8; 32],
 }
 
+impl PartialOrd for NormalizedArgTypes {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NormalizedArgTypes {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Order by the canonical hash — unique and stable across the arg-type space.
+        self.canonical_hash.cmp(&other.canonical_hash)
+    }
+}
+
 impl NormalizedArgTypes {
     /// Construct from a list of args, filtering to IN/INOUT/VARIADIC and
     /// computing the BLAKE3 hash of the canonical type-string list.

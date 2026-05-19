@@ -18,7 +18,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::diff::change::{Change, MvChange, UserTypeChange, ViewChange};
+use crate::diff::change::{
+    Change, FunctionChange, MvChange, ProcedureChange, UserTypeChange, ViewChange,
+};
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
 use crate::plan::edges::NodeId;
@@ -177,17 +179,24 @@ fn collect_upstream_triggers(changes: &[Change]) -> Vec<DepTrigger> {
 }
 
 /// If `change` is a drop (or destructive replace) of a top-level object
-/// (table, view, MV, or user-defined type), return its qname.
+/// (table, view, MV, user-defined type, function, or procedure), return its qname.
 ///
-/// For `UserTypeChange::ReplaceWithCascade`, the type is effectively dropped
-/// and re-created — any view that depends on the type must be recreated.
+/// For `UserTypeChange::ReplaceWithCascade` and
+/// `FunctionChange::ReplaceWithCascade`, the object is effectively dropped and
+/// re-created — any view that depends on it must be recreated.
 fn object_drop_qname(change: &Change) -> Option<QualifiedName> {
     match change {
         Change::DropTable { qname, .. }
         | Change::View(ViewChange::Drop(qname))
         | Change::Mv(MvChange::Drop(qname))
-        | Change::UserType(UserTypeChange::Drop(qname)) => Some(qname.clone()),
+        | Change::UserType(UserTypeChange::Drop(qname))
+        | Change::Function(FunctionChange::Drop { qname, .. })
+        | Change::Procedure(ProcedureChange::Drop(qname)) => Some(qname.clone()),
         Change::UserType(UserTypeChange::ReplaceWithCascade { source, .. }) => {
+            Some(source.qname.clone())
+        }
+        // Function cascade-replace: effectively a drop-and-recreate.
+        Change::Function(FunctionChange::ReplaceWithCascade { source, .. }) => {
             Some(source.qname.clone())
         }
         _ => None,
@@ -211,9 +220,15 @@ fn build_dep_index(
             .body_dependencies
             .iter()
             .filter_map(|dep| match &dep.to {
-                NodeId::Table(q) | NodeId::View(q) | NodeId::Mv(q) | NodeId::Type(q) => {
-                    Some((q.clone(), None))
-                }
+                NodeId::Table(q)
+                | NodeId::View(q)
+                | NodeId::Mv(q)
+                | NodeId::Type(q)
+                | NodeId::Procedure(q)
+                // Functions are identified by (qname, args) but cascade
+                // matching uses qname only (conservative: any overload drop
+                // triggers dependent recreation).
+                | NodeId::Function(q, _) => Some((q.clone(), None)),
                 // We don't have column-level NodeId granularity yet, so
                 // column-specific triggers fall back to object-level matching.
                 _ => None,
@@ -230,9 +245,12 @@ fn build_dep_index(
             .body_dependencies
             .iter()
             .filter_map(|dep| match &dep.to {
-                NodeId::Table(q) | NodeId::View(q) | NodeId::Mv(q) | NodeId::Type(q) => {
-                    Some((q.clone(), None))
-                }
+                NodeId::Table(q)
+                | NodeId::View(q)
+                | NodeId::Mv(q)
+                | NodeId::Type(q)
+                | NodeId::Procedure(q)
+                | NodeId::Function(q, _) => Some((q.clone(), None)),
                 _ => None,
             })
             .collect();
@@ -975,5 +993,200 @@ mod tests {
         );
         // Changes must not be modified when policy blocks.
         assert_eq!(changes.len(), 1);
+    }
+
+    // ── Function / Procedure cascade tests ───────────────────────────────────
+
+    use crate::diff::change::FunctionChange;
+    use crate::ir::function::{
+        Function, FunctionLanguage, NormalizedArgTypes, ParallelSafety, ReturnType, SecurityMode,
+        Volatility,
+    };
+    use crate::ir::procedure::Procedure;
+
+    fn make_function(schema: &str, name: &str) -> Function {
+        let args = vec![];
+        let arg_types_normalized = NormalizedArgTypes::from_args(&args);
+        Function {
+            qname: qn(schema, name),
+            args,
+            arg_types_normalized,
+            return_type: ReturnType::Scalar {
+                ty: ColumnType::BigInt,
+            },
+            language: FunctionLanguage::Sql,
+            body: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![],
+            volatility: Volatility::Volatile,
+            strict: false,
+            security: SecurityMode::Invoker,
+            parallel: ParallelSafety::Unsafe,
+            leakproof: false,
+            cost: None,
+            rows: None,
+            comment: None,
+        }
+    }
+
+    fn make_procedure(schema: &str, name: &str) -> Procedure {
+        Procedure {
+            qname: qn(schema, name),
+            args: vec![],
+            language: FunctionLanguage::PlPgSql,
+            body: NormalizedBody::empty(),
+            body_dependencies: vec![],
+            security: SecurityMode::Invoker,
+            commits_in_body: false,
+            comment: None,
+        }
+    }
+
+    fn function_dep_edge(from_view: &QualifiedName, to_fn: &QualifiedName) -> DepEdge {
+        // We use NormalizedArgTypes::from_args with an empty arg list for testing.
+        let nat = NormalizedArgTypes::from_args(&[]);
+        DepEdge {
+            from: NodeId::View(from_view.clone()),
+            to: NodeId::Function(to_fn.clone(), nat),
+            source: DepSource::AstExtracted,
+        }
+    }
+
+    fn procedure_dep_edge(from_view: &QualifiedName, to_proc: &QualifiedName) -> DepEdge {
+        DepEdge {
+            from: NodeId::View(from_view.clone()),
+            to: NodeId::Procedure(to_proc.clone()),
+            source: DepSource::AstExtracted,
+        }
+    }
+
+    /// Dropping a function that a view calls (via `body_dependencies`) causes
+    /// the walker to append a `ReplaceBody` for that view.
+    #[test]
+    fn function_drop_cascades_to_dependent_view() {
+        let fn_qname = qn("app", "f");
+        let v_qname = qn("app", "v_using_f");
+        let view = simple_view(
+            "app",
+            "v_using_f",
+            vec![function_dep_edge(&v_qname, &fn_qname)],
+        );
+        let f = make_function("app", "f");
+
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view);
+        catalog.functions.push(f.clone());
+
+        let mut changes = vec![Change::Function(FunctionChange::Drop {
+            qname: fn_qname.clone(),
+            args: f.arg_types_normalized.clone(),
+        })];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        // changes[0] = FunctionChange::Drop, changes[1] = ReplaceBody for v_using_f
+        assert_eq!(
+            changes.len(),
+            2,
+            "expected Function::Drop + ReplaceBody for dependent view, got: {changes:?}"
+        );
+        assert!(
+            matches!(
+                &changes[1],
+                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                if source.qname == v_qname
+            ),
+            "expected ReplaceBody for v_using_f, got: {:?}",
+            changes[1]
+        );
+    }
+
+    /// `FunctionChange::ReplaceWithCascade` also triggers dependent view recreation.
+    #[test]
+    fn function_replace_with_cascade_propagates_to_dependent_view() {
+        let fn_qname = qn("app", "f");
+        let v_qname = qn("app", "v_using_f");
+        let view = simple_view(
+            "app",
+            "v_using_f",
+            vec![function_dep_edge(&v_qname, &fn_qname)],
+        );
+        let f = make_function("app", "f");
+
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view);
+        catalog.functions.push(f.clone());
+
+        let mut changes = vec![Change::Function(FunctionChange::ReplaceWithCascade {
+            source: f.clone(),
+            catalog: f,
+        })];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        assert_eq!(
+            changes.len(),
+            2,
+            "expected ReplaceWithCascade + ReplaceBody for dependent view, got: {changes:?}"
+        );
+        assert!(
+            matches!(
+                &changes[1],
+                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                if source.qname == v_qname
+            ),
+            "expected ReplaceBody for v_using_f on cascade replace, got: {:?}",
+            changes[1]
+        );
+    }
+
+    /// A procedure with no dependents drops cleanly — no cascade recreation is
+    /// triggered and the change list stays the same length.
+    #[test]
+    fn procedure_drop_does_not_cascade_unnecessarily() {
+        let proc_qname = qn("app", "do_thing");
+        // No views depend on this procedure.
+        let mut catalog = Catalog::empty();
+        catalog.procedures.push(make_procedure("app", "do_thing"));
+
+        let mut changes = vec![Change::Procedure(ProcedureChange::Drop(proc_qname.clone()))];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        assert_eq!(
+            changes.len(),
+            1,
+            "a procedure drop with no dependents must not append extra changes; got: {changes:?}"
+        );
+    }
+
+    /// Dropping a procedure that a view calls triggers view recreation.
+    #[test]
+    fn procedure_drop_cascades_to_dependent_view() {
+        let proc_qname = qn("app", "do_thing");
+        let v_qname = qn("app", "v_using_proc");
+        let view = simple_view(
+            "app",
+            "v_using_proc",
+            vec![procedure_dep_edge(&v_qname, &proc_qname)],
+        );
+
+        let mut catalog = Catalog::empty();
+        catalog.views.push(view);
+        catalog.procedures.push(make_procedure("app", "do_thing"));
+
+        let mut changes = vec![Change::Procedure(ProcedureChange::Drop(proc_qname.clone()))];
+        let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
+        assert!(result.is_ok());
+        assert_eq!(
+            changes.len(),
+            2,
+            "expected Procedure::Drop + ReplaceBody for dependent view; got: {changes:?}"
+        );
+        assert!(
+            matches!(
+                &changes[1],
+                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                if source.qname == v_qname
+            ),
+            "expected ReplaceBody for v_using_proc, got: {:?}",
+            changes[1]
+        );
     }
 }

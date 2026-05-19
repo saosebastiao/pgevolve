@@ -308,7 +308,9 @@ fn view_body_references_unmanaged_schema(
                 | NodeId::Mv(q)
                 | NodeId::Index(q)
                 | NodeId::Sequence(q)
-                | NodeId::Type(q) => q.schema.as_str(),
+                | NodeId::Type(q)
+                | NodeId::Procedure(q)
+                | NodeId::Function(q, _) => q.schema.as_str(),
                 NodeId::Schema(s) => s.as_str(),
                 NodeId::Constraint { table, .. } => table.schema.as_str(),
             };

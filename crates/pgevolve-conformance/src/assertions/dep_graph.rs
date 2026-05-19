@@ -88,6 +88,16 @@ fn node_label(n: &NodeId) -> String {
         NodeId::View(q) => format!("view:{q}"),
         NodeId::Mv(q) => format!("mv:{q}"),
         NodeId::Type(q) => format!("type:{q}"),
+        NodeId::Function(q, args) => format!(
+            "function:{}({})",
+            q,
+            args.types
+                .iter()
+                .map(pgevolve_core::ir::column_type::ColumnType::render_sql)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        NodeId::Procedure(q) => format!("procedure:{q}"),
     }
 }
 

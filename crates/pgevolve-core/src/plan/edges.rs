@@ -19,8 +19,11 @@ use crate::ir::catalog::Catalog;
 use crate::ir::column_type::ColumnType;
 use crate::ir::constraint::ConstraintKind;
 use crate::ir::default_expr::DefaultExpr;
+use crate::ir::function::ReturnType;
 use crate::ir::user_type::UserTypeKind;
 use crate::plan::graph::Graph;
+
+pub use crate::ir::function::NormalizedArgTypes;
 
 /// Identifies any IR object uniquely within a [`Catalog`].
 ///
@@ -50,6 +53,10 @@ pub enum NodeId {
     Mv(QualifiedName),
     /// A user-defined type (enum, domain, or composite).
     Type(QualifiedName),
+    /// A user-defined function — disambiguated by argument types (Decision 7).
+    Function(QualifiedName, NormalizedArgTypes),
+    /// A user-defined procedure — identified by qname only (Decision 2).
+    Procedure(QualifiedName),
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.
@@ -93,6 +100,16 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     for t in &catalog.types {
         g.add_node(NodeId::Type(t.qname.clone()));
     }
+    // Register function and procedure nodes.
+    for f in &catalog.functions {
+        g.add_node(NodeId::Function(
+            f.qname.clone(),
+            f.arg_types_normalized.clone(),
+        ));
+    }
+    for p in &catalog.procedures {
+        g.add_node(NodeId::Procedure(p.qname.clone()));
+    }
 
     // Phase 1b.0: type → schema edges. Every user-defined type lives inside
     // a schema and must be created after CREATE SCHEMA emits.
@@ -100,6 +117,17 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
         g.add_edge(
             NodeId::Type(t.qname.clone()),
             NodeId::Schema(t.qname.schema.clone()),
+        );
+    }
+    // Phase 1b.0 (routines): every function/procedure depends on its schema.
+    for f in &catalog.functions {
+        let node = NodeId::Function(f.qname.clone(), f.arg_types_normalized.clone());
+        g.add_edge(node, NodeId::Schema(f.qname.schema.clone()));
+    }
+    for p in &catalog.procedures {
+        g.add_edge(
+            NodeId::Procedure(p.qname.clone()),
+            NodeId::Schema(p.qname.schema.clone()),
         );
     }
 
@@ -143,6 +171,42 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
             }
         }
     }
+    // Phase 1c (routines): function/procedure → types referenced in args and
+    // return types. These ensure routines are created after their type deps.
+    for f in &catalog.functions {
+        let node = NodeId::Function(f.qname.clone(), f.arg_types_normalized.clone());
+        for arg in &f.args {
+            if let ColumnType::UserDefined(t_qname) = &arg.ty {
+                g.add_edge(node.clone(), NodeId::Type(t_qname.clone()));
+            }
+        }
+        match &f.return_type {
+            ReturnType::Scalar {
+                ty: ColumnType::UserDefined(t),
+            }
+            | ReturnType::SetOf {
+                ty: ColumnType::UserDefined(t),
+            } => {
+                g.add_edge(node.clone(), NodeId::Type(t.clone()));
+            }
+            ReturnType::Table { columns } => {
+                for col in columns {
+                    if let ColumnType::UserDefined(t) = &col.ty {
+                        g.add_edge(node.clone(), NodeId::Type(t.clone()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for p in &catalog.procedures {
+        let node = NodeId::Procedure(p.qname.clone());
+        for arg in &p.args {
+            if let ColumnType::UserDefined(t_qname) = &arg.ty {
+                g.add_edge(node.clone(), NodeId::Type(t_qname.clone()));
+            }
+        }
+    }
 
     // Phase 2: tables depend on their schema and on any sequence used as a
     // column default. We add the schema node implicitly via add_edge in case
@@ -173,6 +237,18 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     }
     for mv in &catalog.materialized_views {
         for dep in &mv.body_dependencies {
+            g.add_edge(dep.from.clone(), dep.to.clone());
+        }
+    }
+
+    // Phase 2c: functions and procedures body_dependencies.
+    for f in &catalog.functions {
+        for dep in &f.body_dependencies {
+            g.add_edge(dep.from.clone(), dep.to.clone());
+        }
+    }
+    for p in &catalog.procedures {
+        for dep in &p.body_dependencies {
             g.add_edge(dep.from.clone(), dep.to.clone());
         }
     }
