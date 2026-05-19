@@ -18,13 +18,16 @@
 pub mod check_not_valid_validate;
 pub mod concurrent_index;
 pub mod fk_not_valid_validate;
+pub mod functions;
 pub mod refresh_mv_concurrently;
 pub mod set_not_null_check_pattern;
 pub mod sql;
 pub mod types;
 pub mod views;
 
-use crate::diff::change::{Change, ChangeEntry, MvChange, ViewChange}; // FunctionChange / ProcedureChange added at T10
+use crate::diff::change::{
+    Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, ViewChange,
+};
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::sequence_op::{SequenceOp, SequenceOpEntry};
 use crate::diff::table_op::{TableOp, TableOpEntry};
@@ -408,13 +411,8 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         Change::UserType(utc) => {
             emit_user_type_change(utc, destructive, destructive_reason, ctx, out);
         }
-        // Function / Procedure SQL emission — wired at T10.
-        Change::Function(_) => {
-            unimplemented!("Task 10 wires SQL emission for function changes")
-        }
-        Change::Procedure(_) => {
-            unimplemented!("Task 10 wires SQL emission for procedure changes")
-        }
+        Change::Function(fc) => emit_function_change(fc, destructive, destructive_reason, out),
+        Change::Procedure(pc) => emit_procedure_change(pc, destructive, destructive_reason, out),
     }
 }
 
@@ -1194,6 +1192,201 @@ fn emit_deferred_fk(fk: &DeferredFkAdd, _ctx: &Ctx<'_>, out: &mut Vec<RawStep>) 
 // Phase 5 helpers.
 fn schema_target(name: &crate::identifier::Identifier) -> QualifiedName {
     QualifiedName::new(name.clone(), name.clone())
+}
+
+fn emit_function_change(
+    fc: FunctionChange,
+    destructive: bool,
+    destructive_reason: Option<String>,
+    out: &mut Vec<RawStep>,
+) {
+    use functions::{
+        emit_comment_on_function, emit_create_or_replace_function, emit_drop_function,
+    };
+
+    match fc {
+        FunctionChange::Create(f) => {
+            let qname = f.qname.clone();
+            let args = f.arg_types_normalized.clone();
+            let comment = f.comment.clone();
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateOrReplaceFunction,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_create_or_replace_function(&f),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            if let Some(c) = &comment {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: StepKind::CommentOnFunction,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: emit_comment_on_function(&qname, &args, Some(c)),
+                    transactional: TransactionConstraint::InTransaction,
+                });
+            }
+        }
+        FunctionChange::Drop { qname, args } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::DropFunction,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_drop_function(&qname, &args),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        FunctionChange::CreateOrReplace(f) => {
+            let qname = f.qname.clone();
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateOrReplaceFunction,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname],
+                sql: emit_create_or_replace_function(&f),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        FunctionChange::ReplaceWithCascade { source, catalog } => {
+            // DROP … CASCADE (destructive — requires approval).
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::DropFunction,
+                destructive,
+                destructive_reason: destructive_reason.clone(),
+                intent_id: None,
+                targets: vec![catalog.qname.clone()],
+                sql: emit_drop_function(&catalog.qname, &catalog.arg_types_normalized),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            // CREATE OR REPLACE for the source (also destructive — same gate).
+            let qname = source.qname.clone();
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateOrReplaceFunction,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname],
+                sql: emit_create_or_replace_function(&source),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        FunctionChange::SetComment {
+            qname,
+            args,
+            comment,
+        } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CommentOnFunction,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_comment_on_function(&qname, &args, comment.as_deref()),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+    }
+}
+
+fn emit_procedure_change(
+    pc: ProcedureChange,
+    destructive: bool,
+    destructive_reason: Option<String>,
+    out: &mut Vec<RawStep>,
+) {
+    use functions::{
+        emit_comment_on_procedure, emit_create_or_replace_procedure, emit_drop_procedure,
+    };
+
+    match pc {
+        ProcedureChange::Create(p) => {
+            let qname = p.qname.clone();
+            let comment = p.comment.clone();
+            // Procedures with COMMIT/ROLLBACK in body must run outside a transaction.
+            let transactional = if p.commits_in_body {
+                TransactionConstraint::OutsideTransaction
+            } else {
+                TransactionConstraint::InTransaction
+            };
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateOrReplaceProcedure,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_create_or_replace_procedure(&p),
+                transactional,
+            });
+            if let Some(c) = &comment {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: StepKind::CommentOnProcedure,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: emit_comment_on_procedure(&qname, Some(c)),
+                    transactional: TransactionConstraint::InTransaction,
+                });
+            }
+        }
+        ProcedureChange::Drop(qname) => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::DropProcedure,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_drop_procedure(&qname),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+        ProcedureChange::CreateOrReplace(p) => {
+            let qname = p.qname.clone();
+            let transactional = if p.commits_in_body {
+                TransactionConstraint::OutsideTransaction
+            } else {
+                TransactionConstraint::InTransaction
+            };
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateOrReplaceProcedure,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname],
+                sql: emit_create_or_replace_procedure(&p),
+                transactional,
+            });
+        }
+        ProcedureChange::SetComment { qname, comment } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CommentOnProcedure,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_comment_on_procedure(&qname, comment.as_deref()),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+    }
 }
 
 fn destructive_reason(d: &Destructiveness) -> Option<String> {

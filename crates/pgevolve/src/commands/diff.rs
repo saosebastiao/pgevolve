@@ -219,35 +219,54 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
-            // Function / Procedure — placeholder output; T10 replaces with real SQL.
             pgevolve_core::diff::change::Change::Function(fc) => {
                 use pgevolve_core::diff::change::FunctionChange;
                 match fc {
-                    FunctionChange::Create(f) => println!("      function {}: create", f.qname),
-                    FunctionChange::Drop { qname, .. } => {
-                        println!("      function {qname}: drop");
+                    FunctionChange::Create(f) => {
+                        println!("      function {}: create", f.qname);
+                    }
+                    FunctionChange::Drop { qname, args } => {
+                        let arg_sig = args
+                            .types
+                            .iter()
+                            .map(pgevolve_core::ir::column_type::ColumnType::render_sql)
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        println!("      function {qname}({arg_sig}): drop");
                     }
                     FunctionChange::CreateOrReplace(f) => {
                         println!("      function {}: create or replace", f.qname);
                     }
                     FunctionChange::ReplaceWithCascade { source, .. } => {
-                        println!("      function {}: replace with cascade", source.qname);
+                        println!("      function {}: drop cascade + recreate", source.qname);
                     }
-                    FunctionChange::SetComment { qname, .. } => {
-                        println!("      function {qname}: set comment");
+                    FunctionChange::SetComment { qname, comment, .. } => {
+                        if comment.is_some() {
+                            println!("      function {qname}: set comment");
+                        } else {
+                            println!("      function {qname}: clear comment");
+                        }
                     }
                 }
             }
             pgevolve_core::diff::change::Change::Procedure(pc) => {
                 use pgevolve_core::diff::change::ProcedureChange;
                 match pc {
-                    ProcedureChange::Create(p) => println!("      procedure {}: create", p.qname),
-                    ProcedureChange::Drop(q) => println!("      procedure {q}: drop"),
+                    ProcedureChange::Create(p) => {
+                        println!("      procedure {}: create", p.qname);
+                    }
+                    ProcedureChange::Drop(q) => {
+                        println!("      procedure {q}: drop");
+                    }
                     ProcedureChange::CreateOrReplace(p) => {
                         println!("      procedure {}: create or replace", p.qname);
                     }
-                    ProcedureChange::SetComment { qname, .. } => {
-                        println!("      procedure {qname}: set comment");
+                    ProcedureChange::SetComment { qname, comment } => {
+                        if comment.is_some() {
+                            println!("      procedure {qname}: set comment");
+                        } else {
+                            println!("      procedure {qname}: clear comment");
+                        }
                     }
                 }
             }

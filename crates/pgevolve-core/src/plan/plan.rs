@@ -331,6 +331,12 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::AlterTypeDropAttribute => "alter_type_drop_attribute",
         K::AlterTypeAlterAttributeType => "alter_type_alter_attribute_type",
         K::CommentOnType => "comment_on_type",
+        K::CreateOrReplaceFunction => "create_or_replace_function",
+        K::DropFunction => "drop_function",
+        K::CommentOnFunction => "comment_on_function",
+        K::CreateOrReplaceProcedure => "create_or_replace_procedure",
+        K::DropProcedure => "drop_procedure",
+        K::CommentOnProcedure => "comment_on_procedure",
     }
 }
 
@@ -384,6 +390,12 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "alter_type_drop_attribute" => K::AlterTypeDropAttribute,
         "alter_type_alter_attribute_type" => K::AlterTypeAlterAttributeType,
         "comment_on_type" => K::CommentOnType,
+        "create_or_replace_function" => K::CreateOrReplaceFunction,
+        "drop_function" => K::DropFunction,
+        "comment_on_function" => K::CommentOnFunction,
+        "create_or_replace_procedure" => K::CreateOrReplaceProcedure,
+        "drop_procedure" => K::DropProcedure,
+        "comment_on_procedure" => K::CommentOnProcedure,
         _ => return None,
     })
 }
@@ -610,6 +622,22 @@ mod tests {
             StepKind::AlterTypeDropAttribute,
             StepKind::AlterTypeAlterAttributeType,
             StepKind::CommentOnType,
+        ] {
+            let n = kind_name(k);
+            let parsed = parse_kind_name(n).unwrap();
+            assert_eq!(parsed, k, "round-trip failed for {n}");
+        }
+    }
+
+    #[test]
+    fn routine_step_kinds_round_trip_through_kind_name() {
+        for k in [
+            StepKind::CreateOrReplaceFunction,
+            StepKind::DropFunction,
+            StepKind::CommentOnFunction,
+            StepKind::CreateOrReplaceProcedure,
+            StepKind::DropProcedure,
+            StepKind::CommentOnProcedure,
         ] {
             let n = kind_name(k);
             let parsed = parse_kind_name(n).unwrap();

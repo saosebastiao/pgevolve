@@ -134,6 +134,20 @@ pub enum StepKind {
     AlterTypeAlterAttributeType,
     /// `COMMENT ON TYPE` / `COMMENT ON DOMAIN`.
     CommentOnType,
+
+    // --- v0.2 function / procedure step kinds ---
+    /// `CREATE OR REPLACE FUNCTION`.
+    CreateOrReplaceFunction,
+    /// `DROP FUNCTION`.
+    DropFunction,
+    /// `COMMENT ON FUNCTION`.
+    CommentOnFunction,
+    /// `CREATE OR REPLACE PROCEDURE`.
+    CreateOrReplaceProcedure,
+    /// `DROP PROCEDURE`.
+    DropProcedure,
+    /// `COMMENT ON PROCEDURE`.
+    CommentOnProcedure,
 }
 
 /// One unit of work the executor will attempt.
@@ -221,6 +235,12 @@ mod tests {
             StepKind::AlterTypeDropAttribute,
             StepKind::AlterTypeAlterAttributeType,
             StepKind::CommentOnType,
+            StepKind::CreateOrReplaceFunction,
+            StepKind::DropFunction,
+            StepKind::CommentOnFunction,
+            StepKind::CreateOrReplaceProcedure,
+            StepKind::DropProcedure,
+            StepKind::CommentOnProcedure,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();
