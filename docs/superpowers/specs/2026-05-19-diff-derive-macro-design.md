@@ -176,34 +176,39 @@ dropping the attribute. Out of scope for this change.
 
 ## Coverage
 
-**Derived (10 structs):**
+**Derived (7 structs):**
 
-| Struct                                     | File                              |
-|--------------------------------------------|-----------------------------------|
-| `Schema`                                   | `ir/schema.rs`                    |
-| `Sequence`                                 | `ir/sequence.rs`                  |
-| `Column`                                   | `ir/column.rs`                    |
-| `Constraint`                               | `ir/constraint.rs`                |
-| `ForeignKey`                               | `ir/constraint.rs`                |
-| `Table`                                    | `ir/table.rs`                     |
-| `Index`                                    | `ir/index.rs`                     |
-| `View`                                     | `ir/view.rs`                      |
-| `MaterializedView`                         | `ir/view.rs`                      |
-| `Procedure`                                | `ir/procedure.rs`                 |
+| Struct                                     | File                              | Notes                                              |
+|--------------------------------------------|-----------------------------------|----------------------------------------------------|
+| `Schema`                                   | `ir/schema.rs`                    |                                                    |
+| `Sequence`                                 | `ir/sequence.rs`                  | `data_type` → `via_debug` (was `render_sql()`)     |
+| `Column`                                   | `ir/column.rs`                    | `ty` → `via_debug` (was `render_sql()`)            |
+| `Constraint`                               | `ir/constraint.rs`                | `kind` → `nested`; see ConstraintKind path note     |
+| `ForeignKey`                               | `ir/constraint.rs`                | Paths simplify to `columns`, `referenced_table`, …; `ConstraintKind::ForeignKey` re-prefixes with `prefix_diffs("fk", …)` so final paths stay `kind.fk.<field>` |
+| `Procedure`                                | `ir/procedure.rs`                 | Behavior change: was a single dump-all `Difference` on inequality; becomes per-field — strict improvement for conformance messages |
+| `Index`                                    | `ir/index.rs`                     | `include` → `via_debug` (was `render_idents()`)    |
 
-**Stays hand-written (5 impls):**
+**Stays hand-written (8 impls):**
 
-| Item                                       | Why                                      |
-|--------------------------------------------|------------------------------------------|
-| `Function`                                 | Custom `qname(args)` key in `path`       |
-| `Catalog`                                  | Orchestrates `diff_keyed` over `Vec<T>`  |
-| `ConstraintKind`                           | Enum variant dispatch                    |
-| `DefaultExpr`                              | Enum variant dispatch                    |
-| `ColumnType`                               | Enum variant dispatch                    |
-| `UserType` and sub-structs                 | Verify per-struct during migration       |
+| Item                                       | Why                                                                  |
+|--------------------------------------------|----------------------------------------------------------------------|
+| `Function`                                 | Custom `qname(args)` key in path                                     |
+| `Catalog`                                  | Orchestrates `diff_keyed` over many `Vec<T>` collections             |
+| `Table`                                    | Pairs `columns`/`constraints` by name/qname; reports order drift     |
+| `View`                                     | Pairs `columns` by name; reports `<order>`                            |
+| `MaterializedView`                         | Same column-pairing as View                                          |
+| `UserType`                                 | Intentional single-`Difference` dump-all (see in-file comment)       |
+| `ConstraintKind`                           | Enum variant dispatch                                                |
+| `DefaultExpr`                              | Enum variant dispatch                                                |
+| `ColumnType`                               | Enum variant dispatch                                                |
 
-`user_type.rs` is reviewed during migration — its sub-structs may or may not
-fit the derive depending on their shape; whichever do, get the derive.
+`ConstraintKind` adjustment: its hand-written impl currently emits paths like
+`kind.columns` and `kind.fk.<field>`. Since the derived `Constraint` will pass
+the `kind` field through `#[diff(nested)]` (adding a `kind.` prefix
+automatically), `ConstraintKind` is rewritten to emit unprefixed paths
+(`columns`, `nulls_distinct`, …); the `ForeignKey` branch wraps via
+`prefix_diffs("fk", fk.diff(other_fk))`. Net `Difference.path` strings emitted
+by `Catalog::diff` are unchanged.
 
 ## Testing
 
@@ -229,14 +234,12 @@ types. Each migration is its own commit with green tests:
 
 1. `Schema` (one field).
 2. `Sequence` (10 fields, mostly `via_debug`).
-3. `Column` (mixed: default `Diff` types, `via_debug` for `Option<*>`).
-4. `Procedure`.
-5. `ForeignKey`, `Constraint`.
-6. `Table`.
+3. `Column`.
+4. `Procedure` (behavior change to per-field — covered by a new test).
+5. `ForeignKey` + adjust `ConstraintKind::ForeignKey` to re-prefix with `fk`.
+6. `Constraint` + adjust `ConstraintKind` non-FK arms to drop the `kind.` prefix.
 7. `Index`.
-8. `View`, `MaterializedView`.
-9. `UserType` sub-structs (whichever fit).
-10. Delete the temporary parity test.
+8. Delete the temporary parity test.
 
 ## Error handling and robustness
 
