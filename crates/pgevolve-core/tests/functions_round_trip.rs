@@ -269,3 +269,135 @@ async fn catalog_skips_plperl_function_and_reports_drift() {
     assert_eq!(drift_qname.to_string(), "app.perl_hello");
     assert_eq!(drift_lang.as_str(), "plperl");
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn catalog_reads_function_comment() -> Result<()> {
+    if !docker_available() {
+        return Ok(());
+    }
+    let pg = EphemeralPostgres::start(PgVersion::Pg17).await?;
+    pg.exec_sql(
+        r"
+        CREATE SCHEMA app;
+        CREATE FUNCTION app.double(x integer) RETURNS integer
+            LANGUAGE sql IMMUTABLE STRICT
+            AS $$ SELECT x * 2 $$;
+        COMMENT ON FUNCTION app.double(integer) IS 'twice the value';
+    ",
+    )
+    .await?;
+    let client = pg.connect().await?;
+    let querier = PgCatalogQuerier::new(client)?;
+    let managed = vec![Identifier::from_unquoted("app").map_err(|e| anyhow!(e))?];
+    let filter = CatalogFilter::new(managed, vec![]).map_err(|e| anyhow!(e.to_string()))?;
+    let (catalog, _) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+        .await?
+        .map_err(|e| anyhow!(e.to_string()))?;
+    assert_eq!(catalog.functions.len(), 1);
+    let f = &catalog.functions[0];
+    println!("DEBUG comment field: {:?}", f.comment);
+    assert_eq!(
+        f.comment,
+        Some("twice the value".to_string()),
+        "comment should round-trip from pg_description"
+    );
+    Ok(())
+}
+
+#[test]
+fn parse_directory_captures_function_comment() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    std::fs::create_dir_all(dir.join("app")).unwrap();
+    std::fs::write(dir.join("app/x.sql"), "-- @pgevolve schema=app\n\
+CREATE SCHEMA app;\n\
+CREATE FUNCTION app.double(x integer) RETURNS integer LANGUAGE sql IMMUTABLE STRICT AS $$ SELECT x * 2 $$;\n\
+COMMENT ON FUNCTION app.double(integer) IS 'twice';\n").unwrap();
+    let catalog = pgevolve_core::parse::parse_directory(dir, &[]).unwrap();
+    assert_eq!(catalog.functions.len(), 1);
+    assert_eq!(catalog.functions[0].comment, Some("twice".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn l4_apply_flow_comment_round_trip() -> Result<()> {
+    if !docker_available() {
+        return Ok(());
+    }
+    let pg = EphemeralPostgres::start(PgVersion::Pg17).await?;
+    // Step 1: seed BEFORE state
+    pg.exec_sql(r"
+        CREATE SCHEMA app;
+        CREATE FUNCTION app.double(x integer) RETURNS integer LANGUAGE sql IMMUTABLE STRICT AS $$ SELECT x * 2 $$;
+    ").await?;
+    // Step 2: apply the COMMENT step via batch_execute (mimicking executor)
+    let client_apply = pg.connect().await?;
+    client_apply.batch_execute(
+        "BEGIN;\n-- @pgevolve step=1 kind=comment_on_function destructive=false targets=app.double\nCOMMENT ON FUNCTION app.double(integer) IS 'twice the value';\nCOMMIT;"
+    ).await?;
+    drop(client_apply);
+    // Step 3: read catalog
+    let client = pg.connect().await?;
+    let querier = PgCatalogQuerier::new(client)?;
+    let managed = vec![Identifier::from_unquoted("app").map_err(|e| anyhow!(e))?];
+    let filter = CatalogFilter::new(managed, vec![]).map_err(|e| anyhow!(e.to_string()))?;
+    let (catalog, _) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+        .await?
+        .map_err(|e| anyhow!(e.to_string()))?;
+    println!(
+        "DEBUG L4 catalog functions: {:?}",
+        catalog
+            .functions
+            .iter()
+            .map(|f| (f.qname.to_string(), f.comment.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(catalog.functions.len(), 1);
+    assert_eq!(
+        catalog.functions[0].comment,
+        Some("twice the value".to_string())
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directive_extracted_from_catalog_body() -> Result<()> {
+    if !docker_available() {
+        return Ok(());
+    }
+    let pg = EphemeralPostgres::start(PgVersion::Pg17).await?;
+    pg.exec_sql(
+        r"
+        CREATE SCHEMA app;
+        CREATE TABLE app.reports (id bigint);
+        CREATE FUNCTION app.run_report() RETURNS void
+            LANGUAGE plpgsql
+            AS $$
+            DECLARE
+              -- @pgevolve dep: app.reports
+              v_sql text;
+            BEGIN
+              v_sql := 'SELECT count(*) FROM app.reports';
+              EXECUTE v_sql;
+            END
+            $$;
+    ",
+    )
+    .await?;
+    let client = pg.connect().await?;
+    let querier = PgCatalogQuerier::new(client)?;
+    let managed = vec![Identifier::from_unquoted("app").map_err(|e| anyhow!(e))?];
+    let filter = CatalogFilter::new(managed, vec![]).map_err(|e| anyhow!(e.to_string()))?;
+    let (catalog, _) = tokio::task::spawn_blocking(move || read_catalog(&querier, &filter))
+        .await?
+        .map_err(|e| anyhow!(e.to_string()))?;
+    let f = catalog
+        .functions
+        .iter()
+        .find(|f| f.qname.to_string() == "app.run_report")
+        .unwrap();
+    println!("DEBUG body_dependencies: {:?}", f.body_dependencies);
+    assert!(
+        !f.body_dependencies.is_empty(),
+        "directive edge should be extracted"
+    );
+    Ok(())
+}

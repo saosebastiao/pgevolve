@@ -17,7 +17,8 @@ SELECT
   c.relname                            AS name,
   c.relkind::text                      AS relkind,
   pg_get_viewdef(c.oid, true)          AS body_text,
-  coalesce(c.reloptions, '{}'::text[]) AS reloptions
+  coalesce(c.reloptions, '{}'::text[]) AS reloptions,
+  obj_description(c.oid, 'pg_class')   AS comment
 FROM pg_class c
 JOIN pg_namespace n ON c.relnamespace = n.oid
 WHERE c.relkind IN ('v','m')

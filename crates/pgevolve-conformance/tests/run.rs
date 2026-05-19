@@ -223,8 +223,18 @@ async fn run_objects(fixture: &Fixture, pg_major: u32) -> FixtureResult {
         Err(e) => failures.push(("golden".into(), e.to_string())),
     }
 
-    // Layer 4.
-    let apply_outcome = match apply::check(fixture, pg_major).await {
+    // Layer 4: apply with auto-approval of any DestructiveIntent rows the
+    // plan emits. Most objects/ fixtures are non-destructive, but some
+    // (drop-procedure, alter-attribute-type, replace-return-type-cascade,
+    // drop-value-cascade-recreate, …) intentionally exercise the
+    // destructive-with-intent path. Layer 7 (intent_shape) is responsible
+    // for asserting the shape of those intents matches [[expect.intent]];
+    // the apply runner just needs to flip approved=false → true so the
+    // executor's preflight gate doesn't block the apply.
+    let apply_opts = apply::ApplyOptions {
+        auto_approve_intents: true,
+    };
+    let apply_outcome = match apply::check_with_options(fixture, pg_major, apply_opts).await {
         Ok(o) => o,
         Err(e) => {
             failures.push(("apply".into(), e.to_string()));

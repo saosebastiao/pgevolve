@@ -46,6 +46,18 @@ pub(crate) fn rewrite(
         return;
     }
 
+    // Collect MVs being CREATEd in this same plan. CREATE MATERIALIZED VIEW
+    // emits `WITH NO DATA`, so the REFRESH that follows is the first populate
+    // — and PG rejects `REFRESH CONCURRENTLY` on a not-yet-populated MV with
+    // `[0A000] CONCURRENTLY cannot be used when the materialized view is not
+    // populated`. The first-populate REFRESH must stay non-concurrent even
+    // when a unique index already exists.
+    let created_in_plan: std::collections::BTreeSet<QualifiedName> = steps
+        .iter()
+        .filter(|s| s.kind == StepKind::CreateMaterializedView)
+        .filter_map(|s| s.targets.first().cloned())
+        .collect();
+
     for step in steps.iter_mut() {
         if step.kind != StepKind::RefreshMaterializedView {
             continue;
@@ -53,6 +65,11 @@ pub(crate) fn rewrite(
         let Some(target_qname) = step.targets.first().cloned() else {
             continue;
         };
+
+        if created_in_plan.contains(&target_qname) {
+            // First-populate REFRESH for a fresh MV — must stay non-concurrent.
+            continue;
+        }
 
         if mv_has_unique_index(catalog, &target_qname) {
             step.sql = emit_refresh_mv(&target_qname, true);
@@ -278,7 +295,11 @@ mod tests {
     }
 
     #[test]
-    fn non_refresh_steps_are_untouched() {
+    fn first_populate_refresh_after_create_stays_non_concurrent() {
+        // CREATE MATERIALIZED VIEW emits WITH NO DATA, so the immediately-
+        // following REFRESH is the first populate. PG rejects REFRESH
+        // CONCURRENTLY on an unpopulated MV, so the rewrite must skip it
+        // even when a unique index exists.
         let mv_qname = qn("app", "summary");
         let mut catalog = Catalog::empty();
         catalog.indexes.push(make_unique_mv_index(mv_qname.clone()));
@@ -299,9 +320,32 @@ mod tests {
         let mut findings = Vec::new();
         rewrite(&mut steps, &catalog, &online_policy(), &mut findings);
 
-        // The CREATE step should be untouched.
+        // CREATE untouched.
         assert!(steps[0].sql.contains("CREATE MATERIALIZED VIEW"));
-        // The REFRESH step should be upgraded.
-        assert!(steps[1].sql.contains("CONCURRENTLY"));
+        // First-populate REFRESH stays non-concurrent.
+        assert!(
+            !steps[1].sql.contains("CONCURRENTLY"),
+            "REFRESH following CREATE must stay non-concurrent (first populate); got: {}",
+            steps[1].sql
+        );
+    }
+
+    #[test]
+    fn refresh_without_preceding_create_upgrades_to_concurrent() {
+        // A standalone REFRESH (no CREATE in the same plan) for an existing
+        // MV with a unique index DOES get upgraded to CONCURRENTLY.
+        let mv_qname = qn("app", "summary");
+        let mut catalog = Catalog::empty();
+        catalog.indexes.push(make_unique_mv_index(mv_qname.clone()));
+
+        let mut steps = vec![make_refresh_step(mv_qname.clone())];
+        let mut findings = Vec::new();
+        rewrite(&mut steps, &catalog, &online_policy(), &mut findings);
+
+        assert!(
+            steps[0].sql.contains("CONCURRENTLY"),
+            "standalone REFRESH should upgrade to CONCURRENTLY; got: {}",
+            steps[0].sql
+        );
     }
 }

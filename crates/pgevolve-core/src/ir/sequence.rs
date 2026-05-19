@@ -32,6 +32,37 @@ pub struct Sequence {
     pub comment: Option<String>,
 }
 
+impl Sequence {
+    /// Normalize `min_value` / `max_value` to `None` when they equal the
+    /// PG-implied default for the sequence's type and direction. PG stores
+    /// explicit bounds even when the source omits them; the catalog reader
+    /// normalizes the same way, so source-built catalogs must too for
+    /// round-trip equality.
+    pub fn canonicalize(mut self) -> Self {
+        let (default_min, default_max) = default_bounds(&self.data_type, self.increment);
+        if self.min_value == Some(default_min) {
+            self.min_value = None;
+        }
+        if self.max_value == Some(default_max) {
+            self.max_value = None;
+        }
+        self
+    }
+}
+
+fn default_bounds(ty: &ColumnType, increment: i64) -> (i64, i64) {
+    let (ty_min, ty_max) = match ty {
+        ColumnType::SmallInt => (i64::from(i16::MIN), i64::from(i16::MAX)),
+        ColumnType::Integer => (i64::from(i32::MIN), i64::from(i32::MAX)),
+        _ => (i64::MIN, i64::MAX),
+    };
+    if increment >= 0 {
+        (1, ty_max)
+    } else {
+        (ty_min, -1)
+    }
+}
+
 /// Identifies a column that owns this sequence (Postgres `OWNED BY`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SequenceOwner {

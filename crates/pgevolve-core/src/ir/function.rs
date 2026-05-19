@@ -97,29 +97,124 @@ impl std::hash::Hash for Function {
 impl Diff for Function {
     // The structural differ at the change level lives in `crate::diff::routines`
     // (T8) and produces granular FunctionChange variants. This `Diff` impl is
-    // the debug/equivalence-rule hook used by `Catalog::diff` for reporting
-    // only; a single top-level entry per changed function — keyed by qname
-    // and arg signature — is intentional here. Format the body hash hex
-    // rather than the whole struct to keep output legible.
+    // the debug/equivalence-rule hook used by `Catalog::diff` for reporting:
+    // it emits one entry per actually-differing field so conformance-suite
+    // failure messages identify exactly what diverged.
+    #[allow(clippy::too_many_lines)]
     fn diff(&self, other: &Self) -> Vec<Difference> {
         if self == other {
-            Vec::new()
-        } else {
-            let key = format!(
-                "{}({})",
-                self.qname,
-                self.args
-                    .iter()
-                    .map(|a| a.ty.render_sql())
-                    .collect::<Vec<_>>()
-                    .join(","),
-            );
-            vec![Difference::new(
-                key,
-                format!("body_hash={}", hex::encode(self.body.canonical_hash())),
-                format!("body_hash={}", hex::encode(other.body.canonical_hash())),
-            )]
+            return Vec::new();
         }
+        let key = format!(
+            "{}({})",
+            self.qname,
+            self.args
+                .iter()
+                .map(|a| a.ty.render_sql())
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        let mut out = Vec::new();
+        let push = |out: &mut Vec<Difference>, field: &str, from: String, to: String| {
+            if from != to {
+                out.push(Difference::new(format!("{key}.{field}"), from, to));
+            }
+        };
+        push(
+            &mut out,
+            "body_hash",
+            hex::encode(self.body.canonical_hash()),
+            hex::encode(other.body.canonical_hash()),
+        );
+        push(
+            &mut out,
+            "body_canonical_text",
+            self.body.canonical_text().to_string(),
+            other.body.canonical_text().to_string(),
+        );
+        push(
+            &mut out,
+            "body_dependencies",
+            format!("{:?}", self.body_dependencies),
+            format!("{:?}", other.body_dependencies),
+        );
+        push(
+            &mut out,
+            "return_type",
+            format!("{:?}", self.return_type),
+            format!("{:?}", other.return_type),
+        );
+        push(
+            &mut out,
+            "language",
+            format!("{:?}", self.language),
+            format!("{:?}", other.language),
+        );
+        push(
+            &mut out,
+            "volatility",
+            format!("{:?}", self.volatility),
+            format!("{:?}", other.volatility),
+        );
+        push(
+            &mut out,
+            "strict",
+            self.strict.to_string(),
+            other.strict.to_string(),
+        );
+        push(
+            &mut out,
+            "security",
+            format!("{:?}", self.security),
+            format!("{:?}", other.security),
+        );
+        push(
+            &mut out,
+            "parallel",
+            format!("{:?}", self.parallel),
+            format!("{:?}", other.parallel),
+        );
+        push(
+            &mut out,
+            "leakproof",
+            self.leakproof.to_string(),
+            other.leakproof.to_string(),
+        );
+        push(
+            &mut out,
+            "cost",
+            format!("{:?}", self.cost),
+            format!("{:?}", other.cost),
+        );
+        push(
+            &mut out,
+            "rows",
+            format!("{:?}", self.rows),
+            format!("{:?}", other.rows),
+        );
+        push(
+            &mut out,
+            "comment",
+            format!("{:?}", self.comment),
+            format!("{:?}", other.comment),
+        );
+        push(
+            &mut out,
+            "args",
+            format!("{:?}", self.args),
+            format!("{:?}", other.args),
+        );
+        // If we still report no differences but the structs aren't equal,
+        // fall back to a generic "<unknown field>" entry so the assertion
+        // still surfaces something useful.
+        if out.is_empty() {
+            out.push(Difference::new(
+                key,
+                "<unknown field divergence>".to_string(),
+                "<unknown field divergence>".to_string(),
+            ));
+        }
+        out
     }
 }
 

@@ -374,10 +374,14 @@ fn scan_dep_directives(
 ) -> Result<Vec<DepEdge>, ParseError> {
     let mut out = Vec::new();
     for line in body_text.lines() {
-        let trimmed = line.trim();
-        let Some(rest) = trimmed.strip_prefix("-- @pgevolve dep:") else {
+        // Find `-- @pgevolve dep:` anywhere on the line, not just at the
+        // start. The canonicalizer may join non-comment prefix text onto the
+        // same line as the comment (e.g., `DECLARE -- @pgevolve dep: app.x`),
+        // so a line-start-only check would miss valid directives.
+        let Some(comment_pos) = line.find("-- @pgevolve dep:") else {
             continue;
         };
+        let rest = &line[comment_pos + "-- @pgevolve dep:".len()..];
         let qname_text = rest.trim();
         let Some((schema, name)) = qname_text.split_once('.') else {
             return Err(ParseError::Structural {
@@ -418,7 +422,58 @@ fn scan_dep_directives(
 // ---------------------------------------------------------------------------
 
 fn canonicalize_plpgsql_text(text: &str) -> String {
-    collapse_whitespace(text)
+    // PL/pgSQL is line-sensitive only around `--` line comments: those extend
+    // to end of line, so a line containing `--` MUST be terminated by a
+    // newline (otherwise the comment would swallow the next statement).
+    // All other whitespace (including newlines on non-comment lines) is
+    // semantically irrelevant and gets collapsed to a single space.
+    //
+    // This produces the same canonical text whether the input was multiline
+    // (source SQL file) or single-line (pg_get_functiondef output), at the
+    // cost of accepting that comment-bearing lines keep their newline.
+    let lines: Vec<String> = text
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    let mut out = String::with_capacity(text.len());
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            // Use newline as separator only when the PREVIOUS line ends in a
+            // way where `--` comment scope demands it. We detect this by
+            // checking if the previous line contains a `--` outside of a
+            // string literal (cheap heuristic: just look for `--`).
+            let prev_has_comment = contains_line_comment(&lines[i - 1]);
+            out.push(if prev_has_comment { '\n' } else { ' ' });
+        }
+        out.push_str(line);
+    }
+    out
+}
+
+/// True if `line` contains a `--` SQL line comment outside of a string literal.
+///
+/// Cheap two-state scanner: track whether we're inside a single-quoted string,
+/// flip on each `'` (PG-style escape `''` is naturally handled since the two
+/// flips cancel). If we hit `--` outside a string, return true.
+fn contains_line_comment(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut in_str = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\'' => {
+                in_str = !in_str;
+                i += 1;
+            }
+            b'-' if !in_str && i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
+                return true;
+            }
+            _ => i += 1,
+        }
+    }
+    false
 }
 
 fn collapse_whitespace(s: &str) -> String {

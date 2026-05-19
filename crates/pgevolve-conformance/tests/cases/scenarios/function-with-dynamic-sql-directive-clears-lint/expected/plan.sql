@@ -1,4 +1,4 @@
--- @pgevolve plan id=971764b622112122 version=0.1.0-dev ruleset=1
+-- @pgevolve plan id=c5804d570d693c8c version=0.1.0-dev ruleset=1
 -- @pgevolve target=conformance-test-target
 -- @pgevolve intents_required=0
 
@@ -14,6 +14,7 @@ CREATE TABLE app.audit_log (
 CREATE OR REPLACE FUNCTION app.log_event(p_msg text)
     RETURNS void
     LANGUAGE plpgsql
-AS $pgevolve$DECLARE -- @pgevolve dep: app.audit_log v_sql text; BEGIN v_sql := format('INSERT INTO app.audit_log (id, msg) VALUES (%s, %L)', 1, p_msg); EXECUTE v_sql; END$pgevolve$;
+AS $pgevolve$DECLARE -- @pgevolve dep: app.audit_log
+v_sql text; BEGIN v_sql := format('INSERT INTO app.audit_log (id, msg) VALUES (%s, %L)', 1, p_msg); EXECUTE v_sql; END$pgevolve$;
 COMMIT;
 

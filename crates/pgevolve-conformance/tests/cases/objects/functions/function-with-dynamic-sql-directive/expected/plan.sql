@@ -1,4 +1,4 @@
--- @pgevolve plan id=d6e7193780f74225 version=0.1.0-dev ruleset=1
+-- @pgevolve plan id=1e7664a5d76f48f2 version=0.1.0-dev ruleset=1
 -- @pgevolve target=conformance-test-target
 -- @pgevolve intents_required=0
 
@@ -8,6 +8,7 @@ BEGIN;
 CREATE OR REPLACE FUNCTION app.run_report()
     RETURNS void
     LANGUAGE plpgsql
-AS $pgevolve$DECLARE -- @pgevolve dep: app.reports v_sql text; BEGIN v_sql := 'SELECT count(*) FROM app.reports'; EXECUTE v_sql; END$pgevolve$;
+AS $pgevolve$DECLARE -- @pgevolve dep: app.reports
+v_sql text; BEGIN v_sql := 'SELECT count(*) FROM app.reports'; EXECUTE v_sql; END$pgevolve$;
 COMMIT;
 

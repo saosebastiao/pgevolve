@@ -62,13 +62,32 @@ pub fn canonicalize_view_bodies(catalog: &mut Catalog) -> Result<(), AstCanonErr
         let raw_body = catalog.views[i].raw_body.clone();
         let qname = catalog.views[i].qname.clone();
         let qname_str = qname.to_string();
-        let has_explicit_columns = !catalog.views[i].columns.is_empty();
+        let column_aliases: Vec<String> = catalog.views[i]
+            .columns
+            .iter()
+            .map(|c| c.name.as_str().to_string())
+            .collect();
+        let has_explicit_columns = !column_aliases.is_empty();
 
-        let normalized =
-            NormalizedBody::from_sql(&raw_body).map_err(|e| AstCanonError::NormalizeFailed {
+        // When the CREATE VIEW had an explicit `(col1, col2, …)` list, PG
+        // applies those aliases to the SELECT target list internally —
+        // pg_get_viewdef returns `SELECT a AS col1, b AS col2 FROM …`. The
+        // source-side raw_body, however, is the body as authored
+        // (`SELECT a, b FROM …`). To make the two canonical forms byte-equal,
+        // splice the aliases into the source body before canonicalization.
+        let effective_body = if has_explicit_columns {
+            apply_view_column_aliases(&raw_body, &column_aliases)
+                .unwrap_or_else(|| raw_body.clone())
+        } else {
+            raw_body.clone()
+        };
+
+        let normalized = NormalizedBody::from_sql(&effective_body).map_err(|e| {
+            AstCanonError::NormalizeFailed {
                 view: qname_str.clone(),
                 reason: e.to_string(),
-            })?;
+            }
+        })?;
 
         let (deps, derived_columns) = walk_body_ast(&raw_body, &qname, &known)?;
 
@@ -440,6 +459,90 @@ fn extract_column_ref_name(node: &pg_query::protobuf::Node) -> Option<Identifier
         // TypeCast: `expr::type` — the name comes from the inner expression.
         Some(N::TypeCast(tc)) => tc.arg.as_deref().and_then(extract_column_ref_name),
         _ => None,
+    }
+}
+
+/// Rewrite a SELECT body so that its top-level target list carries the given
+/// column aliases — emulating what PG does internally when a `CREATE VIEW (…)`
+/// includes a column alias list.
+///
+/// Returns `None` if:
+/// - The body fails to parse,
+/// - The parsed statement isn't a `SelectStmt` (or has fewer/more target list
+///   items than aliases — the count must match),
+/// - The deparse step fails.
+///
+/// Implementation walks the parsed protobuf, sets each `ResTarget.name` to
+/// the corresponding alias, and deparses.
+fn apply_view_column_aliases(body_sql: &str, aliases: &[String]) -> Option<String> {
+    use pg_query::NodeEnum;
+
+    let parsed = pg_query::parse(body_sql).ok()?;
+    let mut result = parsed.protobuf;
+    // Locate the first SELECT statement in the parse result.
+    for stmt in &mut result.stmts {
+        let Some(node) = stmt.stmt.as_mut().and_then(|n| n.node.as_mut()) else {
+            continue;
+        };
+        if let NodeEnum::SelectStmt(sel) = node {
+            apply_aliases_to_select(sel, aliases)?;
+            return pg_query::deparse(&result).ok();
+        }
+    }
+    None
+}
+
+/// Set each top-level target's `name` to the corresponding alias. Returns
+/// `Some(())` only when target count matches alias count.
+///
+/// PG's `pg_get_viewdef` only emits `AS <alias>` when the alias differs from
+/// the target's implicit name (a bare `ColumnRef` resolves to the column
+/// name). To match that behavior, we set `ResTarget.name` only when the
+/// alias is non-redundant; otherwise we clear `name` so the deparser omits
+/// the `AS` clause.
+fn apply_aliases_to_select(
+    sel: &mut pg_query::protobuf::SelectStmt,
+    aliases: &[String],
+) -> Option<()> {
+    use pg_query::NodeEnum;
+    if sel.target_list.len() != aliases.len() {
+        return None;
+    }
+    for (node, alias) in sel.target_list.iter_mut().zip(aliases.iter()) {
+        let Some(NodeEnum::ResTarget(rt)) = node.node.as_mut() else {
+            return None;
+        };
+        // Compute the implicit (no-alias) column name. For a bare column
+        // reference `t.col` or `col`, the implicit name is the last field
+        // segment. For anything else (function calls, expressions, literals),
+        // there's no implicit name and we always emit the alias.
+        let implicit = restarget_implicit_column_name(rt);
+        if implicit.as_deref() == Some(alias.as_str()) {
+            rt.name.clear();
+        } else {
+            rt.name.clone_from(alias);
+        }
+    }
+    Some(())
+}
+
+/// Extract the implicit column name of a `ResTarget` (i.e., the name PG would
+/// use if no `AS` clause were given). Only `ColumnRef` target values have one;
+/// everything else is treated as having no implicit name.
+fn restarget_implicit_column_name(rt: &pg_query::protobuf::ResTarget) -> Option<String> {
+    use pg_query::NodeEnum;
+    let val = rt.val.as_ref()?;
+    let node = val.node.as_ref()?;
+    let NodeEnum::ColumnRef(cref) = node else {
+        return None;
+    };
+    // The implicit name is the last String field in the fields list.
+    let last = cref.fields.last()?;
+    let last_node = last.node.as_ref()?;
+    if let NodeEnum::String(s) = last_node {
+        Some(s.sval.clone())
+    } else {
+        None
     }
 }
 

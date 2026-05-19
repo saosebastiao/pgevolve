@@ -66,6 +66,7 @@ impl Catalog {
     }
 
     /// Sort each collection by its canonical key and reject duplicates.
+    #[allow(clippy::too_many_lines)]
     pub fn canonicalize(mut self) -> Result<Self, IrError> {
         self.schemas.sort_by(|a, b| a.name.cmp(&b.name));
         if let Some(dupe) = first_duplicate(self.schemas.iter().map(|s| s.name.as_str())) {
@@ -88,6 +89,11 @@ impl Catalog {
             )));
         }
 
+        self.sequences = self
+            .sequences
+            .into_iter()
+            .map(Sequence::canonicalize)
+            .collect();
         self.sequences.sort_by(|a, b| a.qname.cmp(&b.qname));
         if let Some(dupe) = first_duplicate(self.sequences.iter().map(|s| s.qname.to_string())) {
             return Err(IrError::InvalidIdentifier(format!(
@@ -112,11 +118,66 @@ impl Catalog {
             )));
         }
 
+        // View / MV column types: source-side parsing produces placeholder
+        // sentinel `ColumnType::Other { raw: "unresolved" }` / `"expression"`
+        // because static type resolution of an arbitrary SELECT body without
+        // running it through PG is non-trivial (gap from v0.2-views T4).
+        // Catalog-side reading produces real types (via `format_type` on the
+        // attributes of the view's pg_class row).
+        //
+        // Body-level changes are already captured by `body_canonical` (a
+        // canonicalized AST hash) — any source change to a view body
+        // produces a new hash, and the differ emits a body replacement. The
+        // per-output-column type is redundant info derived from the body, so
+        // for equivalence purposes we normalize column types to a single
+        // sentinel on both sides during canonicalize().
+        //
+        // This avoids hand-rolling a SELECT analyzer in v0.2; column types
+        // become non-load-bearing IR data. If T4 of a future sub-spec
+        // implements real source-side resolution, this normalization can be
+        // removed without changing the diff invariants.
+        let sentinel = crate::ir::column_type::ColumnType::Other {
+            raw: "view_column".to_string(),
+        };
+        for v in &mut self.views {
+            for c in &mut v.columns {
+                c.column_type = sentinel.clone();
+            }
+        }
+        for m in &mut self.materialized_views {
+            for c in &mut m.columns {
+                c.column_type = sentinel.clone();
+            }
+        }
+
         self.types.sort_by(|a, b| a.qname.cmp(&b.qname));
         if let Some(dupe) = first_duplicate(self.types.iter().map(|t| t.qname.to_string())) {
             return Err(IrError::InvalidIdentifier(format!(
                 "duplicate type: {dupe}"
             )));
+        }
+        // Normalize enum sort_order to sequential 1.0, 2.0, ... regardless of
+        // PG's underlying float values. Source IR assigns 1.0, 2.0, 3.0 in
+        // declaration order; catalog reader receives whatever floats PG
+        // happens to store after various `ALTER TYPE … ADD VALUE` operations
+        // (which can produce non-integer or 0-indexed values). The IR-level
+        // equivalence we care about is the value names AND their relative
+        // ORDER — the floats are PG storage detail. Re-numbering on both sides
+        // makes byte-equality work without inventing custom Eq impls.
+        for t in &mut self.types {
+            if let crate::ir::user_type::UserTypeKind::Enum { values } = &mut t.kind {
+                // Preserve relative order (sort by current sort_order ascending)
+                // then assign 1-indexed floats.
+                values.sort_by(|a, b| {
+                    a.sort_order
+                        .partial_cmp(&b.sort_order)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                #[allow(clippy::cast_precision_loss)]
+                for (i, v) in values.iter_mut().enumerate() {
+                    v.sort_order = (i as f32) + 1.0;
+                }
+            }
         }
 
         // Functions: identity is (qname, arg_types_normalized.canonical_hash).

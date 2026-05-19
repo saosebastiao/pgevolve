@@ -284,7 +284,10 @@ pub(crate) fn build_function_or_procedure(
                         message: format!("{qname}: COST is not valid on procedures"),
                     });
                 }
-                cost = float_from_def_elem(de);
+                // Normalize explicit-but-default `COST 100` to None so it
+                // round-trips byte-equal with catalog (which also stores
+                // None for the SQL/PLpgSQL default).
+                cost = float_from_def_elem(de).filter(|&v| (v - 100.0).abs() > f32::EPSILON);
             }
             "rows" => {
                 if is_procedure {
@@ -293,7 +296,9 @@ pub(crate) fn build_function_or_procedure(
                         message: format!("{qname}: ROWS is not valid on procedures"),
                     });
                 }
-                rows = float_from_def_elem(de);
+                // Normalize explicit-but-default `ROWS 1000` to None.
+                rows = float_from_def_elem(de)
+                    .filter(|&v| v > 0.0 && (v - 1000.0).abs() > f32::EPSILON);
             }
             "as" => {
                 // The body is the first element (the $$ string $$).

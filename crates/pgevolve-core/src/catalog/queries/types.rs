@@ -78,6 +78,7 @@ JOIN pg_type t ON c.contypid = t.oid \
 JOIN pg_namespace n ON t.typnamespace = n.oid \
 WHERE t.typtype = 'd' \
   AND n.nspname = ANY($1::text[]) \
+  AND c.contype = 'c' \
 ORDER BY n.nspname, t.typname, c.conname";
 
 /// Attributes (fields) of every composite type in the managed schemas.

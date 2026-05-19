@@ -1,4 +1,4 @@
--- @pgevolve plan id=8dc7fa4133aee4a0 version=0.1.0-dev ruleset=1
+-- @pgevolve plan id=e21f91557ac164e6 version=0.1.0-dev ruleset=1
 -- @pgevolve target=conformance-test-target
 -- @pgevolve intents_required=0
 
@@ -13,6 +13,7 @@ AS $pgevolve$SELECT 10$pgevolve$;
 CREATE OR REPLACE FUNCTION app.doubled_value()
     RETURNS integer
     LANGUAGE plpgsql IMMUTABLE
-AS $pgevolve$DECLARE -- @pgevolve dep: app.base_value v integer; BEGIN SELECT app.base_value() INTO v; RETURN v * 2; END$pgevolve$;
+AS $pgevolve$DECLARE -- @pgevolve dep: app.base_value
+v integer; BEGIN SELECT app.base_value() INTO v; RETURN v * 2; END$pgevolve$;
 COMMIT;
 

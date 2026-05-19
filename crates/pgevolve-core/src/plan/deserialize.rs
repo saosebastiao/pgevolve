@@ -64,13 +64,47 @@ pub fn read_plan_sql(s: &str) -> Result<PartialPlan, PlanIoError> {
     let mut groups: Vec<TransactionGroup> = Vec::new();
     let mut current_group: Option<TransactionGroup> = None;
     let mut current_step: Option<(RawStep, Vec<String>)> = None;
+    // Tracks the active dollar-quote tag while we're inside a `$tag$...$tag$`
+    // literal in a step's SQL body. Function/procedure bodies are emitted
+    // wrapped in `$pgevolve$...$pgevolve$` and may contain literal
+    // `-- @pgevolve dep: ...` directives, `BEGIN;`, `COMMIT;`, etc. — all of
+    // which would otherwise be mistaken for plan-level directives by the
+    // line scanner. Track open/close and treat in-string lines as body text.
+    let mut active_dollar_tag: Option<String> = None;
 
     for raw_line in s.lines() {
         let line = raw_line;
         let trimmed = line.trim_end();
+
+        // If we're inside a dollar-quote, accumulate body text and only check
+        // for the matching close tag; do not parse directives.
+        if let Some(tag) = active_dollar_tag.as_ref() {
+            if let Some((_, ref mut body)) = current_step {
+                body.push(line.to_string());
+            }
+            // Check if this line closes the dollar-quote.
+            let close = format!("${tag}$");
+            if line.contains(&close) {
+                active_dollar_tag = None;
+            }
+            continue;
+        }
+
         if trimmed.is_empty() {
             // Blank lines are layout-only between directives; they end the
             // current step's SQL body if one is accumulating.
+            continue;
+        }
+
+        // Pre-scan for dollar-quote OPEN on this line. The emitter writes
+        // `AS $pgevolve$...` followed by the body and matching close. We need
+        // to enter dollar-quote state if the line opens one and the close
+        // isn't on the same line.
+        if let Some(tag) = detect_dollar_quote_open(line) {
+            if let Some((_, ref mut body)) = current_step {
+                body.push(line.to_string());
+            }
+            active_dollar_tag = Some(tag);
             continue;
         }
 
@@ -214,6 +248,56 @@ pub fn read_plan_sql(s: &str) -> Result<PartialPlan, PlanIoError> {
             .ok_or_else(|| PlanIoError::MalformedDirective("missing created".into()))?,
         groups,
     })
+}
+
+/// If `line` opens a `$tag$` dollar-quoted literal that isn't closed on the
+/// same line, return the tag (excluding the surrounding `$` markers). Returns
+/// `None` for lines with no open quote, or lines whose dollar-quotes are fully
+/// closed on the same line.
+///
+/// Scans left-to-right looking for `$<tag>$` markers (tag = empty or
+/// `[A-Za-z_][A-Za-z0-9_]*` per PG's dollar-quote grammar). Each occurrence
+/// toggles "inside-quote" state; if we end the line still inside, return the
+/// active tag.
+fn detect_dollar_quote_open(line: &str) -> Option<String> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut active: Option<String> = None;
+    while i < bytes.len() {
+        if bytes[i] == b'$' {
+            // Scan tag chars.
+            let tag_start = i + 1;
+            let mut j = tag_start;
+            while j < bytes.len() {
+                let b = bytes[j];
+                let valid = if j == tag_start {
+                    b.is_ascii_alphabetic() || b == b'_'
+                } else {
+                    b.is_ascii_alphanumeric() || b == b'_'
+                };
+                if !valid {
+                    break;
+                }
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'$' {
+                let tag = std::str::from_utf8(&bytes[tag_start..j])
+                    .unwrap_or("")
+                    .to_string();
+                if let Some(open) = active.as_ref() {
+                    if open == &tag {
+                        active = None;
+                    }
+                } else {
+                    active = Some(tag);
+                }
+                i = j + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    active
 }
 
 fn flush_step(

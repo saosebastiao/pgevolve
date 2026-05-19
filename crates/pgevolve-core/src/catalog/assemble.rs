@@ -865,6 +865,7 @@ fn build_views_and_mvs(
         let relkind = r.get_text(q, "relkind")?;
         let body_text = r.get_text(q, "body_text")?;
         let reloptions = r.get_text_array(q, "reloptions").unwrap_or_default();
+        let comment = r.get_opt_text(q, "comment")?;
 
         let body_canonical = build_body(&body_text, &qname)?;
 
@@ -891,7 +892,7 @@ fn build_views_and_mvs(
                     body_dependencies,
                     security_barrier,
                     security_invoker,
-                    comment: None,
+                    comment: comment.clone(),
                     raw_body: String::new(),
                 });
             }
@@ -901,7 +902,7 @@ fn build_views_and_mvs(
                     columns,
                     body_canonical,
                     body_dependencies,
-                    comment: None,
+                    comment: comment.clone(),
                     raw_body: String::new(),
                 });
             }
@@ -1307,11 +1308,21 @@ fn build_functions_and_procedures(
                     "r" => ParallelSafety::Restricted,
                     _ => ParallelSafety::Unsafe,
                 };
-                let cost: Option<f32> = cost_str.as_deref().and_then(|s| s.parse::<f32>().ok());
+                // PG defaults procost = 100 for SQL/PL/pgSQL functions (vs.
+                // 1 for C). Source IR uses None to mean "no explicit COST
+                // clause"; we normalize the catalog read to None when the
+                // value matches the PG default for SQL/plpgsql, so a
+                // function declared without COST round-trips byte-equal.
+                let cost: Option<f32> = cost_str
+                    .as_deref()
+                    .and_then(|s| s.parse::<f32>().ok())
+                    .filter(|&v| (v - 100.0).abs() > f32::EPSILON);
+                // PG defaults prorows = 1000 for SETOF functions, 0 otherwise.
+                // Source IR uses None for the default in both cases.
                 let rows: Option<f32> = rows_str
                     .as_deref()
                     .and_then(|s| s.parse::<f32>().ok())
-                    .filter(|&v| v > 0.0);
+                    .filter(|&v| v > 0.0 && (v - 1000.0).abs() > f32::EPSILON);
 
                 let return_type = parse_return_type_from_string(&return_type_str, &qname)?;
                 let arg_types_normalized = NormalizedArgTypes::from_args(&args);
