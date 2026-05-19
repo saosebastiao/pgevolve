@@ -21,6 +21,7 @@
 //!
 //! See `docs/superpowers/specs/2026-05-19-canon-consolidation-design.md`.
 
+pub mod sentinel_view_columns;
 pub mod sort_and_dedupe;
 
 use crate::ir::IrError;
@@ -31,6 +32,7 @@ use crate::ir::catalog::Catalog;
 /// Only [`sort_and_dedupe`] is fallible; the other passes mutate in
 /// place and cannot fail.
 pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
+    sentinel_view_columns::run(cat);
     sort_and_dedupe::run(cat)?;
     Ok(())
 }

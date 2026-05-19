@@ -73,38 +73,6 @@ impl Catalog {
             .map(Sequence::canonicalize)
             .collect();
 
-        // View / MV column types: source-side parsing produces placeholder
-        // sentinel `ColumnType::Other { raw: "unresolved" }` / `"expression"`
-        // because static type resolution of an arbitrary SELECT body without
-        // running it through PG is non-trivial (gap from v0.2-views T4).
-        // Catalog-side reading produces real types (via `format_type` on the
-        // attributes of the view's pg_class row).
-        //
-        // Body-level changes are already captured by `body_canonical` (a
-        // canonicalized AST hash) — any source change to a view body
-        // produces a new hash, and the differ emits a body replacement. The
-        // per-output-column type is redundant info derived from the body, so
-        // for equivalence purposes we normalize column types to a single
-        // sentinel on both sides during canonicalize().
-        //
-        // This avoids hand-rolling a SELECT analyzer in v0.2; column types
-        // become non-load-bearing IR data. If T4 of a future sub-spec
-        // implements real source-side resolution, this normalization can be
-        // removed without changing the diff invariants.
-        let sentinel = crate::ir::column_type::ColumnType::Other {
-            raw: "view_column".to_string(),
-        };
-        for v in &mut self.views {
-            for c in &mut v.columns {
-                c.column_type = sentinel.clone();
-            }
-        }
-        for m in &mut self.materialized_views {
-            for c in &mut m.columns {
-                c.column_type = sentinel.clone();
-            }
-        }
-
         // Normalize enum sort_order to sequential 1.0, 2.0, ... regardless of
         // PG's underlying float values. Source IR assigns 1.0, 2.0, 3.0 in
         // declaration order; catalog reader receives whatever floats PG
