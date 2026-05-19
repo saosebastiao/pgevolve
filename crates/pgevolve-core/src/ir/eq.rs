@@ -2,6 +2,12 @@
 
 use super::difference::Difference;
 
+/// `#[derive(DiffMacro)]` proc-macro. Re-exported here so call sites only
+/// see the `ir::eq` module; the macro lives in `pgevolve-core-macros`.
+/// Distinct name from the trait to avoid shadowing. See
+/// `docs/superpowers/specs/2026-05-19-diff-derive-macro-design.md`.
+pub use pgevolve_core_macros::Diff as DiffMacro;
+
 /// Compute the structured difference between two IR values.
 ///
 /// Equivalence is the inverse of `diff(...).is_empty()`. Implementors derive
