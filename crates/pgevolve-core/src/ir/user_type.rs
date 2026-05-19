@@ -90,9 +90,10 @@ pub struct CompositeAttribute {
 }
 
 impl Diff for UserType {
-    // TODO(T7): expand to field-level diffs (per-value for enums, per-attr
-    // for composites, per-CHECK for domains) once the differ lands. The
-    // top-level blob form is intentional for the IR-only T1 stub.
+    // The structural differ at the change level lives in `crate::diff::types`
+    // and produces granular UserTypeChange variants. This `Diff` impl is the
+    // debug/equivalence-rule hook used by `Catalog::diff` for reporting only;
+    // a single top-level entry per changed type is intentional here.
     fn diff(&self, other: &Self) -> Vec<Difference> {
         if self == other {
             Vec::new()

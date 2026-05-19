@@ -45,6 +45,11 @@ WHERE n.nspname = ANY($1::text[]) \
 ORDER BY n.nspname, t.typname, e.enumsortorder";
 
 /// Base-type and nullability metadata for every domain type.
+///
+/// v0.2 does not model domain collation (`pg_type.typcollation`); both source
+/// parser and assembler default `collation: None`. A future sub-spec can add a
+/// `pg_collation` join here and a matching column in the source parser to lift
+/// that limitation.
 pub const SELECT_DOMAIN_DETAILS: &str = "\
 SELECT \
     n.nspname                                AS schema_name, \
@@ -78,7 +83,9 @@ ORDER BY n.nspname, t.typname, c.conname";
 /// Attributes (fields) of every composite type in the managed schemas.
 ///
 /// Rows arrive ordered by `attnum` so the assembler can append them directly
-/// without a secondary sort.
+/// without a secondary sort. v0.2 does not model attribute collation
+/// (`pg_attribute.attcollation`); both source parser and assembler default
+/// each attribute's `collation: None`. Lifting this is a future sub-spec.
 pub const SELECT_COMPOSITE_ATTRIBUTES: &str = "\
 SELECT \
     n.nspname                            AS schema_name, \
