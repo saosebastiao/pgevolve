@@ -217,9 +217,11 @@ pub enum UserTypeChange {
 
     /// Emitted when the requested change cannot be done in place via `ALTER`.
     ///
-    /// T8's dependent-recreation walker expands this into `DROP TYPE` + `CREATE
-    /// TYPE` plus per-dependent drop/recreate. The planner never emits this as
-    /// a single step.
+    /// T8's cascade walker appends `ReplaceBody` for any views/MVs that depend
+    /// on the type so they are recreated after the type is rebuilt. T9's SQL
+    /// emitter expands this single entry into `DROP TYPE … CASCADE` plus
+    /// `CREATE TYPE`, then the recreated dependents follow in topological
+    /// order. The planner never emits this entry as one raw SQL step.
     ReplaceWithCascade {
         /// The desired type (source).
         source: UserType,

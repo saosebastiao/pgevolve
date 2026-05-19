@@ -94,6 +94,15 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
         g.add_node(NodeId::Type(t.qname.clone()));
     }
 
+    // Phase 1b.0: type → schema edges. Every user-defined type lives inside
+    // a schema and must be created after CREATE SCHEMA emits.
+    for t in &catalog.types {
+        g.add_edge(
+            NodeId::Type(t.qname.clone()),
+            NodeId::Schema(t.qname.schema.clone()),
+        );
+    }
+
     // Phase 1b: type → type edges from composite attributes and domain bases.
     // These edges ensure composites/domains that reference other user-defined
     // types are created after those types.
@@ -701,15 +710,16 @@ mod tests {
     #[test]
     fn type_nodes_registered() {
         let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
         c.types.push(make_enum("app", "status"));
         let g = build_create_graph(&c);
-        assert!(
-            g.dependencies_of(&NodeId::Type(qn("app", "status")))
-                .next()
-                .is_none()
-        );
-        // The node must exist in the graph (node_count includes it).
-        assert_eq!(g.node_count(), 1);
+        // Type depends ONLY on its schema (no other edges for a bare enum).
+        let deps: Vec<_> = g
+            .dependencies_of(&NodeId::Type(qn("app", "status")))
+            .collect();
+        assert_eq!(deps, vec![&NodeId::Schema(id("app"))]);
+        // Both the schema node and the type node are registered.
+        assert_eq!(g.node_count(), 2);
     }
 
     #[test]
