@@ -73,30 +73,6 @@ impl Catalog {
             .map(Sequence::canonicalize)
             .collect();
 
-        // Normalize enum sort_order to sequential 1.0, 2.0, ... regardless of
-        // PG's underlying float values. Source IR assigns 1.0, 2.0, 3.0 in
-        // declaration order; catalog reader receives whatever floats PG
-        // happens to store after various `ALTER TYPE … ADD VALUE` operations
-        // (which can produce non-integer or 0-indexed values). The IR-level
-        // equivalence we care about is the value names AND their relative
-        // ORDER — the floats are PG storage detail. Re-numbering on both sides
-        // makes byte-equality work without inventing custom Eq impls.
-        for t in &mut self.types {
-            if let crate::ir::user_type::UserTypeKind::Enum { values } = &mut t.kind {
-                // Preserve relative order (sort by current sort_order ascending)
-                // then assign 1-indexed floats.
-                values.sort_by(|a, b| {
-                    a.sort_order
-                        .partial_cmp(&b.sort_order)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-                #[allow(clippy::cast_precision_loss)]
-                for (i, v) in values.iter_mut().enumerate() {
-                    v.sort_order = (i as f32) + 1.0;
-                }
-            }
-        }
-
         crate::ir::canon::canonicalize(&mut self)?;
 
         Ok(self)
