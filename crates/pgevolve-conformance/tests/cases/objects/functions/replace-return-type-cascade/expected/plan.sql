@@ -1,4 +1,4 @@
--- @pgevolve plan id=4cb23957b6c70dbf version=0.1.0-dev ruleset=1
+-- @pgevolve plan id=acab514417648310 version=0.1.0-dev ruleset=1
 -- @pgevolve target=conformance-test-target
 -- @pgevolve intents_required=2
 
@@ -10,6 +10,6 @@ DROP FUNCTION app.counts();
 CREATE OR REPLACE FUNCTION app.counts()
     RETURNS SETOF integer
     LANGUAGE sql IMMUTABLE
-AS $pgevolve$SELECT $1 UNION ALL SELECT $2$pgevolve$;
+AS $pgevolve$SELECT 1 UNION ALL SELECT 2$pgevolve$;
 COMMIT;
 

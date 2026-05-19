@@ -1,4 +1,4 @@
--- @pgevolve plan id=484359823ef1ca1c version=0.1.0-dev ruleset=1
+-- @pgevolve plan id=8dc7fa4133aee4a0 version=0.1.0-dev ruleset=1
 -- @pgevolve target=conformance-test-target
 -- @pgevolve intents_required=0
 
@@ -8,7 +8,7 @@ BEGIN;
 CREATE OR REPLACE FUNCTION app.base_value()
     RETURNS integer
     LANGUAGE sql IMMUTABLE
-AS $pgevolve$SELECT $1$pgevolve$;
+AS $pgevolve$SELECT 10$pgevolve$;
 -- @pgevolve step=2 kind=create_or_replace_function destructive=false targets=app.doubled_value
 CREATE OR REPLACE FUNCTION app.doubled_value()
     RETURNS integer

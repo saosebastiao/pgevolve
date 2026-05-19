@@ -1,4 +1,4 @@
--- @pgevolve plan id=0825f7f06744cf03 version=0.1.0-dev ruleset=1
+-- @pgevolve plan id=9bb3c9c692f28326 version=0.1.0-dev ruleset=1
 -- @pgevolve target=conformance-test-target
 -- @pgevolve intents_required=0
 
@@ -8,6 +8,6 @@ BEGIN;
 CREATE OR REPLACE FUNCTION app.double(x integer)
     RETURNS integer
     LANGUAGE sql IMMUTABLE STRICT
-AS $pgevolve$SELECT x * $1$pgevolve$;
+AS $pgevolve$SELECT x * 2$pgevolve$;
 COMMIT;
 

@@ -97,10 +97,17 @@ fn parse_sql_body(
     deps.sort();
     deps.dedup();
 
-    // Use pg_query::normalize for a compact canonical form; fall back to
-    // whitespace-collapsed original on failure.
-    let canonical_text =
-        pg_query::normalize(body_text).unwrap_or_else(|_| collapse_whitespace(body_text));
+    // Use pg_query parse → deparse to get a byte-stable canonical form. NOTE:
+    // pg_query::normalize is the WRONG tool here — it replaces literal
+    // constants with positional placeholders (`$1`, `$2`, …) for query-log
+    // aggregation. When such a normalized body is later embedded inside a
+    // CREATE FUNCTION definition, PG interprets `$1` as the first function
+    // argument and the apply fails with `[42P02] there is no parameter $1`.
+    // parse.deparse() round-trips through the AST without parameter
+    // substitution, preserving the original literals.
+    let canonical_text = parsed
+        .deparse()
+        .unwrap_or_else(|_| collapse_whitespace(body_text));
     let body = NormalizedBody::from_raw_canonical(canonical_text);
     Ok((body, deps))
 }

@@ -1,4 +1,4 @@
--- @pgevolve plan id=7243a57efd435f30 version=0.1.0-dev ruleset=1
+-- @pgevolve plan id=1653d725d1ddef1b version=0.1.0-dev ruleset=1
 -- @pgevolve target=conformance-test-target
 -- @pgevolve intents_required=0
 
@@ -11,6 +11,6 @@ SELECT id, price, price * app.tax_rate() AS tax FROM app.products;
 CREATE OR REPLACE FUNCTION app.tax_rate()
     RETURNS numeric
     LANGUAGE sql IMMUTABLE
-AS $pgevolve$SELECT $1$pgevolve$;
+AS $pgevolve$SELECT 0.1$pgevolve$;
 COMMIT;
 
