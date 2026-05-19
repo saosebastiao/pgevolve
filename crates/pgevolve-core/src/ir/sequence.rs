@@ -4,31 +4,35 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::QualifiedName;
 use crate::ir::column_type::ColumnType;
-use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::DiffMacro;
 
 /// A Postgres sequence.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
 pub struct Sequence {
     /// Schema-qualified sequence name.
     pub qname: QualifiedName,
     /// Sequence data type (always one of `SmallInt`, `Integer`, `BigInt`).
+    #[diff(via_debug)]
     pub data_type: ColumnType,
     /// Start value.
     pub start: i64,
     /// Increment.
     pub increment: i64,
     /// Min value (`None` = type's minimum).
+    #[diff(via_debug)]
     pub min_value: Option<i64>,
     /// Max value (`None` = type's maximum).
+    #[diff(via_debug)]
     pub max_value: Option<i64>,
     /// Cache size.
     pub cache: i64,
     /// Whether the sequence cycles.
     pub cycle: bool,
     /// Owning column, if any (e.g., from `SERIAL` / `IDENTITY`).
+    #[diff(via_debug)]
     pub owned_by: Option<SequenceOwner>,
     /// Optional comment.
+    #[diff(via_debug)]
     pub comment: Option<String>,
 }
 
@@ -73,47 +77,11 @@ pub struct SequenceOwner {
     pub column: crate::identifier::Identifier,
 }
 
-impl Diff for Sequence {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
-        let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field(
-            "data_type",
-            &self.data_type.render_sql(),
-            &other.data_type.render_sql(),
-        ));
-        out.extend(diff_field("start", &self.start, &other.start));
-        out.extend(diff_field("increment", &self.increment, &other.increment));
-        out.extend(diff_field(
-            "min_value",
-            &format!("{:?}", self.min_value),
-            &format!("{:?}", other.min_value),
-        ));
-        out.extend(diff_field(
-            "max_value",
-            &format!("{:?}", self.max_value),
-            &format!("{:?}", other.max_value),
-        ));
-        out.extend(diff_field("cache", &self.cache, &other.cache));
-        out.extend(diff_field("cycle", &self.cycle, &other.cycle));
-        out.extend(diff_field(
-            "owned_by",
-            &format!("{:?}", self.owned_by),
-            &format!("{:?}", other.owned_by),
-        ));
-        out.extend(diff_field(
-            "comment",
-            &format!("{:?}", self.comment),
-            &format!("{:?}", other.comment),
-        ));
-        out
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::identifier::{Identifier, QualifiedName};
+    use crate::ir::eq::Diff;
 
     fn s(name: &str) -> QualifiedName {
         QualifiedName::new(
