@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use crate::ir::IrError;
 use crate::ir::difference::Difference;
 use crate::ir::eq::{Diff, prefix_diffs};
+use crate::ir::function::Function;
 use crate::ir::index::Index;
+use crate::ir::procedure::Procedure;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
@@ -31,6 +33,10 @@ pub struct Catalog {
     pub materialized_views: Vec<MaterializedView>,
     /// User-defined types (enums, domains, composites).
     pub types: Vec<UserType>,
+    /// User-defined functions.
+    pub functions: Vec<Function>,
+    /// User-defined procedures.
+    pub procedures: Vec<Procedure>,
 }
 
 impl Catalog {
@@ -45,6 +51,8 @@ impl Catalog {
             views: Vec::new(),
             materialized_views: Vec::new(),
             types: Vec::new(),
+            functions: Vec::new(),
+            procedures: Vec::new(),
         }
     }
 
@@ -111,6 +119,39 @@ impl Catalog {
             )));
         }
 
+        // Functions: identity is (qname, arg_types_normalized.canonical_hash).
+        // Overloads with the same qname but different arg types are permitted.
+        self.functions.sort_by(|a, b| {
+            a.qname.cmp(&b.qname).then_with(|| {
+                a.arg_types_normalized
+                    .canonical_hash
+                    .cmp(&b.arg_types_normalized.canonical_hash)
+            })
+        });
+        if let Some(dupe) = first_duplicate(self.functions.iter().map(|f| {
+            format!(
+                "{}({})",
+                f.qname,
+                f.arg_types_normalized
+                    .types
+                    .iter()
+                    .map(crate::ir::column_type::ColumnType::render_sql)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        })) {
+            return Err(IrError::InvalidIdentifier(format!(
+                "duplicate function: {dupe}"
+            )));
+        }
+
+        self.procedures.sort_by(|a, b| a.qname.cmp(&b.qname));
+        if let Some(dupe) = first_duplicate(self.procedures.iter().map(|p| p.qname.to_string())) {
+            return Err(IrError::InvalidIdentifier(format!(
+                "duplicate procedure: {dupe}"
+            )));
+        }
+
         Ok(self)
     }
 }
@@ -161,6 +202,25 @@ impl Diff for Catalog {
         out.extend(prefix_diffs(
             "types",
             diff_keyed(&self.types, &other.types, |t| t.qname.to_string()),
+        ));
+        out.extend(prefix_diffs(
+            "functions",
+            diff_keyed(&self.functions, &other.functions, |f| {
+                format!(
+                    "{}({})",
+                    f.qname,
+                    f.arg_types_normalized
+                        .types
+                        .iter()
+                        .map(crate::ir::column_type::ColumnType::render_sql)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }),
+        ));
+        out.extend(prefix_diffs(
+            "procedures",
+            diff_keyed(&self.procedures, &other.procedures, |p| p.qname.to_string()),
         ));
         out
     }

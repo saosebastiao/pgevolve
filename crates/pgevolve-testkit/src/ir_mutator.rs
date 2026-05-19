@@ -491,6 +491,8 @@ mod tests {
             views: vec![],
             materialized_views: vec![],
             types: vec![],
+            functions: vec![],
+            procedures: vec![],
         };
 
         // Try every seed in 0..16 (covering all column-pick positions and
