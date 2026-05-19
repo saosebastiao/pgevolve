@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE DOMAIN — simple domain over text"
+authoring = "objects"
+spec_refs = ["types.domain.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.email",
+]
+
+[expect.plan]
+steps = 1

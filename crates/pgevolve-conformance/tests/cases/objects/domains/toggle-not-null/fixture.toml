@@ -1,0 +1,16 @@
+[meta]
+title     = "ALTER DOMAIN … SET NOT NULL — toggle nullable domain to NOT NULL"
+authoring = "objects"
+spec_refs = ["types.domain.set_not_null"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.nonnull_int",
+]
+
+[expect.plan]
+steps = 1

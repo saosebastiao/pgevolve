@@ -116,6 +116,19 @@ fn apply_comment_inner(
             let (obj_qname, col_name) = split_column_target(&parts, default_schema, location)?;
             apply_column_comment(catalog, location, &obj_qname, &col_name, comment)?;
         }
+        ObjectType::ObjectType | ObjectType::ObjectDomain => {
+            // `COMMENT ON TYPE app.foo IS '...'`
+            // `COMMENT ON DOMAIN app.foo IS '...'`
+            // pg_query encodes these with a TypeName node (not a List of strings),
+            // so we need a different extraction path.
+            let qname = qualified_name_from_type_name(stmt, default_schema, location)?;
+            let ty = catalog
+                .types
+                .iter_mut()
+                .find(|t| t.qname == qname)
+                .ok_or_else(|| missing(location, "type", &qname.to_string()))?;
+            ty.comment = comment;
+        }
         other => {
             return Err(ParseError::Structural {
                 location: location.clone(),
@@ -254,6 +267,65 @@ fn qualified_name(
         _ => Err(ParseError::Structural {
             location: location.clone(),
             message: "COMMENT object name must have one or two qualified components".into(),
+        }),
+    }
+}
+
+/// Resolve a qualified type/domain name from `stmt.object` for `COMMENT ON TYPE`
+/// and `COMMENT ON DOMAIN`. pg_query encodes these as a `TypeName` node (unlike
+/// tables/views which use a `List` of String nodes).
+fn qualified_name_from_type_name(
+    stmt: &CommentStmt,
+    default_schema: Option<&Identifier>,
+    location: &SourceLocation,
+) -> Result<QualifiedName, ParseError> {
+    use pg_query::NodeEnum;
+    let obj = stmt
+        .object
+        .as_ref()
+        .and_then(|o| o.node.as_ref())
+        .ok_or_else(|| ParseError::Structural {
+            location: location.clone(),
+            message: "COMMENT missing object reference".into(),
+        })?;
+    // pg_query represents COMMENT ON TYPE / DOMAIN via a TypeName node whose
+    // `names` field is a list of String nodes (schema, name).
+    let NodeEnum::TypeName(type_name) = obj else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!("COMMENT ON TYPE expected TypeName node, got {obj:?}"),
+        });
+    };
+    let parts: Vec<String> = type_name
+        .names
+        .iter()
+        .filter_map(|n| n.node.as_ref())
+        .filter_map(|n| {
+            if let NodeEnum::String(s) = n {
+                Some(s.sval.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    match parts.as_slice() {
+        [name] => {
+            let schema = default_schema
+                .cloned()
+                .ok_or_else(|| ParseError::UnqualifiedName {
+                    location: location.clone(),
+                })?;
+            Ok(QualifiedName::new(schema, shared::ident(name, location)?))
+        }
+        [schema, name] => Ok(QualifiedName::new(
+            shared::ident(schema, location)?,
+            shared::ident(name, location)?,
+        )),
+        _ => Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "COMMENT ON TYPE object name must have 1-2 qualified components; got {parts:?}"
+            ),
         }),
     }
 }
@@ -464,5 +536,50 @@ mod tests {
         let stmt = parse_first("COMMENT ON TABLE app.users IS NULL;");
         apply_comment(&stmt, &mut c, None, &loc()).unwrap();
         assert!(c.tables[0].comment.is_none());
+    }
+
+    #[test]
+    fn comment_on_type_sets_comment() {
+        use crate::ir::user_type::{UserType, UserTypeKind};
+        let mut c = seed_catalog();
+        let qname = QualifiedName::new(
+            Identifier::from_unquoted("app").unwrap(),
+            Identifier::from_unquoted("mytype").unwrap(),
+        );
+        c.types.push(UserType {
+            qname: qname.clone(),
+            kind: UserTypeKind::Enum { values: vec![] },
+            comment: None,
+        });
+        let stmt = parse_first("COMMENT ON TYPE app.mytype IS 'a type';");
+        apply_comment(&stmt, &mut c, None, &loc()).unwrap();
+        let ty = c.types.iter().find(|t| t.qname == qname).unwrap();
+        assert_eq!(ty.comment.as_deref(), Some("a type"));
+    }
+
+    #[test]
+    fn comment_on_domain_sets_comment() {
+        use crate::ir::user_type::{UserType, UserTypeKind};
+        use crate::ir::column_type::ColumnType;
+        let mut c = seed_catalog();
+        let qname = QualifiedName::new(
+            Identifier::from_unquoted("app").unwrap(),
+            Identifier::from_unquoted("email").unwrap(),
+        );
+        c.types.push(UserType {
+            qname: qname.clone(),
+            kind: UserTypeKind::Domain {
+                base: ColumnType::Text,
+                nullable: true,
+                default: None,
+                check_constraints: vec![],
+                collation: None,
+            },
+            comment: None,
+        });
+        let stmt = parse_first("COMMENT ON DOMAIN app.email IS 'email domain';");
+        apply_comment(&stmt, &mut c, None, &loc()).unwrap();
+        let ty = c.types.iter().find(|t| t.qname == qname).unwrap();
+        assert_eq!(ty.comment.as_deref(), Some("email domain"));
     }
 }

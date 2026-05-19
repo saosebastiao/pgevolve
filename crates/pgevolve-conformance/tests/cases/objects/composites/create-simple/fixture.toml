@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE TYPE AS — simple two-attribute composite type"
+authoring = "objects"
+spec_refs = ["types.composite.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.address",
+]
+
+[expect.plan]
+steps = 1

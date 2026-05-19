@@ -1,0 +1,20 @@
+[meta]
+title     = "DROP DOMAIN requires an approved intent"
+authoring = "intent"
+spec_refs = ["types.domain.drop"]
+
+[expect.diff]
+contains = ["app.email"]
+
+[expect.plan]
+steps = 1
+minimality = false  # DROP TYPE is irreversible; post-apply re-plan is empty
+golden     = false  # intent/ fixtures opt out of L3 golden
+
+[expect.dep_graph]
+enabled = false     # intent/ fixtures opt out of L8
+
+[[expect.intent]]
+kind   = "drop_type"
+target = "app.email"
+reason_contains = []

@@ -1,0 +1,16 @@
+[meta]
+title     = "ALTER TYPE … ADD ATTRIBUTE — add column to composite type"
+authoring = "objects"
+spec_refs = ["types.composite.add_attribute"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.point",
+]
+
+[expect.plan]
+steps = 1

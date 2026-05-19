@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE DOMAIN — with NOT NULL, DEFAULT, and CHECK constraint"
+authoring = "objects"
+spec_refs = ["types.domain.create_constrained"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.positive_int",
+]
+
+[expect.plan]
+steps = 1

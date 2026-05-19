@@ -1,0 +1,16 @@
+[meta]
+title     = "User type created before dependent table column in dep-graph"
+authoring = "scenarios"
+spec_refs = ["types.ordering"]
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+steps = 2
+order = [
+  "app.status < app.events",
+]
+
+[expect.dep_graph]
+enabled = false

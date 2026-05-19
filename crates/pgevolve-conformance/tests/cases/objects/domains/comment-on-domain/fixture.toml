@@ -1,0 +1,16 @@
+[meta]
+title     = "COMMENT ON DOMAIN — add comment to an existing domain"
+authoring = "objects"
+spec_refs = ["types.domain.comment"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.username",
+]
+
+[expect.plan]
+steps = 1

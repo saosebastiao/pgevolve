@@ -1,0 +1,16 @@
+[meta]
+title     = "ALTER DOMAIN … SET DEFAULT — add default to existing domain"
+authoring = "objects"
+spec_refs = ["types.domain.set_default"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.quantity",
+]
+
+[expect.plan]
+steps = 1

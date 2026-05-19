@@ -1,0 +1,16 @@
+[meta]
+title     = "ALTER TYPE … ADD VALUE BEFORE existing enum label"
+authoring = "objects"
+spec_refs = ["types.enum.add_value_before"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.priority",
+]
+
+[expect.plan]
+steps = 1

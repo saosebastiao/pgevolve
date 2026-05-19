@@ -1,0 +1,27 @@
+[meta]
+title     = "Remove enum value requires DROP TYPE … CASCADE + CREATE TYPE"
+authoring = "objects"
+spec_refs = ["types.enum.drop_value_cascade"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.state",
+]
+
+[expect.plan]
+steps = 2
+minimality = false  # DROP CASCADE + CREATE; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "drop_type"
+target = "app.state"
+reason_contains = []
+
+[[expect.intent]]
+kind   = "create_type"
+target = "app.state"
+reason_contains = []

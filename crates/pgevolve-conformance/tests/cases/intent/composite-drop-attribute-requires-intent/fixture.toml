@@ -1,0 +1,20 @@
+[meta]
+title     = "ALTER TYPE … DROP ATTRIBUTE requires an approved intent"
+authoring = "intent"
+spec_refs = ["types.composite.drop_attribute"]
+
+[expect.diff]
+contains = ["app.address"]
+
+[expect.plan]
+steps = 1
+minimality = false  # DROP ATTRIBUTE is destructive; post-apply re-plan is empty
+golden     = false  # intent/ fixtures opt out of L3 golden
+
+[expect.dep_graph]
+enabled = false     # intent/ fixtures opt out of L8
+
+[[expect.intent]]
+kind   = "alter_type_drop_attribute"
+target = "app.address"
+reason_contains = []

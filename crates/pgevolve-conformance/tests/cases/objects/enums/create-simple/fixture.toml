@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE TYPE AS ENUM — simple three-value enum"
+authoring = "objects"
+spec_refs = ["types.enum.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.status",
+]
+
+[expect.plan]
+steps = 1

@@ -1,0 +1,21 @@
+[meta]
+title     = "ALTER TYPE … ALTER ATTRIBUTE … TYPE — change composite attribute type"
+authoring = "objects"
+spec_refs = ["types.composite.alter_attribute_type"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.measurement",
+]
+
+[expect.plan]
+steps = 1
+
+[[expect.intent]]
+kind   = "alter_type_alter_attribute_type"
+target = "app.measurement"
+reason_contains = []

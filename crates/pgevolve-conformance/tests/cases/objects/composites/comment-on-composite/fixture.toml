@@ -1,0 +1,16 @@
+[meta]
+title     = "COMMENT ON TYPE — add comment to an existing composite type"
+authoring = "objects"
+spec_refs = ["types.composite.comment"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.address",
+]
+
+[expect.plan]
+steps = 1

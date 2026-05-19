@@ -466,10 +466,7 @@ mod tests {
     #[test]
     fn add_value_at_end() {
         let sql = emit_alter_type_add_value(&qn("app", "order_status"), "delivered", None, None);
-        assert_eq!(
-            sql,
-            "ALTER TYPE app.order_status ADD VALUE 'delivered';"
-        );
+        assert_eq!(sql, "ALTER TYPE app.order_status ADD VALUE 'delivered';");
     }
 
     #[test]

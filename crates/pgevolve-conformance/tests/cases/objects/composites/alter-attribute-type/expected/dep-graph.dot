@@ -1,0 +1,7 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "schema:app";
+  "type:app.measurement";
+  "type:app.measurement" -> "schema:app" [style=solid];
+}

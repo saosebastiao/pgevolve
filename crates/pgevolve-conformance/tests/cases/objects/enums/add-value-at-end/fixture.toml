@@ -1,0 +1,16 @@
+[meta]
+title     = "ALTER TYPE … ADD VALUE at end of enum"
+authoring = "objects"
+spec_refs = ["types.enum.add_value"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "types.app.status",
+]
+
+[expect.plan]
+steps = 1
