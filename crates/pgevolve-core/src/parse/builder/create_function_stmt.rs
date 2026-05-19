@@ -577,18 +577,28 @@ mod tests {
         // so the builder's defensive check is unreachable via parsed SQL. We
         // construct a synthetic CreateFunctionStmt with is_procedure=true and
         // return_type=Some(...) to exercise the rejection path directly.
-        use pg_query::protobuf::{CreateFunctionStmt, TypeName, Node};
         use pg_query::NodeEnum;
+        use pg_query::protobuf::{CreateFunctionStmt, Node, TypeName};
 
         // Build the type-name list for "app.proc".
         let funcname = vec![
-            Node { node: Some(NodeEnum::String(pg_query::protobuf::String { sval: "app".into() })) },
-            Node { node: Some(NodeEnum::String(pg_query::protobuf::String { sval: "proc".into() })) },
+            Node {
+                node: Some(NodeEnum::String(pg_query::protobuf::String {
+                    sval: "app".into(),
+                })),
+            },
+            Node {
+                node: Some(NodeEnum::String(pg_query::protobuf::String {
+                    sval: "proc".into(),
+                })),
+            },
         ];
         // Build a return-type TypeName for "integer".
         let return_type = TypeName {
             names: vec![Node {
-                node: Some(NodeEnum::String(pg_query::protobuf::String { sval: "integer".into() })),
+                node: Some(NodeEnum::String(pg_query::protobuf::String {
+                    sval: "integer".into(),
+                })),
             }],
             type_oid: 0,
             setof: false,

@@ -1,0 +1,3 @@
+Procedure containing COMMIT in its body. Verifies the parser handles
+the COMMIT statement (T4 will detect it as commits_in_body=true).
+For now, body parsing is stubbed via NormalizedBody::empty().
