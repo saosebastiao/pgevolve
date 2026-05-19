@@ -5,27 +5,32 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::DefaultExpr;
-use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::DiffMacro;
 
 /// A table column.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, DiffMacro)]
 pub struct Column {
     /// Column name.
     pub name: Identifier,
     /// Canonical column type.
+    #[diff(via_debug)]
     pub ty: ColumnType,
     /// `NOT NULL` lives here, not in `Constraint`.
     pub nullable: bool,
     /// Optional column default.
+    #[diff(via_debug)]
     pub default: Option<DefaultExpr>,
     /// Identity specification (`GENERATED ALWAYS|BY DEFAULT AS IDENTITY`).
+    #[diff(via_debug)]
     pub identity: Option<Identity>,
     /// Generated-column specification (`GENERATED ALWAYS AS (expr) STORED`).
+    #[diff(via_debug)]
     pub generated: Option<Generated>,
     /// Optional collation.
+    #[diff(via_debug)]
     pub collation: Option<QualifiedName>,
     /// Optional comment.
+    #[diff(via_debug)]
     pub comment: Option<String>,
 }
 
@@ -82,48 +87,10 @@ pub struct SequenceOptions {
     pub cycle: bool,
 }
 
-impl Diff for Column {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
-        let mut out = Vec::new();
-        out.extend(diff_field("name", &self.name, &other.name));
-        out.extend(diff_field(
-            "ty",
-            &self.ty.render_sql(),
-            &other.ty.render_sql(),
-        ));
-        out.extend(diff_field("nullable", &self.nullable, &other.nullable));
-        out.extend(diff_field(
-            "default",
-            &format!("{:?}", self.default),
-            &format!("{:?}", other.default),
-        ));
-        out.extend(diff_field(
-            "identity",
-            &format!("{:?}", self.identity),
-            &format!("{:?}", other.identity),
-        ));
-        out.extend(diff_field(
-            "generated",
-            &format!("{:?}", self.generated),
-            &format!("{:?}", other.generated),
-        ));
-        out.extend(diff_field(
-            "collation",
-            &format!("{:?}", self.collation),
-            &format!("{:?}", other.collation),
-        ));
-        out.extend(diff_field(
-            "comment",
-            &format!("{:?}", self.comment),
-            &format!("{:?}", other.comment),
-        ));
-        out
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::eq::Diff;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
