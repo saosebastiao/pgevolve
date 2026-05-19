@@ -272,7 +272,7 @@ fn qualified_name(
 }
 
 /// Resolve a qualified type/domain name from `stmt.object` for `COMMENT ON TYPE`
-/// and `COMMENT ON DOMAIN`. pg_query encodes these as a `TypeName` node (unlike
+/// and `COMMENT ON DOMAIN`. `pg_query` encodes these as a `TypeName` node (unlike
 /// tables/views which use a `List` of String nodes).
 fn qualified_name_from_type_name(
     stmt: &CommentStmt,
@@ -559,8 +559,8 @@ mod tests {
 
     #[test]
     fn comment_on_domain_sets_comment() {
-        use crate::ir::user_type::{UserType, UserTypeKind};
         use crate::ir::column_type::ColumnType;
+        use crate::ir::user_type::{UserType, UserTypeKind};
         let mut c = seed_catalog();
         let qname = QualifiedName::new(
             Identifier::from_unquoted("app").unwrap(),

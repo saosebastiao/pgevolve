@@ -335,6 +335,62 @@ canonicalization pass fills in the resolved type. When built from the
 live catalog (T5), `column_type` is parsed from
 `format_type(a.atttypid, a.atttypmod)`.
 
+## `UserType`
+
+```rust
+pub struct UserType {
+    pub qname:   QualifiedName,
+    pub kind:    UserTypeKind,
+    pub comment: Option<String>,
+}
+
+pub enum UserTypeKind {
+    Enum      { values:     Vec<EnumValue> },
+    Domain    { base: ColumnType, nullable: bool, default: Option<NormalizedExpr>,
+                check_constraints: Vec<DomainCheck>, collation: Option<QualifiedName> },
+    Composite { attributes: Vec<CompositeAttribute> },
+}
+```
+
+`UserType`s live in `Catalog::types: Vec<UserType>`, sorted by `qname` after
+`canonicalize()`. Source lives in `crates/pgevolve-core/src/ir/user_type.rs`.
+
+### `EnumValue`
+
+```rust
+pub struct EnumValue {
+    pub name:       String,
+    pub sort_order: f32,   // mirrors pg_enum.enumsortorder
+}
+```
+
+`sort_order` is `f32` (matching Postgres's `real4`) to enable byte-stable
+round-trip. `Eq` and `Hash` are implemented using the IEEE 754 bit pattern.
+
+### `DomainCheck`
+
+```rust
+pub struct DomainCheck {
+    pub name:       Identifier,
+    pub expression: NormalizedExpr,
+}
+```
+
+Domain defaults and CHECK expressions use `NormalizedExpr` — the same
+canonicalized-text representation as column defaults and inline CHECK
+constraints. Two `NormalizedExpr`s compare equal iff their `canonical_text`s
+match, making domain diffs insensitive to whitespace and keyword case.
+
+### `CompositeAttribute`
+
+```rust
+pub struct CompositeAttribute {
+    pub name:      Identifier,
+    pub ty:        ColumnType,
+    pub collation: Option<QualifiedName>,
+}
+```
+
 ## `Sequence`
 
 ```rust

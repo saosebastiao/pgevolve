@@ -298,6 +298,109 @@ affected views, set:
 view_drop_create_dependents = false
 ```
 
+## Managing user-defined types
+
+### Define an enum
+
+```sql
+-- schema/app/types/order_status.sql
+CREATE TYPE app.order_status AS ENUM ('pending', 'processing', 'shipped', 'delivered');
+```
+
+`pgevolve plan` emits one `create_type` step.
+
+### Add a value to an existing enum
+
+Append a new label at the end (or position it with `BEFORE`/`AFTER` in source):
+
+```sql
+-- After: add 'cancelled'
+CREATE TYPE app.order_status AS ENUM ('pending', 'processing', 'shipped', 'delivered', 'cancelled');
+```
+
+```sql
+-- @pgevolve step=1 kind=alter_type_add_value destructive=false targets=app.order_status
+ALTER TYPE app.order_status ADD VALUE 'cancelled' AFTER 'delivered';
+```
+
+No intent required. The step is transactional (Postgres 12+).
+
+### Rename an enum value
+
+```sql
+-- After: rename 'processing' to 'in_progress'
+CREATE TYPE app.order_status AS ENUM ('pending', 'in_progress', 'shipped', 'delivered', 'cancelled');
+```
+
+```sql
+-- @pgevolve step=1 kind=alter_type_rename_value destructive=false targets=app.order_status
+ALTER TYPE app.order_status RENAME VALUE 'processing' TO 'in_progress';
+```
+
+### Drop an enum value (ReplaceWithCascade)
+
+Postgres does not support `ALTER TYPE … DROP VALUE`. Removing a value
+triggers a `ReplaceWithCascade`: `DROP TYPE CASCADE` + `CREATE TYPE`.
+All columns and views referencing the type are recreated in the same
+transactional group.
+
+```sql
+-- @pgevolve step=1 kind=drop_type destructive=true intent_id=1 targets=app.order_status
+DROP TYPE app.order_status CASCADE;
+-- @pgevolve step=2 kind=create_type destructive=false targets=app.order_status
+CREATE TYPE app.order_status AS ENUM ('pending', 'shipped', 'delivered');
+```
+
+Flip `approved = true` in `intent.toml` before applying.
+
+### Create a domain with a CHECK constraint
+
+```sql
+-- schema/app/types/positive_int.sql
+CREATE DOMAIN app.positive_int AS integer
+  NOT NULL
+  CHECK (VALUE > 0);
+```
+
+`pgevolve plan` emits one `create_type` step (domain uses the same step kind as enum/composite).
+
+### Add a CHECK constraint to an existing domain
+
+```sql
+-- After: also reject values above one million
+CREATE DOMAIN app.positive_int AS integer
+  NOT NULL
+  CONSTRAINT positive_int_lower CHECK (VALUE > 0)
+  CONSTRAINT positive_int_upper CHECK (VALUE <= 1000000);
+```
+
+```sql
+-- @pgevolve step=1 kind=alter_domain_add_constraint destructive=false targets=app.positive_int
+ALTER DOMAIN app.positive_int ADD CONSTRAINT positive_int_upper CHECK (VALUE <= 1000000);
+```
+
+### Drop an attribute from a composite type (ReplaceWithCascade)
+
+Postgres supports `ALTER TYPE … DROP ATTRIBUTE` only when no column
+or function depends on the composite. pgevolve always uses
+`ReplaceWithCascade` for composite attribute drops to handle the
+general case safely:
+
+```sql
+-- Before
+CREATE TYPE app.address AS (street text, city text, zip text);
+
+-- After: drop 'zip'
+CREATE TYPE app.address AS (street text, city text);
+```
+
+```sql
+-- @pgevolve step=1 kind=drop_type destructive=true intent_id=1 targets=app.address
+DROP TYPE app.address CASCADE;
+-- @pgevolve step=2 kind=create_type destructive=false targets=app.address
+CREATE TYPE app.address AS (street text, city text);
+```
+
 ## Run the same plan against multiple environments
 
 A plan is bound to a specific `target_identity`. If you generate

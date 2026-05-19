@@ -91,6 +91,27 @@ The following step kinds were added in v0.2 alongside view and materialized view
 | `alter_view_set_reloption` | `ALTER VIEW <qname> SET (security_barrier = …)` | yes | Also handles `security_invoker`. |
 | `comment_on_view` | `COMMENT ON VIEW <qname> IS '…'` | yes | Used for both regular views and materialized views. |
 
+### Step kinds — v0.2 additions (user-defined types)
+
+The following step kinds were added in v0.2 alongside enum, domain, and composite type support:
+
+| Kind | SQL emitted | Transactional | Notes |
+|---|---|---|---|
+| `create_type` | `CREATE TYPE <qname> AS ENUM (…)` / `CREATE DOMAIN …` / `CREATE TYPE <qname> AS (…)` | yes | One step kind covers all three type families. |
+| `drop_type` | `DROP TYPE <qname>` | yes | Destructive — requires intent approval. |
+| `alter_type_add_value` | `ALTER TYPE <qname> ADD VALUE '<label>' [BEFORE\|AFTER '<ref>']` | yes | |
+| `alter_type_rename_value` | `ALTER TYPE <qname> RENAME VALUE '<from>' TO '<to>'` | yes | |
+| `alter_domain_add_constraint` | `ALTER DOMAIN <qname> ADD CONSTRAINT <name> CHECK (…)` | yes | |
+| `alter_domain_drop_constraint` | `ALTER DOMAIN <qname> DROP CONSTRAINT <name>` | yes | Destructive — requires intent approval. |
+| `alter_domain_set_default` | `ALTER DOMAIN <qname> SET DEFAULT <expr>` / `DROP DEFAULT` | yes | `None` default clears the existing default. |
+| `alter_domain_set_not_null` | `ALTER DOMAIN <qname> SET NOT NULL` / `DROP NOT NULL` | yes | |
+| `alter_type_add_attribute` | `ALTER TYPE <qname> ADD ATTRIBUTE <name> <type>` | yes | |
+| `alter_type_drop_attribute` | `ALTER TYPE <qname> DROP ATTRIBUTE <name>` | yes | Destructive — requires intent approval. |
+| `alter_type_alter_attribute_type` | `ALTER TYPE <qname> ALTER ATTRIBUTE <name> TYPE <new_type>` | yes | |
+| `comment_on_type` | `COMMENT ON TYPE\|DOMAIN <qname> IS '…'` | yes | Uses `COMMENT ON DOMAIN` for domain types; `COMMENT ON TYPE` for enums and composites. |
+
+> **`ReplaceWithCascade`.** When a type change cannot be applied in place (e.g., dropping or reordering enum values, reordering composite attributes, or changing a domain's base type), the planner emits `DROP TYPE <qname> CASCADE` followed by `CREATE TYPE`. Both steps appear in the plan as `drop_type` (destructive — requires intent approval) and `create_type`.
+
 ## `intent.toml`
 
 ```toml

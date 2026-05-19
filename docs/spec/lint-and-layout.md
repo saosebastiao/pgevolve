@@ -27,6 +27,10 @@ time. The lint engine runs them defensively over a built `SourceTree`.
 | `view-shadows-table` — a VIEW or MATERIALIZED VIEW shares a qualified name with a managed table | ✅ Implemented | Severity `Error`. Views and tables occupy the same namespace in Postgres; pgevolve rejects the ambiguity at parse time. |
 | `mv-no-unique-index` — a MATERIALIZED VIEW has no unique index and thus cannot use `REFRESH CONCURRENTLY` | ✅ Implemented | Severity `Warning`. Resolution: add a unique index on the MV, or set `refresh_mv_concurrently = false` in `[planner.online_rewrites]`. |
 | `view-body-references-unmanaged-schema` — a view body dependency edge points to a schema not in `[managed].schemas` | ✅ Implemented | Severity `Warning`. pgevolve cannot track schema changes for objects it does not manage; a cross-schema dependency is a portability risk. |
+| `type-shadows-table` — a user-defined type shares a qualified name with a managed table, view, or MV | ✅ Implemented | Severity `Error`. Postgres uses one namespace for relations and types; the conflict would be rejected at apply time. |
+| `enum-value-collision` — an enum type declares duplicate value labels | ✅ Implemented | Severity `Error`. Defense-in-depth; the source parser also rejects duplicates. |
+| `composite-attribute-collision` — a composite type declares duplicate attribute names | ✅ Implemented | Severity `Error`. Defense-in-depth; the source parser also rejects duplicates. |
+| `domain-check-references-unmanaged-type` — a domain's CHECK expression references a schema not in `[managed].schemas` | ✅ Implemented | Severity `Warning`. pgevolve cannot track changes to objects it does not manage; the reference is a portability risk. Silent when `[managed].schemas` is empty. |
 | `plpgsql-dynamic-sql` — PL/pgSQL function body contains opaque `EXECUTE` patterns | 📋 Planned, v0.2 | Severity `Warning`. Resolved by adding `-- @pgevolve dep:` directives. |
 
 ## Severity tiers

@@ -9,9 +9,39 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.2.0] — Unreleased
 
-Extends the v0.1 surface with **views and materialized views** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
+Extends the v0.1 surface with **views, materialized views, and user-defined types** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
 
-### Added — IR
+### Added — IR (user-defined types)
+
+- `UserType { qname, kind: UserTypeKind, comment }` flat IR type in `pgevolve-core::ir::user_type`.
+- `UserTypeKind::Enum { values: Vec<EnumValue> }` — ordered label list with `sort_order: f32` mirroring `pg_enum.enumsortorder`.
+- `UserTypeKind::Domain { base, nullable, default, check_constraints, collation }` — domain defaults and CHECK expressions use `NormalizedExpr` for canonical comparison.
+- `UserTypeKind::Composite { attributes: Vec<CompositeAttribute> }` — each attribute carries name, type, and optional collation.
+- `Catalog::types: Vec<UserType>` — flat collection, sorted by `qname` after `canonicalize()`.
+
+### Added — pipeline (user-defined types)
+
+- **Source parser** — `CREATE TYPE … AS ENUM`, `CREATE DOMAIN`, `CREATE TYPE … AS (…)` all parse into the `UserType` IR. Duplicate labels / attributes rejected at parse time.
+- **AST resolution** — `UserDefined(QualifiedName)` column type references resolved against `Catalog::types` after the source parse pass.
+- **Catalog reader** — queries `pg_type`, `pg_enum`, `pg_attribute` (for composites), and `pg_constraint` / `pg_attrdef` (for domains) to reconstruct `UserType` from a live database.
+- **Differ** — `UserTypeChange` variants: `Create`, `Drop`, `EnumAddValue`, `EnumRenameValue`, `DomainAddCheck`, `DomainDropCheck`, `DomainSetDefault`, `DomainSetNotNull`, `CompositeAddAttribute`, `CompositeDropAttribute`, `CompositeAlterAttributeType`, `CommentOn`, `ReplaceWithCascade`.
+- **Compatibility predicates** — `enum_can_alter_in_place` (preserved labels maintain relative order; renames position-paired) and `composite_can_alter_in_place` (preserved attributes maintain relative order). Both fall back to `ReplaceWithCascade` when the predicate returns `false`.
+- **Planner** — 12 new step kinds: `CreateType`, `DropType`, `AlterTypeAddValue`, `AlterTypeRenameValue`, `AlterDomainAddConstraint`, `AlterDomainDropConstraint`, `AlterDomainSetDefault`, `AlterDomainSetNotNull`, `AlterTypeAddAttribute`, `AlterTypeDropAttribute`, `AlterTypeAlterAttributeType`, `CommentOnType`.
+- **`NodeId::Type`** — added to the dep graph; edges from type → column (column's `ColumnType::UserDefined`) and type → type (domain base type) drive correct creation/drop ordering.
+
+### Added — lint rules (user-defined types)
+
+- `type-shadows-table` (Error) — a user-defined type shares a qualified name with a table, view, or MV.
+- `enum-value-collision` (Error) — an enum type declares duplicate value labels.
+- `composite-attribute-collision` (Error) — a composite type declares duplicate attribute names.
+- `domain-check-references-unmanaged-type` (Warning) — a domain's CHECK expression references a schema outside `[managed].schemas`.
+
+### Added — tests (user-defined types)
+
+- **20 conformance fixtures** (Tier C): `objects/enums/` (8), `objects/domains/` (6), `objects/composites/` (4), `objects/user_type_lints/` (2).
+- **Property test** `enum_add_value_preserves_existing_values` (`#[ignore]`, pure, no Docker) — for any random initial label list and a new distinct label, `diff_user_types` emits exactly one `EnumAddValue` change.
+
+### Added — IR (views and materialized views)
 
 - `View` and `MaterializedView` flat IR types in `pgevolve-core::ir::view`.
 - `ViewColumn` — named column with resolved type and optional comment; used by both views and MVs.
@@ -19,7 +49,7 @@ Extends the v0.1 surface with **views and materialized views** as fully-managed 
 - `body_dependencies: Vec<DepEdge>` — dependency edges extracted from the body AST with `DepSource::AstExtracted` provenance. Powers the dependent-recreation walk and the `view-body-references-unmanaged-schema` lint.
 - `security_barrier` and `security_invoker` reloptions on `View`.
 
-### Added — pipeline
+### Added — pipeline (views and materialized views)
 
 - **AST canonicalization pass** (`parse/ast_canon.rs`) — runs after source parse; calls `NormalizedBody::from_sql` on each view body, extracts `DepEdge`s, resolves references against the provisional catalog, and fills in column types.
 - **Catalog reader** — `read_views` and `read_materialized_views` query `pg_views` / `pg_matviews`, call `pg_get_viewdef`, and feed the result through `NormalizedBody::from_sql`. Source-side and catalog-side canonical texts are directly comparable.
@@ -33,13 +63,13 @@ Extends the v0.1 surface with **views and materialized views** as fully-managed 
 - `[planner.online_rewrites].view_drop_create_dependents` (default `true`) — cascade dependent-view recreations; set `false` to error instead of auto-cascading.
 - `[[step_override]]` rows in `intent.toml` — suppress individual plan steps by kind + target.
 
-### Added — lint rules
+### Added — lint rules (views and materialized views)
 
 - `view-shadows-table` (Error) — a view or MV shares a qualified name with a managed table.
 - `mv-no-unique-index` (Warning) — an MV has no unique index; `REFRESH CONCURRENTLY` unavailable.
 - `view-body-references-unmanaged-schema` (Warning) — a view body dependency edge points to an unmanaged schema.
 
-### Added — tests
+### Added — tests (views and materialized views)
 
 - **15 conformance fixtures** (Tier C): `objects/views/` (8), `objects/materialized_views/` (6), `intent/drop-view-requires-intent` (1), `scenarios/dependency-chains/` (2).
 - **Property test** `view_canonicalization_closed_under_pg_rewrite` (`#[ignore]`, Docker-gated) — verifies `NormalizedBody::from_sql` closure under the PG rewrite for a fixed set of representative view bodies.

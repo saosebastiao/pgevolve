@@ -12,9 +12,15 @@
 //!    cycle nodes are all FK-bound (which the planner extracts as a
 //!    post-pass).
 //!
+//! ### v0.2 (pure, no Docker)
+//!
+//! 3. **`enum_add_value_preserves_existing_values`** — for any random initial
+//!    enum label list and a new (distinct) label, `diff_user_types` emits
+//!    exactly one `EnumAddValue` change. Pure; no Docker.
+//!
 //! ### v0.2 (Docker-bound)
 //!
-//! 3. **`view_canonicalization_closed_under_pg_rewrite`** — verifies the
+//! 4. **`view_canonicalization_closed_under_pg_rewrite`** — verifies the
 //!    v0.2 invariant: `NormalizedBody::from_sql` applied to a view body
 //!    yields the same canonical text as `NormalizedBody::from_sql` applied
 //!    to the body Postgres stores in `pg_get_viewdef`. In other words,
@@ -204,5 +210,66 @@ proptest! {
                 }
             }
         }
+    }
+
+    /// For a random initial enum value list and a random ADD VALUE operation,
+    /// `diff_user_types` emits exactly one `EnumAddValue` change. Pure; no Docker.
+    #[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
+    #[test]
+    fn enum_add_value_preserves_existing_values(
+        existing in proptest::collection::vec("[a-z]{1,5}", 1..5usize),
+        new_value in "[a-z]{1,5}",
+    ) {
+        use pgevolve_core::diff::change::{Change, UserTypeChange};
+        use pgevolve_core::identifier::{Identifier, QualifiedName};
+        use pgevolve_core::ir::user_type::{EnumValue, UserType, UserTypeKind};
+
+        prop_assume!(!existing.contains(&new_value));
+        // Ensure all existing labels are distinct (the differ requires unique labels).
+        let unique_existing: Vec<String> = {
+            let mut seen = std::collections::BTreeSet::new();
+            existing.into_iter().filter(|v| seen.insert(v.clone())).collect()
+        };
+        prop_assume!(!unique_existing.is_empty());
+
+        #[allow(clippy::cast_precision_loss)]
+        let before: Vec<EnumValue> = unique_existing
+            .iter()
+            .enumerate()
+            .map(|(i, n)| EnumValue { name: n.clone(), sort_order: i as f32 + 1.0 })
+            .collect();
+        #[allow(clippy::cast_precision_loss)]
+        let new_sort_order = before.len() as f32 + 1.0;
+        let mut after = before.clone();
+        after.push(EnumValue {
+            name: new_value.clone(),
+            sort_order: new_sort_order,
+        });
+
+        let qname = QualifiedName::new(
+            Identifier::from_unquoted("app").unwrap(),
+            Identifier::from_unquoted("status").unwrap(),
+        );
+        let cat = vec![UserType {
+            qname: qname.clone(),
+            kind: UserTypeKind::Enum { values: before },
+            comment: None,
+        }];
+        let src = vec![UserType {
+            qname,
+            kind: UserTypeKind::Enum { values: after },
+            comment: None,
+        }];
+
+        let mut out = pgevolve_core::diff::ChangeSet::new();
+        pgevolve_core::diff::types::diff_user_types(&cat, &src, &mut out);
+
+        // Expect exactly one EnumAddValue change.
+        prop_assert_eq!(out.len(), 1, "expected exactly one change, got: {:?}", out);
+        let entry = &out.entries[0];
+        prop_assert!(
+            matches!(&entry.change, Change::UserType(UserTypeChange::EnumAddValue { value, .. }) if value == &new_value),
+            "expected EnumAddValue for {:?}, got: {:?}", new_value, entry.change,
+        );
     }
 }

@@ -49,9 +49,9 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Object | Status | Notes |
 |---|---|---|
-| `ENUM` (`CREATE TYPE ... AS ENUM`) | 📋 Planned, v0.2 | Including the `ALTER TYPE ... ADD VALUE` online rewrite (which has its own transactionality rules). |
-| `DOMAIN` (`CREATE DOMAIN`) | 📋 Planned, v0.2 | With `NOT NULL`, `CHECK`, default value. |
-| `COMPOSITE TYPE` (`CREATE TYPE ... AS (...)`) | 📋 Planned, v0.2 | Most common companion to user-defined functions. |
+| `ENUM` (`CREATE TYPE ... AS ENUM`) | ✅ Implemented | `ALTER TYPE … ADD VALUE [BEFORE\|AFTER]`, `RENAME VALUE`. Dropping or reordering values triggers `ReplaceWithCascade` (`DROP TYPE CASCADE` + `CREATE TYPE`). change_kinds: [create, drop, alter_type_add_value, alter_type_rename_value, comment_on, replace_with_cascade] |
+| `DOMAIN` (`CREATE DOMAIN`) | ✅ Implemented | `NOT NULL`, `CHECK`, default. `ALTER DOMAIN ADD/DROP CONSTRAINT`, `SET/DROP DEFAULT`, `SET/DROP NOT NULL`. Base-type change triggers `ReplaceWithCascade`. change_kinds: [create, drop, alter_domain_add_constraint, alter_domain_drop_constraint, alter_domain_set_default, alter_domain_set_not_null, comment_on, replace_with_cascade] |
+| `COMPOSITE TYPE` (`CREATE TYPE ... AS (...)`) | ✅ Implemented | `ADD ATTRIBUTE`, `DROP ATTRIBUTE`, `ALTER ATTRIBUTE TYPE`. Attribute reordering triggers `ReplaceWithCascade`. change_kinds: [create, drop, alter_type_add_attribute, alter_type_drop_attribute, alter_type_alter_attribute_type, comment_on, replace_with_cascade] |
 | `RANGE TYPE` (`CREATE TYPE ... AS RANGE`) | 🔮 Future | Lands when range-typed columns become first-class. |
 | `BASE TYPE` (`CREATE TYPE ... ( INPUT = ..., OUTPUT = ... )`) | ⛔ Not planned | Requires C-language functions; out of scope. |
 

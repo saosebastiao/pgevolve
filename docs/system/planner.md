@@ -269,6 +269,48 @@ The walk is a BFS over the `body_dependencies` reverse index (object → views t
 
 **No double-emission.** Views already present in `changes` (because the differ itself produced a `ReplaceBody` for them) are excluded from the walk's output — the filter prevents emitting the same step twice.
 
+### User-type compatibility predicates
+
+Source: `crates/pgevolve-core/src/diff/types.rs`.
+
+#### `enum_can_alter_in_place`
+
+```rust
+pub(crate) fn enum_can_alter_in_place(
+    catalog_vals: &[EnumValue],
+    source_vals:  &[EnumValue],
+) -> bool
+```
+
+Returns `true` (in-place `ALTER TYPE` is safe) when:
+
+1. No labels are removed, **or** removed labels are all paired with added labels at the same list position (rename heuristic — same list length, position-paired exclusive names).
+2. Preserved labels (those present in both lists) appear in the same relative order as in the catalog.
+
+Returns `false` (triggers `ReplaceWithCascade`) when:
+- Any label is removed without a same-position replacement (true drop).
+- Preserved labels would be reordered.
+
+#### `composite_can_alter_in_place`
+
+```rust
+pub(crate) fn composite_can_alter_in_place(
+    catalog_attrs: &[CompositeAttribute],
+    source_attrs:  &[CompositeAttribute],
+) -> bool
+```
+
+Returns `true` when the preserved attributes (those present in both lists) appear in the same relative order in both. New attributes may be appended anywhere. Returns `false` (triggers `ReplaceWithCascade`) when preserved attributes would be reordered.
+
+#### `ReplaceWithCascade` fallback
+
+When either predicate returns `false`, or when a domain's base type changes, the differ emits `UserTypeChange::ReplaceWithCascade { source, catalog }`. The planner converts this into two steps:
+
+1. `DROP TYPE <qname> CASCADE` (`drop_type`, destructive — requires intent approval).
+2. `CREATE TYPE <qname> …` (`create_type`, safe).
+
+Both steps go into the same transactional group. The `CASCADE` propagates automatically to all dependent columns, views, and functions, so no additional dependent-recreation walk is needed for types (unlike views, which require the explicit `extend_with_dependent_recreations` pass).
+
 ### Atomic mode
 
 `Strategy::Atomic` short-circuits **every** online rewrite — every
