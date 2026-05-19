@@ -3,15 +3,15 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
-use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::DiffMacro;
 
 /// A Postgres schema (namespace).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, DiffMacro)]
 pub struct Schema {
     /// Schema name.
     pub name: Identifier,
     /// Optional comment.
+    #[diff(via_debug)]
     pub comment: Option<String>,
 }
 
@@ -25,23 +25,11 @@ impl Schema {
     }
 }
 
-impl Diff for Schema {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
-        let mut out = Vec::new();
-        out.extend(diff_field("name", &self.name, &other.name));
-        out.extend(diff_field(
-            "comment",
-            &format!("{:?}", self.comment),
-            &format!("{:?}", other.comment),
-        ));
-        out
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::identifier::Identifier;
+    use crate::ir::eq::Diff;
 
     #[test]
     fn equal_schemas_have_no_diff() {
