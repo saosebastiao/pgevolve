@@ -13,6 +13,13 @@
 //!   refreshed concurrently.
 //! - **`view_body_references_unmanaged_schema`** — a view body dependency
 //!   targets a schema outside `[managed].schemas` and outside built-ins.
+//! - **`type-shadows-table`** — a user-defined type's qname collides with a
+//!   table, view, or MV qname (PG uses one namespace for relations and types).
+//! - **`enum-value-collision`** — an enum has duplicate value labels.
+//! - **`composite-attribute-collision`** — a composite has duplicate attribute
+//!   names.
+//! - **`domain-check-references-unmanaged-type`** — a domain's CHECK expression
+//!   references a schema not in `[managed].schemas` and not a PG built-in.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -22,6 +29,7 @@ use super::source_tree::{ObjectKey, SourceTree};
 use crate::ir::catalog::Catalog;
 use crate::ir::constraint::ConstraintKind;
 use crate::ir::index::IndexParent;
+use crate::ir::user_type::UserTypeKind;
 use crate::plan::edges::NodeId;
 
 /// Built-in `PostgreSQL` schemas that are never managed by pgevolve but are
@@ -37,6 +45,10 @@ pub fn check_universal(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Findin
     out.extend(view_shadows_table(tree));
     out.extend(mv_no_unique_index(tree));
     out.extend(view_body_references_unmanaged_schema(tree, managed));
+    out.extend(type_shadows_table_rule(tree));
+    out.extend(enum_value_collision_rule(tree));
+    out.extend(composite_attribute_collision_rule(tree));
+    out.extend(domain_check_references_unmanaged_type_rule(tree, managed));
     out
 }
 
@@ -323,6 +335,209 @@ fn view_body_references_unmanaged_schema(
     }
     for mv in &tree.catalog.materialized_views {
         check_deps(&mv.qname, &mv.body_dependencies, &mut out);
+    }
+
+    out
+}
+
+// ── user-type rules ───────────────────────────────────────────────────────────
+
+/// `type-shadows-table` — fires when a user-defined type's qname collides with
+/// a table, view, or materialized-view qname. `PostgreSQL` uses one namespace for
+/// relations and types, so the conflict would be rejected at apply time.
+fn type_shadows_table_rule(tree: &SourceTree) -> Vec<Finding> {
+    let mut out = Vec::new();
+
+    // Build a set of all relation qnames (table + view + MV).
+    let mut relation_names: HashSet<crate::identifier::QualifiedName> = HashSet::new();
+    for t in &tree.catalog.tables {
+        relation_names.insert(t.qname.clone());
+    }
+    for v in &tree.catalog.views {
+        relation_names.insert(v.qname.clone());
+    }
+    for mv in &tree.catalog.materialized_views {
+        relation_names.insert(mv.qname.clone());
+    }
+
+    for ty in &tree.catalog.types {
+        if relation_names.contains(&ty.qname) {
+            out.push(Finding::error(
+                "type-shadows-table",
+                format!(
+                    "type `{q}` has the same qualified name as an existing relation \
+                     (table, view, or materialized view) — PostgreSQL would reject this",
+                    q = ty.qname,
+                ),
+            ));
+        }
+    }
+
+    out
+}
+
+/// `enum-value-collision` — fires when an enum type has duplicate value labels.
+///
+/// The source parser rejects duplicates at parse time, so this is a
+/// defense-in-depth check for catalogs constructed programmatically.
+fn enum_value_collision_rule(tree: &SourceTree) -> Vec<Finding> {
+    let mut out = Vec::new();
+
+    for ty in &tree.catalog.types {
+        if let UserTypeKind::Enum { values } = &ty.kind {
+            let mut seen: HashSet<&str> = HashSet::new();
+            for v in values {
+                if !seen.insert(v.name.as_str()) {
+                    out.push(Finding::error(
+                        "enum-value-collision",
+                        format!(
+                            "enum `{q}` has duplicate value `{label}`",
+                            q = ty.qname,
+                            label = v.name,
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
+    out
+}
+
+/// `composite-attribute-collision` — fires when a composite type has duplicate
+/// attribute names.
+///
+/// The source parser rejects duplicates at parse time, so this is a
+/// defense-in-depth check for catalogs constructed programmatically.
+fn composite_attribute_collision_rule(tree: &SourceTree) -> Vec<Finding> {
+    let mut out = Vec::new();
+
+    for ty in &tree.catalog.types {
+        if let UserTypeKind::Composite { attributes } = &ty.kind {
+            let mut seen: HashSet<&str> = HashSet::new();
+            for attr in attributes {
+                if !seen.insert(attr.name.as_str()) {
+                    out.push(Finding::error(
+                        "composite-attribute-collision",
+                        format!(
+                            "composite type `{q}` has duplicate attribute `{attr}`",
+                            q = ty.qname,
+                            attr = attr.name.as_str(),
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
+    out
+}
+
+/// Extract all `schema.name` qualified-identifier pairs from a SQL expression
+/// text. Returns `(schema, name)` pairs for any token sequence of the form
+/// `<identifier>.<identifier>` found in `text`.
+fn extract_qualified_refs(text: &str) -> Vec<(String, String)> {
+    // Tokenize: split on whitespace and punctuation, keeping only identifier
+    // characters (letters, digits, underscore) and dots. Then scan for
+    // consecutive tokens of the form `<word>.<word>`.
+    let mut result = Vec::new();
+    // Walk through the text looking for word.word patterns.
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i < len {
+        // Skip non-identifier characters.
+        if !is_id_start(bytes[i]) {
+            i += 1;
+            continue;
+        }
+        // Consume the first identifier.
+        let start = i;
+        while i < len && is_id_char(bytes[i]) {
+            i += 1;
+        }
+        let first = &text[start..i];
+        // Look for a dot immediately following.
+        if i < len && bytes[i] == b'.' {
+            i += 1; // consume dot
+            if i < len && is_id_start(bytes[i]) {
+                let start2 = i;
+                while i < len && is_id_char(bytes[i]) {
+                    i += 1;
+                }
+                let second = &text[start2..i];
+                result.push((first.to_string(), second.to_string()));
+            }
+        }
+    }
+    result
+}
+
+#[inline]
+const fn is_id_start(b: u8) -> bool {
+    b.is_ascii_alphabetic() || b == b'_'
+}
+
+#[inline]
+const fn is_id_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// `domain-check-references-unmanaged-type` — fires (Warning) when a domain's
+/// CHECK constraint expression text contains a `schema.name` reference where the
+/// schema is neither in `[managed].schemas` nor a `PostgreSQL` built-in schema.
+///
+/// This is a forward-looking check (full resolution lands in v0.3 when
+/// functions are supported), using simple text-based extraction of qualified
+/// identifiers from the canonical expression text.
+fn domain_check_references_unmanaged_type_rule(
+    tree: &SourceTree,
+    managed: &ManagedConfig,
+) -> Vec<Finding> {
+    // If [managed].schemas is empty we cannot determine what is "unmanaged".
+    if managed.schemas.is_empty() {
+        return Vec::new();
+    }
+
+    let managed_set: HashSet<&str> = managed
+        .schemas
+        .iter()
+        .map(crate::identifier::Identifier::as_str)
+        .collect();
+
+    let mut out = Vec::new();
+
+    for ty in &tree.catalog.types {
+        let UserTypeKind::Domain {
+            check_constraints, ..
+        } = &ty.kind
+        else {
+            continue;
+        };
+
+        for check in check_constraints {
+            let refs = extract_qualified_refs(&check.expression.canonical_text);
+            for (schema, _name) in refs {
+                if BUILTIN_SCHEMAS.contains(&schema.as_str()) {
+                    continue;
+                }
+                if managed_set.contains(schema.as_str()) {
+                    continue;
+                }
+                out.push(Finding::warning(
+                    "domain-check-references-unmanaged-type",
+                    format!(
+                        "domain `{q}` CHECK constraint `{chk}` references schema `{schema}` \
+                         which is not in [managed].schemas",
+                        q = ty.qname,
+                        chk = check.name.as_str(),
+                    ),
+                ));
+                // One warning per check constraint per unmanaged schema is
+                // sufficient — break after the first unmanaged reference.
+                break;
+            }
+        }
     }
 
     out
@@ -931,6 +1146,389 @@ mod tests {
                 .iter()
                 .all(|f| f.rule != "view-body-references-unmanaged-schema"),
             "rule must be silent when [managed].schemas is empty",
+        );
+    }
+
+    // ── type-shadows-table ────────────────────────────────────────────────────
+
+    #[test]
+    fn type_shadows_table_fires_on_collision() {
+        use crate::ir::user_type::{EnumValue, UserType, UserTypeKind};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![],
+            constraints: vec![],
+            comment: None,
+        });
+        // An enum type that collides with the table.
+        c.types.push(UserType {
+            qname: qn("app", "users"),
+            kind: UserTypeKind::Enum {
+                values: vec![EnumValue {
+                    name: "active".into(),
+                    sort_order: 1.0,
+                }],
+            },
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "type-shadows-table")
+            .count();
+        assert_eq!(count, 1, "expected exactly one type-shadows-table finding");
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "type-shadows-table")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Error,
+        );
+    }
+
+    #[test]
+    fn type_shadows_table_silent_when_no_collision() {
+        use crate::ir::user_type::{EnumValue, UserType, UserTypeKind};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![],
+            constraints: vec![],
+            comment: None,
+        });
+        c.types.push(UserType {
+            qname: qn("app", "user_status"),
+            kind: UserTypeKind::Enum {
+                values: vec![EnumValue {
+                    name: "active".into(),
+                    sort_order: 1.0,
+                }],
+            },
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        assert!(
+            findings.iter().all(|f| f.rule != "type-shadows-table"),
+            "type-shadows-table must not fire when names are distinct",
+        );
+    }
+
+    // ── enum-value-collision ──────────────────────────────────────────────────
+
+    #[test]
+    fn enum_value_collision_fires() {
+        use crate::ir::user_type::{EnumValue, UserType, UserTypeKind};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.types.push(UserType {
+            qname: qn("app", "status"),
+            kind: UserTypeKind::Enum {
+                values: vec![
+                    EnumValue {
+                        name: "active".into(),
+                        sort_order: 1.0,
+                    },
+                    EnumValue {
+                        name: "active".into(), // duplicate label
+                        sort_order: 2.0,
+                    },
+                    EnumValue {
+                        name: "inactive".into(),
+                        sort_order: 3.0,
+                    },
+                ],
+            },
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "enum-value-collision")
+            .count();
+        assert_eq!(
+            count, 1,
+            "expected exactly one enum-value-collision finding"
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "enum-value-collision")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Error,
+        );
+    }
+
+    #[test]
+    fn enum_value_collision_silent_on_distinct_values() {
+        use crate::ir::user_type::{EnumValue, UserType, UserTypeKind};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.types.push(UserType {
+            qname: qn("app", "status"),
+            kind: UserTypeKind::Enum {
+                values: vec![
+                    EnumValue {
+                        name: "pending".into(),
+                        sort_order: 1.0,
+                    },
+                    EnumValue {
+                        name: "active".into(),
+                        sort_order: 2.0,
+                    },
+                ],
+            },
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        assert!(
+            findings.iter().all(|f| f.rule != "enum-value-collision"),
+            "enum-value-collision must not fire on distinct values",
+        );
+    }
+
+    // ── composite-attribute-collision ─────────────────────────────────────────
+
+    #[test]
+    fn composite_attribute_collision_fires() {
+        use crate::ir::column_type::ColumnType;
+        use crate::ir::user_type::{CompositeAttribute, UserType, UserTypeKind};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.types.push(UserType {
+            qname: qn("app", "address"),
+            kind: UserTypeKind::Composite {
+                attributes: vec![
+                    CompositeAttribute {
+                        name: id("street"),
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                    CompositeAttribute {
+                        name: id("street"), // duplicate attribute
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                    CompositeAttribute {
+                        name: id("city"),
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                ],
+            },
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "composite-attribute-collision")
+            .count();
+        assert_eq!(
+            count, 1,
+            "expected exactly one composite-attribute-collision finding"
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "composite-attribute-collision")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Error,
+        );
+    }
+
+    #[test]
+    fn composite_attribute_collision_silent_on_distinct_attributes() {
+        use crate::ir::column_type::ColumnType;
+        use crate::ir::user_type::{CompositeAttribute, UserType, UserTypeKind};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.types.push(UserType {
+            qname: qn("app", "address"),
+            kind: UserTypeKind::Composite {
+                attributes: vec![
+                    CompositeAttribute {
+                        name: id("street"),
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                    CompositeAttribute {
+                        name: id("city"),
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                ],
+            },
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "composite-attribute-collision"),
+            "composite-attribute-collision must not fire on distinct attributes",
+        );
+    }
+
+    // ── domain-check-references-unmanaged-type ────────────────────────────────
+
+    #[test]
+    fn domain_check_references_unmanaged_type_fires() {
+        use crate::ir::column_type::ColumnType;
+        use crate::ir::default_expr::NormalizedExpr;
+        use crate::ir::user_type::{DomainCheck, UserType, UserTypeKind};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.types.push(UserType {
+            qname: qn("app", "positive_int"),
+            kind: UserTypeKind::Domain {
+                base: ColumnType::Integer,
+                nullable: false,
+                default: None,
+                check_constraints: vec![DomainCheck {
+                    name: id("positive_int_check"),
+                    // references external.validate_int — schema "external" is not managed
+                    expression: NormalizedExpr::from_text(
+                        "value > 0 and external.validate_int(value)",
+                    ),
+                }],
+                collation: None,
+            },
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "domain-check-references-unmanaged-type")
+            .count();
+        assert_eq!(
+            count, 1,
+            "expected one domain-check-references-unmanaged-type warning"
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "domain-check-references-unmanaged-type")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Warning,
+        );
+    }
+
+    #[test]
+    fn domain_check_references_unmanaged_type_silent_on_managed_schema() {
+        use crate::ir::column_type::ColumnType;
+        use crate::ir::default_expr::NormalizedExpr;
+        use crate::ir::user_type::{DomainCheck, UserType, UserTypeKind};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.types.push(UserType {
+            qname: qn("app", "positive_int"),
+            kind: UserTypeKind::Domain {
+                base: ColumnType::Integer,
+                nullable: false,
+                default: None,
+                check_constraints: vec![DomainCheck {
+                    name: id("positive_int_check"),
+                    // references app.validate_int — "app" is managed
+                    expression: NormalizedExpr::from_text("app.validate_int(value)"),
+                }],
+                collation: None,
+            },
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "domain-check-references-unmanaged-type"),
+            "rule must not fire when referenced schema is managed",
+        );
+    }
+
+    #[test]
+    fn domain_check_references_unmanaged_type_silent_for_pg_catalog() {
+        use crate::ir::column_type::ColumnType;
+        use crate::ir::default_expr::NormalizedExpr;
+        use crate::ir::user_type::{DomainCheck, UserType, UserTypeKind};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.types.push(UserType {
+            qname: qn("app", "text_domain"),
+            kind: UserTypeKind::Domain {
+                base: ColumnType::Text,
+                nullable: false,
+                default: None,
+                check_constraints: vec![DomainCheck {
+                    name: id("not_empty"),
+                    // references pg_catalog — built-in, always exempt
+                    expression: NormalizedExpr::from_text("pg_catalog.char_length(value) > 0"),
+                }],
+                collation: None,
+            },
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "domain-check-references-unmanaged-type"),
+            "rule must not fire for pg_catalog references",
+        );
+    }
+
+    #[test]
+    fn extract_qualified_refs_basic() {
+        let refs = super::extract_qualified_refs("value > 0 and external.validate_int(value)");
+        assert!(
+            refs.contains(&("external".to_string(), "validate_int".to_string())),
+            "should extract external.validate_int: {refs:?}",
+        );
+    }
+
+    #[test]
+    fn extract_qualified_refs_empty_text() {
+        let refs = super::extract_qualified_refs("value > 0");
+        assert!(
+            refs.is_empty(),
+            "no qualified refs in simple expression: {refs:?}",
         );
     }
 }
