@@ -11,15 +11,18 @@ use crate::ir::difference::Difference;
 use crate::ir::eq::{Diff, DiffMacro, diff_field, prefix_diffs};
 
 /// A table constraint.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
 pub struct Constraint {
     /// Schema-qualified constraint name (constraints carry their own names).
     pub qname: QualifiedName,
     /// What the constraint enforces.
+    #[diff(nested)]
     pub kind: ConstraintKind,
     /// Deferrability.
+    #[diff(via_debug)]
     pub deferrable: Deferrable,
     /// Optional comment.
+    #[diff(via_debug)]
     pub comment: Option<String>,
 }
 
@@ -128,25 +131,6 @@ fn render_idents(v: &[Identifier]) -> String {
     s
 }
 
-impl Diff for Constraint {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
-        let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field(
-            "deferrable",
-            &format!("{:?}", self.deferrable),
-            &format!("{:?}", other.deferrable),
-        ));
-        out.extend(diff_field(
-            "comment",
-            &format!("{:?}", self.comment),
-            &format!("{:?}", other.comment),
-        ));
-        out.extend(self.kind.diff(&other.kind));
-        out
-    }
-}
-
 impl Diff for ConstraintKind {
     fn diff(&self, other: &Self) -> Vec<Difference> {
         let mut out = Vec::new();
@@ -162,12 +146,12 @@ impl Diff for ConstraintKind {
                 },
             ) => {
                 out.extend(diff_field(
-                    "kind.columns",
+                    "columns",
                     &render_idents(c1),
                     &render_idents(c2),
                 ));
                 out.extend(diff_field(
-                    "kind.include",
+                    "include",
                     &render_idents(i1),
                     &render_idents(i2),
                 ));
@@ -185,19 +169,19 @@ impl Diff for ConstraintKind {
                 },
             ) => {
                 out.extend(diff_field(
-                    "kind.columns",
+                    "columns",
                     &render_idents(c1),
                     &render_idents(c2),
                 ));
                 out.extend(diff_field(
-                    "kind.include",
+                    "include",
                     &render_idents(i1),
                     &render_idents(i2),
                 ));
-                out.extend(diff_field("kind.nulls_distinct", n1, n2));
+                out.extend(diff_field("nulls_distinct", n1, n2));
             }
             (Self::ForeignKey(a), Self::ForeignKey(b)) => {
-                out.extend(prefix_diffs("kind.fk", a.diff(b)));
+                out.extend(prefix_diffs("fk", a.diff(b)));
             }
             (
                 Self::Check {
@@ -210,15 +194,15 @@ impl Diff for ConstraintKind {
                 },
             ) => {
                 out.extend(diff_field(
-                    "kind.expression",
+                    "expression",
                     &e1.canonical_text,
                     &e2.canonical_text,
                 ));
-                out.extend(diff_field("kind.no_inherit", n1, n2));
+                out.extend(diff_field("no_inherit", n1, n2));
             }
             _ => {
                 out.push(Difference::new(
-                    "kind",
+                    "",
                     format!("{self:?}"),
                     format!("{other:?}"),
                 ));
