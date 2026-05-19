@@ -108,6 +108,32 @@ pub enum StepKind {
     AlterViewSetReloption,
     /// `COMMENT ON VIEW / MATERIALIZED VIEW / COLUMN` for views and MVs.
     CommentOnView,
+
+    // --- v0.2 user-defined type step kinds ---
+    /// `CREATE TYPE` (enum, domain, or composite).
+    CreateType,
+    /// `DROP TYPE`.
+    DropType,
+    /// `ALTER TYPE … ADD VALUE`.
+    AlterTypeAddValue,
+    /// `ALTER TYPE … RENAME VALUE`.
+    AlterTypeRenameValue,
+    /// `ALTER DOMAIN … ADD CONSTRAINT … CHECK (…)`.
+    AlterDomainAddConstraint,
+    /// `ALTER DOMAIN … DROP CONSTRAINT`.
+    AlterDomainDropConstraint,
+    /// `ALTER DOMAIN … SET DEFAULT` / `DROP DEFAULT`.
+    AlterDomainSetDefault,
+    /// `ALTER DOMAIN … SET NOT NULL` / `DROP NOT NULL`.
+    AlterDomainSetNotNull,
+    /// `ALTER TYPE … ADD ATTRIBUTE`.
+    AlterTypeAddAttribute,
+    /// `ALTER TYPE … DROP ATTRIBUTE`.
+    AlterTypeDropAttribute,
+    /// `ALTER TYPE … ALTER ATTRIBUTE … TYPE`.
+    AlterTypeAlterAttributeType,
+    /// `COMMENT ON TYPE` / `COMMENT ON DOMAIN`.
+    CommentOnType,
 }
 
 /// One unit of work the executor will attempt.
@@ -183,6 +209,18 @@ mod tests {
             StepKind::RefreshMaterializedView,
             StepKind::AlterViewSetReloption,
             StepKind::CommentOnView,
+            StepKind::CreateType,
+            StepKind::DropType,
+            StepKind::AlterTypeAddValue,
+            StepKind::AlterTypeRenameValue,
+            StepKind::AlterDomainAddConstraint,
+            StepKind::AlterDomainDropConstraint,
+            StepKind::AlterDomainSetDefault,
+            StepKind::AlterDomainSetNotNull,
+            StepKind::AlterTypeAddAttribute,
+            StepKind::AlterTypeDropAttribute,
+            StepKind::AlterTypeAlterAttributeType,
+            StepKind::CommentOnType,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

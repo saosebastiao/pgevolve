@@ -319,6 +319,18 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::RefreshMaterializedView => "refresh_materialized_view",
         K::AlterViewSetReloption => "alter_view_set_reloption",
         K::CommentOnView => "comment_on_view",
+        K::CreateType => "create_type",
+        K::DropType => "drop_type",
+        K::AlterTypeAddValue => "alter_type_add_value",
+        K::AlterTypeRenameValue => "alter_type_rename_value",
+        K::AlterDomainAddConstraint => "alter_domain_add_constraint",
+        K::AlterDomainDropConstraint => "alter_domain_drop_constraint",
+        K::AlterDomainSetDefault => "alter_domain_set_default",
+        K::AlterDomainSetNotNull => "alter_domain_set_not_null",
+        K::AlterTypeAddAttribute => "alter_type_add_attribute",
+        K::AlterTypeDropAttribute => "alter_type_drop_attribute",
+        K::AlterTypeAlterAttributeType => "alter_type_alter_attribute_type",
+        K::CommentOnType => "comment_on_type",
     }
 }
 
@@ -360,6 +372,18 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "refresh_materialized_view" => K::RefreshMaterializedView,
         "alter_view_set_reloption" => K::AlterViewSetReloption,
         "comment_on_view" => K::CommentOnView,
+        "create_type" => K::CreateType,
+        "drop_type" => K::DropType,
+        "alter_type_add_value" => K::AlterTypeAddValue,
+        "alter_type_rename_value" => K::AlterTypeRenameValue,
+        "alter_domain_add_constraint" => K::AlterDomainAddConstraint,
+        "alter_domain_drop_constraint" => K::AlterDomainDropConstraint,
+        "alter_domain_set_default" => K::AlterDomainSetDefault,
+        "alter_domain_set_not_null" => K::AlterDomainSetNotNull,
+        "alter_type_add_attribute" => K::AlterTypeAddAttribute,
+        "alter_type_drop_attribute" => K::AlterTypeDropAttribute,
+        "alter_type_alter_attribute_type" => K::AlterTypeAlterAttributeType,
+        "comment_on_type" => K::CommentOnType,
         _ => return None,
     })
 }
@@ -568,6 +592,28 @@ mod tests {
             StepKind::AddCheckForNotNull,
         ] {
             assert_eq!(parse_kind_name(kind_name(k)), Some(k));
+        }
+    }
+
+    #[test]
+    fn user_type_step_kinds_round_trip_through_kind_name() {
+        for k in [
+            StepKind::CreateType,
+            StepKind::DropType,
+            StepKind::AlterTypeAddValue,
+            StepKind::AlterTypeRenameValue,
+            StepKind::AlterDomainAddConstraint,
+            StepKind::AlterDomainDropConstraint,
+            StepKind::AlterDomainSetDefault,
+            StepKind::AlterDomainSetNotNull,
+            StepKind::AlterTypeAddAttribute,
+            StepKind::AlterTypeDropAttribute,
+            StepKind::AlterTypeAlterAttributeType,
+            StepKind::CommentOnType,
+        ] {
+            let n = kind_name(k);
+            let parsed = parse_kind_name(n).unwrap();
+            assert_eq!(parsed, k, "round-trip failed for {n}");
         }
     }
 

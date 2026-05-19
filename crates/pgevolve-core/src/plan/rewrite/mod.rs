@@ -21,6 +21,7 @@ pub mod fk_not_valid_validate;
 pub mod refresh_mv_concurrently;
 pub mod set_not_null_check_pattern;
 pub mod sql;
+pub mod types;
 pub mod views;
 
 use crate::diff::change::{Change, ChangeEntry, MvChange, ViewChange};
@@ -404,9 +405,8 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
 
         Change::View(vc) => emit_view_change(vc, destructive, destructive_reason, out),
         Change::Mv(mc) => emit_mv_change(mc, destructive, destructive_reason, out),
-        // UserType SQL emission is wired in Task 9.
-        Change::UserType(_) => {
-            unimplemented!("Task 9 emits SQL for user-type changes")
+        Change::UserType(utc) => {
+            emit_user_type_change(utc, destructive, destructive_reason, ctx, out);
         }
     }
 }
@@ -707,6 +707,260 @@ fn emit_mv_change(
     // MV drops always use destructive=false regardless of what the change entry
     // says; suppress "unused variable" lint for the two parameters.
     let _ = (destructive, destructive_reason);
+}
+
+fn emit_user_type_change(
+    utc: crate::diff::change::UserTypeChange,
+    destructive: bool,
+    destructive_reason: Option<String>,
+    ctx: &Ctx<'_>,
+    out: &mut Vec<RawStep>,
+) {
+    use crate::diff::change::UserTypeChange as U;
+    use types::{
+        emit_alter_domain_add_check, emit_alter_domain_drop_check, emit_alter_domain_set_default,
+        emit_alter_domain_set_not_null, emit_alter_type_add_attribute, emit_alter_type_add_value,
+        emit_alter_type_alter_attribute_type, emit_alter_type_drop_attribute,
+        emit_alter_type_rename_value, emit_comment_on_type, emit_create_type, emit_drop_type,
+        emit_drop_type_cascade,
+    };
+
+    match utc {
+        U::Create(ut) => {
+            let qname = ut.qname.clone();
+            let kind = ut.kind.clone();
+            let comment = ut.comment.clone();
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateType,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_create_type(&ut),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            if let Some(c) = &comment {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: StepKind::CommentOnType,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: emit_comment_on_type(&qname, &kind, Some(c)),
+                    transactional: TransactionConstraint::InTransaction,
+                });
+            }
+        }
+
+        U::Drop(qname) => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::DropType,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_drop_type(&qname),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+
+        U::ReplaceWithCascade { source, catalog } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::DropType,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![catalog.qname.clone()],
+                sql: emit_drop_type_cascade(&catalog.qname),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            let qname = source.qname.clone();
+            let kind = source.kind.clone();
+            let comment = source.comment.clone();
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CreateType,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_create_type(&source),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            if let Some(c) = &comment {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: StepKind::CommentOnType,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: emit_comment_on_type(&qname, &kind, Some(c)),
+                    transactional: TransactionConstraint::InTransaction,
+                });
+            }
+        }
+
+        U::EnumAddValue {
+            qname,
+            value,
+            before,
+            after,
+        } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AlterTypeAddValue,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_alter_type_add_value(&qname, &value, before.as_deref(), after.as_deref()),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+
+        U::EnumRenameValue { qname, from, to } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AlterTypeRenameValue,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_alter_type_rename_value(&qname, &from, &to),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+
+        U::DomainAddCheck { qname, constraint } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AlterDomainAddConstraint,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_alter_domain_add_check(&qname, &constraint),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+
+        U::DomainDropCheck { qname, name } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AlterDomainDropConstraint,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_alter_domain_drop_check(&qname, &name),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+
+        U::DomainSetDefault { qname, default } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AlterDomainSetDefault,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_alter_domain_set_default(&qname, default.as_ref()),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+
+        U::DomainSetNotNull { qname, not_null } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AlterDomainSetNotNull,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_alter_domain_set_not_null(&qname, not_null),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+
+        U::CompositeAddAttribute { qname, attribute } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AlterTypeAddAttribute,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_alter_type_add_attribute(&qname, &attribute),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+
+        U::CompositeDropAttribute { qname, name } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AlterTypeDropAttribute,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_alter_type_drop_attribute(&qname, &name),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+
+        U::CompositeAlterAttributeType {
+            qname,
+            attribute,
+            new_type,
+        } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AlterTypeAlterAttributeType,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: emit_alter_type_alter_attribute_type(&qname, &attribute, &new_type),
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+
+        U::SetComment { qname, comment } => {
+            // We need the type's kind to choose DOMAIN vs TYPE keyword.
+            // Prefer source catalog (desired state); fall back to target (live state).
+            let kind = ctx
+                .source
+                .types
+                .iter()
+                .find(|t| t.qname == qname)
+                .or_else(|| ctx.target.types.iter().find(|t| t.qname == qname))
+                .map(|t| &t.kind);
+            let sql = if let Some(kind) = kind {
+                emit_comment_on_type(&qname, kind, comment.as_deref())
+            } else {
+                // Fallback: use TYPE keyword (should not happen in practice).
+                use crate::ir::user_type::UserTypeKind;
+                let fallback_kind = UserTypeKind::Enum { values: vec![] };
+                emit_comment_on_type(&qname, &fallback_kind, comment.as_deref())
+            };
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::CommentOnType,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql,
+                transactional: TransactionConstraint::InTransaction,
+            });
+        }
+    }
 }
 
 fn emit_table_op(
