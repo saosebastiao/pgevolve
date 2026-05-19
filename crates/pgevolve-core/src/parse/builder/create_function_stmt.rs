@@ -572,6 +572,56 @@ mod tests {
     }
 
     #[test]
+    fn procedure_rejects_return_type() {
+        // pg_query rejects CREATE PROCEDURE ... RETURNS at the grammar level,
+        // so the builder's defensive check is unreachable via parsed SQL. We
+        // construct a synthetic CreateFunctionStmt with is_procedure=true and
+        // return_type=Some(...) to exercise the rejection path directly.
+        use pg_query::protobuf::{CreateFunctionStmt, TypeName, Node};
+        use pg_query::NodeEnum;
+
+        // Build the type-name list for "app.proc".
+        let funcname = vec![
+            Node { node: Some(NodeEnum::String(pg_query::protobuf::String { sval: "app".into() })) },
+            Node { node: Some(NodeEnum::String(pg_query::protobuf::String { sval: "proc".into() })) },
+        ];
+        // Build a return-type TypeName for "integer".
+        let return_type = TypeName {
+            names: vec![Node {
+                node: Some(NodeEnum::String(pg_query::protobuf::String { sval: "integer".into() })),
+            }],
+            type_oid: 0,
+            setof: false,
+            pct_type: false,
+            typmods: vec![],
+            typemod: -1,
+            array_bounds: vec![],
+            location: 0,
+        };
+
+        let stmt = CreateFunctionStmt {
+            is_procedure: true,
+            replace: false,
+            funcname,
+            parameters: vec![],
+            return_type: Some(return_type),
+            options: vec![],
+            sql_body: None,
+        };
+
+        let err = build_function_or_procedure(&stmt, None, &loc()).unwrap_err();
+        let msg = match &err {
+            ParseError::Structural { message, .. } => message.clone(),
+            other => panic!("expected Structural, got {other:?}"),
+        };
+        let lower = msg.to_lowercase();
+        assert!(
+            lower.contains("return") || lower.contains("returns"),
+            "expected a 'returns/return-type' rejection message; got: {msg}",
+        );
+    }
+
+    #[test]
     fn function_with_default_arg() {
         let f = build_fn(
             "CREATE FUNCTION app.greet(name text DEFAULT 'world') RETURNS text \

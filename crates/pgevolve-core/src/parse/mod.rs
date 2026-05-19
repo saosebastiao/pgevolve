@@ -375,6 +375,11 @@ fn process_file(
                         message: "internal error: expected Procedure from procedure stmt".into(),
                     });
                 };
+                // Procedure identity is qname-only per arch Decision 2 — PG
+                // allows procedure overloading at the catalog level, but
+                // pgevolve v0.2 deliberately restricts procedures to a single
+                // signature per qname. Two procedures with the same qname
+                // (even with different arg types) collide.
                 let key = format!("procedures.{}", p.qname);
                 if let Some(prior) = locations.get(&key) {
                     return Err(ParseError::DuplicateObject {
