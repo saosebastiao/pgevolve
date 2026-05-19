@@ -11,6 +11,7 @@ use pg_query::protobuf::{CommentStmt, ObjectType};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
+use crate::ir::function::{ArgMode, FunctionArg, NormalizedArgTypes};
 use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
 
@@ -129,6 +130,25 @@ fn apply_comment_inner(
                 .ok_or_else(|| missing(location, "type", &qname.to_string()))?;
             ty.comment = comment;
         }
+        ObjectType::ObjectFunction => {
+            let (qname, arg_types_normalized) =
+                qname_and_args_from_object_with_args(stmt, default_schema, location)?;
+            let func = catalog
+                .functions
+                .iter_mut()
+                .find(|f| f.qname == qname && f.arg_types_normalized == arg_types_normalized)
+                .ok_or_else(|| missing(location, "function", &qname.to_string()))?;
+            func.comment = comment;
+        }
+        ObjectType::ObjectProcedure => {
+            let qname = qname_from_object_with_args(stmt, default_schema, location)?;
+            let proc = catalog
+                .procedures
+                .iter_mut()
+                .find(|p| p.qname == qname)
+                .ok_or_else(|| missing(location, "procedure", &qname.to_string()))?;
+            proc.comment = comment;
+        }
         other => {
             return Err(ParseError::Structural {
                 location: location.clone(),
@@ -182,6 +202,84 @@ fn apply_column_comment(
         return Err(missing(location, "table/view/mv", &obj_qname.to_string()));
     }
     Ok(())
+}
+
+/// Extract the qname from an `ObjectWithArgs` node (used by `COMMENT ON
+/// FUNCTION` and `COMMENT ON PROCEDURE`). The `objname` field is a list of
+/// String nodes identical in structure to a `CreateFunctionStmt.funcname` list.
+fn qname_from_object_with_args(
+    stmt: &CommentStmt,
+    default_schema: Option<&Identifier>,
+    location: &SourceLocation,
+) -> Result<QualifiedName, ParseError> {
+    let obj = stmt
+        .object
+        .as_ref()
+        .and_then(|o| o.node.as_ref())
+        .ok_or_else(|| ParseError::Structural {
+            location: location.clone(),
+            message: "COMMENT missing object reference".into(),
+        })?;
+    let NodeEnum::ObjectWithArgs(owa) = obj else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "COMMENT ON FUNCTION/PROCEDURE expected ObjectWithArgs, got {:?}",
+                std::mem::discriminant(obj)
+            ),
+        });
+    };
+    shared::qname_from_string_list(&owa.objname, default_schema, location)
+}
+
+/// Extract both qname and a [`NormalizedArgTypes`] from an `ObjectWithArgs`
+/// node (used by `COMMENT ON FUNCTION`). The `objargs` field is a list of
+/// `TypeName` nodes, one per declared argument type.
+fn qname_and_args_from_object_with_args(
+    stmt: &CommentStmt,
+    default_schema: Option<&Identifier>,
+    location: &SourceLocation,
+) -> Result<(QualifiedName, NormalizedArgTypes), ParseError> {
+    let obj = stmt
+        .object
+        .as_ref()
+        .and_then(|o| o.node.as_ref())
+        .ok_or_else(|| ParseError::Structural {
+            location: location.clone(),
+            message: "COMMENT missing object reference".into(),
+        })?;
+    let NodeEnum::ObjectWithArgs(owa) = obj else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "COMMENT ON FUNCTION expected ObjectWithArgs, got {:?}",
+                std::mem::discriminant(obj)
+            ),
+        });
+    };
+    let qname = shared::qname_from_string_list(&owa.objname, default_schema, location)?;
+    // Parse arg types from `objargs` (list of TypeName nodes).
+    let mut args: Vec<FunctionArg> = Vec::with_capacity(owa.objargs.len());
+    for node in &owa.objargs {
+        let Some(NodeEnum::TypeName(tn)) = node.node.as_ref() else {
+            return Err(ParseError::Structural {
+                location: location.clone(),
+                message: format!(
+                    "COMMENT ON FUNCTION {qname}: expected TypeName in objargs, got {:?}",
+                    node.node.as_ref().map(std::mem::discriminant)
+                ),
+            });
+        };
+        let ty = shared::type_name_to_column_type(tn, location)?;
+        args.push(FunctionArg {
+            name: None,
+            mode: ArgMode::In,
+            ty,
+            default: None,
+        });
+    }
+    let arg_types_normalized = NormalizedArgTypes::from_args(&args);
+    Ok((qname, arg_types_normalized))
 }
 
 fn missing(location: &SourceLocation, kind: &'static str, name: &str) -> ParseError {
@@ -581,5 +679,73 @@ mod tests {
         apply_comment(&stmt, &mut c, None, &loc()).unwrap();
         let ty = c.types.iter().find(|t| t.qname == qname).unwrap();
         assert_eq!(ty.comment.as_deref(), Some("email domain"));
+    }
+
+    #[test]
+    fn comment_on_function_sets_comment() {
+        use crate::ir::function::{
+            ArgMode, Function, FunctionArg, FunctionLanguage, NormalizedArgTypes, ParallelSafety,
+            ReturnType, SecurityMode, Volatility,
+        };
+        use crate::parse::normalize_body::NormalizedBody;
+
+        let mut c = seed_catalog();
+        let args = vec![FunctionArg {
+            name: Some(id("x")),
+            mode: ArgMode::In,
+            ty: ColumnType::Integer,
+            default: None,
+        }];
+        let arg_types_normalized = NormalizedArgTypes::from_args(&args);
+        c.functions.push(Function {
+            qname: qn("double"),
+            args,
+            arg_types_normalized,
+            return_type: ReturnType::Scalar {
+                ty: ColumnType::Integer,
+            },
+            language: FunctionLanguage::Sql,
+            body: NormalizedBody::from_sql("SELECT $1 * 2").unwrap(),
+            body_dependencies: vec![],
+            volatility: Volatility::Immutable,
+            strict: true,
+            security: SecurityMode::Invoker,
+            parallel: ParallelSafety::Safe,
+            leakproof: false,
+            cost: Some(1.0),
+            rows: None,
+            comment: None,
+        });
+        let stmt = parse_first("COMMENT ON FUNCTION app.double(integer) IS 'doubles the value';");
+        apply_comment(&stmt, &mut c, None, &loc()).unwrap();
+        assert_eq!(
+            c.functions[0].comment.as_deref(),
+            Some("doubles the value")
+        );
+    }
+
+    #[test]
+    fn comment_on_procedure_sets_comment() {
+        use crate::ir::function::{FunctionLanguage, SecurityMode};
+        use crate::ir::procedure::Procedure;
+        use crate::parse::normalize_body::NormalizedBody;
+
+        let mut c = seed_catalog();
+        c.procedures.push(Procedure {
+            qname: qn("greet"),
+            args: vec![],
+            language: FunctionLanguage::PlPgSql,
+            body: NormalizedBody::empty(),
+            body_dependencies: vec![],
+            security: SecurityMode::Invoker,
+            commits_in_body: false,
+            comment: None,
+        });
+        let stmt = parse_first("COMMENT ON PROCEDURE app.greet IS 'greeting procedure';");
+        apply_comment(&stmt, &mut c, None, &loc()).unwrap();
+        assert_eq!(
+            c.procedures[0].comment.as_deref(),
+            Some("greeting procedure")
+        );
     }
 }

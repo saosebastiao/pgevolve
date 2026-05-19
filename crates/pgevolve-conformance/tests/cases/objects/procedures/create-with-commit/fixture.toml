@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE PROCEDURE — body contains COMMIT, transactional=outside_transaction"
+authoring = "objects"
+spec_refs = ["procedures.commit_in_body"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "procedures.app.batch_insert",
+]
+
+[expect.plan]
+steps = 1

@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE FUNCTION — minimal SQL function"
+authoring = "objects"
+spec_refs = ["functions.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "functions.app.double(integer)",
+]
+
+[expect.plan]
+steps = 1

@@ -1,0 +1,20 @@
+[meta]
+title     = "DROP FUNCTION requires an approved intent"
+authoring = "intent"
+spec_refs = ["functions.drop"]
+
+[expect.diff]
+contains = ["app.helper"]
+
+[expect.plan]
+steps = 1
+minimality = false  # DROP FUNCTION is irreversible; post-apply re-plan is empty
+golden     = false  # intent/ fixtures opt out of L3 golden
+
+[expect.dep_graph]
+enabled = false     # intent/ fixtures opt out of L8
+
+[[expect.intent]]
+kind   = "drop_function"
+target = "app.helper"
+reason_contains = []

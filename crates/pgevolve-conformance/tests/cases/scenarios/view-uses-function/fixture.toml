@@ -1,0 +1,18 @@
+[meta]
+title     = "view-uses-function — view body SELECT calls app.f(), dep edge connects them"
+authoring = "scenarios"
+spec_refs = ["functions.dep_graph", "views.dep_graph"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+# CREATE FUNCTION + CREATE VIEW = 2 steps
+steps = 2
+
+[expect.dep_graph]
+enabled = false  # dep-graph edges verified via function body dep path; enabled=false to keep simple

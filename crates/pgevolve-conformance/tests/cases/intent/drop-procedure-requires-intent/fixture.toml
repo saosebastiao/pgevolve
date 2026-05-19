@@ -1,0 +1,20 @@
+[meta]
+title     = "DROP PROCEDURE requires an approved intent"
+authoring = "intent"
+spec_refs = ["procedures.drop"]
+
+[expect.diff]
+contains = ["app.cleanup"]
+
+[expect.plan]
+steps = 1
+minimality = false  # DROP PROCEDURE is irreversible; post-apply re-plan is empty
+golden     = false  # intent/ fixtures opt out of L3 golden
+
+[expect.dep_graph]
+enabled = false     # intent/ fixtures opt out of L8
+
+[[expect.intent]]
+kind   = "drop_procedure"
+target = "app.cleanup"
+reason_contains = []

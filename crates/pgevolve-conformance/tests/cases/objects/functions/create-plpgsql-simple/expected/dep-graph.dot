@@ -1,0 +1,7 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "function:app.triple(integer)";
+  "schema:app";
+  "function:app.triple(integer)" -> "schema:app" [style=solid];
+}

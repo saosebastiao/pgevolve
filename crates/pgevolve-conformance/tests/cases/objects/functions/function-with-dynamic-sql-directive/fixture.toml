@@ -1,0 +1,16 @@
+[meta]
+title     = "FUNCTION with EXECUTE + dep directive — lint passes, plan succeeds"
+authoring = "objects"
+spec_refs = ["functions.dynamic_sql_directive"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "functions.app.run_report()",
+]
+
+[expect.plan]
+steps = 1

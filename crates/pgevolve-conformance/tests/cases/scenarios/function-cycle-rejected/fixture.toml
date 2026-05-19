@@ -1,0 +1,26 @@
+[meta]
+title     = "function-cycle-rejected — SKIPPED: mutual dep directives on functions do not produce a graph cycle"
+authoring = "scenarios"
+spec_refs = ["functions.dep_graph"]
+
+# NOTE: function body dep directives (-- @pgevolve dep:) use NodeId::Table
+# placeholders that are resolved at AST resolution time. Because function-to-
+# function `AstDeclared` edges go through the Table placeholder path, they do
+# not create a Function-kind NodeId cycle in the create graph. A true
+# function body cycle via static SQL body analysis (RangeVar) would need
+# functions A and B to reference each other in FROM clauses, which is not
+# possible with SQL functions returning scalars.
+#
+# PlanError::BodyCycle is covered by the view/MV sub-spec (view A queries
+# view B that queries view A). The function variant is documented here as a
+# known gap.
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+# Empty plan — before and after are the same schema.
+steps = 0
+
+[expect.dep_graph]
+enabled = false

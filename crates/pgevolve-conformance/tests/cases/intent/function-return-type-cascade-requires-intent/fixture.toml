@@ -1,0 +1,26 @@
+[meta]
+title     = "FUNCTION return-type cascade change requires intent (ReplaceWithCascade)"
+authoring = "intent"
+spec_refs = ["functions.replace_return_type_cascade"]
+
+[expect.diff]
+contains = ["app.get_value"]
+
+[expect.plan]
+# DROP FUNCTION + CREATE OR REPLACE FUNCTION = 2 steps
+steps = 2
+minimality = false  # DROP is irreversible; post-apply re-plan is empty
+golden     = false  # intent/ fixtures opt out of L3 golden
+
+[expect.dep_graph]
+enabled = false     # intent/ fixtures opt out of L8
+
+[[expect.intent]]
+kind   = "drop_function"
+target = "app.get_value"
+reason_contains = []
+
+[[expect.intent]]
+kind   = "create_or_replace_function"
+target = "app.get_value"
+reason_contains = []

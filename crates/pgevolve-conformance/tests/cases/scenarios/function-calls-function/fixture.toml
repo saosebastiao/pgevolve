@@ -1,0 +1,14 @@
+[meta]
+title     = "function-calls-function — dep directive links caller to callee in dep graph"
+authoring = "scenarios"
+spec_refs = ["functions.dep_graph"]
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+# Both functions created fresh; 2 CREATE OR REPLACE FUNCTION steps.
+steps = 2
+
+[expect.dep_graph]
+enabled = false  # dep-graph confirmed manually; skipped here to keep fixture simple

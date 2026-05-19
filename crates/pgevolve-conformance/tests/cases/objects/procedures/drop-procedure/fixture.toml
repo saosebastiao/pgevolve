@@ -1,0 +1,22 @@
+[meta]
+title     = "DROP PROCEDURE — requires intent approval"
+authoring = "objects"
+spec_refs = ["procedures.drop"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "procedures.app.old_proc",
+]
+
+[expect.plan]
+steps = 1
+minimality = false  # DROP is irreversible; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "drop_procedure"
+target = "app.old_proc"
+reason_contains = []

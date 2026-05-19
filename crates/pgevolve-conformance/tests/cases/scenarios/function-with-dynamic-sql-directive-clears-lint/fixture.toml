@@ -1,0 +1,14 @@
+[meta]
+title     = "function-with-dynamic-sql-directive-clears-lint — EXECUTE + dep directive, lint passes"
+authoring = "scenarios"
+spec_refs = ["functions.dynamic_sql_directive"]
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+# CREATE TABLE + CREATE FUNCTION = 2 steps
+steps = 2
+
+[expect.dep_graph]
+enabled = false

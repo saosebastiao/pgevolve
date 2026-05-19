@@ -1,0 +1,28 @@
+[meta]
+title     = "FUNCTION return-type change — emits DROP + CREATE (ReplaceWithCascade)"
+authoring = "objects"
+spec_refs = ["functions.replace_return_type_cascade"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "functions.app.counts()",
+]
+
+[expect.plan]
+# DROP FUNCTION + CREATE OR REPLACE FUNCTION = 2 steps
+steps = 2
+minimality = false  # DROP is irreversible; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "drop_function"
+target = "app.counts"
+reason_contains = []
+
+[[expect.intent]]
+kind   = "create_or_replace_function"
+target = "app.counts"
+reason_contains = []

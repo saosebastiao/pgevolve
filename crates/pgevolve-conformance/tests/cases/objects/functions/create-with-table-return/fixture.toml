@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE FUNCTION — RETURNS TABLE(a int, b text)"
+authoring = "objects"
+spec_refs = ["functions.returns_table"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "functions.app.get_summary()",
+]
+
+[expect.plan]
+steps = 1

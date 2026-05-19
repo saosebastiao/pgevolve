@@ -1,0 +1,13 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.jobs.jobs_pkey";
+  "procedure:app.batch_insert";
+  "schema:app";
+  "table:app.batch_insert";
+  "table:app.jobs";
+  "table:app.batch_insert" -> "table:app.jobs" [style=solid];
+  "table:app.jobs" -> "schema:app" [style=solid];
+  "constraint:app.jobs.jobs_pkey" -> "table:app.jobs" [style=solid];
+  "procedure:app.batch_insert" -> "schema:app" [style=solid];
+}

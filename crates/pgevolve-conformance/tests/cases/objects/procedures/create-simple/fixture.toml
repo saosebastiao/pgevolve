@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE PROCEDURE — minimal procedure with empty body"
+authoring = "objects"
+spec_refs = ["procedures.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "procedures.app.do_nothing",
+]
+
+[expect.plan]
+steps = 1

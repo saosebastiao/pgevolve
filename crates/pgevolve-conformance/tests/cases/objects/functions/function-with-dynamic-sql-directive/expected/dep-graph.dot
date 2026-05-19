@@ -1,0 +1,13 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.reports.reports_pkey";
+  "function:app.run_report()";
+  "schema:app";
+  "table:app.reports";
+  "table:app.run_report";
+  "table:app.reports" -> "schema:app" [style=solid];
+  "table:app.run_report" -> "table:app.reports" [style=solid];
+  "constraint:app.reports.reports_pkey" -> "table:app.reports" [style=solid];
+  "function:app.run_report()" -> "schema:app" [style=solid];
+}

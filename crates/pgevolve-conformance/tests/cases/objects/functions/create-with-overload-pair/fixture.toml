@@ -1,0 +1,17 @@
+[meta]
+title     = "CREATE FUNCTION — two overloads with different arg types"
+authoring = "objects"
+spec_refs = ["functions.create", "functions.overload"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "functions.app.add(integer,integer)",
+  "functions.app.add(text,text)",
+]
+
+[expect.plan]
+steps = 2

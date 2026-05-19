@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE OR REPLACE FUNCTION — volatility change (IMMUTABLE → VOLATILE)"
+authoring = "objects"
+spec_refs = ["functions.replace_volatility"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "functions.app.now_plus(integer)",
+]
+
+[expect.plan]
+steps = 1
