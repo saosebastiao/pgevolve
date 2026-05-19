@@ -286,5 +286,7 @@
   "sequences": [],
   "views": [],
   "materialized_views": [],
-  "types": []
+  "types": [],
+  "functions": [],
+  "procedures": []
 }

@@ -4,6 +4,7 @@
 //! (currently: `pg_index.indnullsnotdistinct` lands in PG 15) live in
 //! per-version submodules; [`query_for`] dispatches.
 
+pub mod functions;
 pub mod pg14;
 pub mod pg15;
 pub mod pg16;
@@ -36,6 +37,7 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::DomainDetails) => types::SELECT_DOMAIN_DETAILS,
         (_, CatalogQuery::DomainChecks) => types::SELECT_DOMAIN_CHECKS,
         (_, CatalogQuery::CompositeAttributes) => types::SELECT_COMPOSITE_ATTRIBUTES,
+        (_, CatalogQuery::Functions) => functions::SELECT_FUNCTIONS,
     }
 }
 

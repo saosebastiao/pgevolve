@@ -35,6 +35,11 @@ use crate::ir::catalog::Catalog;
 ///   (added `NOT VALID`, never validated).
 /// - `invalid_indexes`: indexes with `pg_index.indisvalid = false` (e.g., a
 ///   `CREATE INDEX CONCURRENTLY` that failed and left an INVALID index).
+/// - `unmanaged_language_routines`: routines whose `LANGUAGE` is neither `sql`
+///   nor `plpgsql` (e.g., `plperl`, `python3u`). pgevolve v0.2 does not
+///   manage these; they are surfaced in the drift report so callers can
+///   inspect them. The associated row is skipped and never appears in
+///   `catalog.functions` / `catalog.procedures`.
 ///
 /// The differ consumes this report and emits [`crate::diff::change::Change::ValidateConstraint`]
 /// and [`crate::diff::change::Change::RecreateIndex`] to recover automatically.
@@ -46,6 +51,9 @@ pub struct DriftReport {
     /// Indexes present in the catalog but with `indisvalid = false`.
     /// Identified by index qname.
     pub invalid_indexes: Vec<QualifiedName>,
+    /// Routines whose `LANGUAGE` is not `sql` or `plpgsql`.
+    /// Identified by `(qname, language_name)`.
+    pub unmanaged_language_routines: Vec<(QualifiedName, String)>,
 }
 
 /// Identifier for each catalog query the reader runs. Adapters dispatch on
@@ -84,6 +92,8 @@ pub enum CatalogQuery {
     DomainChecks,
     /// Attributes (fields) of composite types.
     CompositeAttributes,
+    /// `pg_proc` rows for functions and procedures (prokind IN 'f','p').
+    Functions,
 }
 
 /// Sync, driver-agnostic catalog query interface.
@@ -128,6 +138,7 @@ pub fn read_catalog(
     let domain_details_rows = querier.fetch(CatalogQuery::DomainDetails, &managed)?;
     let domain_checks_rows = querier.fetch(CatalogQuery::DomainChecks, &managed)?;
     let composite_attributes_rows = querier.fetch(CatalogQuery::CompositeAttributes, &managed)?;
+    let functions_rows = querier.fetch(CatalogQuery::Functions, &managed)?;
 
     let raw = assemble::RawRows {
         version,
@@ -145,6 +156,7 @@ pub fn read_catalog(
         domain_details: domain_details_rows,
         domain_checks: domain_checks_rows,
         composite_attributes: composite_attributes_rows,
+        functions: functions_rows,
     };
     let (catalog, drift) = assemble::assemble(raw, filter)?;
     Ok((catalog.canonicalize()?, drift))
