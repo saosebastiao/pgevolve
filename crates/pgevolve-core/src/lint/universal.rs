@@ -20,6 +20,13 @@
 //!   names.
 //! - **`domain-check-references-unmanaged-type`** — a domain's CHECK expression
 //!   references a schema not in `[managed].schemas` and not a PG built-in.
+//! - **`pl-pgsql-dynamic-sql`** — a PL/pgSQL function or procedure uses
+//!   `EXECUTE` (dynamic SQL) without any `-- @pgevolve dep: <qname>` directive.
+//! - **`procedure-contains-commit`** — a procedure body contains
+//!   `COMMIT`/`ROLLBACK`; pgevolve will run it outside a transaction.
+//! - **`function-references-unmanaged-schema`** — a function or procedure body
+//!   dependency targets a schema outside `[managed].schemas` and outside
+//!   built-ins.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -28,9 +35,10 @@ use super::finding::Finding;
 use super::source_tree::{ObjectKey, SourceTree};
 use crate::ir::catalog::Catalog;
 use crate::ir::constraint::ConstraintKind;
+use crate::ir::function::FunctionLanguage;
 use crate::ir::index::IndexParent;
 use crate::ir::user_type::UserTypeKind;
-use crate::plan::edges::NodeId;
+use crate::plan::edges::{DepEdge, DepSource, NodeId};
 
 /// Built-in `PostgreSQL` schemas that are never managed by pgevolve but are
 /// always valid targets for cross-schema references.
@@ -49,6 +57,9 @@ pub fn check_universal(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Findin
     out.extend(enum_value_collision_rule(tree));
     out.extend(composite_attribute_collision_rule(tree));
     out.extend(domain_check_references_unmanaged_type_rule(tree, managed));
+    out.extend(pl_pgsql_dynamic_sql_rule(tree));
+    out.extend(procedure_contains_commit_rule(tree));
+    out.extend(function_references_unmanaged_schema_rule(tree, managed));
     out
 }
 
@@ -540,6 +551,169 @@ fn domain_check_references_unmanaged_type_rule(
                 break;
             }
         }
+    }
+
+    out
+}
+
+// ── routine lint rules ────────────────────────────────────────────────────────
+
+/// `pl-pgsql-dynamic-sql` — fires (Error) when a PL/pgSQL function or
+/// procedure body contains `EXECUTE` (dynamic SQL) but has no
+/// `-- @pgevolve dep: <qname>` directive (`DepSource::AstDeclared` edge).
+///
+/// Dynamic SQL bypasses static analysis. Developers must annotate every
+/// dynamic reference with a directive so pgevolve can maintain the dependency
+/// graph correctly.
+fn pl_pgsql_dynamic_sql_rule(tree: &SourceTree) -> Vec<Finding> {
+    let mut out = Vec::new();
+
+    for f in &tree.catalog.functions {
+        if !matches!(f.language, FunctionLanguage::PlPgSql) {
+            continue;
+        }
+        check_dynamic_sql_in_routine(
+            f.body.canonical_text(),
+            &f.body_dependencies,
+            &f.qname.to_string(),
+            "function",
+            &mut out,
+        );
+    }
+
+    for p in &tree.catalog.procedures {
+        if !matches!(p.language, FunctionLanguage::PlPgSql) {
+            continue;
+        }
+        check_dynamic_sql_in_routine(
+            p.body.canonical_text(),
+            &p.body_dependencies,
+            &p.qname.to_string(),
+            "procedure",
+            &mut out,
+        );
+    }
+
+    out
+}
+
+/// Shared inner check for `pl-pgsql-dynamic-sql` — called for both functions
+/// and procedures.
+fn check_dynamic_sql_in_routine(
+    body_text: &str,
+    deps: &[DepEdge],
+    label: &str,
+    kind: &str,
+    out: &mut Vec<Finding>,
+) {
+    let text_lower = body_text.to_lowercase();
+    let has_dynamic = text_lower.contains("execute ") || text_lower.contains("execute(");
+    if !has_dynamic {
+        return;
+    }
+    let has_directive = deps
+        .iter()
+        .any(|d| matches!(d.source, DepSource::AstDeclared));
+    if !has_directive {
+        out.push(Finding::error(
+            "pl-pgsql-dynamic-sql",
+            format!(
+                "{kind} `{label}` contains dynamic SQL (EXECUTE) but has no \
+                 `-- @pgevolve dep: <qname>` directive. Add at least one directive \
+                 to declare what the dynamic SQL references.",
+            ),
+        ));
+    }
+}
+
+/// `procedure-contains-commit` — fires (Warning) when a procedure's
+/// `commits_in_body` flag is true. Informational: pgevolve will run the step
+/// with `transactional=OutsideTransaction`. Surfaces in code review so
+/// reviewers know the step cannot be rolled back as part of a larger migration
+/// transaction.
+fn procedure_contains_commit_rule(tree: &SourceTree) -> Vec<Finding> {
+    let mut out = Vec::new();
+
+    for p in &tree.catalog.procedures {
+        if p.commits_in_body {
+            out.push(Finding::warning(
+                "procedure-contains-commit",
+                format!(
+                    "procedure `{}` body contains COMMIT/ROLLBACK; pgevolve will run \
+                     this step with transactional=OutsideTransaction.",
+                    p.qname,
+                ),
+            ));
+        }
+    }
+
+    out
+}
+
+/// `function-references-unmanaged-schema` — fires (Warning) when any
+/// dependency edge in a function or procedure `body_dependencies` targets a
+/// schema that is neither in `[managed].schemas` nor a `PostgreSQL` built-in
+/// schema (`pg_catalog`, `information_schema`).
+///
+/// Mirrors `view-body-references-unmanaged-schema` for routines.
+fn function_references_unmanaged_schema_rule(
+    tree: &SourceTree,
+    managed: &ManagedConfig,
+) -> Vec<Finding> {
+    // If the user has not populated [managed].schemas we cannot determine
+    // what is "unmanaged" — mirror managed_schemas_match's behaviour.
+    if managed.schemas.is_empty() {
+        return Vec::new();
+    }
+
+    let managed_set: HashSet<&str> = managed
+        .schemas
+        .iter()
+        .map(crate::identifier::Identifier::as_str)
+        .collect();
+
+    let mut out = Vec::new();
+
+    let check_deps = |routine_qname: &crate::identifier::QualifiedName,
+                      kind: &str,
+                      deps: &[DepEdge],
+                      out: &mut Vec<Finding>| {
+        for edge in deps {
+            let target_schema = match &edge.to {
+                NodeId::Table(q)
+                | NodeId::View(q)
+                | NodeId::Mv(q)
+                | NodeId::Index(q)
+                | NodeId::Sequence(q)
+                | NodeId::Type(q)
+                | NodeId::Procedure(q)
+                | NodeId::Function(q, _) => q.schema.as_str(),
+                NodeId::Schema(s) => s.as_str(),
+                NodeId::Constraint { table, .. } => table.schema.as_str(),
+            };
+
+            if BUILTIN_SCHEMAS.contains(&target_schema) {
+                continue;
+            }
+            if managed_set.contains(target_schema) {
+                continue;
+            }
+
+            out.push(Finding::warning(
+                "function-references-unmanaged-schema",
+                format!(
+                    "{kind} `{routine_qname}` body depends on schema `{target_schema}` \
+                     which is not in [managed].schemas",
+                ),
+            ));
+        }
+    };
+
+    for f in &tree.catalog.functions {
+        check_deps(&f.qname, "function", &f.body_dependencies, &mut out);
+    }
+    for p in &tree.catalog.procedures {
+        check_deps(&p.qname, "procedure", &p.body_dependencies, &mut out);
     }
 
     out
@@ -1531,6 +1705,347 @@ mod tests {
         assert!(
             refs.is_empty(),
             "no qualified refs in simple expression: {refs:?}",
+        );
+    }
+
+    // ── pl-pgsql-dynamic-sql ──────────────────────────────────────────────────
+
+    fn make_plpgsql_function(
+        schema: &str,
+        name: &str,
+        body_text: &str,
+        deps: Vec<crate::plan::edges::DepEdge>,
+    ) -> crate::ir::function::Function {
+        use crate::ir::function::{
+            FunctionLanguage, NormalizedArgTypes, ParallelSafety, ReturnType, SecurityMode,
+            Volatility,
+        };
+        use crate::parse::normalize_body::NormalizedBody;
+        let args = vec![];
+        let arg_types_normalized = NormalizedArgTypes::from_args(&args);
+        crate::ir::function::Function {
+            qname: qn(schema, name),
+            args,
+            arg_types_normalized,
+            return_type: ReturnType::Void,
+            language: FunctionLanguage::PlPgSql,
+            // PL/pgSQL bodies can't be parsed by pg_query — use from_raw_canonical.
+            body: NormalizedBody::from_raw_canonical(body_text.to_string()),
+            body_dependencies: deps,
+            volatility: Volatility::Volatile,
+            strict: false,
+            security: SecurityMode::Invoker,
+            parallel: ParallelSafety::Unsafe,
+            leakproof: false,
+            cost: None,
+            rows: None,
+            comment: None,
+        }
+    }
+
+    /// Build a zero-arg `NormalizedArgTypes` for use in test `NodeId::Function` variants.
+    fn empty_arg_types() -> crate::ir::function::NormalizedArgTypes {
+        crate::ir::function::NormalizedArgTypes::from_args(&[])
+    }
+
+    fn make_procedure(
+        schema: &str,
+        name: &str,
+        body_text: &str,
+        commits_in_body: bool,
+        deps: Vec<crate::plan::edges::DepEdge>,
+    ) -> crate::ir::procedure::Procedure {
+        use crate::ir::function::{FunctionLanguage, SecurityMode};
+        use crate::parse::normalize_body::NormalizedBody;
+        crate::ir::procedure::Procedure {
+            qname: qn(schema, name),
+            args: vec![],
+            language: FunctionLanguage::PlPgSql,
+            // PL/pgSQL bodies can't be parsed by pg_query — use from_raw_canonical.
+            body: NormalizedBody::from_raw_canonical(body_text.to_string()),
+            body_dependencies: deps,
+            security: SecurityMode::Invoker,
+            commits_in_body,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn pl_pgsql_dynamic_sql_fires_when_execute_without_directive() {
+        use crate::plan::edges::{DepEdge, DepSource, NodeId};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        // Body contains EXECUTE but no AstDeclared dep edge.
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "dyn_fn",
+            "BEGIN EXECUTE 'SELECT 1'; END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "dyn_fn"), empty_arg_types()),
+                to: NodeId::Table(qn("app", "users")),
+                source: DepSource::AstExtracted, // NOT AstDeclared
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "pl-pgsql-dynamic-sql")
+            .count();
+        assert_eq!(count, 1, "expected one pl-pgsql-dynamic-sql finding");
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "pl-pgsql-dynamic-sql")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Error,
+        );
+    }
+
+    #[test]
+    fn pl_pgsql_dynamic_sql_silent_when_directive_present() {
+        use crate::plan::edges::{DepEdge, DepSource, NodeId};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        // Body has EXECUTE + an AstDeclared dep — should be silent.
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "dyn_fn_ok",
+            "BEGIN EXECUTE 'SELECT 1'; END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "dyn_fn_ok"), empty_arg_types()),
+                to: NodeId::Table(qn("app", "users")),
+                source: DepSource::AstDeclared,
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        assert!(
+            findings.iter().all(|f| f.rule != "pl-pgsql-dynamic-sql"),
+            "pl-pgsql-dynamic-sql must not fire when directive present",
+        );
+    }
+
+    #[test]
+    fn pl_pgsql_dynamic_sql_fires_for_procedure_without_directive() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        // Procedure with EXECUTE but no AstDeclared dep.
+        c.procedures.push(make_procedure(
+            "app",
+            "dyn_proc",
+            "BEGIN EXECUTE 'DELETE FROM users'; END",
+            false,
+            vec![],
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "pl-pgsql-dynamic-sql")
+            .count();
+        assert_eq!(
+            count, 1,
+            "expected one pl-pgsql-dynamic-sql finding for procedure"
+        );
+    }
+
+    // ── procedure-contains-commit ─────────────────────────────────────────────
+
+    #[test]
+    fn procedure_contains_commit_fires_when_commits_in_body_true() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.procedures.push(make_procedure(
+            "app",
+            "commit_proc",
+            "BEGIN COMMIT; END",
+            true, // commits_in_body
+            vec![],
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "procedure-contains-commit")
+            .count();
+        assert_eq!(count, 1, "expected one procedure-contains-commit warning");
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "procedure-contains-commit")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Warning,
+        );
+    }
+
+    #[test]
+    fn procedure_contains_commit_silent_when_false() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.procedures.push(make_procedure(
+            "app",
+            "normal_proc",
+            "BEGIN NULL; END",
+            false, // no COMMIT
+            vec![],
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "procedure-contains-commit"),
+            "procedure-contains-commit must not fire when commits_in_body=false",
+        );
+    }
+
+    // ── function-references-unmanaged-schema ──────────────────────────────────
+
+    #[test]
+    fn function_references_unmanaged_schema_fires_on_cross_schema_dep() {
+        use crate::plan::edges::{DepEdge, DepSource, NodeId};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "cross_fn",
+            "BEGIN RETURN external.helper(); END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "cross_fn"), empty_arg_types()),
+                to: NodeId::Function(qn("external", "helper"), empty_arg_types()),
+                source: DepSource::AstExtracted,
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "function-references-unmanaged-schema")
+            .count();
+        assert_eq!(
+            count, 1,
+            "expected one function-references-unmanaged-schema warning"
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "function-references-unmanaged-schema")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Warning,
+        );
+    }
+
+    #[test]
+    fn function_references_unmanaged_schema_silent_on_managed_dep() {
+        use crate::plan::edges::{DepEdge, DepSource, NodeId};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "managed_fn",
+            "BEGIN RETURN app.helper(); END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "managed_fn"), empty_arg_types()),
+                to: NodeId::Function(qn("app", "helper"), empty_arg_types()),
+                source: DepSource::AstExtracted,
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "function-references-unmanaged-schema"),
+            "function-references-unmanaged-schema must not fire when dep is in managed schema",
+        );
+    }
+
+    #[test]
+    fn function_references_unmanaged_schema_silent_on_builtin_schema() {
+        use crate::plan::edges::{DepEdge, DepSource, NodeId};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "catalog_fn",
+            "BEGIN RETURN pg_catalog.now(); END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "catalog_fn"), empty_arg_types()),
+                to: NodeId::Function(qn("pg_catalog", "now"), empty_arg_types()),
+                source: DepSource::AstExtracted,
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "function-references-unmanaged-schema"),
+            "function-references-unmanaged-schema must not fire for pg_catalog",
+        );
+    }
+
+    #[test]
+    fn function_references_unmanaged_schema_silent_when_managed_is_empty() {
+        use crate::plan::edges::{DepEdge, DepSource, NodeId};
+
+        let mut c = Catalog::empty();
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "any_fn",
+            "BEGIN NULL; END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "any_fn"), empty_arg_types()),
+                to: NodeId::Table(qn("external", "data")),
+                source: DepSource::AstExtracted,
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "function-references-unmanaged-schema"),
+            "function-references-unmanaged-schema must be silent when managed.schemas is empty",
         );
     }
 }
