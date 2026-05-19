@@ -38,6 +38,7 @@ impl Sequence {
     /// explicit bounds even when the source omits them; the catalog reader
     /// normalizes the same way, so source-built catalogs must too for
     /// round-trip equality.
+    #[must_use]
     pub fn canonicalize(mut self) -> Self {
         let (default_min, default_max) = default_bounds(&self.data_type, self.increment);
         if self.min_value == Some(default_min) {

@@ -70,7 +70,14 @@ impl NormalizedBody {
     /// used as the canonical form (silent graceful degradation).
     pub fn from_sql(sql: &str) -> Result<Self, BodyError> {
         let parsed = pg_query::parse(sql).map_err(|e| BodyError::Parse(e.to_string()))?;
-        let deparsed = parsed.deparse().unwrap_or_default();
+        // Strip redundant table-qualifier prefixes from column references in
+        // single-table SELECTs (e.g., `SELECT users.id FROM app.users` →
+        // `SELECT id FROM app.users`). PG14's `pg_get_viewdef` keeps the
+        // qualifier even when unambiguous, while PG17 strips it; canonicalize
+        // to the unqualified form so source and catalog texts match.
+        let mut protobuf = parsed.protobuf;
+        strip_redundant_qualifiers(&mut protobuf);
+        let deparsed = pg_query::deparse(&protobuf).unwrap_or_default();
         let source = if deparsed.is_empty() { sql } else { &deparsed };
         let canonical_text = collapse_whitespace(source);
         let canonical_hash = hash_canonical(&canonical_text);
@@ -98,6 +105,192 @@ impl NormalizedBody {
     }
 }
 
+/// Walk the parse tree and strip redundant table qualifiers from column
+/// references. For each `SelectStmt`, collect the names usable for column
+/// qualification from its `FROM` clause (the alias if present, else the last
+/// segment of the relation name). When the FROM clause yields exactly one
+/// such name, every `ColumnRef` of the form `[that_name, col]` is rewritten
+/// to `[col]`.
+///
+/// Limitations:
+/// - Only applies to single-relation FROM clauses. Joins keep their
+///   qualifiers (PG may still need them for disambiguation).
+/// - Walks `SelectStmt` only at the top level and within set operations.
+///   Subqueries inside `RangeSubselect`, lateral joins, CTEs etc. are not
+///   recursed; that's adequate for view bodies we see today and avoids
+///   misclassifying nested-scope qualifiers.
+fn strip_redundant_qualifiers(root: &mut pg_query::protobuf::ParseResult) {
+    use pg_query::NodeEnum;
+    for stmt in &mut root.stmts {
+        let Some(node) = stmt.stmt.as_mut().and_then(|n| n.node.as_mut()) else {
+            continue;
+        };
+        if let NodeEnum::SelectStmt(sel) = node {
+            strip_qualifiers_in_select(sel);
+        }
+    }
+}
+
+fn strip_qualifiers_in_select(sel: &mut pg_query::protobuf::SelectStmt) {
+    // Recurse into set-op children first.
+    if let Some(larg) = sel.larg.as_mut() {
+        strip_qualifiers_in_select(larg);
+    }
+    if let Some(rarg) = sel.rarg.as_mut() {
+        strip_qualifiers_in_select(rarg);
+    }
+
+    let from_names = collect_from_qualifiers(&sel.from_clause);
+    let Some(unique_name) = unique_from_qualifier(&from_names) else {
+        return;
+    };
+
+    // Walk every column ref in target list, WHERE, GROUP BY, HAVING, ORDER BY.
+    for n in &mut sel.target_list {
+        strip_qualifier_in_node(n, &unique_name);
+    }
+    if let Some(w) = sel.where_clause.as_mut() {
+        strip_qualifier_in_node(w, &unique_name);
+    }
+    for n in &mut sel.group_clause {
+        strip_qualifier_in_node(n, &unique_name);
+    }
+    if let Some(h) = sel.having_clause.as_mut() {
+        strip_qualifier_in_node(h, &unique_name);
+    }
+    for n in &mut sel.sort_clause {
+        strip_qualifier_in_node(n, &unique_name);
+    }
+}
+
+fn collect_from_qualifiers(from: &[pg_query::protobuf::Node]) -> Vec<String> {
+    use pg_query::NodeEnum;
+    let mut names = Vec::new();
+    for n in from {
+        let Some(node) = n.node.as_ref() else {
+            continue;
+        };
+        if let NodeEnum::RangeVar(rv) = node {
+            let qual = rv
+                .alias
+                .as_ref()
+                .map_or_else(|| rv.relname.clone(), |a| a.aliasname.clone());
+            if !qual.is_empty() {
+                names.push(qual);
+            }
+        }
+    }
+    names
+}
+
+fn unique_from_qualifier(names: &[String]) -> Option<String> {
+    if names.len() == 1 {
+        Some(names[0].clone())
+    } else {
+        None
+    }
+}
+
+fn strip_qualifier_in_node(n: &mut pg_query::protobuf::Node, qualifier: &str) {
+    use pg_query::NodeEnum;
+    let Some(node) = n.node.as_mut() else { return };
+    match node {
+        NodeEnum::ColumnRef(cref) => {
+            if cref.fields.len() == 2
+                && let Some(first) = cref.fields.first()
+                && let Some(NodeEnum::String(s)) = first.node.as_ref()
+                && s.sval == qualifier
+            {
+                cref.fields.remove(0);
+            }
+        }
+        NodeEnum::ResTarget(rt) => {
+            if let Some(v) = rt.val.as_mut() {
+                strip_qualifier_in_node(v, qualifier);
+            }
+        }
+        NodeEnum::AExpr(e) => {
+            if let Some(l) = e.lexpr.as_mut() {
+                strip_qualifier_in_node(l, qualifier);
+            }
+            if let Some(r) = e.rexpr.as_mut() {
+                strip_qualifier_in_node(r, qualifier);
+            }
+        }
+        NodeEnum::BoolExpr(e) => {
+            for a in &mut e.args {
+                strip_qualifier_in_node(a, qualifier);
+            }
+        }
+        NodeEnum::FuncCall(fc) => {
+            for a in &mut fc.args {
+                strip_qualifier_in_node(a, qualifier);
+            }
+            if let Some(filt) = fc.agg_filter.as_mut() {
+                strip_qualifier_in_node(filt, qualifier);
+            }
+            for a in &mut fc.agg_order {
+                strip_qualifier_in_node(a, qualifier);
+            }
+        }
+        NodeEnum::CoalesceExpr(c) => {
+            for a in &mut c.args {
+                strip_qualifier_in_node(a, qualifier);
+            }
+        }
+        NodeEnum::CaseExpr(c) => {
+            if let Some(arg) = c.arg.as_mut() {
+                strip_qualifier_in_node(arg, qualifier);
+            }
+            for w in &mut c.args {
+                strip_qualifier_in_node(w, qualifier);
+            }
+            if let Some(d) = c.defresult.as_mut() {
+                strip_qualifier_in_node(d, qualifier);
+            }
+        }
+        NodeEnum::CaseWhen(w) => {
+            if let Some(e) = w.expr.as_mut() {
+                strip_qualifier_in_node(e, qualifier);
+            }
+            if let Some(r) = w.result.as_mut() {
+                strip_qualifier_in_node(r, qualifier);
+            }
+        }
+        NodeEnum::TypeCast(tc) => {
+            if let Some(arg) = tc.arg.as_mut() {
+                strip_qualifier_in_node(arg, qualifier);
+            }
+        }
+        NodeEnum::SortBy(sb) => {
+            if let Some(arg) = sb.node.as_mut() {
+                strip_qualifier_in_node(arg, qualifier);
+            }
+        }
+        NodeEnum::List(l) => {
+            for item in &mut l.items {
+                strip_qualifier_in_node(item, qualifier);
+            }
+        }
+        NodeEnum::SubLink(sl) => {
+            if let Some(t) = sl.testexpr.as_mut() {
+                strip_qualifier_in_node(t, qualifier);
+            }
+        }
+        NodeEnum::NullTest(nt) => {
+            if let Some(arg) = nt.arg.as_mut() {
+                strip_qualifier_in_node(arg, qualifier);
+            }
+        }
+        NodeEnum::BooleanTest(bt) => {
+            if let Some(arg) = bt.arg.as_mut() {
+                strip_qualifier_in_node(arg, qualifier);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn collapse_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -107,4 +300,24 @@ fn hash_canonical(text: &str) -> [u8; 32] {
     h.update(b"pgevolve-normalized-body-v1\n");
     h.update(text.as_bytes());
     *h.finalize().as_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_qualifiers_equates_pg14_and_source_form() {
+        let pg14 = "SELECT products.category, count(*) AS cnt, avg(products.price) AS avg_price FROM app.products GROUP BY products.category";
+        let src = "SELECT category, count(*) AS cnt, avg(price) AS avg_price FROM app.products GROUP BY category";
+        let a = NormalizedBody::from_sql(pg14).unwrap();
+        let b = NormalizedBody::from_sql(src).unwrap();
+        assert_eq!(
+            a.canonical_text(),
+            b.canonical_text(),
+            "left: {} right: {}",
+            a.canonical_text(),
+            b.canonical_text()
+        );
+    }
 }
