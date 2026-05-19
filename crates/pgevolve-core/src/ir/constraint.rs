@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Diff, DiffMacro, diff_field, prefix_diffs};
 
 /// A table constraint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,19 +56,24 @@ pub enum ConstraintKind {
 }
 
 /// `FOREIGN KEY ... REFERENCES ...` definition.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
 pub struct ForeignKey {
     /// Local columns; order matches `referenced_columns`.
+    #[diff(via_debug)]
     pub columns: Vec<Identifier>,
     /// Referenced table.
     pub referenced_table: QualifiedName,
     /// Referenced columns; order matches `columns`.
+    #[diff(via_debug)]
     pub referenced_columns: Vec<Identifier>,
     /// Action on update.
+    #[diff(via_debug)]
     pub on_update: ReferentialAction,
     /// Action on delete.
+    #[diff(via_debug)]
     pub on_delete: ReferentialAction,
     /// Match type.
+    #[diff(via_debug)]
     pub match_type: FkMatchType,
 }
 
@@ -192,7 +197,7 @@ impl Diff for ConstraintKind {
                 out.extend(diff_field("kind.nulls_distinct", n1, n2));
             }
             (Self::ForeignKey(a), Self::ForeignKey(b)) => {
-                out.extend(a.diff(b));
+                out.extend(prefix_diffs("kind.fk", a.diff(b)));
             }
             (
                 Self::Check {
@@ -219,43 +224,6 @@ impl Diff for ConstraintKind {
                 ));
             }
         }
-        out
-    }
-}
-
-impl Diff for ForeignKey {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
-        let mut out = Vec::new();
-        out.extend(diff_field(
-            "kind.fk.columns",
-            &render_idents(&self.columns),
-            &render_idents(&other.columns),
-        ));
-        out.extend(diff_field(
-            "kind.fk.referenced_table",
-            &self.referenced_table,
-            &other.referenced_table,
-        ));
-        out.extend(diff_field(
-            "kind.fk.referenced_columns",
-            &render_idents(&self.referenced_columns),
-            &render_idents(&other.referenced_columns),
-        ));
-        out.extend(diff_field(
-            "kind.fk.on_update",
-            &format!("{:?}", self.on_update),
-            &format!("{:?}", other.on_update),
-        ));
-        out.extend(diff_field(
-            "kind.fk.on_delete",
-            &format!("{:?}", self.on_delete),
-            &format!("{:?}", other.on_delete),
-        ));
-        out.extend(diff_field(
-            "kind.fk.match_type",
-            &format!("{:?}", self.match_type),
-            &format!("{:?}", other.match_type),
-        ));
         out
     }
 }
