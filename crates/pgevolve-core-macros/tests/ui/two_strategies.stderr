@@ -1,0 +1,5 @@
+error: only one #[diff(...)] strategy attribute is allowed per field
+ --> tests/ui/two_strategies.rs:5:18
+  |
+5 |     #[diff(skip, nested)]
+  |                  ^^^^^^

@@ -1,0 +1,5 @@
+error: #[derive(Diff)] only supports structs with named fields
+ --> tests/ui/on_tuple_struct.rs:4:9
+  |
+4 | struct T(String);
+  |         ^^^^^^^^
