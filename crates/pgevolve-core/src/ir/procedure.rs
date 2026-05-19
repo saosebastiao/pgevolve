@@ -3,48 +3,39 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::QualifiedName;
-use crate::ir::difference::Difference;
-use crate::ir::eq::Diff;
+use crate::ir::eq::DiffMacro;
 use crate::ir::function::{FunctionArg, FunctionLanguage, SecurityMode};
 use crate::parse::normalize_body::NormalizedBody;
 use crate::plan::edges::DepEdge;
 
 /// A user-defined procedure (`CREATE PROCEDURE`).
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, DiffMacro)]
 pub struct Procedure {
     /// Schema-qualified procedure name.
     pub qname: QualifiedName,
     /// Declared argument list.
+    #[diff(via_debug)]
     pub args: Vec<FunctionArg>,
     /// Implementation language.
+    #[diff(via_debug)]
     pub language: FunctionLanguage,
     /// Canonicalized procedure body.
+    #[diff(via_debug)]
     pub body: NormalizedBody,
     /// Dependency edges extracted from the procedure body AST.
     ///
     /// Filled by the T4 PL/pgSQL body parser. Empty until that pass runs.
     #[serde(default)]
+    #[diff(via_debug)]
     pub body_dependencies: Vec<DepEdge>,
     /// Security context (INVOKER or DEFINER).
+    #[diff(via_debug)]
     pub security: SecurityMode,
     /// Parser-detected COMMIT/ROLLBACK in body. Drives transactional=OutsideTransaction at planner time.
     pub commits_in_body: bool,
     /// Optional `COMMENT ON PROCEDURE` text.
+    #[diff(via_debug)]
     pub comment: Option<String>,
-}
-
-impl Diff for Procedure {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
-        if self == other {
-            Vec::new()
-        } else {
-            vec![Difference::new(
-                "",
-                format!("{self:?}"),
-                format!("{other:?}"),
-            )]
-        }
-    }
 }
 
 #[cfg(test)]
@@ -80,6 +71,30 @@ mod tests {
         let json = serde_json::to_string(&p).unwrap();
         let back: Procedure = serde_json::from_str(&json).unwrap();
         assert_eq!(p, back);
+    }
+
+    #[test]
+    fn procedure_diff_reports_per_field_changes() {
+        use crate::ir::eq::Diff;
+
+        let a = sample_procedure();
+        let mut b = sample_procedure();
+        b.language = FunctionLanguage::Sql;
+        b.comment = Some("changed".into());
+
+        let d = a.diff(&b);
+        let paths: Vec<&str> = d.iter().map(|x| x.path.as_str()).collect();
+        assert!(
+            paths.contains(&"language"),
+            "expected 'language' in {paths:?}"
+        );
+        assert!(
+            paths.contains(&"comment"),
+            "expected 'comment' in {paths:?}"
+        );
+        // Old behavior was a single empty-path entry; new behavior must emit
+        // exactly the two changed fields, no more.
+        assert_eq!(d.len(), 2, "expected exactly two field diffs, got {d:?}");
     }
 
     #[test]
