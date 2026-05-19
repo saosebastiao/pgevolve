@@ -219,6 +219,38 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            // Function / Procedure — placeholder output; T10 replaces with real SQL.
+            pgevolve_core::diff::change::Change::Function(fc) => {
+                use pgevolve_core::diff::change::FunctionChange;
+                match fc {
+                    FunctionChange::Create(f) => println!("      function {}: create", f.qname),
+                    FunctionChange::Drop { qname, .. } => {
+                        println!("      function {qname}: drop");
+                    }
+                    FunctionChange::CreateOrReplace(f) => {
+                        println!("      function {}: create or replace", f.qname);
+                    }
+                    FunctionChange::ReplaceWithCascade { source, .. } => {
+                        println!("      function {}: replace with cascade", source.qname);
+                    }
+                    FunctionChange::SetComment { qname, .. } => {
+                        println!("      function {qname}: set comment");
+                    }
+                }
+            }
+            pgevolve_core::diff::change::Change::Procedure(pc) => {
+                use pgevolve_core::diff::change::ProcedureChange;
+                match pc {
+                    ProcedureChange::Create(p) => println!("      procedure {}: create", p.qname),
+                    ProcedureChange::Drop(q) => println!("      procedure {q}: drop"),
+                    ProcedureChange::CreateOrReplace(p) => {
+                        println!("      procedure {}: create or replace", p.qname);
+                    }
+                    ProcedureChange::SetComment { qname, .. } => {
+                        println!("      procedure {qname}: set comment");
+                    }
+                }
+            }
         }
     }
 }
@@ -340,5 +372,30 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::UserType(pgevolve_core::diff::change::UserTypeChange::ReplaceWithCascade {
             ..
         }) => "ReplaceTypeWithCascade",
+        Change::Function(pgevolve_core::diff::change::FunctionChange::Create(_)) => {
+            "CreateFunction"
+        }
+        Change::Function(pgevolve_core::diff::change::FunctionChange::Drop { .. }) => {
+            "DropFunction"
+        }
+        Change::Function(pgevolve_core::diff::change::FunctionChange::CreateOrReplace(_)) => {
+            "CreateOrReplaceFunction"
+        }
+        Change::Function(pgevolve_core::diff::change::FunctionChange::ReplaceWithCascade {
+            ..
+        }) => "ReplaceFunctionWithCascade",
+        Change::Function(pgevolve_core::diff::change::FunctionChange::SetComment { .. }) => {
+            "SetFunctionComment"
+        }
+        Change::Procedure(pgevolve_core::diff::change::ProcedureChange::Create(_)) => {
+            "CreateProcedure"
+        }
+        Change::Procedure(pgevolve_core::diff::change::ProcedureChange::Drop(_)) => "DropProcedure",
+        Change::Procedure(pgevolve_core::diff::change::ProcedureChange::CreateOrReplace(_)) => {
+            "CreateOrReplaceProcedure"
+        }
+        Change::Procedure(pgevolve_core::diff::change::ProcedureChange::SetComment { .. }) => {
+            "SetProcedureComment"
+        }
     }
 }

@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::NormalizedExpr;
+use crate::ir::function::{Function, NormalizedArgTypes};
 use crate::ir::index::Index;
+use crate::ir::procedure::Procedure;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
@@ -121,6 +123,10 @@ pub enum Change {
     Mv(MvChange),
     /// A user-defined type change (enum, domain, composite).
     UserType(UserTypeChange),
+    /// A user-defined function change.
+    Function(FunctionChange),
+    /// A user-defined procedure change.
+    Procedure(ProcedureChange),
 }
 
 /// A structural change to a single user-defined type.
@@ -317,6 +323,65 @@ pub enum MvChange {
         qname: QualifiedName,
         /// Column name.
         column: Identifier,
+        /// New comment (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// A structural change to a single user-defined function.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum FunctionChange {
+    /// Create a new function.
+    Create(Function),
+    /// Drop an existing function by qualified name and normalized arg types.
+    Drop {
+        /// Qualified name of the function.
+        qname: QualifiedName,
+        /// Normalized argument types (IN/INOUT/VARIADIC only) used to
+        /// disambiguate overloads in the DROP FUNCTION statement.
+        args: NormalizedArgTypes,
+    },
+    /// Replace the function body and/or attributes using `CREATE OR REPLACE
+    /// FUNCTION`. Only valid when [`function_can_or_replace`] returns `true`.
+    CreateOrReplace(Function),
+    /// The function's return type or language changed in a way that PG's
+    /// `CREATE OR REPLACE FUNCTION` rejects. The planner must emit
+    /// `DROP FUNCTION … CASCADE` followed by `CREATE FUNCTION`.
+    ReplaceWithCascade {
+        /// The desired function (source).
+        source: Function,
+        /// The existing function (catalog / live database).
+        catalog: Function,
+    },
+    /// Set (or clear) `COMMENT ON FUNCTION`.
+    SetComment {
+        /// Qualified name of the function.
+        qname: QualifiedName,
+        /// Normalized argument types for disambiguation.
+        args: NormalizedArgTypes,
+        /// New comment (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// A structural change to a single user-defined procedure.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ProcedureChange {
+    /// Create a new procedure.
+    Create(Procedure),
+    /// Drop an existing procedure by qualified name.
+    Drop(QualifiedName),
+    /// Replace the procedure body and/or attributes using `CREATE OR REPLACE
+    /// PROCEDURE`.
+    CreateOrReplace(Procedure),
+    /// Set (or clear) `COMMENT ON PROCEDURE`.
+    SetComment {
+        /// Qualified name of the procedure.
+        qname: QualifiedName,
         /// New comment (`None` clears the comment).
         comment: Option<String>,
     },

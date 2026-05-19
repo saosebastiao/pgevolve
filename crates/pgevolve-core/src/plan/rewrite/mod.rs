@@ -24,7 +24,7 @@ pub mod sql;
 pub mod types;
 pub mod views;
 
-use crate::diff::change::{Change, ChangeEntry, MvChange, ViewChange};
+use crate::diff::change::{Change, ChangeEntry, MvChange, ViewChange}; // FunctionChange / ProcedureChange added at T10
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::sequence_op::{SequenceOp, SequenceOpEntry};
 use crate::diff::table_op::{TableOp, TableOpEntry};
@@ -407,6 +407,13 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         Change::Mv(mc) => emit_mv_change(mc, destructive, destructive_reason, out),
         Change::UserType(utc) => {
             emit_user_type_change(utc, destructive, destructive_reason, ctx, out);
+        }
+        // Function / Procedure SQL emission — wired at T10.
+        Change::Function(_) => {
+            unimplemented!("Task 10 wires SQL emission for function changes")
+        }
+        Change::Procedure(_) => {
+            unimplemented!("Task 10 wires SQL emission for procedure changes")
         }
     }
 }

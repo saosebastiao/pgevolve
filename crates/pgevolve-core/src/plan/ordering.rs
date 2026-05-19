@@ -260,6 +260,14 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
                 | UserTypeChange::CompositeAlterAttributeType { .. }
                 | UserTypeChange::SetComment { .. } => modifies.push(entry),
             },
+            // Function / Procedure changes — T9 wires NodeId::Function/Procedure
+            // and the correct partition buckets.
+            Change::Function(_) => {
+                unimplemented!("Task 9 wires NodeId::Function and partition for function changes")
+            }
+            Change::Procedure(_) => {
+                unimplemented!("Task 9 wires NodeId::Procedure and partition for procedure changes")
+            }
         }
     }
     (creates, modifies, drops)
@@ -324,6 +332,13 @@ fn change_node(change: &Change) -> NodeId {
                 | UserTypeChange::SetComment { qname: q, .. } => q,
             };
             NodeId::Type(qname.clone())
+        }
+        // Function / Procedure node mapping — T9 adds NodeId::Function / NodeId::Procedure.
+        Change::Function(_) => {
+            unimplemented!("Task 9 wires NodeId::Function and change_node for function changes")
+        }
+        Change::Procedure(_) => {
+            unimplemented!("Task 9 wires NodeId::Procedure and change_node for procedure changes")
         }
     }
 }

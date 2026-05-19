@@ -17,6 +17,7 @@ pub mod columns;
 pub mod constraints;
 pub mod destructiveness;
 pub mod indexes;
+pub mod routines;
 pub mod schemas;
 pub mod sequence_op;
 pub mod sequences;
@@ -25,9 +26,12 @@ pub mod tables;
 pub mod types;
 pub mod views;
 
-pub use change::{Change, ChangeEntry, MvChange, UserTypeChange, ViewChange};
+pub use change::{
+    Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, UserTypeChange, ViewChange,
+};
 pub use changeset::ChangeSet;
 pub use destructiveness::Destructiveness;
+pub use routines::{diff_functions, diff_procedures};
 pub use sequence_op::{SequenceOp, SequenceOpEntry};
 pub use table_op::{TableOp, TableOpEntry};
 
@@ -77,6 +81,8 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
         &mut out,
     );
     types::diff_user_types(&target.types, &source.types, &mut out);
+    routines::diff_functions(&target.functions, &source.functions, &mut out);
+    routines::diff_procedures(&target.procedures, &source.procedures, &mut out);
     out
 }
 
