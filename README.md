@@ -135,7 +135,7 @@ Per the [arch-readiness spec §16](./docs/superpowers/specs/2026-05-15-v0.2-arch
 | 1 | Views and materialized views | ✅ Landed `0e2a7a0` (T13 deferred) |
 | 2 | Types (enums, domains, composites) | ✅ Landed `6127bdd` |
 | 3 | Extensions | 📋 Planned |
-| 4 | Functions and procedures | ✅ Landed |
+| 4 | Functions and procedures | ✅ Landed `3c3f6ee` |
 | 5 | Triggers | 📋 Planned |
 | 6 | Declarative partitioning + table reloptions | 📋 Planned |
 
@@ -169,6 +169,26 @@ v0.3+ work (cluster-level surface — roles, GRANTs, `postgresql.conf`, RLS) is 
 | 4 new lint rules (`type-shadows-table`, `enum-value-collision`, `composite-attribute-collision`, `domain-check-references-unmanaged-type`) | ✅ Implemented |
 | 20 conformance fixtures (enums, domains, composites, cascades, lints) | ✅ Implemented |
 | Property test `enum_add_value_preserves_existing_values` (pure, `#[ignore]`'d) | ✅ Implemented |
+
+### v0.2 functions and procedures — what's in `3c3f6ee`
+
+| Feature | Status |
+|---|---|
+| SQL functions (`CREATE FUNCTION … LANGUAGE sql`) — full attribute matrix | ✅ Implemented |
+| PL/pgSQL functions (`CREATE FUNCTION … LANGUAGE plpgsql`) — body parsed via `pg_query::parse_plpgsql` | ✅ Implemented |
+| Procedures (`CREATE PROCEDURE`) — qname-only identity | ✅ Implemented |
+| Function overloads — identity = `(qname, NormalizedArgTypes)` per arch Decision 2 | ✅ Implemented |
+| `CREATE OR REPLACE` for body / attribute changes | ✅ Implemented |
+| `ReplaceWithCascade` fallback (return-type kind change, language change, OUT-param shape change) | ✅ Implemented |
+| `NodeId::Function` + `NodeId::Procedure` + dep-graph edges (routine → schema, routine → type, routine → body deps) | ✅ Implemented |
+| Static-SQL dep extraction from PL/pgSQL bodies (`SELECT INTO`, embedded queries) | ✅ Implemented |
+| `-- @pgevolve dep: <qname>` directives close the dynamic-SQL gap per arch Decision 11 | ✅ Implemented |
+| Auto-detected `COMMIT`/`ROLLBACK` → step runs with `transactional=OutsideTransaction` | ✅ Implemented |
+| Catalog reader via `pg_proc` + `pg_get_functiondef` body re-parse (`prokind IN 'f','p'`) | ✅ Implemented |
+| Unsupported-language rows surface as `DriftReport::UnmanagedLanguageRoutine`, skipped silently | ✅ Implemented |
+| 3 new lint rules (`pl-pgsql-dynamic-sql`, `procedure-contains-commit`, `function-references-unmanaged-schema`) | ✅ Implemented |
+| 22 conformance fixtures (functions, procedures, intent, scenarios) | ✅ Implemented |
+| Property test `plpgsql_canonicalization_is_idempotent` (pure, `#[ignore]`'d) | ✅ Implemented |
 
 ## Workspace layout
 
