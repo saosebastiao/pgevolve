@@ -273,6 +273,100 @@ fn domain_base_with_undeclared_type_fails() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Routine body dependency resolution (T6)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn function_body_with_undeclared_table_ref_fails() {
+    let tmp = tempdir().unwrap();
+    let dir = tmp.path();
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
+    write(
+        dir,
+        "app/f.sql",
+        "-- @pgevolve schema=app\n\
+         CREATE FUNCTION app.f() RETURNS integer LANGUAGE sql AS $$ SELECT id FROM app.nonexistent $$;\n",
+    );
+    let err = parse_directory(dir, &[]).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("app.nonexistent"), "{msg}");
+}
+
+#[test]
+fn function_body_with_declared_table_ref_resolves() {
+    let tmp = tempdir().unwrap();
+    let dir = tmp.path();
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
+    write(
+        dir,
+        "app/users.sql",
+        "-- @pgevolve schema=app\nCREATE TABLE app.users (id bigint PRIMARY KEY);\n",
+    );
+    write(
+        dir,
+        "app/f.sql",
+        "-- @pgevolve schema=app\n\
+         CREATE FUNCTION app.f() RETURNS integer LANGUAGE sql AS $$ SELECT id FROM app.users LIMIT 1 $$;\n",
+    );
+    let catalog = parse_directory(dir, &[]).expect("declared table dep should resolve");
+    assert_eq!(catalog.functions.len(), 1);
+}
+
+#[test]
+fn procedure_body_with_undeclared_table_ref_fails() {
+    let tmp = tempdir().unwrap();
+    let dir = tmp.path();
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
+    write(
+        dir,
+        "app/p.sql",
+        "-- @pgevolve schema=app\n\
+         CREATE PROCEDURE app.p() LANGUAGE plpgsql AS $$ BEGIN INSERT INTO app.nonexistent VALUES(1); END $$;\n",
+    );
+    let err = parse_directory(dir, &[]).unwrap_err();
+    assert!(err.to_string().contains("app.nonexistent"));
+}
+
+#[test]
+fn directive_dep_resolves_when_target_exists() {
+    let tmp = tempdir().unwrap();
+    let dir = tmp.path();
+    write(
+        dir,
+        "app/schema.sql",
+        "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+    );
+    write(
+        dir,
+        "app/log.sql",
+        "-- @pgevolve schema=app\nCREATE TABLE app.log (n integer);\n",
+    );
+    write(
+        dir,
+        "app/f.sql",
+        "-- @pgevolve schema=app\n\
+         CREATE FUNCTION app.f() RETURNS void LANGUAGE plpgsql AS $$\n\
+         -- @pgevolve dep: app.log\n\
+         BEGIN EXECUTE 'INSERT INTO app.log VALUES (1)'; END\n\
+         $$;\n",
+    );
+    let catalog = parse_directory(dir, &[]).expect("directive should resolve");
+    assert_eq!(catalog.functions.len(), 1);
+}
+
 #[test]
 fn composite_attribute_with_undeclared_type_fails() {
     let tmp = tempdir().unwrap();

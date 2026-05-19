@@ -26,6 +26,7 @@ use std::collections::{BTreeSet, HashMap};
 use crate::ir::catalog::Catalog;
 use crate::ir::column_type::ColumnType;
 use crate::parse::error::SourceLocation;
+use crate::plan::edges::{DepEdge, DepSource, NodeId};
 
 /// One unresolved reference in the source IR.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +64,7 @@ pub fn resolve(
     resolve_fk_references(catalog, locations, &mut errors);
     resolve_default_sequence_references(catalog, locations, &mut errors);
     resolve_user_defined_references(catalog, locations, &mut errors);
+    resolve_routine_references(catalog, locations, &mut errors);
     if errors.is_empty() {
         Ok(())
     } else {
@@ -200,6 +202,157 @@ fn resolve_user_defined_references(
             }
             UserTypeKind::Enum { .. } => {
                 // Enums have no UserDefined references — their values are bare labels.
+            }
+        }
+    }
+}
+
+/// Resolve `body_dependencies` edges on every function and procedure.
+///
+/// For `AstExtracted` edges the target `NodeId::Table(q)` is a relation
+/// reference extracted from the SQL/PL/pgSQL body. It is valid if `q` is
+/// declared as a table, view, or materialized view.
+///
+/// For `AstDeclared` edges the target `NodeId::Table(q)` is a placeholder
+/// (the actual object kind is unknown at directive-scan time). The resolver
+/// probes all catalog collections by qname and accepts if any matches.
+fn resolve_routine_references(
+    catalog: &Catalog,
+    locations: &HashMap<String, SourceLocation>,
+    errors: &mut Vec<AstResolutionError>,
+) {
+    // Build qname sets for fast membership checks.
+    let known_tables: BTreeSet<String> =
+        catalog.tables.iter().map(|t| t.qname.to_string()).collect();
+    let known_views: BTreeSet<String> = catalog.views.iter().map(|v| v.qname.to_string()).collect();
+    let known_mvs: BTreeSet<String> = catalog
+        .materialized_views
+        .iter()
+        .map(|mv| mv.qname.to_string())
+        .collect();
+    let known_types: BTreeSet<String> = catalog.types.iter().map(|t| t.qname.to_string()).collect();
+    let known_functions_by_qname: BTreeSet<String> = catalog
+        .functions
+        .iter()
+        .map(|f| f.qname.to_string())
+        .collect();
+    let known_procedures: BTreeSet<String> = catalog
+        .procedures
+        .iter()
+        .map(|p| p.qname.to_string())
+        .collect();
+
+    // Walk function body_dependencies.
+    for func in &catalog.functions {
+        let location = locations.get(&format!(
+            "functions.{}({})",
+            func.qname,
+            func.args
+                .iter()
+                .filter(|a| matches!(
+                    a.mode,
+                    crate::ir::function::ArgMode::In
+                        | crate::ir::function::ArgMode::InOut
+                        | crate::ir::function::ArgMode::Variadic
+                ))
+                .map(|a| a.ty.render_sql())
+                .collect::<Vec<_>>()
+                .join(",")
+        ));
+        check_body_deps(
+            &func.body_dependencies,
+            &func.qname.to_string(),
+            location,
+            &known_tables,
+            &known_views,
+            &known_mvs,
+            &known_types,
+            &known_functions_by_qname,
+            &known_procedures,
+            errors,
+        );
+    }
+
+    // Walk procedure body_dependencies.
+    for proc in &catalog.procedures {
+        let location = locations.get(&format!("procedures.{}", proc.qname));
+        check_body_deps(
+            &proc.body_dependencies,
+            &proc.qname.to_string(),
+            location,
+            &known_tables,
+            &known_views,
+            &known_mvs,
+            &known_types,
+            &known_functions_by_qname,
+            &known_procedures,
+            errors,
+        );
+    }
+}
+
+/// Check a list of body dependency edges, emitting errors for unresolved ones.
+#[allow(clippy::too_many_arguments)]
+fn check_body_deps(
+    deps: &[DepEdge],
+    routine_qname: &str,
+    location: Option<&SourceLocation>,
+    known_tables: &BTreeSet<String>,
+    known_views: &BTreeSet<String>,
+    known_mvs: &BTreeSet<String>,
+    known_types: &BTreeSet<String>,
+    known_functions_by_qname: &BTreeSet<String>,
+    known_procedures: &BTreeSet<String>,
+    errors: &mut Vec<AstResolutionError>,
+) {
+    for dep in deps {
+        match dep.source {
+            DepSource::AstExtracted => {
+                // AstExtracted edges use NodeId::Table as a relation-reference
+                // placeholder. Valid targets are tables, views, and MVs.
+                if let NodeId::Table(ref target_qname) = dep.to {
+                    let key = target_qname.to_string();
+                    if !known_tables.contains(&key)
+                        && !known_views.contains(&key)
+                        && !known_mvs.contains(&key)
+                    {
+                        errors.push(AstResolutionError {
+                            message: format!(
+                                "routine {routine_qname} body references {key} which is not \
+                                 declared in source (not a table, view, or materialized view)"
+                            ),
+                            location: location.cloned(),
+                        });
+                    }
+                }
+                // Other NodeId variants (Type, Function, Procedure, etc.) are
+                // not currently emitted by the body parser, so no action needed.
+            }
+            DepSource::AstDeclared => {
+                // AstDeclared edges use NodeId::Table as a placeholder for the
+                // unknown object kind. Probe all collections by qname.
+                if let NodeId::Table(ref target_qname) = dep.to {
+                    let key = target_qname.to_string();
+                    let found = known_tables.contains(&key)
+                        || known_views.contains(&key)
+                        || known_mvs.contains(&key)
+                        || known_types.contains(&key)
+                        || known_functions_by_qname.contains(&key)
+                        || known_procedures.contains(&key);
+                    if !found {
+                        errors.push(AstResolutionError {
+                            message: format!(
+                                "routine {routine_qname} has `-- @pgevolve dep: {key}` directive \
+                                 but {key} is not declared in source (probed tables, views, \
+                                 materialized views, types, functions, and procedures)"
+                            ),
+                            location: location.cloned(),
+                        });
+                    }
+                }
+            }
+            DepSource::Structural => {
+                // Structural edges are not produced by body parsing; skip.
             }
         }
     }
