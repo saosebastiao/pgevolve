@@ -85,11 +85,12 @@ fn emit_create_domain(
 }
 
 fn emit_create_composite(qname: &QualifiedName, attributes: &[CompositeAttribute]) -> String {
-    let mut sql = format!("CREATE TYPE {} AS (", qname.render_sql());
+    let mut sql = format!("CREATE TYPE {} AS (\n", qname.render_sql());
     for (i, attr) in attributes.iter().enumerate() {
         if i > 0 {
-            sql.push_str(", ");
+            sql.push_str(",\n");
         }
+        sql.push_str("    ");
         sql.push_str(&attr.name.render_sql());
         sql.push(' ');
         sql.push_str(&attr.ty.render_sql());
@@ -98,7 +99,7 @@ fn emit_create_composite(qname: &QualifiedName, attributes: &[CompositeAttribute
             sql.push_str(&collation.render_sql());
         }
     }
-    sql.push_str(");");
+    sql.push_str("\n);");
     sql
 }
 
@@ -128,7 +129,7 @@ pub(crate) fn emit_alter_type_add_value(
     after: Option<&str>,
 ) -> String {
     let mut sql = format!(
-        "ALTER TYPE {} ADD VALUE '{}' IF NOT EXISTS",
+        "ALTER TYPE {} ADD VALUE '{}'",
         qname.render_sql(),
         value.replace('\'', "''")
     );
@@ -440,7 +441,10 @@ mod tests {
     fn create_composite_basic() {
         let ut = simple_composite();
         let sql = emit_create_type(&ut);
-        assert_eq!(sql, "CREATE TYPE app.address AS (street text, zip text);");
+        assert_eq!(
+            sql,
+            "CREATE TYPE app.address AS (\n    street text,\n    zip text\n);"
+        );
     }
 
     // --- emit_drop_type ---
@@ -464,7 +468,7 @@ mod tests {
         let sql = emit_alter_type_add_value(&qn("app", "order_status"), "delivered", None, None);
         assert_eq!(
             sql,
-            "ALTER TYPE app.order_status ADD VALUE 'delivered' IF NOT EXISTS;"
+            "ALTER TYPE app.order_status ADD VALUE 'delivered';"
         );
     }
 

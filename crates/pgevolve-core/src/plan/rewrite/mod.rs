@@ -772,7 +772,7 @@ fn emit_user_type_change(
                 step_no: 0,
                 kind: StepKind::DropType,
                 destructive,
-                destructive_reason,
+                destructive_reason: destructive_reason.clone(),
                 intent_id: None,
                 targets: vec![catalog.qname.clone()],
                 sql: emit_drop_type_cascade(&catalog.qname),
@@ -784,8 +784,12 @@ fn emit_user_type_change(
             out.push(RawStep {
                 step_no: 0,
                 kind: StepKind::CreateType,
-                destructive: false,
-                destructive_reason: None,
+                // The recreation half of a CASCADE replacement is itself
+                // destructive: it executes only after DROP CASCADE has
+                // removed dependent columns/views, so the intent gate must
+                // also apply here.
+                destructive,
+                destructive_reason,
                 intent_id: None,
                 targets: vec![qname.clone()],
                 sql: emit_create_type(&source),
