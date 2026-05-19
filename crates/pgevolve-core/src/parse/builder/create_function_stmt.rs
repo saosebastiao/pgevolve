@@ -19,6 +19,7 @@ use crate::ir::function::{
     ReturnType, SecurityMode, TableColumn, Volatility,
 };
 use crate::ir::procedure::Procedure;
+use crate::parse::builder::plpgsql;
 use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
 use crate::parse::normalize_body::NormalizedBody;
@@ -310,23 +311,14 @@ pub(crate) fn build_function_or_procedure(
 
     let lang = language.unwrap_or(FunctionLanguage::Sql);
 
-    // ── Body (stubbed) ────────────────────────────────────────────────────────
-    // T4 replaces PL/pgSQL body parsing. For now:
-    // - SQL bodies: canonicalize via NormalizedBody::from_sql.
-    // - PL/pgSQL bodies: NormalizedBody::empty() (pg_query can't parse them).
+    // ── Body parsing ─────────────────────────────────────────────────────────
+    // Delegate to the T4 PL/pgSQL body parser which handles both SQL and
+    // PL/pgSQL languages, extracts dep edges, and detects COMMIT/ROLLBACK.
     let raw_body = body_text.as_deref().unwrap_or("").trim().to_string();
-    let body = if raw_body.is_empty() {
-        NormalizedBody::empty()
+    let (body, body_deps, commits_in_body) = if raw_body.is_empty() {
+        (NormalizedBody::empty(), vec![], false)
     } else {
-        match lang {
-            FunctionLanguage::Sql => {
-                NormalizedBody::from_sql(&raw_body).unwrap_or_else(|_| NormalizedBody::empty())
-            }
-            FunctionLanguage::PlPgSql => {
-                // T4 will parse PL/pgSQL bodies; for now emit empty sentinel.
-                NormalizedBody::empty()
-            }
-        }
+        plpgsql::parse_routine_body(&raw_body, lang, &qname, location)?
     };
 
     if is_procedure {
@@ -345,8 +337,9 @@ pub(crate) fn build_function_or_procedure(
             args,
             language: lang,
             body,
+            body_dependencies: body_deps,
             security,
-            commits_in_body: false, // T4 detects from PL/pgSQL AST
+            commits_in_body,
             comment: None,
         }));
     }
@@ -392,6 +385,7 @@ pub(crate) fn build_function_or_procedure(
         return_type,
         language: lang,
         body,
+        body_dependencies: body_deps,
         volatility: volatility.unwrap_or(Volatility::Volatile),
         strict,
         security: security.unwrap_or(SecurityMode::Invoker),
@@ -404,12 +398,30 @@ pub(crate) fn build_function_or_procedure(
 }
 
 /// Extract a string value from a `DefElem.arg` (String node).
+///
+/// Dollar-quoted function bodies are wrapped in a `List` by `pg_query`;
+/// this function unwraps the outer `List` and returns the first `String`
+/// element's value (which is the body text without the dollar-quote
+/// delimiters).
 fn string_from_def_elem(de: &pg_query::protobuf::DefElem) -> Option<String> {
     let arg = de.arg.as_ref()?;
     match arg.node.as_ref()? {
         NodeEnum::String(s) => Some(s.sval.clone()),
         NodeEnum::Integer(i) => Some(i.ival.to_string()),
         NodeEnum::Float(f) => Some(f.fval.clone()),
+        // Dollar-quoted bodies: the arg is a List whose first item is the
+        // body String (the second item, when present, is the dollar-quote tag).
+        NodeEnum::List(list) => list
+            .items
+            .first()
+            .and_then(|n| n.node.as_ref())
+            .and_then(|n| {
+                if let NodeEnum::String(s) = n {
+                    Some(s.sval.clone())
+                } else {
+                    None
+                }
+            }),
         _ => None,
     }
 }
@@ -508,15 +520,18 @@ mod tests {
     }
 
     #[test]
-    fn plpgsql_function_body_is_empty_stub() {
+    fn plpgsql_function_body_parsed() {
         let f = build_fn(
             "CREATE FUNCTION app.greet(name text) RETURNS text \
              LANGUAGE plpgsql AS $$ BEGIN RETURN 'hello'; END $$;",
         );
         assert_eq!(f.qname.to_string(), "app.greet");
         assert_eq!(f.language, FunctionLanguage::PlPgSql);
-        // Stub: body is empty until T4
-        assert_eq!(f.body.canonical_text(), "");
+        // T4: body is now parsed; canonical text should be non-empty.
+        assert!(
+            !f.body.canonical_text().is_empty(),
+            "PL/pgSQL body should be canonicalized, got empty string"
+        );
     }
 
     #[test]

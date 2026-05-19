@@ -17,6 +17,7 @@ pub mod create_stmt;
 pub mod create_view_stmt;
 pub mod desugar_serial;
 pub mod index_stmt;
+pub mod plpgsql;
 pub mod shared;
 
 use std::collections::HashMap;

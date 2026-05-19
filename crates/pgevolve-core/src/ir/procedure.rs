@@ -7,6 +7,7 @@ use crate::ir::difference::Difference;
 use crate::ir::eq::Diff;
 use crate::ir::function::{FunctionArg, FunctionLanguage, SecurityMode};
 use crate::parse::normalize_body::NormalizedBody;
+use crate::plan::edges::DepEdge;
 
 /// A user-defined procedure (`CREATE PROCEDURE`).
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -19,6 +20,11 @@ pub struct Procedure {
     pub language: FunctionLanguage,
     /// Canonicalized procedure body.
     pub body: NormalizedBody,
+    /// Dependency edges extracted from the procedure body AST.
+    ///
+    /// Filled by the T4 PL/pgSQL body parser. Empty until that pass runs.
+    #[serde(default)]
+    pub body_dependencies: Vec<DepEdge>,
     /// Security context (INVOKER or DEFINER).
     pub security: SecurityMode,
     /// Parser-detected COMMIT/ROLLBACK in body. Drives transactional=OutsideTransaction at planner time.
@@ -61,6 +67,7 @@ mod tests {
             args: vec![],
             language: FunctionLanguage::PlPgSql,
             body: NormalizedBody::empty(),
+            body_dependencies: vec![],
             security: SecurityMode::Invoker,
             commits_in_body: false,
             comment: None,

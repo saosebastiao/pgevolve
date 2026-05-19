@@ -46,6 +46,22 @@ impl NormalizedBody {
         }
     }
 
+    /// Build a `NormalizedBody` from a pre-computed canonical text string.
+    ///
+    /// Used by the PL/pgSQL and SQL body parsers in `parse::builder::plpgsql`
+    /// which produce their own canonical form (whitespace-collapsed text or
+    /// `pg_query::normalize` output) and need to inject it directly.
+    ///
+    /// Callers are responsible for ensuring `canonical_text` is in the
+    /// pgevolve canonical form (whitespace collapsed, keywords lowercased).
+    pub fn from_raw_canonical(canonical_text: String) -> Self {
+        let canonical_hash = hash_canonical(&canonical_text);
+        Self {
+            canonical_text,
+            canonical_hash,
+        }
+    }
+
     /// Canonicalize a body given its raw SQL text.
     ///
     /// The body may be any complete SQL statement (`SELECT`, `CREATE VIEW`,

@@ -8,6 +8,7 @@ use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::difference::Difference;
 use crate::ir::eq::Diff;
 use crate::parse::normalize_body::NormalizedBody;
+use crate::plan::edges::DepEdge;
 
 /// A user-defined function (SQL or PL/pgSQL).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -24,6 +25,12 @@ pub struct Function {
     pub language: FunctionLanguage,
     /// Canonicalized function body.
     pub body: NormalizedBody,
+    /// Dependency edges extracted from the function body AST.
+    ///
+    /// Filled by the T4 PL/pgSQL body parser and the T6 AST resolution pass.
+    /// Empty until those passes run.
+    #[serde(default)]
+    pub body_dependencies: Vec<DepEdge>,
     /// Volatility category.
     pub volatility: Volatility,
     /// Whether the function returns NULL immediately for any NULL input.
@@ -53,6 +60,7 @@ impl PartialEq for Function {
             && self.return_type == other.return_type
             && self.language == other.language
             && self.body == other.body
+            && self.body_dependencies == other.body_dependencies
             && self.volatility == other.volatility
             && self.strict == other.strict
             && self.security == other.security
@@ -74,6 +82,7 @@ impl std::hash::Hash for Function {
         self.return_type.hash(state);
         self.language.hash(state);
         self.body.hash(state);
+        self.body_dependencies.hash(state);
         self.volatility.hash(state);
         self.strict.hash(state);
         self.security.hash(state);
@@ -285,6 +294,7 @@ mod tests {
             },
             language: FunctionLanguage::Sql,
             body: NormalizedBody::from_sql("SELECT $1 * 2").unwrap(),
+            body_dependencies: vec![],
             volatility: Volatility::Immutable,
             strict: true,
             security: SecurityMode::Invoker,
