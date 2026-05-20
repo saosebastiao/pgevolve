@@ -25,6 +25,13 @@ WHERE t.typtype IN ('e','d','c') \
       SELECT 1 FROM pg_class c \
       WHERE c.oid = t.typrelid AND c.relkind <> 'c' \
   )) \
+  AND NOT EXISTS ( \
+      SELECT 1 \
+      FROM pg_catalog.pg_depend dep \
+      WHERE dep.classid = 'pg_catalog.pg_type'::regclass \
+        AND dep.objid = t.oid \
+        AND dep.deptype = 'e' \
+  ) \
 ORDER BY n.nspname, t.typname";
 
 /// Enum labels for every enum type in the managed schemas.

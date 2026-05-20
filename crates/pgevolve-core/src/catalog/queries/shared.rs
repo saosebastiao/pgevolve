@@ -42,6 +42,13 @@ LEFT JOIN pg_catalog.pg_description d
  AND d.objsubid = 0
 WHERE c.relkind = 'r'
   AND n.nspname = ANY($1::text[])
+  AND NOT EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_depend dep
+      WHERE dep.classid = 'pg_catalog.pg_class'::regclass
+        AND dep.objid = c.oid
+        AND dep.deptype = 'e'
+  )
 ORDER BY n.nspname, c.relname
 ";
 
@@ -177,6 +184,13 @@ WHERE n.nspname = ANY($1::text[])
     SELECT 1 FROM pg_catalog.pg_constraint cc
     WHERE cc.conindid = i.indexrelid
   )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_depend dep
+      WHERE dep.classid = 'pg_catalog.pg_class'::regclass
+        AND dep.objid = c.oid
+        AND dep.deptype = 'e'
+  )
 ORDER BY n.nspname, c.relname
 ";
 
@@ -203,6 +217,13 @@ LEFT JOIN pg_catalog.pg_description d
  AND d.objsubid = 0
 WHERE c.relkind = 'S'
   AND n.nspname = ANY($1::text[])
+  AND NOT EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_depend dep
+      WHERE dep.classid = 'pg_catalog.pg_class'::regclass
+        AND dep.objid = c.oid
+        AND dep.deptype = 'e'
+  )
 ORDER BY n.nspname, c.relname
 ";
 

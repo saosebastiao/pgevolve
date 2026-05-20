@@ -29,4 +29,11 @@ JOIN pg_namespace n ON p.pronamespace = n.oid \
 JOIN pg_language l ON p.prolang = l.oid \
 WHERE n.nspname = ANY($1::text[]) \
   AND p.prokind IN ('f', 'p') \
+  AND NOT EXISTS ( \
+      SELECT 1 \
+      FROM pg_catalog.pg_depend dep \
+      WHERE dep.classid = 'pg_catalog.pg_proc'::regclass \
+        AND dep.objid = p.oid \
+        AND dep.deptype = 'e' \
+  ) \
 ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)";
