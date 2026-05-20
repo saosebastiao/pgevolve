@@ -29,7 +29,6 @@ use crate::catalog::rows::Row;
 use crate::catalog::version::PgVersion;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
-use crate::ir::extension::Extension;
 use crate::ir::column::{
     Column, Generated, GeneratedKind, Identity, IdentityKind, SequenceOptions,
 };
@@ -38,6 +37,7 @@ use crate::ir::constraint::{
     Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
 };
 use crate::ir::default_expr::{DefaultExpr, NormalizedExpr};
+use crate::ir::extension::Extension;
 use crate::ir::function::{
     ArgMode, Function, FunctionArg, FunctionLanguage, NormalizedArgTypes, ParallelSafety,
     ReturnType, SecurityMode, TableColumn, Volatility,

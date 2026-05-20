@@ -5,6 +5,7 @@
       "comment": "Application schema"
     }
   ],
+  "extensions": [],
   "tables": [
     {
       "qname": {

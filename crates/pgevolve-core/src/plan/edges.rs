@@ -116,7 +116,10 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     for e in &catalog.extensions {
         g.add_node(NodeId::Extension(e.name.clone()));
         if let Some(schema) = &e.schema {
-            g.add_edge(NodeId::Extension(e.name.clone()), NodeId::Schema(schema.clone()));
+            g.add_edge(
+                NodeId::Extension(e.name.clone()),
+                NodeId::Schema(schema.clone()),
+            );
         }
     }
 

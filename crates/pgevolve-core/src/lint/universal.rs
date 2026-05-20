@@ -752,8 +752,12 @@ fn extension_version_unpinned(tree: &SourceTree) -> Vec<Finding> {
 /// references a schema not in the source catalog. Without the schema
 /// being managed, the planner can't guarantee ordering.
 fn extension_references_unmanaged_schema(tree: &SourceTree) -> Vec<Finding> {
-    let managed_schemas: std::collections::BTreeSet<&str> =
-        tree.catalog.schemas.iter().map(|s| s.name.as_str()).collect();
+    let managed_schemas: std::collections::BTreeSet<&str> = tree
+        .catalog
+        .schemas
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
     let mut out = Vec::new();
     for e in &tree.catalog.extensions {
         if let Some(schema) = &e.schema

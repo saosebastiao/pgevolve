@@ -38,9 +38,7 @@ pub(crate) fn build_extension(
         let Some(NodeEnum::DefElem(de)) = opt_node.node.as_ref() else {
             return Err(ParseError::Structural {
                 location: location.clone(),
-                message: format!(
-                    "CREATE EXTENSION {name}: unexpected option node"
-                ),
+                message: format!("CREATE EXTENSION {name}: unexpected option node"),
             });
         };
 
@@ -81,9 +79,7 @@ pub(crate) fn build_extension(
             other => {
                 return Err(ParseError::Structural {
                     location: location.clone(),
-                    message: format!(
-                        "CREATE EXTENSION {name}: unknown option {other:?}"
-                    ),
+                    message: format!("CREATE EXTENSION {name}: unknown option {other:?}"),
                 });
             }
         }
@@ -150,7 +146,12 @@ mod tests {
     fn parses_with_schema() {
         let ext = build("CREATE EXTENSION pgcrypto WITH SCHEMA app;");
         assert_eq!(ext.name.as_str(), "pgcrypto");
-        assert_eq!(ext.schema.as_ref().map(crate::identifier::Identifier::as_str), Some("app"));
+        assert_eq!(
+            ext.schema
+                .as_ref()
+                .map(crate::identifier::Identifier::as_str),
+            Some("app")
+        );
         assert!(ext.version.is_none());
     }
 
@@ -164,10 +165,14 @@ mod tests {
 
     #[test]
     fn parses_if_not_exists_with_schema_and_version() {
-        let ext =
-            build("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public VERSION '1.6';");
+        let ext = build("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public VERSION '1.6';");
         assert_eq!(ext.name.as_str(), "pg_trgm");
-        assert_eq!(ext.schema.as_ref().map(crate::identifier::Identifier::as_str), Some("public"));
+        assert_eq!(
+            ext.schema
+                .as_ref()
+                .map(crate::identifier::Identifier::as_str),
+            Some("public")
+        );
         assert_eq!(ext.version.as_deref(), Some("1.6"));
         assert!(ext.comment.is_none());
     }

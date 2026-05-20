@@ -107,7 +107,12 @@ fn unsupported_object_kind_rejected() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
 
-    write(&root.join("bad.sql"), "CREATE EXTENSION pgcrypto;\n");
+    // CREATE EXTENSION became supported in v0.2 sub-spec #3; use a
+    // genuinely-unsupported statement.
+    write(
+        &root.join("bad.sql"),
+        "CREATE EVENT TRIGGER trg ON ddl_command_start EXECUTE FUNCTION f();\n",
+    );
     let err = parse::parse_directory(root, &[]).unwrap_err();
     match err {
         parse::ParseError::UnsupportedObjectKind { .. } => {}
