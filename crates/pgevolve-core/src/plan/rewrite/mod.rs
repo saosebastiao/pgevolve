@@ -33,7 +33,7 @@ use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::{TableOp, TableOpEntry};
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
-use crate::plan::ordered::{DeferredFkAdd, OrderedChangeSet};
+use crate::plan::ordered::OrderedChangeSet;
 use crate::plan::policy::PlannerPolicy;
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
@@ -85,7 +85,7 @@ pub fn rewrite_with_source(
         emit_change(entry, &ctx, &mut out);
     }
     for fk in ordered.deferred_fks {
-        emit_deferred_fk(&fk, &ctx, &mut out);
+        emit::deferred_fk::emit(&fk, &ctx, &mut out);
     }
     // Post-emit: upgrade REFRESH MATERIALIZED VIEW → CONCURRENTLY where eligible.
     // Check indexes from the *source* catalog (desired state), not target, so
@@ -1067,19 +1067,6 @@ fn emit_table_op(
     }
 }
 
-fn emit_deferred_fk(fk: &DeferredFkAdd, _ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
-    out.push(RawStep {
-        step_no: 0,
-        kind: StepKind::AddConstraint,
-        destructive: false,
-        destructive_reason: None,
-        intent_id: None,
-        targets: vec![fk.table.clone()],
-        sql: sql::alter_table_add_constraint(&fk.table, &fk.constraint),
-        transactional: TransactionConstraint::InTransaction,
-    });
-}
-
 // `Schema` is identified by an `Identifier`, but `RawStep::targets` carries
 // `QualifiedName`s. Promote the schema name to a `QualifiedName` whose schema
 // half equals its name — same convention used for ordering in the planner's
@@ -1312,7 +1299,7 @@ mod tests {
     use crate::ir::schema::Schema;
     use crate::ir::sequence::Sequence;
     use crate::ir::table::Table;
-    use crate::plan::ordered::OrderedChangeSet;
+    use crate::plan::ordered::{DeferredFkAdd, OrderedChangeSet};
     use crate::plan::ordering::order;
     use crate::plan::policy::PlannerPolicy;
 
