@@ -34,10 +34,11 @@ Every box and arrow is a module-level boundary. Sections below walk each.
 
 ```
 crates/
-├── pgevolve-core/        I/O-free library: IR, parser, diff, planner, plan format, lint
-├── pgevolve/             CLI binary + executor (the only crate that depends on tokio_postgres)
-├── pgevolve-testkit/     Internal-only test infra (publish = false)
-└── xtask/                `cargo xtask bless` for regenerating goldens
+├── pgevolve-core/         I/O-free library: IR, parser, diff, planner, plan format, lint
+├── pgevolve-core-macros/  Proc-macro crate: `#[derive(DiffMacro)]` for IR `Diff` impls
+├── pgevolve/              CLI binary + library API (the only crate that depends on tokio_postgres)
+├── pgevolve-testkit/      Internal-only test infra (publish = false)
+└── xtask/                 `cargo xtask bless` for regenerating goldens
 ```
 
 ### `pgevolve-core` — the brain
@@ -45,9 +46,10 @@ crates/
 | Module | Responsibility |
 |---|---|
 | `identifier` | `Identifier` (single SQL name) and `QualifiedName` (`schema.name`). Quoting / validation. |
-| `ir/` | The data model. `Catalog`, `Schema`, `Table`, `Column`, `Index`, `Sequence`, `Constraint`, plus `ColumnType` (canonical type form), `DefaultExpr`, `NormalizedExpr`, `NormalizedBody`. |
-| `parse/` | Source-side SQL → IR. Wraps `pg_query`. Includes `ast_resolution` (post-parse structural validation pass) and `normalize_body` (statement-scope canonicalizer). |
-| `catalog/` | Live-PG → IR. Defines `CatalogQuerier` (sync trait) and the per-version SQL strings; returns `(Catalog, DriftReport)` capturing NOT VALID constraints and INVALID indexes. The actual `tokio_postgres` adapter lives in the binary. |
+| `ir/` | The data model. `Catalog`, `Schema`, `Table`, `Column`, `Index`, `Sequence`, `Constraint`, plus user types, functions, procedures, views, MVs, `ColumnType` (canonical type form), `DefaultExpr`, `NormalizedExpr`, `NormalizedBody`. Most IR structs derive their `Diff` impl via `#[derive(DiffMacro)]`. |
+| `ir/canon/` | The single canonicalization pipeline. Four ordered passes (`filter_pg_defaults`, `sentinel_view_columns`, `renumber_enum_sort_orders`, `sort_and_dedupe`) that run on both source-built and catalog-read `Catalog`s. `Catalog::canonicalize` is a thin wrapper. |
+| `parse/` | Source-side SQL → IR. Wraps `pg_query`. Includes `ast_resolution` (post-parse structural validation), `ast_canon` (view-body canonicalization + MV index parent promotion), and `normalize_body` (statement-scope canonicalizer with cross-PG-version qualifier stripping). |
+| `catalog/` | Live-PG → IR. Defines `CatalogQuerier` (sync trait) and the per-version SQL strings; returns `(Catalog, DriftReport)` capturing NOT VALID constraints and INVALID indexes. Catalog reader produces raw IR values; PG-default elision lives in `ir/canon/`. The actual `tokio_postgres` adapter lives in the binary. |
 | `diff/` | `Catalog × Catalog → ChangeSet`. Pair-by-qname semantics; destructiveness classification. Includes `Change::ValidateConstraint` and `Change::RecreateIndex` for drift recovery. |
 | `plan/` | The planner: order → rewrite → group → write/read. Plan format and `PlanId` hashing. `plan::edges` holds `DepEdge` / `DepSource` for typed dep provenance. |
 | `lint/` | Universal rules + four built-in layout profiles + custom-profile regex+assertion mechanism. Includes `Severity::LintAtPlan` tier and `column-position-drift` rule. |
@@ -60,11 +62,12 @@ entry point. Everything else is library-style data manipulation.
 
 | Module | Responsibility |
 |---|---|
+| `api/` | Library entry points for embedding pgevolve in other tools and tests. `build_plan(schema_dir, client, opts) -> Plan` runs the full parse→introspect→diff→order→rewrite→group pipeline without CLI ceremony. |
 | `cli` | clap subcommand definitions. |
-| `commands/` | One file per subcommand. `init`, `lint`, `validate`, `diff`, `plan`, `apply`, `status`, `bootstrap`, `dump` (stub), `graph`, `doctor`, `rewrite_table` (skeleton). |
+| `commands/` | One file per subcommand. `init`, `lint`, `validate`, `diff`, `plan`, `apply`, `status`, `bootstrap`, `dump` (stub), `graph`, `doctor`, `rewrite_table` (skeleton). The `plan` command is a thin shim over `api::build_plan`; `apply` is a thin shim over `executor::apply_plan`. |
 | `config` | `pgevolve.toml` loader + validation. Includes `[shadow]` block with `backend` / `url` / `extensions` fields. |
 | `connection` | DSN resolution (CLI > env.url > env.url_env > `PGEVOLVE_DATABASE_URL` > libpq env). |
-| `executor/` | The apply loop: bootstrap, lock, target-identity, preflight (checks `[[lint_waiver]]` well-formedness), audit, execute, status. |
+| `executor/` | The apply loop: bootstrap, lock, target-identity, preflight (checks `[[lint_waiver]]` well-formedness), audit, execute, status. Exposes `apply(plan_dir, ...)` and `apply_plan(&Plan, ...)` as library entry points. |
 | `pg_querier` | `tokio_postgres`-backed `CatalogQuerier`. Mirrors the testkit one to avoid pulling `testcontainers` into the binary. |
 | `shadow/` | `ShadowBackend` trait + `testcontainers` and `dsn` impls. Backend selected via `[shadow].backend` in `pgevolve.toml`. Replaces the old `shadow_pg.rs` module. |
 | `target_identity` | BLAKE3 hash of `(current_database, host, port, cluster_name, system_identifier)`. |
@@ -248,8 +251,12 @@ carries provenance:
   is present in source SQL.
 
 **`NormalizedBody`** (`pgevolve-core::parse::normalize_body`): a
-statement-scope canonicalizer paralleling `NormalizedExpr`. Scaffold for
-v0.2 body-bearing objects (views, functions). v0.1 objects don't use it.
+statement-scope canonicalizer paralleling `NormalizedExpr`. v0.2 body-
+bearing objects (views, materialized views, functions, procedures) all
+canonicalize through it. Includes a cross-PG-version pass that strips
+redundant table qualifiers from column refs in single-relation
+`SELECT` bodies — PG14's `pg_get_viewdef` keeps the qualifier while
+PG17 strips it; this pass aligns the two.
 
 **`DriftReport`**: returned alongside `Catalog` from `read_catalog`.
 Contains NOT VALID constraints and INVALID indexes that may be present in
@@ -270,6 +277,59 @@ seams so v0.2 body-bearing objects have a home to fail into.
 `rewrite-table` (skeleton; errors "not yet implemented"),
 `--shadow-validate` / `--shadow-strict` flags on `plan` / `diff` /
 `validate`.
+
+## The canonicalization pipeline
+
+Both the source parser and the catalog reader produce `Catalog` values
+that may carry IR fields PG fills in implicitly (sequence min/max,
+function cost/rows, `pg_catalog.default` collations, fractional enum
+sort orders, redundant view-column type info). For source and catalog
+to compare equal, both sides must run an identical canonicalization
+pass.
+
+`Catalog::canonicalize` is a thin wrapper around `ir::canon::canonicalize`
+which runs four ordered passes, in this order:
+
+1. **`filter_pg_defaults`** — values equal to PG's documented defaults
+   become `None` (sequence min/max, function cost/rows, column
+   `pg_catalog.default` collation).
+2. **`sentinel_view_columns`** — view/MV column types collapse to a
+   shared `view_column` sentinel. Body changes are captured by
+   `body_canonical` (an AST hash); per-output-column types are
+   redundant and unresolvable from source statically.
+3. **`renumber_enum_sort_orders`** — each enum's `sort_order` values
+   are re-indexed to `1.0, 2.0, 3.0, …` in current order.
+4. **`sort_and_dedupe`** — every IR collection is sorted by its
+   canonical key and duplicates raise `IrError`. Runs last so duplicate
+   detection sees post-normalization values.
+
+When PG returns a default we hadn't expected, the fix lands in one of
+those four passes. Catalog readers and source builders are kept "raw"
+— they never filter — so the rule is discoverable in one place.
+
+## Library API for embedding pgevolve
+
+`pgevolve` exposes a small library surface for tools and tests that
+need to run plan/apply in-process rather than spawning the binary:
+
+- `pgevolve::api::build_plan(schema_dir, client, opts) -> Plan`
+  consumes a `tokio_postgres::Client`, runs the full
+  parse→introspect→diff→order→rewrite→group pipeline, and returns a
+  `Plan` value. No `println!`, no waiver-prompt UX, no
+  `--shadow-validate`, no on-disk plan directory.
+- `pgevolve::executor::apply_plan(&Plan, &mut client, &filter, overrides)`
+  applies an in-memory `Plan`. The disk-based `executor::apply(path,
+  &mut client, ...)` is a thin shim that calls `read_plan_dir` then
+  delegates to `apply_plan`.
+- `Plan::approve_all_intents()` (on `pgevolve_core::plan::Plan`) marks
+  every destructive intent as approved. For test harnesses that build
+  plans programmatically; production apply still requires
+  `intent.toml`-based approval.
+
+The conformance suite uses these entry points exclusively — it spawns
+no subprocesses. The CLI commands (`pgevolve plan`, `pgevolve apply`)
+are themselves thin wrappers over these library entry points plus
+CLI-only UX (printing, exit codes).
 
 ## Key invariants
 

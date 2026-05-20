@@ -47,20 +47,77 @@ erDiagram
 
 ## Canonicalization
 
-`Catalog::canonicalize()`:
+`Catalog::canonicalize()` delegates to `ir::canon::canonicalize`, which
+runs four ordered passes:
 
-1. Sort each collection by canonical key (`schema.name`, then `qname`
-   for tables/indexes/sequences).
-2. Reject duplicates within a collection.
+1. **`filter_pg_defaults`** — IR field values that match PG's
+   documented defaults become `None` (sequence min/max, function
+   cost/rows, column `pg_catalog.default` collation). Both source-built
+   and catalog-read `Catalog`s pass through this, so a function
+   declared without `COST` round-trips byte-equal with the catalog
+   reading of the same function.
+2. **`sentinel_view_columns`** — view and materialized-view column
+   types collapse to a shared `view_column` sentinel. Body changes are
+   already captured by `body_canonical` (an AST hash); per-column
+   types are redundant info derived from the body.
+3. **`renumber_enum_sort_orders`** — each enum's `sort_order` values
+   are re-indexed to `1.0, 2.0, 3.0, …` in current order. PG stores
+   floats; source assigns sequential 1-indexed; this pass aligns the
+   two.
+4. **`sort_and_dedupe`** — sort each collection by its canonical key
+   (`schema.name`, `qname`, etc.); reject duplicates. Runs last so
+   duplicate detection sees the post-normalization state.
 
 The output is **byte-stable**: identical inputs always produce identical
 serialized output. This is what makes `PlanId` deterministic.
 
-Failure modes:
+When PG returns a default we hadn't expected, the fix lands in one of
+the four passes (most commonly `filter_pg_defaults`). Catalog readers
+and source builders are kept "raw" — they never filter — so the rule
+is discoverable in one place.
+
+Failure modes (only `sort_and_dedupe` is fallible):
 
 - `IrError::InvalidIdentifier("duplicate schema: foo")` — two `Schema`s
   with the same name.
-- Same for tables / indexes / sequences.
+- Same for tables / indexes / sequences / views / MVs / types /
+  functions / procedures.
+
+## `Diff` derive
+
+Most IR structs derive their `Diff` impl rather than hand-writing it:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
+pub struct Sequence {
+    pub qname: QualifiedName,           // default strategy (Display)
+    #[diff(via_debug)]
+    pub data_type: ColumnType,
+    pub start: i64,
+    // ...
+    #[diff(via_debug)]
+    pub min_value: Option<i64>,
+    // ...
+}
+```
+
+The derive (from the `pgevolve-core-macros` crate, re-exported as
+`pgevolve_core::ir::eq::DiffMacro`) supports three field attributes:
+
+- *no attribute* — emit `diff_field(name, &self.x, &other.x)`. Requires
+  `PartialEq + Display`.
+- `#[diff(skip)]` — omit the field entirely.
+- `#[diff(via_debug)]` — emit `diff_field(name, format!("{:?}", ...))`.
+  For `Option<T>`, `Vec<T>`, enums without `Display`.
+- `#[diff(nested)]` — emit `prefix_diffs(name, self.x.diff(&other.x))`.
+  For fields whose type already implements `Diff`.
+
+Hand-written impls remain for: `Catalog` (orchestrates `diff_keyed`
+over many `Vec<T>` collections), `Function` (custom `qname(args)` key
+in path), `Table` / `View` / `MaterializedView` (pair columns by name
+with order-drift reporting), `UserType` (intentional dump-all on
+inequality), and the enum impls (`ConstraintKind`, `DefaultExpr`,
+`ColumnType`).
 
 ## `Identifier` and `QualifiedName`
 

@@ -26,7 +26,7 @@ Tier C is the canonical regression gate. Each fixture drives the full pipeline; 
 | L1 | parse | ✅ Implemented | Source parses cleanly. |
 | L2 | lint | ✅ Implemented | No lint errors. |
 | L3 | plan | ✅ Implemented | Plan produces expected steps. |
-| L4 | apply | ✅ Implemented | Plan applies cleanly against real PG. |
+| L4 | apply | ✅ Implemented | Plan applies cleanly against real PG. Runs in-process via `pgevolve::api::build_plan` + `pgevolve::executor::apply_plan` — no subprocesses, no per-fixture binary rebuild. |
 | L5 | minimality | ✅ Implemented | Re-plan after L4 apply asserts empty diff and empty plan groups. |
 | L6 | no-collateral-damage | ✅ Implemented | Opt-in `touches_only` allow-list; asserts no unlisted objects were modified. |
 | L7 | intent-shape | ✅ Implemented | Mandatory-on-destructive; matches `[[expect.intent]]` against the generated `intent.toml`. |
