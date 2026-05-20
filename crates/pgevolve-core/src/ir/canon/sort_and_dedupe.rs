@@ -47,10 +47,8 @@ pub fn run(cat: &mut Catalog) -> Result<(), IrError> {
         )));
     }
 
-    cat.materialized_views
-        .sort_by(|a, b| a.qname.cmp(&b.qname));
-    if let Some(dupe) =
-        first_duplicate(cat.materialized_views.iter().map(|m| m.qname.to_string()))
+    cat.materialized_views.sort_by(|a, b| a.qname.cmp(&b.qname));
+    if let Some(dupe) = first_duplicate(cat.materialized_views.iter().map(|m| m.qname.to_string()))
     {
         return Err(IrError::InvalidIdentifier(format!(
             "duplicate materialized view: {dupe}"

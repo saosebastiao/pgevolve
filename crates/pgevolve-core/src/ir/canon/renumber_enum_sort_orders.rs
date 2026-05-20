@@ -48,9 +48,18 @@ mod tests {
             qname: QualifiedName::new(id("app"), id("status")),
             kind: UserTypeKind::Enum {
                 values: vec![
-                    EnumValue { name: "open".into(), sort_order: 0.5 },
-                    EnumValue { name: "closed".into(), sort_order: 1.7 },
-                    EnumValue { name: "pending".into(), sort_order: 0.1 },
+                    EnumValue {
+                        name: "open".into(),
+                        sort_order: 0.5,
+                    },
+                    EnumValue {
+                        name: "closed".into(),
+                        sort_order: 1.7,
+                    },
+                    EnumValue {
+                        name: "pending".into(),
+                        sort_order: 0.1,
+                    },
                 ],
             },
             comment: None,

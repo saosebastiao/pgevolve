@@ -1286,12 +1286,8 @@ fn build_functions_and_procedures(
                 // Catalog returns raw cost/rows; `ir::canon::filter_pg_defaults`
                 // normalizes the PG-defaults (procost=100, prorows=1000 for
                 // SETOF, prorows=0 otherwise) to None on both sides.
-                let cost: Option<f32> = cost_str
-                    .as_deref()
-                    .and_then(|s| s.parse::<f32>().ok());
-                let rows: Option<f32> = rows_str
-                    .as_deref()
-                    .and_then(|s| s.parse::<f32>().ok());
+                let cost: Option<f32> = cost_str.as_deref().and_then(|s| s.parse::<f32>().ok());
+                let rows: Option<f32> = rows_str.as_deref().and_then(|s| s.parse::<f32>().ok());
 
                 let return_type = parse_return_type_from_string(&return_type_str, &qname)?;
                 let arg_types_normalized = NormalizedArgTypes::from_args(&args);
