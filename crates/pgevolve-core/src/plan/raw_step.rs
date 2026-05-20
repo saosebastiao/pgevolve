@@ -148,6 +148,16 @@ pub enum StepKind {
     DropProcedure,
     /// `COMMENT ON PROCEDURE`.
     CommentOnProcedure,
+
+    // --- v0.2 extension step kinds ---
+    /// `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA s] [VERSION 'v']`.
+    CreateExtension,
+    /// `DROP EXTENSION name CASCADE`. Destructive (intent required).
+    DropExtension,
+    /// `ALTER EXTENSION name UPDATE TO 'v'`.
+    AlterExtensionUpdate,
+    /// `COMMENT ON EXTENSION name IS '...'`.
+    CommentOnExtension,
 }
 
 /// One unit of work the executor will attempt.
@@ -241,6 +251,10 @@ mod tests {
             StepKind::CreateOrReplaceProcedure,
             StepKind::DropProcedure,
             StepKind::CommentOnProcedure,
+            StepKind::CreateExtension,
+            StepKind::DropExtension,
+            StepKind::AlterExtensionUpdate,
+            StepKind::CommentOnExtension,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

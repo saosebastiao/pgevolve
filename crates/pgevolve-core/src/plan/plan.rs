@@ -348,6 +348,10 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::CreateOrReplaceProcedure => "create_or_replace_procedure",
         K::DropProcedure => "drop_procedure",
         K::CommentOnProcedure => "comment_on_procedure",
+        K::CreateExtension => "create_extension",
+        K::DropExtension => "drop_extension",
+        K::AlterExtensionUpdate => "alter_extension_update",
+        K::CommentOnExtension => "comment_on_extension",
     }
 }
 
@@ -407,6 +411,10 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "create_or_replace_procedure" => K::CreateOrReplaceProcedure,
         "drop_procedure" => K::DropProcedure,
         "comment_on_procedure" => K::CommentOnProcedure,
+        "create_extension" => K::CreateExtension,
+        "drop_extension" => K::DropExtension,
+        "alter_extension_update" => K::AlterExtensionUpdate,
+        "comment_on_extension" => K::CommentOnExtension,
         _ => return None,
     })
 }

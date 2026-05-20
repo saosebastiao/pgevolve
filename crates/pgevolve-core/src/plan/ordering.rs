@@ -282,11 +282,11 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
             },
             // Extension changes: bucket by lifecycle phase (NodeId::Extension added in EXT6).
             Change::Extension(ec) => match ec {
-                crate::diff::change::ExtensionChange::Create(_)
+                crate::diff::change::ExtensionChange::Create(_) => creates.push(entry),
+                crate::diff::change::ExtensionChange::Drop(_)
                 | crate::diff::change::ExtensionChange::ReplaceWithCascade(_) => {
-                    creates.push(entry);
+                    drops.push(entry);
                 }
-                crate::diff::change::ExtensionChange::Drop(_) => drops.push(entry),
                 crate::diff::change::ExtensionChange::AlterUpdate { .. }
                 | crate::diff::change::ExtensionChange::CommentOn { .. } => modifies.push(entry),
             },
