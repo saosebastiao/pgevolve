@@ -27,6 +27,11 @@
 //! - **`function-references-unmanaged-schema`** — a function or procedure body
 //!   dependency targets a schema outside `[managed].schemas` and outside
 //!   built-ins.
+//! - **`extension-version-unpinned`** — fires when a source-declared
+//!   extension lacks a `VERSION` clause.
+//! - **`extension-references-unmanaged-schema`** — fires when
+//!   `CREATE EXTENSION ... WITH SCHEMA s` references a schema not in
+//!   the source catalog.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -60,6 +65,8 @@ pub fn check_universal(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Findin
     out.extend(pl_pgsql_dynamic_sql_rule(tree));
     out.extend(procedure_contains_commit_rule(tree));
     out.extend(function_references_unmanaged_schema_rule(tree, managed));
+    out.extend(extension_version_unpinned(tree));
+    out.extend(extension_references_unmanaged_schema(tree));
     out
 }
 
@@ -716,6 +723,52 @@ fn function_references_unmanaged_schema_rule(
         check_deps(&p.qname, "procedure", &p.body_dependencies, &mut out);
     }
 
+    out
+}
+
+// ── extension lint rules ──────────────────────────────────────────────────────
+
+/// `extension-version-unpinned` — fires when a source-declared extension
+/// has no `VERSION` clause. Unpinned extensions can shift between
+/// environments; pinning ensures dev and prod install the same version.
+fn extension_version_unpinned(tree: &SourceTree) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for e in &tree.catalog.extensions {
+        if e.version.is_none() {
+            out.push(Finding::warning(
+                "extension-version-unpinned",
+                format!(
+                    "{}: extension is declared without a VERSION clause. Pinning the version \
+                     ensures the same version is installed across environments.",
+                    e.name,
+                ),
+            ));
+        }
+    }
+    out
+}
+
+/// `extension-references-unmanaged-schema` — fires when a CREATE EXTENSION
+/// references a schema not in the source catalog. Without the schema
+/// being managed, the planner can't guarantee ordering.
+fn extension_references_unmanaged_schema(tree: &SourceTree) -> Vec<Finding> {
+    let managed_schemas: std::collections::BTreeSet<&str> =
+        tree.catalog.schemas.iter().map(|s| s.name.as_str()).collect();
+    let mut out = Vec::new();
+    for e in &tree.catalog.extensions {
+        if let Some(schema) = &e.schema
+            && !managed_schemas.contains(schema.as_str())
+        {
+            out.push(Finding::error(
+                "extension-references-unmanaged-schema",
+                format!(
+                    "{}: WITH SCHEMA {} references a schema not declared in source. \
+                     Add a CREATE SCHEMA {} to the source or remove the WITH SCHEMA clause.",
+                    e.name, schema, schema,
+                ),
+            ));
+        }
+    }
     out
 }
 
@@ -2047,5 +2100,90 @@ mod tests {
                 .all(|f| f.rule != "function-references-unmanaged-schema"),
             "function-references-unmanaged-schema must be silent when managed.schemas is empty",
         );
+    }
+
+    // ── extension-version-unpinned ────────────────────────────────────────────
+
+    #[test]
+    fn extension_version_unpinned_fires_on_unpinned() {
+        use crate::ir::extension::Extension;
+
+        let mut c = Catalog::empty();
+        c.extensions.push(Extension {
+            name: id("pgcrypto"),
+            schema: None,
+            version: None,
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "extension-version-unpinned")
+            .count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn extension_version_unpinned_silent_when_pinned() {
+        use crate::ir::extension::Extension;
+
+        let mut c = Catalog::empty();
+        c.extensions.push(Extension {
+            name: id("pgcrypto"),
+            schema: None,
+            version: Some("1.3".into()),
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "extension-version-unpinned")
+            .count();
+        assert_eq!(count, 0);
+    }
+
+    // ── extension-references-unmanaged-schema ─────────────────────────────────
+
+    #[test]
+    fn extension_references_unmanaged_schema_fires() {
+        use crate::ir::extension::Extension;
+
+        let mut c = Catalog::empty();
+        c.extensions.push(Extension {
+            name: id("pg_trgm"),
+            schema: Some(id("missing")),
+            version: None,
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "extension-references-unmanaged-schema")
+            .count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn extension_references_managed_schema_silent() {
+        use crate::ir::extension::Extension;
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.extensions.push(Extension {
+            name: id("pg_trgm"),
+            schema: Some(id("app")),
+            version: None,
+            comment: None,
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "extension-references-unmanaged-schema")
+            .count();
+        assert_eq!(count, 0);
     }
 }
