@@ -9,7 +9,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.2.0] — Unreleased
 
-Extends the v0.1 surface with **views, materialized views, user-defined types, and functions/procedures** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
+Extends the v0.1 surface with **views, materialized views, user-defined types, functions/procedures, and extensions** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
 
 ### Added — internal architecture (2026-05-19)
 
@@ -58,6 +58,32 @@ Extends the v0.1 surface with **views, materialized views, user-defined types, a
 
 - **~22 conformance fixtures** (Tier C): `objects/functions/` and `objects/procedures/` covering SQL functions, PL/pgSQL functions, procedures, overloads, dep-edge extraction, `ReplaceWithCascade`, and all three lint rules.
 - **Property test** `plpgsql_canonicalization_is_idempotent` (`#[ignore]`, pure, no Docker) — for each body in the representative `PLPGSQL_BODIES` corpus, `parse_routine_body → canonical_text → re-parse → canonical_text` produces byte-identical output. Closes the round-trip invariant the differ relies on.
+
+### Added — IR (extensions)
+
+- `Extension { name, schema: Option<Identifier>, version: Option<String>, comment: Option<String> }` flat IR type in `pgevolve-core::ir::extension`.
+- `Catalog::extensions: Vec<Extension>` flat collection. `canon::sort_and_dedupe` rejects duplicate extension names.
+
+### Added — pipeline (extensions)
+
+- **Source parser** — `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA s] [VERSION 'v']` parses into the `Extension` IR. `CASCADE`, `FROM old_version`, and unknown options rejected with structural errors. `ALTER EXTENSION` in source files rejected at statement classification. `COMMENT ON EXTENSION` parsing added.
+- **Catalog reader** — queries `pg_extension` joined with `pg_namespace` and `pg_description`. The reader for every other object kind (tables, indexes, sequences, functions, types, views, MVs) gains a `NOT EXISTS (pg_depend deptype='e')` filter so extension-owned objects never appear as drift.
+- **Differ** — `ExtensionChange` variants: `Create`, `Drop`, `AlterUpdate`, `ReplaceWithCascade`, `CommentOn`. Source-`None` for schema, version, or comment means "any catalog value", so unpinned source declarations don't diff against any installed version.
+- **Planner** — 4 new step kinds: `CreateExtension`, `DropExtension` (destructive), `AlterExtensionUpdate`, `CommentOnExtension`. Schema changes go through `DropExtension` + `CreateExtension` with linked intent.
+- **`NodeId::Extension`** — added to the dep graph; `Extension → Schema` edges force the schema to exist before the extension is created.
+
+### Added — lint rules (extensions)
+
+- `extension-version-unpinned` (Warning) — `CREATE EXTENSION foo;` without a `VERSION` clause.
+- `extension-references-unmanaged-schema` (Error) — `WITH SCHEMA gis` but `gis` isn't in the source catalog.
+
+### Added — tests (extensions)
+
+- **11 conformance fixtures** (Tier C): `objects/extensions/` covering create/drop/replace/comment paths plus version-pin and version-unpinned no-op cases. `scenarios/extension-owned-objects-ignored` exercises the `pg_depend deptype='e'` filter. `scenarios/create-order-schema-first` verifies the `Extension → Schema` dep ordering.
+
+### Changed — conformance suite (extensions)
+
+- Apply-layer post-check (`assertions::apply`) switched from strict `canonical_eq` to a differ-based convergence check. Source IR with `None` for schema/version/comment now correctly converges against any catalog reading that has concrete values for those fields.
 
 ### Added — IR (user-defined types)
 

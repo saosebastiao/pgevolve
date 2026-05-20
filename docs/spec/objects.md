@@ -59,8 +59,8 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Object | Status | Notes |
 |---|---|---|
-| `EXTENSION` | 📋 Planned, v0.2 | Source-side: extensions listed in `pgevolve.toml`'s `[extensions]` block with version pins. `CREATE EXTENSION IF NOT EXISTS`. The objects an extension creates are *not* managed by pgevolve — they're owned by the extension. |
-| Extension version upgrade (`ALTER EXTENSION ... UPDATE`) | 📋 Planned, v0.2 | Lands with extensions; respects per-version SQL scripts. |
+| `EXTENSION` | ✅ Implemented | Source: `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA s] [VERSION 'v']` in `.sql` files. Catalog: `pg_extension` joined with `pg_namespace`. Differ: Create, Drop (CASCADE; intent required), AlterUpdate, ReplaceWithCascade for schema changes (intent required), CommentOn. Objects installed by extensions (`pg_depend.deptype='e'`) are excluded from every other catalog query. change_kinds: [create, drop, alter_update, replace_with_cascade, comment_on] |
+| Extension version upgrade (`ALTER EXTENSION ... UPDATE`) | ✅ Implemented | Non-destructive. Emits `ALTER EXTENSION foo UPDATE TO 'v';` when source pins a version different from the installed one. |
 
 ## Security and roles
 

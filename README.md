@@ -8,7 +8,7 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-> **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-specs #1 (views/MVs), #2 (types), and #4 (functions/procedures) merged 2026-05-18. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
+> **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-specs #1 (views/MVs), #2 (types), #3 (extensions), and #4 (functions/procedures) merged. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
 
 ## Usage at a glance
 
@@ -134,7 +134,7 @@ Per the [arch-readiness spec §16](./docs/superpowers/specs/2026-05-15-v0.2-arch
 | 0 | Architecture readiness (foundation) | ✅ Landed `26d8ebc..ec774ff` |
 | 1 | Views and materialized views | ✅ Landed `0e2a7a0` (T13 deferred) |
 | 2 | Types (enums, domains, composites) | ✅ Landed `6127bdd` |
-| 3 | Extensions | 📋 Planned |
+| 3 | Extensions | ✅ Landed `c17b3bc..8522c95` |
 | 4 | Functions and procedures | ✅ Landed `3c3f6ee` |
 | 5 | Triggers | 📋 Planned |
 | 6 | Declarative partitioning + table reloptions | 📋 Planned |
@@ -169,6 +169,21 @@ v0.3+ work (cluster-level surface — roles, GRANTs, `postgresql.conf`, RLS) is 
 | 4 new lint rules (`type-shadows-table`, `enum-value-collision`, `composite-attribute-collision`, `domain-check-references-unmanaged-type`) | ✅ Implemented |
 | 20 conformance fixtures (enums, domains, composites, cascades, lints) | ✅ Implemented |
 | Property test `enum_add_value_preserves_existing_values` (pure, `#[ignore]`'d) | ✅ Implemented |
+
+### v0.2 extensions — what's in `c17b3bc..8522c95`
+
+| Feature | Status |
+|---|---|
+| `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA s] [VERSION 'v']` parser | ✅ Implemented |
+| Catalog reader for `pg_extension` (joined with `pg_namespace`, `pg_description`) | ✅ Implemented |
+| `pg_depend deptype='e'` filter on tables/indexes/sequences/views/MVs/types/functions queries | ✅ Implemented |
+| `ExtensionChange` variants: Create, Drop, AlterUpdate, ReplaceWithCascade, CommentOn | ✅ Implemented |
+| 4 new step kinds: CreateExtension, DropExtension (destructive), AlterExtensionUpdate, CommentOnExtension | ✅ Implemented |
+| Source-`None` symmetry for schema/version/comment (unpinned = "any") | ✅ Implemented |
+| `NodeId::Extension` + Extension → Schema dep edges | ✅ Implemented |
+| `COMMENT ON EXTENSION` parser arm | ✅ Implemented |
+| 2 new lint rules (`extension-version-unpinned`, `extension-references-unmanaged-schema`) | ✅ Implemented |
+| 11 conformance fixtures (objects + scenarios + lint integration) | ✅ Implemented |
 
 ### v0.2 functions and procedures — what's in `3c3f6ee`
 
