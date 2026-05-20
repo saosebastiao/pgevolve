@@ -284,10 +284,9 @@ pub(crate) fn build_function_or_procedure(
                         message: format!("{qname}: COST is not valid on procedures"),
                     });
                 }
-                // Normalize explicit-but-default `COST 100` to None so it
-                // round-trips byte-equal with catalog (which also stores
-                // None for the SQL/PLpgSQL default).
-                cost = float_from_def_elem(de).filter(|&v| (v - 100.0).abs() > f32::EPSILON);
+                // Raw parse: `ir::canon::filter_pg_defaults` strips the
+                // PG-default value of 100 to None on both sides.
+                cost = float_from_def_elem(de);
             }
             "rows" => {
                 if is_procedure {
@@ -296,9 +295,9 @@ pub(crate) fn build_function_or_procedure(
                         message: format!("{qname}: ROWS is not valid on procedures"),
                     });
                 }
-                // Normalize explicit-but-default `ROWS 1000` to None.
-                rows = float_from_def_elem(de)
-                    .filter(|&v| v > 0.0 && (v - 1000.0).abs() > f32::EPSILON);
+                // Raw parse: `ir::canon::filter_pg_defaults` strips the
+                // PG-default (1000 for SETOF, 0 otherwise) to None.
+                rows = float_from_def_elem(de);
             }
             "as" => {
                 // The body is the first element (the $$ string $$).

@@ -13,6 +13,7 @@
 
 use crate::ir::catalog::Catalog;
 use crate::ir::column_type::ColumnType;
+use crate::ir::function::Function;
 use crate::ir::sequence::Sequence;
 
 /// Run every default-elision rule.
@@ -25,7 +26,9 @@ pub fn run(cat: &mut Catalog) {
             normalize_column_collation(col);
         }
     }
-    // Function cost/rows lands in Task 6 (phase B).
+    for f in &mut cat.functions {
+        normalize_function_defaults(f);
+    }
 }
 
 /// Normalize `min_value` / `max_value` to `None` when they equal the
@@ -55,6 +58,22 @@ fn sequence_default_bounds(ty: &ColumnType, increment: i64) -> (i64, i64) {
         (1, ty_max)
     } else {
         (ty_min, -1)
+    }
+}
+
+/// PG defaults `procost = 100` for SQL/PLpgSQL functions and
+/// `prorows = 1000` for SETOF (`0` otherwise). Source IR uses `None`
+/// for the default in both cases; this pass aligns the catalog read.
+fn normalize_function_defaults(f: &mut Function) {
+    if let Some(v) = f.cost
+        && (v - 100.0).abs() <= f32::EPSILON
+    {
+        f.cost = None;
+    }
+    if let Some(v) = f.rows
+        && (v <= 0.0 || (v - 1000.0).abs() <= f32::EPSILON)
+    {
+        f.rows = None;
     }
 }
 
@@ -164,5 +183,81 @@ mod tests {
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, Some(explicit));
+    }
+
+    use crate::ir::function::{
+        Function, FunctionLanguage, NormalizedArgTypes, ParallelSafety, ReturnType, SecurityMode,
+        Volatility,
+    };
+    use crate::parse::normalize_body::NormalizedBody;
+
+    fn sample_function() -> Function {
+        Function {
+            qname: qn("app", "f"),
+            args: vec![],
+            arg_types_normalized: NormalizedArgTypes::from_args(&[]),
+            return_type: ReturnType::Void,
+            language: FunctionLanguage::Sql,
+            body: NormalizedBody::empty(),
+            body_dependencies: vec![],
+            volatility: Volatility::Volatile,
+            strict: false,
+            security: SecurityMode::Invoker,
+            parallel: ParallelSafety::Unsafe,
+            leakproof: false,
+            cost: None,
+            rows: None,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn strips_pg_default_cost() {
+        let mut cat = Catalog::empty();
+        let mut f = sample_function();
+        f.cost = Some(100.0);
+        cat.functions.push(f);
+        run(&mut cat);
+        assert_eq!(cat.functions[0].cost, None);
+    }
+
+    #[test]
+    fn keeps_non_default_cost() {
+        let mut cat = Catalog::empty();
+        let mut f = sample_function();
+        f.cost = Some(50.0);
+        cat.functions.push(f);
+        run(&mut cat);
+        assert_eq!(cat.functions[0].cost, Some(50.0));
+    }
+
+    #[test]
+    fn strips_pg_default_rows_setof() {
+        let mut cat = Catalog::empty();
+        let mut f = sample_function();
+        f.rows = Some(1000.0);
+        cat.functions.push(f);
+        run(&mut cat);
+        assert_eq!(cat.functions[0].rows, None);
+    }
+
+    #[test]
+    fn strips_pg_default_rows_zero() {
+        let mut cat = Catalog::empty();
+        let mut f = sample_function();
+        f.rows = Some(0.0);
+        cat.functions.push(f);
+        run(&mut cat);
+        assert_eq!(cat.functions[0].rows, None);
+    }
+
+    #[test]
+    fn keeps_non_default_rows() {
+        let mut cat = Catalog::empty();
+        let mut f = sample_function();
+        f.rows = Some(42.0);
+        cat.functions.push(f);
+        run(&mut cat);
+        assert_eq!(cat.functions[0].rows, Some(42.0));
     }
 }
