@@ -15,5 +15,7 @@ pub mod pg_querier;
 pub mod shadow;
 pub mod target_identity;
 
-pub use executor::{ApplyError, ApplyOutcome, ApplyOverrides, apply, bootstrap_metadata};
+pub use executor::{
+    ApplyError, ApplyOutcome, ApplyOverrides, apply, apply_plan, bootstrap_metadata,
+};
 pub use target_identity::compute_target_identity;

@@ -18,6 +18,7 @@ use tokio_postgres::Client;
 use uuid::Uuid;
 
 use pgevolve_core::catalog::CatalogFilter;
+use pgevolve_core::plan::Plan;
 
 pub use bootstrap::bootstrap_metadata;
 pub use error::ApplyError;
@@ -76,17 +77,12 @@ pub enum ApplyOutcome {
 
 /// Apply a plan directory to a live Postgres connection.
 ///
-/// Steps (spec §8):
-/// 1. Read `plan.sql` + `intent.toml` + `manifest.toml` from `plan_dir`.
-/// 2. Bootstrap or upgrade the `pgevolve` metadata schema.
-/// 3. Acquire the singleton advisory lock.
-/// 4. Run preflight checks (identity match, drift, intent approval).
-/// 5. Open an `apply_log` row + pre-populate `plan_steps` as `pending`.
-/// 6. Execute each group in order; mark steps `succeeded`, `failed`, or `rolled_back`.
-/// 7. Close the `apply_log` row with the final status.
+/// Reads the plan from disk and delegates to [`apply_plan`]. Use
+/// `apply_plan` directly when you already have a [`Plan`] value (test
+/// harnesses, library callers that built the plan via
+/// [`crate::api::build_plan`]).
 ///
-/// The advisory lock is released automatically when the returned future
-/// completes (success or failure).
+/// See [`apply_plan`] for the full step-by-step description.
 pub async fn apply(
     plan_dir: &Path,
     client: &mut Client,
@@ -94,7 +90,27 @@ pub async fn apply(
     overrides: ApplyOverrides,
 ) -> Result<ApplyOutcome, ApplyError> {
     let plan = pgevolve_core::plan::read_plan_dir(plan_dir)?;
+    apply_plan(&plan, client, filter, overrides).await
+}
 
+/// Apply an in-memory [`Plan`] to a live Postgres connection.
+///
+/// Steps (spec §8):
+/// 1. Bootstrap or upgrade the `pgevolve` metadata schema.
+/// 2. Acquire the singleton advisory lock.
+/// 3. Run preflight checks (identity match, drift, intent approval).
+/// 4. Open an `apply_log` row + pre-populate `plan_steps` as `pending`.
+/// 5. Execute each group in order; mark steps `succeeded`, `failed`, or `rolled_back`.
+/// 6. Close the `apply_log` row with the final status.
+///
+/// The advisory lock is released automatically when the returned future
+/// completes (success or failure).
+pub async fn apply_plan(
+    plan: &Plan,
+    client: &mut Client,
+    filter: &CatalogFilter,
+    overrides: ApplyOverrides,
+) -> Result<ApplyOutcome, ApplyError> {
     bootstrap_metadata(client).await?;
 
     let actor = overrides.actor.clone().unwrap_or_else(default_actor);
@@ -106,16 +122,16 @@ pub async fn apply(
         allow_unwaived_lint: overrides.allow_unwaived_lint,
         allow_unapproved_intents: overrides.allow_unapproved_intents,
     };
-    let preflight_result = run_preflight(client, &plan, filter, preflight).await;
+    let preflight_result = run_preflight(client, plan, filter, preflight).await;
     if let Err(e) = preflight_result {
         // Failure before any DDL — release the lock before propagating.
         let _ = release_lock(client).await;
         return Err(e);
     }
 
-    let apply_id = audit::open_apply_log(client, &plan, &actor).await?;
+    let apply_id = audit::open_apply_log(client, plan, &actor).await?;
     let exec_result =
-        execute::execute_plan(client, &plan, apply_id, overrides.abort_after_step).await;
+        execute::execute_plan(client, plan, apply_id, overrides.abort_after_step).await;
     match exec_result {
         Ok(()) => {
             audit::close_apply_log(client, apply_id, "succeeded", None).await?;
