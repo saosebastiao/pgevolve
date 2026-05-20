@@ -103,50 +103,9 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
     let destructive = entry.destructiveness.requires_approval();
 
     match entry.change {
-        Change::CreateSchema(s) => {
-            out.push(RawStep {
-                step_no: 0,
-                kind: StepKind::CreateSchema,
-                destructive,
-                destructive_reason,
-                intent_id: None,
-                targets: vec![schema_target(&s.name)],
-                sql: sql::create_schema(&s),
-                transactional: TransactionConstraint::InTransaction,
-            });
-            if let Some(c) = &s.comment {
-                out.push(RawStep {
-                    step_no: 0,
-                    kind: StepKind::AlterSchemaComment,
-                    destructive: false,
-                    destructive_reason: None,
-                    intent_id: None,
-                    targets: vec![schema_target(&s.name)],
-                    sql: sql::comment_on_schema(&s.name, Some(c)),
-                    transactional: TransactionConstraint::InTransaction,
-                });
-            }
-        }
-        Change::DropSchema(name) => out.push(RawStep {
-            step_no: 0,
-            kind: StepKind::DropSchema,
-            destructive,
-            destructive_reason,
-            intent_id: None,
-            targets: vec![schema_target(&name)],
-            sql: sql::drop_schema(&name),
-            transactional: TransactionConstraint::InTransaction,
-        }),
-        Change::AlterSchema { name, comment } => out.push(RawStep {
-            step_no: 0,
-            kind: StepKind::AlterSchemaComment,
-            destructive: false,
-            destructive_reason: None,
-            intent_id: None,
-            targets: vec![schema_target(&name)],
-            sql: sql::comment_on_schema(&name, comment.as_deref()),
-            transactional: TransactionConstraint::InTransaction,
-        }),
+        Change::CreateSchema(s) => emit::schema::create(s, destructive, destructive_reason, out),
+        Change::DropSchema(name) => emit::schema::drop_(name, destructive, destructive_reason, out),
+        Change::AlterSchema { name, comment } => emit::schema::alter(name, comment, out),
 
         Change::CreateTable(t) => {
             let qname = t.qname.clone();
