@@ -30,7 +30,6 @@ use crate::diff::change::{
     Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, ViewChange,
 };
 use crate::diff::destructiveness::Destructiveness;
-use crate::diff::sequence_op::{SequenceOp, SequenceOpEntry};
 use crate::diff::table_op::{TableOp, TableOpEntry};
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
@@ -265,50 +264,9 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             out.push(create_step);
         }
 
-        Change::CreateSequence(s) => {
-            let qname = s.qname.clone();
-            out.push(RawStep {
-                step_no: 0,
-                kind: StepKind::CreateSequence,
-                destructive: false,
-                destructive_reason: None,
-                intent_id: None,
-                targets: vec![qname.clone()],
-                sql: sql::create_sequence(&s),
-                transactional: TransactionConstraint::InTransaction,
-            });
-            if let Some(c) = &s.comment {
-                out.push(RawStep {
-                    step_no: 0,
-                    kind: StepKind::AlterSequence,
-                    destructive: false,
-                    destructive_reason: None,
-                    intent_id: None,
-                    targets: vec![qname.clone()],
-                    sql: format!(
-                        "COMMENT ON SEQUENCE {} IS '{}';",
-                        qname.render_sql(),
-                        c.replace('\'', "''"),
-                    ),
-                    transactional: TransactionConstraint::InTransaction,
-                });
-            }
-        }
-        Change::DropSequence(qname) => out.push(RawStep {
-            step_no: 0,
-            kind: StepKind::DropSequence,
-            destructive,
-            destructive_reason,
-            intent_id: None,
-            targets: vec![qname.clone()],
-            sql: sql::drop_sequence(&qname),
-            transactional: TransactionConstraint::InTransaction,
-        }),
-        Change::AlterSequence { qname, ops } => {
-            for op in ops {
-                emit_sequence_op(&qname, op, out);
-            }
-        }
+        Change::CreateSequence(s) => emit::sequence::create(s, destructive, destructive_reason, out),
+        Change::DropSequence(qname) => emit::sequence::drop_(qname, destructive, destructive_reason, out),
+        Change::AlterSequence { qname, ops } => emit::sequence::alter(qname, ops, out),
 
         // Drift-recovery changes emitted from the DriftReport.
         Change::ValidateConstraint { table, constraint } => {
@@ -1109,30 +1067,6 @@ fn emit_table_op(
     }
 }
 
-fn emit_sequence_op(qname: &QualifiedName, entry: SequenceOpEntry, out: &mut Vec<RawStep>) {
-    let destructive = entry.destructiveness.requires_approval();
-    let destructive_reason = destructive_reason(&entry.destructiveness);
-    let sql = match &entry.op {
-        SequenceOp::SetIncrement(n) => sql::alter_sequence_increment(qname, *n),
-        SequenceOp::SetMinValue(v) => sql::alter_sequence_min_value(qname, *v),
-        SequenceOp::SetMaxValue(v) => sql::alter_sequence_max_value(qname, *v),
-        SequenceOp::SetCache(n) => sql::alter_sequence_cache(qname, *n),
-        SequenceOp::SetCycle(b) => sql::alter_sequence_cycle(qname, *b),
-        SequenceOp::SetDataType(t) => sql::alter_sequence_data_type(qname, t),
-        SequenceOp::SetOwnedBy(o) => sql::alter_sequence_owned_by(qname, o.as_ref()),
-    };
-    out.push(RawStep {
-        step_no: 0,
-        kind: StepKind::AlterSequence,
-        destructive,
-        destructive_reason,
-        intent_id: None,
-        targets: vec![qname.clone()],
-        sql,
-        transactional: TransactionConstraint::InTransaction,
-    });
-}
-
 fn emit_deferred_fk(fk: &DeferredFkAdd, _ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
     out.push(RawStep {
         step_no: 0,
@@ -1364,6 +1298,7 @@ mod tests {
     use crate::diff::change::Change;
     use crate::diff::changeset::ChangeSet;
     use crate::diff::destructiveness::Destructiveness;
+    use crate::diff::sequence_op::{SequenceOp, SequenceOpEntry};
     use crate::diff::table_op::TableOp;
     use crate::identifier::Identifier;
     use crate::ir::column::Column;
