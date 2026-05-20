@@ -1,22 +1,24 @@
 //! Layer 4: apply roundtrip against ephemeral Postgres.
 //!
 //! Seeds `before.sql` directly into an `EphemeralPostgres` (bypassing
-//! pgevolve), constructs a temp project with `after.sql` as the source,
-//! invokes the real pgevolve binary for plan+apply, then introspects
-//! the post-apply DB and compares the resulting IR against `after.sql`
-//! parsed independently.
+//! pgevolve), writes `after.sql` into a tempdir as the source schema,
+//! drives the full plan + apply pipeline via the pgevolve library
+//! entry points (`pgevolve::api::build_plan` and
+//! `pgevolve::executor::apply_plan`), then introspects the post-apply
+//! DB and compares the resulting IR against `after.sql` parsed
+//! independently.
 //!
 //! Docker-gated. Skipped (not failed) when `docker_available()` is
 //! false, consistent with the rest of the workspace.
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
+use pgevolve::api::BuildPlanOptions;
+use pgevolve::executor::ApplyOverrides;
 use pgevolve_core::catalog::{CatalogFilter, read_catalog};
 use pgevolve_core::identifier::Identifier;
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::ir::eq::Diff;
 use pgevolve_core::parse::parse_directory;
+use pgevolve_core::plan::Strategy;
 use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
 use pgevolve_testkit::pg_querier::PgCatalogQuerier;
 
@@ -41,15 +43,14 @@ pub enum ApplyOutcome {
     /// Apply succeeded; IRs were equal. Carries post-apply state for L5.
     Ok(Box<PostApplyState>),
     /// Apply was expected to fail, and it did fail with matching substrings.
-    /// No post-apply state is available.
     OkExpectedFailure,
     /// Apply succeeded but introspected IR diverged from after.sql.
     IrMismatch(String),
-    /// `pgevolve plan` or `pgevolve apply` failed.
+    /// `build_plan` or `apply_plan` failed.
     ApplyFailed {
-        /// stderr from the failing command.
+        /// Error message from the failing call.
         stderr: String,
-        /// "plan" or "apply" or "bootstrap".
+        /// "plan" or "apply".
         stage: &'static str,
     },
     /// The fixture expected `apply.succeeds = false` but apply succeeded.
@@ -66,11 +67,9 @@ impl ApplyOutcome {
 /// Options for Layer 4.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ApplyOptions {
-    /// When `true`, patch the plan's `intent.toml` after `pgevolve plan`
-    /// runs to flip every `approved` field to `true` before calling
-    /// `pgevolve apply`. This allows the intent runner to exercise the real
-    /// approval path without requiring the fixture to pre-supply a hand-authored
-    /// `intent.toml` — the runner auto-approves on behalf of the user.
+    /// When `true`, flip every destructive intent's `approved` field to
+    /// `true` after `build_plan` returns. Mirrors the user editing
+    /// `intent.toml` and re-running `apply`.
     pub auto_approve_intents: bool,
 }
 
@@ -91,37 +90,35 @@ pub async fn check_with_options(
 
     let version = pg_version_from_major(pg_major)?;
     let pg = EphemeralPostgres::start(version).await?;
-
     seed_before(&pg, &fixture.before_sql).await?;
 
-    let project = tempfile::tempdir()?;
-    let project_path = project.path();
-    write_project(project_path, pg.dsn(), fixture)?;
+    // Write `after.sql` into a tempdir; the parser walks a directory.
+    let schema_tmp = tempfile::tempdir()?;
+    std::fs::write(schema_tmp.path().join("0001-fixture.sql"), &fixture.after_sql)?;
 
-    if let Err(stderr) = run_pgevolve(project_path, &["bootstrap", "--db", "dev"]) {
-        return Ok(check_failure_expectation(fixture, &stderr, "bootstrap"));
-    }
-
-    let plan_dir = match plan_and_locate(project_path) {
+    // build_plan never touches the pgevolve metadata tables, so no
+    // pre-bootstrap is required. apply_plan calls bootstrap_metadata as
+    // its first step, mirroring the CLI's flow.
+    //
+    // build_plan consumes its client; apply_plan opens a fresh one.
+    let build_client = pg.connect().await?;
+    let build_opts = build_options_from_fixture(fixture)?;
+    let mut plan = match pgevolve::api::build_plan(schema_tmp.path(), build_client, build_opts).await
+    {
         Ok(p) => p,
-        Err(stderr) => {
-            return Ok(check_failure_expectation(fixture, &stderr, "plan"));
-        }
+        Err(e) => return Ok(check_failure_expectation(fixture, &e.to_string(), "plan")),
     };
 
-    // If the caller requested auto-approval, patch every `approved = false`
-    // to `approved = true` in the plan dir's `intent.toml`. This exercises
-    // the real preflight approval path without requiring a hand-authored
-    // `intent.toml` in the fixture.
     if opts.auto_approve_intents {
-        patch_intent_toml_approve_all(&plan_dir)?;
+        plan.approve_all_intents();
     }
 
-    if let Err(stderr) = run_pgevolve(
-        project_path,
-        &["apply", &plan_dir.display().to_string(), "--db", "dev"],
-    ) {
-        return Ok(check_failure_expectation(fixture, &stderr, "apply"));
+    let filter = filter_from_fixture(fixture)?;
+    let overrides = ApplyOverrides::default();
+    let mut apply_client = pg.connect().await?;
+    match pgevolve::executor::apply_plan(&plan, &mut apply_client, &filter, overrides).await {
+        Ok(_) => {}
+        Err(e) => return Ok(check_failure_expectation(fixture, &e.to_string(), "apply")),
     }
 
     if !fixture.expect.apply.succeeds {
@@ -168,138 +165,38 @@ async fn seed_before(pg: &EphemeralPostgres, before_sql: &str) -> anyhow::Result
     Ok(())
 }
 
-fn write_project(project_path: &Path, dsn: &str, fixture: &Fixture) -> anyhow::Result<()> {
-    let schemas = collect_managed_schemas(&fixture.after_sql);
-    let schema_list = schemas
-        .iter()
-        .map(|s| format!("\"{s}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let strategy = fixture
+fn build_options_from_fixture(fixture: &Fixture) -> anyhow::Result<BuildPlanOptions> {
+    let schemas: Vec<Identifier> = collect_managed_schemas(&fixture.after_sql)
+        .into_iter()
+        .map(|s| Identifier::from_unquoted(&s).map_err(|e| anyhow::anyhow!(e.to_string())))
+        .collect::<Result<_, _>>()?;
+    let strategy = match fixture
         .passthrough
         .planner
         .get("strategy")
         .and_then(|v| v.as_str())
-        .unwrap_or("online");
-
-    let cfg = format!(
-        "[project]\nname = \"conformance\"\nschema_dir = \"schema\"\nplan_dir = \"plans\"\nlayout_profile = \"schema-mirror\"\n\n\
-         [managed]\nschemas = [{schema_list}]\n\n\
-         [planner]\nstrategy = \"{strategy}\"\n\n\
-         [environments.dev]\nurl = \"{dsn}\"\n"
-    );
-    std::fs::write(project_path.join("pgevolve.toml"), cfg)?;
-
-    std::fs::create_dir_all(project_path.join("schema"))?;
-    std::fs::write(
-        project_path.join("schema/0001-fixture.sql"),
-        &fixture.after_sql,
-    )?;
-
-    if !fixture.passthrough.intent.is_empty() {
-        let body = toml::to_string(&fixture.passthrough.intent)?;
-        std::fs::write(project_path.join("intent.toml"), body)?;
-    }
-    Ok(())
+        .unwrap_or("online")
+    {
+        "atomic" => Strategy::Atomic,
+        _ => Strategy::Online,
+    };
+    Ok(BuildPlanOptions {
+        managed_schemas: schemas,
+        ignore_objects: vec![],
+        strategy,
+        planner_ruleset_version: pgevolve_core::plan::PlannerPolicy::default()
+            .planner_ruleset_version,
+        existing_lint_waivers: vec![],
+        source_rev: None,
+    })
 }
 
-/// Crude regex scan: every line containing `CREATE SCHEMA <name>` adds <name>.
-fn collect_managed_schemas(after_sql: &str) -> Vec<String> {
-    let re = regex::Regex::new(r"(?i)CREATE\s+SCHEMA\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)")
-        .expect("static regex");
-    let mut out: Vec<String> = re
-        .captures_iter(after_sql)
-        .map(|c| c[1].to_string())
-        .collect();
-    out.sort();
-    out.dedup();
-    out
-}
-
-fn cargo_bin() -> PathBuf {
-    // CARGO_BIN_EXE_pgevolve is injected by Cargo when the integration test
-    // binary declares pgevolve as a [[bin]] dependency in the *same* package.
-    // For cross-package dev-deps, the env var is not set; fall back to a
-    // workspace-relative path. The fallback must match the profile under
-    // which the tests are running (debug for `cargo test`, release for
-    // `cargo test --release` — the weekly soak workflow uses release).
-    option_env!("CARGO_BIN_EXE_pgevolve")
-        .map(PathBuf::from)
-        .filter(|p| p.exists())
-        .unwrap_or_else(|| {
-            let manifest_dir = env!("CARGO_MANIFEST_DIR");
-            let workspace_target = PathBuf::from(manifest_dir).join("../../target");
-            // Prefer the binary matching the current build profile; fall back
-            // to the other profile only if the matching one doesn't exist
-            // (e.g., a dev who built `--release` then ran debug tests).
-            let primary = if cfg!(debug_assertions) {
-                "debug"
-            } else {
-                "release"
-            };
-            let secondary = if cfg!(debug_assertions) {
-                "release"
-            } else {
-                "debug"
-            };
-            let primary_path = workspace_target.join(primary).join("pgevolve");
-            if primary_path.exists() {
-                primary_path
-            } else {
-                workspace_target.join(secondary).join("pgevolve")
-            }
-        })
-}
-
-/// Patch the `intent.toml` in `plan_dir` to flip every `approved = false`
-/// line to `approved = true`.
-///
-/// Uses a simple text substitution rather than a full TOML round-trip so that
-/// the file's layout (comments, ordering) is preserved and the patch is
-/// obviously correct. The only line that needs changing is:
-/// `approved = false` → `approved = true`.
-fn patch_intent_toml_approve_all(plan_dir: &Path) -> anyhow::Result<()> {
-    let path = plan_dir.join("intent.toml");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| anyhow::anyhow!("read {}: {e}", path.display()))?;
-    let patched = text.replace("approved = false", "approved = true");
-    std::fs::write(&path, patched).map_err(|e| anyhow::anyhow!("write {}: {e}", path.display()))?;
-    Ok(())
-}
-
-fn run_pgevolve(cwd: &Path, args: &[&str]) -> Result<(), String> {
-    let out = Command::new(cargo_bin())
-        .current_dir(cwd)
-        .args(args)
-        .output()
-        .map_err(|e| format!("spawn failed: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
-    }
-    Ok(())
-}
-
-fn plan_and_locate(cwd: &Path) -> Result<PathBuf, String> {
-    let out = Command::new(cargo_bin())
-        .current_dir(cwd)
-        .args(["plan", "--db", "dev"])
-        .output()
-        .map_err(|e| format!("spawn failed: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
-    }
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let line = stdout
-        .lines()
-        .find(|l| l.starts_with("Wrote plan"))
-        .ok_or_else(|| format!("no 'Wrote plan' in stdout:\n{stdout}"))?;
-    let rel = line
-        .split(" to ")
-        .nth(1)
-        .and_then(|s| s.split(' ').next())
-        .ok_or_else(|| format!("could not parse plan dir from: {line}"))?;
-    Ok(cwd.join(rel))
+fn filter_from_fixture(fixture: &Fixture) -> anyhow::Result<CatalogFilter> {
+    let schemas: Vec<Identifier> = collect_managed_schemas(&fixture.after_sql)
+        .into_iter()
+        .map(|s| Identifier::from_unquoted(&s).map_err(|e| anyhow::anyhow!(e.to_string())))
+        .collect::<Result<_, _>>()?;
+    CatalogFilter::new(schemas, vec![]).map_err(|e| anyhow::anyhow!(e.to_string()))
 }
 
 fn check_failure_expectation(fixture: &Fixture, stderr: &str, stage: &'static str) -> ApplyOutcome {
@@ -352,4 +249,17 @@ fn parse_post_apply_target(fixture: &Fixture) -> anyhow::Result<Catalog> {
     let tmp = tempfile::tempdir()?;
     std::fs::write(tmp.path().join("after.sql"), body)?;
     parse_directory(tmp.path(), &[]).map_err(|e| anyhow::anyhow!("parse {rel}: {e}"))
+}
+
+/// Crude regex scan: every line containing `CREATE SCHEMA <name>` adds <name>.
+fn collect_managed_schemas(after_sql: &str) -> Vec<String> {
+    let re = regex::Regex::new(r"(?i)CREATE\s+SCHEMA\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)")
+        .expect("static regex");
+    let mut out: Vec<String> = re
+        .captures_iter(after_sql)
+        .map(|c| c[1].to_string())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
