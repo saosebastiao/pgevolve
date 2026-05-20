@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 #![deny(unsafe_code)]
 
+pub mod api;
 pub mod cli;
 pub mod commands;
 pub mod config;
@@ -15,6 +16,7 @@ pub mod pg_querier;
 pub mod shadow;
 pub mod target_identity;
 
+pub use api::{BuildPlanError, BuildPlanOptions, build_plan};
 pub use executor::{
     ApplyError, ApplyOutcome, ApplyOverrides, apply, apply_plan, bootstrap_metadata,
 };
