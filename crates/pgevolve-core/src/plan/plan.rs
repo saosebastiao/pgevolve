@@ -276,6 +276,17 @@ impl Plan {
             metadata,
         }
     }
+
+    /// Mark every destructive intent as `approved = true`.
+    ///
+    /// Intended for test harnesses that build plans programmatically and
+    /// want to bypass the `intent.toml`-based approval workflow. Production
+    /// apply must continue to require explicit approval in `intent.toml`.
+    pub fn approve_all_intents(&mut self) {
+        for intent in &mut self.intents {
+            intent.approved = true;
+        }
+    }
 }
 
 /// Human-readable kind name used in directive comments and intent rows.
@@ -765,5 +776,51 @@ reason = "rewrite-table applied; PR #234"
         assert_eq!(doc.lint_waivers.len(), 1);
         assert_eq!(doc.lint_waivers[0].rule, "column-position-drift");
         assert_eq!(doc.lint_waivers[0].target, "app.users");
+    }
+
+    #[test]
+    fn approve_all_intents_flips_every_intent_to_approved() {
+        let mut plan = sample_plan_with_two_unapproved_intents();
+        assert!(!plan.intents[0].approved);
+        assert!(!plan.intents[1].approved);
+        plan.approve_all_intents();
+        assert!(plan.intents[0].approved);
+        assert!(plan.intents[1].approved);
+    }
+
+    fn sample_plan_with_two_unapproved_intents() -> Plan {
+        Plan {
+            id: PlanId::compute(&Catalog::empty(), &Catalog::empty(), "0.1.0", 1),
+            groups: Vec::new(),
+            intents: vec![
+                DestructiveIntent {
+                    id: 1,
+                    step: 1,
+                    kind: "drop_column".into(),
+                    target: "app.users.legacy_email".into(),
+                    reason: "test".into(),
+                    approved: false,
+                },
+                DestructiveIntent {
+                    id: 2,
+                    step: 2,
+                    kind: "drop_table".into(),
+                    target: "app.old_users".into(),
+                    reason: "test".into(),
+                    approved: false,
+                },
+            ],
+            lint_waivers: Vec::new(),
+            step_overrides: Vec::new(),
+            metadata: PlanMetadata {
+                pgevolve_version: crate::VERSION.to_string(),
+                planner_ruleset_version: 1,
+                source_rev: None,
+                target_identity: "test-identity".into(),
+                target_snapshot: Catalog::empty(),
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                lint_at_plan_findings: Vec::new(),
+            },
+        }
     }
 }
