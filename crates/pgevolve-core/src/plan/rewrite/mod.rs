@@ -142,6 +142,12 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         }
         Change::Function(fc) => emit::function::emit(fc, destructive, destructive_reason, out),
         Change::Procedure(pc) => emit::procedure::emit(pc, destructive, destructive_reason, out),
+        // Extension SQL emission is added in EXT9 (emit/extension.rs). This arm will
+        // not be reached in practice until EXT7 adds Extension to ordering buckets.
+        Change::Extension(_) => {
+            // EXT9: emit::extension::emit(ec, destructive, destructive_reason, out)
+            unimplemented!("Extension SQL emission is not yet implemented (EXT9)")
+        }
     }
 }
 

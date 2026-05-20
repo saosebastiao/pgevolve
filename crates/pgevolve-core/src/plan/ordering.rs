@@ -280,6 +280,16 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
                     modifies.push(entry);
                 }
             },
+            // Extension changes: bucket by lifecycle phase (NodeId::Extension added in EXT6).
+            Change::Extension(ec) => match ec {
+                crate::diff::change::ExtensionChange::Create(_)
+                | crate::diff::change::ExtensionChange::ReplaceWithCascade(_) => {
+                    creates.push(entry);
+                }
+                crate::diff::change::ExtensionChange::Drop(_) => drops.push(entry),
+                crate::diff::change::ExtensionChange::AlterUpdate { .. }
+                | crate::diff::change::ExtensionChange::CommentOn { .. } => modifies.push(entry),
+            },
         }
     }
     (creates, modifies, drops)
@@ -365,6 +375,21 @@ fn change_node(change: &Change) -> NodeId {
                 ProcedureChange::Drop(q) | ProcedureChange::SetComment { qname: q, .. } => q,
             };
             NodeId::Procedure(qname.clone())
+        }
+        // Extension node mapping: NodeId::Extension is added in EXT6; use Schema as
+        // a temporary stand-in so the planner compiles. The planner will not be called
+        // with Extension changes until EXT7 wires ordering buckets.
+        Change::Extension(ec) => {
+            use crate::diff::change::ExtensionChange;
+            let name = match ec {
+                ExtensionChange::Create(e) | ExtensionChange::ReplaceWithCascade(e) => {
+                    e.name.clone()
+                }
+                ExtensionChange::Drop(n)
+                | ExtensionChange::AlterUpdate { name: n, .. }
+                | ExtensionChange::CommentOn { name: n, .. } => n.clone(),
+            };
+            NodeId::Schema(name)
         }
     }
 }

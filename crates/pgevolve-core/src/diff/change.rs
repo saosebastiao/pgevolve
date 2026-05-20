@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::NormalizedExpr;
+use crate::ir::extension::Extension;
 use crate::ir::function::{Function, NormalizedArgTypes};
 use crate::ir::index::Index;
 use crate::ir::procedure::Procedure;
@@ -127,6 +128,8 @@ pub enum Change {
     Function(FunctionChange),
     /// A user-defined procedure change.
     Procedure(ProcedureChange),
+    /// An extension change.
+    Extension(ExtensionChange),
 }
 
 /// A structural change to a single user-defined type.
@@ -383,6 +386,32 @@ pub enum ProcedureChange {
         /// Qualified name of the procedure.
         qname: QualifiedName,
         /// New comment (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// Change to one extension. Pair-by-name semantics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ExtensionChange {
+    /// Install a new extension.
+    Create(Extension),
+    /// Drop an extension by name. Emits `DROP EXTENSION ... CASCADE`.
+    Drop(Identifier),
+    /// Bump extension version: `ALTER EXTENSION ... UPDATE TO 'v'`.
+    AlterUpdate {
+        /// Extension name.
+        name: Identifier,
+        /// New version to update to.
+        to_version: String,
+    },
+    /// Schema-changing replace (DROP CASCADE + CREATE).
+    ReplaceWithCascade(Extension),
+    /// Change the `COMMENT ON EXTENSION` text.
+    CommentOn {
+        /// Extension name.
+        name: Identifier,
+        /// New comment value (`None` clears the comment).
         comment: Option<String>,
     },
 }
