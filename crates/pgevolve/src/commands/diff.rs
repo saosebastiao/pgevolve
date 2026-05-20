@@ -352,6 +352,7 @@ fn print_sql(changes: &pgevolve_core::diff::ChangeSet) {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static str {
     use pgevolve_core::diff::change::{Change, MvChange, ViewChange};
     match c {
