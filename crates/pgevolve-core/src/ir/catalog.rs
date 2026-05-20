@@ -67,12 +67,6 @@ impl Catalog {
 
     /// Sort each collection by its canonical key and reject duplicates.
     pub fn canonicalize(mut self) -> Result<Self, IrError> {
-        self.sequences = self
-            .sequences
-            .into_iter()
-            .map(Sequence::canonicalize)
-            .collect();
-
         crate::ir::canon::canonicalize(&mut self)?;
 
         Ok(self)

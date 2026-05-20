@@ -21,6 +21,7 @@
 //!
 //! See `docs/superpowers/specs/2026-05-19-canon-consolidation-design.md`.
 
+pub mod filter_pg_defaults;
 pub mod renumber_enum_sort_orders;
 pub mod sentinel_view_columns;
 pub mod sort_and_dedupe;
@@ -33,6 +34,7 @@ use crate::ir::catalog::Catalog;
 /// Only [`sort_and_dedupe`] is fallible; the other passes mutate in
 /// place and cannot fail.
 pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
+    filter_pg_defaults::run(cat);
     sentinel_view_columns::run(cat);
     renumber_enum_sort_orders::run(cat);
     sort_and_dedupe::run(cat)?;
