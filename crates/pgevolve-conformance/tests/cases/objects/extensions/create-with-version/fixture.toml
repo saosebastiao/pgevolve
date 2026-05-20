@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE EXTENSION VERSION — pinned version branch"
+authoring = "objects"
+spec_refs = ["extensions.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "extensions.pgcrypto",
+]
+
+[expect.plan]
+steps = 1

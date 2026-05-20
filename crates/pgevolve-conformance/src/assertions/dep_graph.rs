@@ -98,6 +98,7 @@ fn node_label(n: &NodeId) -> String {
                 .join(",")
         ),
         NodeId::Procedure(q) => format!("procedure:{q}"),
+        NodeId::Extension(n) => format!("extension:{}", n.as_str()),
     }
 }
 

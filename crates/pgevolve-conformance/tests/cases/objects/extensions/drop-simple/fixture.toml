@@ -1,0 +1,22 @@
+[meta]
+title     = "DROP EXTENSION — requires intent approval"
+authoring = "objects"
+spec_refs = ["extensions.drop"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "extensions.pgcrypto",
+]
+
+[expect.plan]
+steps = 1
+minimality = false  # DROP is irreversible; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "drop_extension"
+target = "pg_extension.pgcrypto"
+reason_contains = []

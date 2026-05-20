@@ -485,6 +485,7 @@ mod tests {
                 name: schema_name,
                 comment: None,
             }],
+            extensions: vec![],
             tables: vec![table],
             indexes: vec![],
             sequences: vec![],

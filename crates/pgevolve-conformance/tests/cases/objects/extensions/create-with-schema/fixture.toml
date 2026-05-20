@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE EXTENSION WITH SCHEMA — schema-targeted extension"
+authoring = "objects"
+spec_refs = ["extensions.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "extensions.pg_trgm",
+]
+
+[expect.plan]
+steps = 1

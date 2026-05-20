@@ -68,8 +68,13 @@ pub fn diff_extensions(target: &[Extension], source: &[Extension], out: &mut Cha
                         Destructiveness::Safe,
                     );
                 }
-                // Comment mismatch.
-                if t.comment != s.comment {
+                // Comment mismatch (source-None means "don't care" — consistent
+                // with how schema and version are treated above). Extensions
+                // often ship with auto-assigned PG descriptions; if the source
+                // omits the comment field, we leave whatever PG has in place.
+                if let Some(source_comment) = &s.comment
+                    && t.comment.as_ref() != Some(source_comment)
+                {
                     out.push(
                         Change::Extension(ExtensionChange::CommentOn {
                             name: name.clone(),

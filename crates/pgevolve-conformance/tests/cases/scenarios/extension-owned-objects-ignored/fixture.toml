@@ -1,0 +1,23 @@
+[meta]
+title     = "Extension-owned objects (deptype='e') are excluded from plan"
+authoring = "scenarios"
+spec_refs = ["extensions.deptype_filter"]
+
+# pg_trgm installs operators and functions into the target schema.
+# The catalog reader filters them out via deptype='e' in pg_depend.
+# After apply the catalog must not contain those operator/function objects,
+# so the re-diff must be empty and the plan must have zero steps.
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+steps = 0
+golden = false
+
+[expect.dep_graph]
+enabled = false

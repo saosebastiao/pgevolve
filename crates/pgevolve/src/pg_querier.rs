@@ -82,10 +82,10 @@ impl CatalogQuerier for PgCatalogQuerier {
         let owned: Vec<String> = managed_schemas.iter().map(ToString::to_string).collect();
         let pg_rows: Vec<PgRow> = tokio::task::block_in_place(|| {
             self.runtime.block_on(async move {
-                if matches!(query, CatalogQuery::PgVersion) {
-                    client.query(sql, &[]).await
-                } else {
+                if query.needs_schema_param() {
                     client.query(sql, &[&owned]).await
+                } else {
+                    client.query(sql, &[]).await
                 }
             })
         })

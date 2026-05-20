@@ -98,6 +98,18 @@ pub enum CatalogQuery {
     Extensions,
 }
 
+impl CatalogQuery {
+    /// Whether this query uses the `$1::text[]` managed-schemas parameter.
+    ///
+    /// Most queries are schema-scoped and pass the managed-schema list as
+    /// `$1`. A few (currently `PgVersion` and `Extensions`) do not; callers
+    /// should pass an empty parameter list for those.
+    #[must_use]
+    pub const fn needs_schema_param(self) -> bool {
+        !matches!(self, Self::PgVersion | Self::Extensions)
+    }
+}
+
 /// Sync, driver-agnostic catalog query interface.
 ///
 /// Interface implemented by callers (typically the binary) to execute catalog

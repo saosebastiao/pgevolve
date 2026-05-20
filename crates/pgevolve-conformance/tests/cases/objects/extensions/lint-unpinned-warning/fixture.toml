@@ -1,0 +1,23 @@
+[meta]
+title     = "CREATE EXTENSION unpinned — Warning lint fires but plan proceeds"
+authoring = "objects"
+spec_refs = ["extensions.lint_unpinned"]
+
+# Note: the extension-version-unpinned lint has Warning severity (not LintAtPlan)
+# so it does not block plan generation. The conformance framework's failure/lint_at_plan
+# stage only asserts on LintAtPlan-severity findings via run_drift_lints.
+# The Warning-severity lint is unit-tested in pgevolve-core/src/lint/universal.rs.
+# This fixture confirms that an unpinned extension produces a valid plan (no
+# [[expect.lint]] layer exists yet in the conformance framework for Warning findings).
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "extensions.pgcrypto",
+]
+
+[expect.plan]
+steps = 1

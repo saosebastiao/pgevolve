@@ -1,10 +1,12 @@
 //! Catalog query for `pg_extension` — one row per installed extension.
 
-/// Reads installed extensions from `pg_extension`, scoped to managed schemas.
+/// Reads installed extensions from `pg_extension`.
 ///
-/// Filters by `extnamespace IN ($1)` so that built-in/system extensions
-/// (e.g. `plpgsql` in `pg_catalog`) are excluded. Only extensions explicitly
-/// installed into a managed schema are returned.
+/// Extensions are database-level objects (not schema-level), so we return
+/// all user-installed extensions. Built-in/system extensions (e.g. `plpgsql`,
+/// `pg_catalog` internals) are excluded by filtering out `pg_catalog` and
+/// `information_schema` namespaces. The `$1` parameter is accepted but ignored
+/// for consistency with the [`crate::catalog::CatalogQuerier`] interface.
 pub const SELECT_EXTENSIONS: &str = r"
 SELECT
     e.extname::text         AS name,
@@ -16,6 +18,6 @@ JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
 LEFT JOIN pg_catalog.pg_description d
     ON d.objoid = e.oid
    AND d.classoid = 'pg_catalog.pg_extension'::regclass
-WHERE n.nspname = ANY($1::text[])
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
 ORDER BY e.extname
 ";

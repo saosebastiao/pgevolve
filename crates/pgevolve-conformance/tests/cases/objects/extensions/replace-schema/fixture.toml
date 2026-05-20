@@ -1,0 +1,22 @@
+[meta]
+title     = "REPLACE EXTENSION WITH SCHEMA — schema change triggers ReplaceWithCascade"
+authoring = "objects"
+spec_refs = ["extensions.replace_schema"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "extensions.pg_trgm",
+]
+
+[expect.plan]
+steps = 2
+minimality = false  # ReplaceWithCascade is irreversible; post-apply schema matches
+
+[[expect.intent]]
+kind   = "drop_extension"
+target = "pg_extension.pg_trgm"
+reason_contains = []

@@ -1,0 +1,24 @@
+[meta]
+title     = "Schema step precedes extension step in plan"
+authoring = "scenarios"
+spec_refs = ["extensions.create_order"]
+
+# When both a schema and an extension referencing that schema are created
+# together, the schema must appear before the extension in the emitted plan.
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+# CreateSchema(app) + CreateExtension(pg_trgm)
+steps = 2
+order = [
+  "app.app < pg_extension.pg_trgm",
+]
+
+[expect.dep_graph]
+enabled = false

@@ -270,6 +270,30 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            pgevolve_core::diff::change::Change::Extension(ec) => {
+                use pgevolve_core::diff::change::ExtensionChange;
+                match ec {
+                    ExtensionChange::Create(e) => {
+                        println!("      create extension {}", e.name);
+                    }
+                    ExtensionChange::Drop(n) => {
+                        println!("      drop extension {n}");
+                    }
+                    ExtensionChange::AlterUpdate { name, to_version } => {
+                        println!("      alter extension {name} update to {to_version}");
+                    }
+                    ExtensionChange::ReplaceWithCascade(e) => {
+                        println!("      replace extension {} with cascade", e.name);
+                    }
+                    ExtensionChange::CommentOn { name, comment } => {
+                        if comment.is_some() {
+                            println!("      extension {name}: set comment");
+                        } else {
+                            println!("      extension {name}: clear comment");
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -415,6 +439,19 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         }
         Change::Procedure(pgevolve_core::diff::change::ProcedureChange::SetComment { .. }) => {
             "SetProcedureComment"
+        }
+        Change::Extension(pgevolve_core::diff::change::ExtensionChange::Create(_)) => {
+            "CreateExtension"
+        }
+        Change::Extension(pgevolve_core::diff::change::ExtensionChange::Drop(_)) => "DropExtension",
+        Change::Extension(pgevolve_core::diff::change::ExtensionChange::AlterUpdate { .. }) => {
+            "AlterExtensionUpdate"
+        }
+        Change::Extension(pgevolve_core::diff::change::ExtensionChange::ReplaceWithCascade(_)) => {
+            "ReplaceExtensionWithCascade"
+        }
+        Change::Extension(pgevolve_core::diff::change::ExtensionChange::CommentOn { .. }) => {
+            "CommentOnExtension"
         }
     }
 }

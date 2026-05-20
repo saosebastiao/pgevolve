@@ -237,10 +237,10 @@ fn read_live_catalog(
             // `Send` on the closure, so capturing `&Client` is safe here.
             let pg_rows: Vec<tokio_postgres::Row> = tokio::task::block_in_place(|| {
                 self.runtime.block_on(async move {
-                    if matches!(query, CatalogQuery::PgVersion) {
-                        client.query(sql, &[]).await
-                    } else {
+                    if query.needs_schema_param() {
                         client.query(sql, &[&owned]).await
+                    } else {
+                        client.query(sql, &[]).await
                     }
                 })
             })

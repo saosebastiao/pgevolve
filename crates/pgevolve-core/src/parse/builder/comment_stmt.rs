@@ -150,6 +150,18 @@ fn apply_comment_inner(
                 .ok_or_else(|| missing(location, "procedure", &qname.to_string()))?;
             proc.comment = comment;
         }
+        ObjectType::ObjectExtension => {
+            // `COMMENT ON EXTENSION name IS '...'`
+            // pg_query encodes the extension name as a bare String node.
+            let name_str = single_string(stmt, location)?;
+            let ext_name = shared::ident(&name_str, location)?;
+            let ext = catalog
+                .extensions
+                .iter_mut()
+                .find(|e| e.name == ext_name)
+                .ok_or_else(|| missing(location, "extension", &ext_name.to_string()))?;
+            ext.comment = comment;
+        }
         other => {
             return Err(ParseError::Structural {
                 location: location.clone(),

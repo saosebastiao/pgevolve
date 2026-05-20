@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE EXTENSION VERSION — source-pinned matches catalog; no plan emitted"
+authoring = "objects"
+spec_refs = ["extensions.version_noop"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+steps = 0
+# No golden needed — empty plan
+golden = false

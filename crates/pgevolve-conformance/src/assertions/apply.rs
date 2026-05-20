@@ -131,13 +131,29 @@ pub async fn check_with_options(
     let (post_apply_ir, post_apply_drift) = introspect_with_drift(&pg, fixture).await?;
     let expected_ir = parse_post_apply_target(fixture)?;
 
-    if post_apply_ir.canonical_eq(&expected_ir) {
+    // Use pgevolve-differ semantics to check equivalence: the source IR
+    // (`expected_ir`, parsed from after.sql) may leave optional fields such
+    // as `extension.version` or `extension.schema` as `None` to mean
+    // "don't care". The strict `canonical_eq` would flag those as mismatches,
+    // but the pgevolve differ correctly treats source-`None` as a wildcard.
+    //
+    // We compare `post_apply_ir` (target) vs `expected_ir` (source) using
+    // the pgevolve diff, and declare them equivalent when the changeset is
+    // empty (no further changes needed).
+    let convergence_diff = pgevolve_core::diff::diff(
+        &post_apply_ir,
+        &expected_ir,
+        &pgevolve_core::catalog::DriftReport::default(),
+    );
+    if convergence_diff.is_empty() {
         Ok(ApplyOutcome::Ok(Box::new(PostApplyState {
             catalog: post_apply_ir,
             drift: post_apply_drift,
             after_source: expected_ir,
         })))
     } else {
+        // Fall back to the Diff-trait-based rendering for a human-readable
+        // mismatch description.
         let diffs = expected_ir.diff(&post_apply_ir);
         let rendered = diffs
             .iter()

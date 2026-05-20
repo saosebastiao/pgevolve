@@ -1,0 +1,7 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "extension:pg_trgm";
+  "schema:gis";
+  "extension:pg_trgm" -> "schema:gis" [style=solid];
+}
