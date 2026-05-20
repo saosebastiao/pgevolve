@@ -185,16 +185,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
 
         // Drift-recovery changes emitted from the DriftReport.
         Change::ValidateConstraint { table, constraint } => {
-            out.push(RawStep {
-                step_no: 0,
-                kind: StepKind::ValidateConstraint,
-                destructive: false,
-                destructive_reason: None,
-                intent_id: None,
-                targets: vec![table.clone()],
-                sql: sql::alter_table_validate_constraint(&table, &constraint),
-                transactional: TransactionConstraint::InTransaction,
-            });
+            emit::constraint::validate(table, constraint, destructive, destructive_reason, out);
         }
         Change::RecreateIndex { qname } => emit::index::recreate(qname, ctx, destructive, destructive_reason, out),
 
