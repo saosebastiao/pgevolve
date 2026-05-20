@@ -27,7 +27,7 @@ pub mod types;
 pub mod views;
 
 use crate::diff::change::{
-    Change, ChangeEntry, FunctionChange, ProcedureChange,
+    Change, ChangeEntry, ProcedureChange,
 };
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::{TableOp, TableOpEntry};
@@ -192,7 +192,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         Change::View(vc) => emit::view::emit(vc, destructive, destructive_reason, out),
         Change::Mv(mc) => emit::mv::emit(mc, destructive, destructive_reason, out),
         Change::UserType(utc) => emit::user_type::emit(utc, destructive, destructive_reason, ctx, out),
-        Change::Function(fc) => emit_function_change(fc, destructive, destructive_reason, out),
+        Change::Function(fc) => emit::function::emit(fc, destructive, destructive_reason, out),
         Change::Procedure(pc) => emit_procedure_change(pc, destructive, destructive_reason, out),
     }
 }
@@ -381,113 +381,6 @@ fn emit_table_op(
 // Phase 5 helpers.
 pub(super) fn schema_target(name: &crate::identifier::Identifier) -> QualifiedName {
     QualifiedName::new(name.clone(), name.clone())
-}
-
-fn emit_function_change(
-    fc: FunctionChange,
-    destructive: bool,
-    destructive_reason: Option<String>,
-    out: &mut Vec<RawStep>,
-) {
-    use functions::{
-        emit_comment_on_function, emit_create_or_replace_function, emit_drop_function,
-    };
-
-    match fc {
-        FunctionChange::Create(f) => {
-            let qname = f.qname.clone();
-            let args = f.arg_types_normalized.clone();
-            let comment = f.comment.clone();
-            out.push(RawStep {
-                step_no: 0,
-                kind: StepKind::CreateOrReplaceFunction,
-                destructive: false,
-                destructive_reason: None,
-                intent_id: None,
-                targets: vec![qname.clone()],
-                sql: emit_create_or_replace_function(&f),
-                transactional: TransactionConstraint::InTransaction,
-            });
-            if let Some(c) = &comment {
-                out.push(RawStep {
-                    step_no: 0,
-                    kind: StepKind::CommentOnFunction,
-                    destructive: false,
-                    destructive_reason: None,
-                    intent_id: None,
-                    targets: vec![qname.clone()],
-                    sql: emit_comment_on_function(&qname, &args, Some(c)),
-                    transactional: TransactionConstraint::InTransaction,
-                });
-            }
-        }
-        FunctionChange::Drop { qname, args } => {
-            out.push(RawStep {
-                step_no: 0,
-                kind: StepKind::DropFunction,
-                destructive,
-                destructive_reason,
-                intent_id: None,
-                targets: vec![qname.clone()],
-                sql: emit_drop_function(&qname, &args),
-                transactional: TransactionConstraint::InTransaction,
-            });
-        }
-        FunctionChange::CreateOrReplace(f) => {
-            let qname = f.qname.clone();
-            out.push(RawStep {
-                step_no: 0,
-                kind: StepKind::CreateOrReplaceFunction,
-                destructive,
-                destructive_reason,
-                intent_id: None,
-                targets: vec![qname],
-                sql: emit_create_or_replace_function(&f),
-                transactional: TransactionConstraint::InTransaction,
-            });
-        }
-        FunctionChange::ReplaceWithCascade { source, catalog } => {
-            // DROP … CASCADE (destructive — requires approval).
-            out.push(RawStep {
-                step_no: 0,
-                kind: StepKind::DropFunction,
-                destructive,
-                destructive_reason: destructive_reason.clone(),
-                intent_id: None,
-                targets: vec![catalog.qname.clone()],
-                sql: emit_drop_function(&catalog.qname, &catalog.arg_types_normalized),
-                transactional: TransactionConstraint::InTransaction,
-            });
-            // CREATE OR REPLACE for the source (also destructive — same gate).
-            let qname = source.qname.clone();
-            out.push(RawStep {
-                step_no: 0,
-                kind: StepKind::CreateOrReplaceFunction,
-                destructive,
-                destructive_reason,
-                intent_id: None,
-                targets: vec![qname],
-                sql: emit_create_or_replace_function(&source),
-                transactional: TransactionConstraint::InTransaction,
-            });
-        }
-        FunctionChange::SetComment {
-            qname,
-            args,
-            comment,
-        } => {
-            out.push(RawStep {
-                step_no: 0,
-                kind: StepKind::CommentOnFunction,
-                destructive: false,
-                destructive_reason: None,
-                intent_id: None,
-                targets: vec![qname.clone()],
-                sql: emit_comment_on_function(&qname, &args, comment.as_deref()),
-                transactional: TransactionConstraint::InTransaction,
-            });
-        }
-    }
 }
 
 fn emit_procedure_change(
