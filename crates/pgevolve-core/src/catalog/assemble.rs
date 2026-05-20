@@ -29,6 +29,7 @@ use crate::catalog::rows::Row;
 use crate::catalog::version::PgVersion;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
+use crate::ir::extension::Extension;
 use crate::ir::column::{
     Column, Generated, GeneratedKind, Identity, IdentityKind, SequenceOptions,
 };
@@ -70,6 +71,7 @@ pub struct RawRows {
     pub domain_checks: Vec<Row>,
     pub composite_attributes: Vec<Row>,
     pub functions: Vec<Row>,
+    pub extensions: Vec<Row>,
 }
 
 /// Convert raw rows into a [`Catalog`] and a [`DriftReport`]. Caller is
@@ -95,6 +97,7 @@ pub fn assemble(
         domain_checks,
         composite_attributes,
         functions,
+        extensions,
     } = raw;
 
     let mut catalog = Catalog::empty();
@@ -144,6 +147,9 @@ pub fn assemble(
     let (fns, procs) = build_functions_and_procedures(&functions, filter, &mut drift)?;
     catalog.functions = fns;
     catalog.procedures = procs;
+
+    // Build extensions from pg_extension.
+    catalog.extensions = build_extensions(&extensions)?;
 
     Ok((catalog, drift))
 }
@@ -1679,6 +1685,28 @@ fn qname_from(
 fn ident_required(s: &str) -> Result<Identifier, CatalogError> {
     Identifier::from_unquoted(s)
         .map_err(|e| CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(e.to_string())))
+}
+
+fn build_extensions(rows: &[Row]) -> Result<Vec<Extension>, CatalogError> {
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let q = CatalogQuery::Extensions;
+        let name_str = r.get_text(q, "name")?;
+        let name = Identifier::from_unquoted(&name_str)
+            .map_err(|e| CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(e.to_string())))?;
+        let schema_str = r.get_text(q, "schema")?;
+        let schema = Identifier::from_unquoted(&schema_str)
+            .map_err(|e| CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(e.to_string())))?;
+        let version = r.get_text(q, "version")?;
+        let comment = r.get_opt_text(q, "comment")?;
+        out.push(Extension {
+            name,
+            schema: Some(schema),
+            version: Some(version),
+            comment,
+        });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

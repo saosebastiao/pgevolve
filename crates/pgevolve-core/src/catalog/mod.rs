@@ -94,6 +94,8 @@ pub enum CatalogQuery {
     CompositeAttributes,
     /// `pg_proc` rows for functions and procedures (prokind IN 'f','p').
     Functions,
+    /// `pg_extension` rows for installed extensions.
+    Extensions,
 }
 
 /// Sync, driver-agnostic catalog query interface.
@@ -139,6 +141,7 @@ pub fn read_catalog(
     let domain_checks_rows = querier.fetch(CatalogQuery::DomainChecks, &managed)?;
     let composite_attributes_rows = querier.fetch(CatalogQuery::CompositeAttributes, &managed)?;
     let functions_rows = querier.fetch(CatalogQuery::Functions, &managed)?;
+    let extensions_rows = querier.fetch(CatalogQuery::Extensions, &managed)?;
 
     let raw = assemble::RawRows {
         version,
@@ -157,6 +160,7 @@ pub fn read_catalog(
         domain_checks: domain_checks_rows,
         composite_attributes: composite_attributes_rows,
         functions: functions_rows,
+        extensions: extensions_rows,
     };
     let (catalog, drift) = assemble::assemble(raw, filter)?;
     Ok((catalog.canonicalize()?, drift))
