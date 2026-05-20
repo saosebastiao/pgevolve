@@ -18,6 +18,7 @@
 pub mod check_not_valid_validate;
 pub mod concurrent_index;
 pub mod emit;
+pub mod extensions;
 pub mod fk_not_valid_validate;
 pub mod functions;
 pub mod refresh_mv_concurrently;
