@@ -26,9 +26,7 @@ pub mod sql;
 pub mod types;
 pub mod views;
 
-use crate::diff::change::{
-    Change, ChangeEntry,
-};
+use crate::diff::change::{Change, ChangeEntry};
 use crate::diff::destructiveness::Destructiveness;
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
@@ -106,31 +104,46 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         Change::AlterSchema { name, comment } => emit::schema::alter(name, comment, out),
 
         Change::CreateTable(t) => emit::table::create(t, destructive, destructive_reason, out),
-        Change::DropTable { qname, .. } => emit::table::drop_(qname, destructive, destructive_reason, out),
+        Change::DropTable { qname, .. } => {
+            emit::table::drop_(qname, destructive, destructive_reason, out)
+        }
         Change::AlterTable { qname, ops } => emit::table::alter(qname, ops, ctx, out),
 
-        Change::CreateIndex(idx) => emit::index::create(idx, ctx, destructive, destructive_reason, out),
-        Change::DropIndex(qname) => emit::index::drop_(qname, ctx, destructive, destructive_reason, out),
-        Change::ReplaceIndex { from, to } => emit::index::replace(from, to, ctx, destructive, destructive_reason, out),
+        Change::CreateIndex(idx) => {
+            emit::index::create(idx, ctx, destructive, destructive_reason, out)
+        }
+        Change::DropIndex(qname) => {
+            emit::index::drop_(qname, ctx, destructive, destructive_reason, out)
+        }
+        Change::ReplaceIndex { from, to } => {
+            emit::index::replace(from, to, ctx, destructive, destructive_reason, out)
+        }
 
-        Change::CreateSequence(s) => emit::sequence::create(s, destructive, destructive_reason, out),
-        Change::DropSequence(qname) => emit::sequence::drop_(qname, destructive, destructive_reason, out),
+        Change::CreateSequence(s) => {
+            emit::sequence::create(s, destructive, destructive_reason, out)
+        }
+        Change::DropSequence(qname) => {
+            emit::sequence::drop_(qname, destructive, destructive_reason, out)
+        }
         Change::AlterSequence { qname, ops } => emit::sequence::alter(qname, ops, out),
 
         // Drift-recovery changes emitted from the DriftReport.
         Change::ValidateConstraint { table, constraint } => {
             emit::constraint::validate(table, constraint, destructive, destructive_reason, out);
         }
-        Change::RecreateIndex { qname } => emit::index::recreate(qname, ctx, destructive, destructive_reason, out),
+        Change::RecreateIndex { qname } => {
+            emit::index::recreate(qname, ctx, destructive, destructive_reason, out)
+        }
 
         Change::View(vc) => emit::view::emit(vc, destructive, destructive_reason, out),
         Change::Mv(mc) => emit::mv::emit(mc, destructive, destructive_reason, out),
-        Change::UserType(utc) => emit::user_type::emit(utc, destructive, destructive_reason, ctx, out),
+        Change::UserType(utc) => {
+            emit::user_type::emit(utc, destructive, destructive_reason, ctx, out)
+        }
         Change::Function(fc) => emit::function::emit(fc, destructive, destructive_reason, out),
         Change::Procedure(pc) => emit::procedure::emit(pc, destructive, destructive_reason, out),
     }
 }
-
 
 // `Schema` is identified by an `Identifier`, but `RawStep::targets` carries
 // `QualifiedName`s. Promote the schema name to a `QualifiedName` whose schema

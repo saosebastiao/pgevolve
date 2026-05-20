@@ -56,11 +56,7 @@ pub fn drop_(
     });
 }
 
-pub fn alter(
-    name: Identifier,
-    comment: Option<String>,
-    out: &mut Vec<RawStep>,
-) {
+pub fn alter(name: Identifier, comment: Option<String>, out: &mut Vec<RawStep>) {
     out.push(RawStep {
         step_no: 0,
         kind: StepKind::AlterSchemaComment,

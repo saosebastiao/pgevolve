@@ -62,11 +62,7 @@ pub fn drop_(
     });
 }
 
-pub fn alter(
-    qname: QualifiedName,
-    ops: Vec<SequenceOpEntry>,
-    out: &mut Vec<RawStep>,
-) {
+pub fn alter(qname: QualifiedName, ops: Vec<SequenceOpEntry>, out: &mut Vec<RawStep>) {
     for op_entry in ops {
         op(&qname, op_entry, out);
     }

@@ -1,8 +1,5 @@
 //! Dispatcher for `Change::UserType(UserTypeChange)`.
 
-use crate::diff::change::UserTypeChange;
-use crate::ir::user_type::UserTypeKind;
-use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 use super::super::types::{
     emit_alter_domain_add_check, emit_alter_domain_drop_check, emit_alter_domain_set_default,
     emit_alter_domain_set_not_null, emit_alter_type_add_attribute, emit_alter_type_add_value,
@@ -10,6 +7,9 @@ use super::super::types::{
     emit_alter_type_rename_value, emit_comment_on_type, emit_create_type, emit_drop_type,
     emit_drop_type_cascade,
 };
+use crate::diff::change::UserTypeChange;
+use crate::ir::user_type::UserTypeKind;
+use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
 #[allow(clippy::too_many_lines)]
 pub fn emit(

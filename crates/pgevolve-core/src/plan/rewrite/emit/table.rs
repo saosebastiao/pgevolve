@@ -5,7 +5,9 @@ use crate::diff::table_op::{TableOp, TableOpEntry};
 use crate::identifier::QualifiedName;
 use crate::ir::table::Table;
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
-use crate::plan::rewrite::{check_not_valid_validate, fk_not_valid_validate, set_not_null_check_pattern, sql};
+use crate::plan::rewrite::{
+    check_not_valid_validate, fk_not_valid_validate, set_not_null_check_pattern, sql,
+};
 
 use super::super::destructive_reason;
 

@@ -8,7 +8,6 @@ use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::sequence_op::{SequenceOp, SequenceOpEntry};
 use crate::diff::table_op::{TableOp, TableOpEntry};
-use crate::plan::raw_step::{StepKind, TransactionConstraint};
 use crate::identifier::Identifier;
 use crate::ir::column::Column;
 use crate::ir::column_type::ColumnType;
@@ -24,6 +23,7 @@ use crate::ir::table::Table;
 use crate::plan::ordered::{DeferredFkAdd, OrderedChangeSet};
 use crate::plan::ordering::order;
 use crate::plan::policy::PlannerPolicy;
+use crate::plan::raw_step::{StepKind, TransactionConstraint};
 
 fn id(s: &str) -> Identifier {
     Identifier::from_unquoted(s).unwrap()
@@ -78,11 +78,7 @@ fn make_index(name: &str, table: QualifiedName, unique: bool) -> Index {
     }
 }
 
-fn rewrite_with_default(
-    target: &Catalog,
-    source: &Catalog,
-    changes: ChangeSet,
-) -> Vec<RawStep> {
+fn rewrite_with_default(target: &Catalog, source: &Catalog, changes: ChangeSet) -> Vec<RawStep> {
     let policy = PlannerPolicy::default();
     let ordered = order(target, source, changes, &policy).unwrap();
     rewrite(ordered, target, &policy)

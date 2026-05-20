@@ -3,8 +3,8 @@
 use crate::diff::change::MvChange;
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 use crate::plan::rewrite::views::{
-    emit_comment_on_materialized_view, emit_comment_on_mv_column,
-    emit_create_materialized_view, emit_drop_materialized_view, emit_refresh_mv,
+    emit_comment_on_materialized_view, emit_comment_on_mv_column, emit_create_materialized_view,
+    emit_drop_materialized_view, emit_refresh_mv,
 };
 
 pub fn emit(
