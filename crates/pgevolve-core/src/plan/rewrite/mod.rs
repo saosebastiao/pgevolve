@@ -17,6 +17,7 @@
 
 pub mod check_not_valid_validate;
 pub mod concurrent_index;
+pub mod emit;
 pub mod fk_not_valid_validate;
 pub mod functions;
 pub mod refresh_mv_concurrently;
@@ -38,10 +39,10 @@ use crate::plan::policy::PlannerPolicy;
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
 /// Context passed to every emitter — read-only.
-struct Ctx<'a> {
-    target: &'a Catalog,
-    source: &'a Catalog,
-    policy: &'a PlannerPolicy,
+pub(super) struct Ctx<'a> {
+    pub(super) target: &'a Catalog,
+    pub(super) source: &'a Catalog,
+    pub(super) policy: &'a PlannerPolicy,
 }
 
 /// Apply policy-gated rewrites and emit the flat step list.
@@ -1190,7 +1191,7 @@ fn emit_deferred_fk(fk: &DeferredFkAdd, _ctx: &Ctx<'_>, out: &mut Vec<RawStep>) 
 // `QualifiedName`s. Promote the schema name to a `QualifiedName` whose schema
 // half equals its name — same convention used for ordering in the planner's
 // Phase 5 helpers.
-fn schema_target(name: &crate::identifier::Identifier) -> QualifiedName {
+pub(super) fn schema_target(name: &crate::identifier::Identifier) -> QualifiedName {
     QualifiedName::new(name.clone(), name.clone())
 }
 
@@ -1389,7 +1390,7 @@ fn emit_procedure_change(
     }
 }
 
-fn destructive_reason(d: &Destructiveness) -> Option<String> {
+pub(super) fn destructive_reason(d: &Destructiveness) -> Option<String> {
     match d {
         Destructiveness::Safe => None,
         Destructiveness::RequiresApproval { reason }
