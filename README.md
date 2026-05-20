@@ -154,7 +154,7 @@ v0.3+ work (cluster-level surface — roles, GRANTs, `postgresql.conf`, RLS) is 
 | `[[step_override]]` in `intent.toml` | ✅ Implemented |
 | 3 new lint rules (`view-shadows-table`, `mv-no-unique-index`, `view-body-references-unmanaged-schema`) | ✅ Implemented |
 | 15 conformance fixtures (views, MVs, intent, dep-chains) | ✅ Implemented |
-| `--shadow-validate` cross-check extended for view bodies | 📋 Deferred — [plan filed](./docs/superpowers/plans/2026-05-18-t13-shadow-validate-views.md) |
+| `--shadow-validate` cross-check extended for view bodies | 📋 Deferred past v0.2.0 — [plan filed](./docs/superpowers/plans/2026-05-18-t13-shadow-validate-views.md) |
 
 ### v0.2 types — what's in `6127bdd`
 

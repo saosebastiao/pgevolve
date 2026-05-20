@@ -11,6 +11,22 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 Extends the v0.1 surface with **views, materialized views, user-defined types, and functions/procedures** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
 
+### Added — internal architecture (2026-05-19)
+
+- **`pgevolve-core-macros` crate** — internal proc-macro crate exposing `#[derive(DiffMacro)]`. Most IR structs (`Schema`, `Sequence`, `Column`, `Constraint`, `ForeignKey`, `Procedure`, `Index`) now derive their `Diff` impl with `#[diff(skip)]` / `#[diff(via_debug)]` / `#[diff(nested)]` field attributes. Hand-written impls retained where they have non-trivial logic (`Catalog`, `Function`, `Table`, `View`, `MaterializedView`, `UserType`, and the enum impls). Removes ~250 lines of mechanical boilerplate.
+- **`ir::canon` pipeline** — every IR-value normalization rule moved into a single ordered pipeline. Four named passes: `filter_pg_defaults` (sequence min/max, function cost/rows, `pg_catalog.default` collation → `None`); `sentinel_view_columns` (view/MV column types → shared sentinel); `renumber_enum_sort_orders` (enum sort_order → `1.0, 2.0, 3.0, …`); `sort_and_dedupe` (canonical-key sort + duplicate detection). `Catalog::canonicalize` is now a thin wrapper. Catalog reader and source builders are kept "raw" — they no longer filter PG defaults. The rule for the next PG-default surprise lives in one place.
+- **`pgevolve::api::build_plan`** — library entry point that runs the full parse→introspect→diff→order→rewrite→group→assemble pipeline and returns a `Plan` value. No `println!`, no waiver-prompt UX, no `--shadow-validate`, no on-disk plan directory.
+- **`pgevolve::executor::apply_plan(&Plan, …)`** — sibling to `apply(plan_dir, …)` that takes an in-memory `Plan`. The disk-based `apply` is now a thin shim that calls `read_plan_dir` then delegates. CLI `plan`/`apply` commands are thin wrappers over `api::build_plan` / `executor::apply_plan` plus CLI UX.
+- **`Plan::approve_all_intents`** — helper on `pgevolve_core::plan::Plan` for test harnesses building plans programmatically. Production apply still requires explicit `intent.toml` approval.
+
+### Changed — conformance suite (2026-05-19)
+
+- Conformance Layer 4 (apply roundtrip) now runs **in-process** via `pgevolve::api::build_plan` + `pgevolve::executor::apply_plan`. The subprocess scaffolding (`cargo_bin`, `run_pgevolve`, `plan_and_locate`, `patch_intent_toml_approve_all`, `write_project`) is gone — ~150 fewer lines in `crates/pgevolve-conformance/src/assertions/apply.rs`. Faster (no per-fixture binary rebuild + spawn) and easier to debug (assertions can inspect the `Plan` value rather than its on-disk rendering).
+
+### Deferred
+
+- **T13: `--shadow-validate` extended for view bodies** — plan filed at `docs/superpowers/plans/2026-05-18-t13-shadow-validate-views.md` but implementation pushed past v0.2.0. Tracked separately.
+
 ### Added — IR (functions and procedures)
 
 - `Function { qname, args, arg_types_normalized, return_type, language, body, body_dependencies, volatility, strict, security, parallel, leakproof, cost, rows, comment }` flat IR type in `pgevolve-core::ir::function`.
