@@ -391,6 +391,19 @@ fn process_file(
                 locations.insert(key, location.clone());
                 catalog.procedures.push(p);
             }
+            Statement::CreateExtension(s) => {
+                let ext = builder::create_extension_stmt::build_extension(&s, &location)?;
+                let key = format!("extensions.{}", ext.name);
+                if let Some(prior) = locations.get(&key) {
+                    return Err(ParseError::DuplicateObject {
+                        qname: key,
+                        first: prior.clone(),
+                        second: location,
+                    });
+                }
+                locations.insert(key, location.clone());
+                catalog.extensions.push(ext);
+            }
         }
     }
     Ok(())

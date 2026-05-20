@@ -39,6 +39,8 @@ pub enum Statement {
     CreateFunction(protobuf::CreateFunctionStmt),
     /// `CREATE [OR REPLACE] PROCEDURE ...`.
     CreateProcedure(protobuf::CreateFunctionStmt),
+    /// `CREATE EXTENSION ...`.
+    CreateExtension(protobuf::CreateExtensionStmt),
 }
 
 impl Statement {
@@ -63,6 +65,13 @@ impl Statement {
                     Ok(Self::CreateFunction(*s))
                 }
             }
+            NodeEnum::CreateExtensionStmt(s) => Ok(Self::CreateExtension(s)),
+            NodeEnum::AlterExtensionStmt(_) => Err(ParseError::Structural {
+                location,
+                message: "ALTER EXTENSION is not supported in source files — \
+                          declare the desired state via CREATE EXTENSION"
+                    .into(),
+            }),
             NodeEnum::CreateTableAsStmt(s) => {
                 // `CREATE TABLE ... AS SELECT` and `CREATE MATERIALIZED VIEW`
                 // both arrive as CreateTableAsStmt. Route by the objtype field.
@@ -89,7 +98,7 @@ const fn friendly_kind(node: &NodeEnum) -> &'static str {
         NodeEnum::CreateFunctionStmt(_) => "CREATE FUNCTION/PROCEDURE", // never reached — routed above
         NodeEnum::CreateTrigStmt(_) => "CREATE TRIGGER",
         NodeEnum::CreateRangeStmt(_) => "CREATE TYPE ... AS RANGE",
-        NodeEnum::CreateExtensionStmt(_) => "CREATE EXTENSION",
+        NodeEnum::CreateExtensionStmt(_) => "CREATE EXTENSION", // never reached — routed above
         NodeEnum::CreatePolicyStmt(_) => "CREATE POLICY",
         NodeEnum::CreateForeignTableStmt(_) => "CREATE FOREIGN TABLE",
         NodeEnum::CreateFdwStmt(_) => "CREATE FOREIGN DATA WRAPPER",
@@ -226,10 +235,17 @@ mod tests {
     }
 
     #[test]
-    fn create_extension_unsupported() {
+    fn create_extension_classifies() {
         let node = first_node("CREATE EXTENSION pgcrypto;");
+        let stmt = Statement::classify(node, loc()).unwrap();
+        assert!(matches!(stmt, Statement::CreateExtension(_)));
+    }
+
+    #[test]
+    fn alter_extension_rejected() {
+        let node = first_node("ALTER EXTENSION pgcrypto UPDATE;");
         let err = Statement::classify(node, loc()).unwrap_err();
-        assert!(matches!(err, ParseError::UnsupportedObjectKind { .. }));
+        assert!(matches!(err, ParseError::Structural { .. }));
     }
 
     #[test]
