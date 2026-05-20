@@ -175,94 +175,9 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             }
         }
 
-        Change::CreateIndex(idx) => {
-            let qname = idx.qname.clone();
-            let step = if concurrent_index::should_rewrite_create(&idx, ctx.target, ctx.policy) {
-                concurrent_index::create_step(&idx, destructive, destructive_reason)
-            } else {
-                RawStep {
-                    step_no: 0,
-                    kind: StepKind::CreateIndex,
-                    destructive,
-                    destructive_reason,
-                    intent_id: None,
-                    targets: vec![qname.clone(), idx.on.qname().clone()],
-                    sql: sql::create_index(&idx, false),
-                    transactional: TransactionConstraint::InTransaction,
-                }
-            };
-            out.push(step);
-            if let Some(c) = &idx.comment {
-                out.push(RawStep {
-                    step_no: 0,
-                    kind: StepKind::SetColumnComment,
-                    destructive: false,
-                    destructive_reason: None,
-                    intent_id: None,
-                    targets: vec![qname.clone()],
-                    sql: format!(
-                        "COMMENT ON INDEX {} IS '{}';",
-                        qname.render_sql(),
-                        c.replace('\'', "''"),
-                    ),
-                    transactional: TransactionConstraint::InTransaction,
-                });
-            }
-        }
-        Change::DropIndex(qname) => {
-            let step = if concurrent_index::should_rewrite_drop(&qname, ctx.target, ctx.policy) {
-                concurrent_index::drop_step(&qname, destructive, destructive_reason)
-            } else {
-                RawStep {
-                    step_no: 0,
-                    kind: StepKind::DropIndex,
-                    destructive,
-                    destructive_reason,
-                    intent_id: None,
-                    targets: vec![qname.clone()],
-                    sql: sql::drop_index(&qname, false),
-                    transactional: TransactionConstraint::InTransaction,
-                }
-            };
-            out.push(step);
-        }
-        Change::ReplaceIndex { from, to } => {
-            // Drop the old index, then create the new one. Each side runs
-            // through the same concurrent-rewrite check as a top-level
-            // Create/Drop so policy applies uniformly.
-            let drop_step =
-                if concurrent_index::should_rewrite_drop(&from.qname, ctx.target, ctx.policy) {
-                    concurrent_index::drop_step(&from.qname, false, None)
-                } else {
-                    RawStep {
-                        step_no: 0,
-                        kind: StepKind::DropIndex,
-                        destructive: false,
-                        destructive_reason: None,
-                        intent_id: None,
-                        targets: vec![from.qname.clone()],
-                        sql: sql::drop_index(&from.qname, false),
-                        transactional: TransactionConstraint::InTransaction,
-                    }
-                };
-            let create_step =
-                if concurrent_index::should_rewrite_create(&to, ctx.target, ctx.policy) {
-                    concurrent_index::create_step(&to, false, None)
-                } else {
-                    RawStep {
-                        step_no: 0,
-                        kind: StepKind::CreateIndex,
-                        destructive: false,
-                        destructive_reason: None,
-                        intent_id: None,
-                        targets: vec![to.qname.clone(), to.on.qname().clone()],
-                        sql: sql::create_index(&to, false),
-                        transactional: TransactionConstraint::InTransaction,
-                    }
-                };
-            out.push(drop_step);
-            out.push(create_step);
-        }
+        Change::CreateIndex(idx) => emit::index::create(idx, ctx, destructive, destructive_reason, out),
+        Change::DropIndex(qname) => emit::index::drop_(qname, ctx, destructive, destructive_reason, out),
+        Change::ReplaceIndex { from, to } => emit::index::replace(from, to, ctx, destructive, destructive_reason, out),
 
         Change::CreateSequence(s) => emit::sequence::create(s, destructive, destructive_reason, out),
         Change::DropSequence(qname) => emit::sequence::drop_(qname, destructive, destructive_reason, out),
@@ -281,48 +196,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: TransactionConstraint::InTransaction,
             });
         }
-        Change::RecreateIndex { qname } => {
-            // Drop the invalid index then re-create it from the source IR.
-            // If the index is unknown in the source (e.g., it was dropped in the
-            // same migration), emit only the drop so we don't fail the plan.
-            let source_idx = ctx.source.indexes.iter().find(|i| i.qname == qname);
-            // Drop step — use concurrent rewrite if policy allows and target
-            // index exists (we know it does because the drift report saw it).
-            let drop_step = if concurrent_index::should_rewrite_drop(&qname, ctx.target, ctx.policy)
-            {
-                concurrent_index::drop_step(&qname, false, None)
-            } else {
-                RawStep {
-                    step_no: 0,
-                    kind: StepKind::DropIndex,
-                    destructive: false,
-                    destructive_reason: None,
-                    intent_id: None,
-                    targets: vec![qname.clone()],
-                    sql: sql::drop_index(&qname, false),
-                    transactional: TransactionConstraint::InTransaction,
-                }
-            };
-            out.push(drop_step);
-            if let Some(idx) = source_idx {
-                let create_step =
-                    if concurrent_index::should_rewrite_create(idx, ctx.target, ctx.policy) {
-                        concurrent_index::create_step(idx, false, None)
-                    } else {
-                        RawStep {
-                            step_no: 0,
-                            kind: StepKind::CreateIndex,
-                            destructive: false,
-                            destructive_reason: None,
-                            intent_id: None,
-                            targets: vec![idx.qname.clone(), idx.on.qname().clone()],
-                            sql: sql::create_index(idx, false),
-                            transactional: TransactionConstraint::InTransaction,
-                        }
-                    };
-                out.push(create_step);
-            }
-        }
+        Change::RecreateIndex { qname } => emit::index::recreate(qname, ctx, destructive, destructive_reason, out),
 
         Change::View(vc) => emit_view_change(vc, destructive, destructive_reason, out),
         Change::Mv(mc) => emit_mv_change(mc, destructive, destructive_reason, out),
