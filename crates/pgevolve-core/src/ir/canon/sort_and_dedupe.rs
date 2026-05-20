@@ -19,6 +19,13 @@ pub fn run(cat: &mut Catalog) -> Result<(), IrError> {
         )));
     }
 
+    cat.extensions.sort_by(|a, b| a.name.cmp(&b.name));
+    if let Some(dupe) = first_duplicate(cat.extensions.iter().map(|e| e.name.as_str())) {
+        return Err(IrError::InvalidIdentifier(format!(
+            "duplicate extension: {dupe}"
+        )));
+    }
+
     cat.tables.sort_by(|a, b| a.qname.cmp(&b.qname));
     if let Some(dupe) = first_duplicate(cat.tables.iter().map(|t| t.qname.to_string())) {
         return Err(IrError::InvalidIdentifier(format!(

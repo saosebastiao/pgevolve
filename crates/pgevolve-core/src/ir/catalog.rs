@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::ir::IrError;
 use crate::ir::difference::Difference;
 use crate::ir::eq::{Diff, prefix_diffs};
+use crate::ir::extension::Extension;
 use crate::ir::function::Function;
 use crate::ir::index::Index;
 use crate::ir::procedure::Procedure;
@@ -21,6 +22,8 @@ use crate::ir::view::{MaterializedView, View};
 pub struct Catalog {
     /// Schemas (namespaces).
     pub schemas: Vec<Schema>,
+    /// Postgres extensions (`CREATE EXTENSION`).
+    pub extensions: Vec<Extension>,
     /// Tables.
     pub tables: Vec<Table>,
     /// Indexes.
@@ -45,6 +48,7 @@ impl Catalog {
     pub const fn empty() -> Self {
         Self {
             schemas: Vec::new(),
+            extensions: Vec::new(),
             tables: Vec::new(),
             indexes: Vec::new(),
             sequences: Vec::new(),
@@ -79,6 +83,10 @@ impl Diff for Catalog {
         out.extend(prefix_diffs(
             "schemas",
             diff_keyed(&self.schemas, &other.schemas, |s| s.name.to_string()),
+        ));
+        out.extend(prefix_diffs(
+            "extensions",
+            diff_keyed(&self.extensions, &other.extensions, |e| e.name.to_string()),
         ));
         out.extend(prefix_diffs(
             "tables",
