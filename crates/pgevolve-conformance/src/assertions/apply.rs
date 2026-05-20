@@ -94,7 +94,10 @@ pub async fn check_with_options(
 
     // Write `after.sql` into a tempdir; the parser walks a directory.
     let schema_tmp = tempfile::tempdir()?;
-    std::fs::write(schema_tmp.path().join("0001-fixture.sql"), &fixture.after_sql)?;
+    std::fs::write(
+        schema_tmp.path().join("0001-fixture.sql"),
+        &fixture.after_sql,
+    )?;
 
     // build_plan never touches the pgevolve metadata tables, so no
     // pre-bootstrap is required. apply_plan calls bootstrap_metadata as
@@ -103,11 +106,11 @@ pub async fn check_with_options(
     // build_plan consumes its client; apply_plan opens a fresh one.
     let build_client = pg.connect().await?;
     let build_opts = build_options_from_fixture(fixture)?;
-    let mut plan = match pgevolve::api::build_plan(schema_tmp.path(), build_client, build_opts).await
-    {
-        Ok(p) => p,
-        Err(e) => return Ok(check_failure_expectation(fixture, &e.to_string(), "plan")),
-    };
+    let mut plan =
+        match pgevolve::api::build_plan(schema_tmp.path(), build_client, build_opts).await {
+            Ok(p) => p,
+            Err(e) => return Ok(check_failure_expectation(fixture, &e.to_string(), "plan")),
+        };
 
     if opts.auto_approve_intents {
         plan.approve_all_intents();

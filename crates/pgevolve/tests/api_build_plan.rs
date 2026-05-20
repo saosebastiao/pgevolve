@@ -46,6 +46,9 @@ async fn build_plan_produces_a_create_table_plan() -> Result<()> {
 
     assert!(!plan.groups.is_empty(), "expected at least one group");
     let step_count: usize = plan.groups.iter().map(|g| g.steps.len()).sum();
-    assert!(step_count >= 1, "expected at least one step, got {step_count}");
+    assert!(
+        step_count >= 1,
+        "expected at least one step, got {step_count}"
+    );
     Ok(())
 }
