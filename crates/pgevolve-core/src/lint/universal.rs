@@ -322,7 +322,7 @@ fn view_body_references_unmanaged_schema(
                 | NodeId::Type(q)
                 | NodeId::Procedure(q)
                 | NodeId::Function(q, _) => q.schema.as_str(),
-                NodeId::Schema(s) => s.as_str(),
+                NodeId::Schema(s) | NodeId::Extension(s) => s.as_str(),
                 NodeId::Constraint { table, .. } => table.schema.as_str(),
             };
 
@@ -688,7 +688,7 @@ fn function_references_unmanaged_schema_rule(
                 | NodeId::Type(q)
                 | NodeId::Procedure(q)
                 | NodeId::Function(q, _) => q.schema.as_str(),
-                NodeId::Schema(s) => s.as_str(),
+                NodeId::Schema(s) | NodeId::Extension(s) => s.as_str(),
                 NodeId::Constraint { table, .. } => table.schema.as_str(),
             };
 

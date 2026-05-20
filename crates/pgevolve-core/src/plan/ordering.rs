@@ -376,9 +376,7 @@ fn change_node(change: &Change) -> NodeId {
             };
             NodeId::Procedure(qname.clone())
         }
-        // Extension node mapping: NodeId::Extension is added in EXT6; use Schema as
-        // a temporary stand-in so the planner compiles. The planner will not be called
-        // with Extension changes until EXT7 wires ordering buckets.
+        // Extension node mapping.
         Change::Extension(ec) => {
             use crate::diff::change::ExtensionChange;
             let name = match ec {
@@ -389,7 +387,7 @@ fn change_node(change: &Change) -> NodeId {
                 | ExtensionChange::AlterUpdate { name: n, .. }
                 | ExtensionChange::CommentOn { name: n, .. } => n.clone(),
             };
-            NodeId::Schema(name)
+            NodeId::Extension(name)
         }
     }
 }
@@ -469,6 +467,7 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Mv(q) => format!("mv:{q}"),
         NodeId::Type(q) => format!("type:{q}"),
         NodeId::Procedure(q) => format!("procedure:{q}"),
+        NodeId::Extension(name) => format!("extension:{name}"),
         NodeId::Function(q, args) => format!(
             "function:{}({})",
             q,

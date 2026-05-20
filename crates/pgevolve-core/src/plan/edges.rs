@@ -57,6 +57,8 @@ pub enum NodeId {
     Function(QualifiedName, NormalizedArgTypes),
     /// A user-defined procedure — identified by qname only (Decision 2).
     Procedure(QualifiedName),
+    /// An installed extension.
+    Extension(Identifier),
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.
@@ -109,6 +111,13 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     }
     for p in &catalog.procedures {
         g.add_node(NodeId::Procedure(p.qname.clone()));
+    }
+    // Register extensions; an extension with WITH SCHEMA s depends on the schema.
+    for e in &catalog.extensions {
+        g.add_node(NodeId::Extension(e.name.clone()));
+        if let Some(schema) = &e.schema {
+            g.add_edge(NodeId::Extension(e.name.clone()), NodeId::Schema(schema.clone()));
+        }
     }
 
     // Phase 1b.0: type → schema edges. Every user-defined type lives inside
