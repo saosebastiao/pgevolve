@@ -257,6 +257,7 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     // column default. We add the schema node implicitly via add_edge in case
     // the caller did not declare it (defensive: source-side parsing typically
     // does declare every referenced schema, but a hand-built Catalog might not).
+    // Partition children depend on their parent table.
     for t in &catalog.tables {
         g.add_edge(
             NodeId::Table(t.qname.clone()),
@@ -269,6 +270,13 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
                     NodeId::Sequence(seq_qname.clone()),
                 );
             }
+        }
+        if let Some(po) = &t.partition_of {
+            // Partition child depends on its parent existing first.
+            g.add_edge(
+                NodeId::Table(t.qname.clone()),
+                NodeId::Table(po.parent.clone()),
+            );
         }
     }
 
@@ -810,6 +818,99 @@ comment: None,
         });
         let g = build_create_graph(&c);
         assert!(g.topological_sort().is_ok());
+    }
+
+    #[test]
+    fn partition_child_depends_on_parent() {
+        // A partition child table depends on its parent table being created first.
+        use crate::ir::partition::{PartitionBy, PartitionBounds, PartitionOf};
+        let mut c = Catalog::empty();
+
+        // Parent table with PARTITION BY LIST.
+        let parent = Table {
+            qname: qn("app", "parent"),
+            columns: vec![
+                Column {
+                    name: id("id"),
+                    ty: ColumnType::BigInt,
+                    nullable: false,
+                    default: None,
+                    identity: None,
+                    generated: None,
+                    collation: None,
+                    comment: None,
+                },
+                Column {
+                    name: id("status"),
+                    ty: ColumnType::Text,
+                    nullable: false,
+                    default: None,
+                    identity: None,
+                    generated: None,
+                    collation: None,
+                    comment: None,
+                },
+            ],
+            constraints: vec![pk("parent_pkey", &["id"])],
+            partition_by: Some(PartitionBy {
+                strategy: crate::ir::partition::PartitionStrategy::List,
+                columns: vec![crate::ir::partition::PartitionColumn {
+                    kind: crate::ir::partition::PartitionColumnKind::Column(id("status")),
+                    collation: None,
+                    opclass: None,
+                }],
+            }),
+            partition_of: None,
+            comment: None,
+        };
+        c.tables.push(parent);
+
+        // Child partition table.
+        let child = Table {
+            qname: qn("app", "child"),
+            columns: vec![
+                Column {
+                    name: id("id"),
+                    ty: ColumnType::BigInt,
+                    nullable: false,
+                    default: None,
+                    identity: None,
+                    generated: None,
+                    collation: None,
+                    comment: None,
+                },
+                Column {
+                    name: id("status"),
+                    ty: ColumnType::Text,
+                    nullable: false,
+                    default: None,
+                    identity: None,
+                    generated: None,
+                    collation: None,
+                    comment: None,
+                },
+            ],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: Some(PartitionOf {
+                parent: qn("app", "parent"),
+                bounds: PartitionBounds::List {
+                    values: vec![],
+                },
+            }),
+            comment: None,
+        };
+        c.tables.push(child);
+
+        let g = build_create_graph(&c);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Table(qn("app", "child")),
+                &NodeId::Table(qn("app", "parent")),
+            ),
+            "expected child partition → parent table edge"
+        );
     }
 
     // ── User-defined type edge tests ──────────────────────────────────────────
