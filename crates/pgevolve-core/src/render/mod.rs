@@ -29,6 +29,7 @@ pub mod index;
 pub mod schema;
 pub mod sequence;
 pub mod table;
+pub mod view;
 
 use crate::ir::catalog::Catalog;
 use crate::ir::constraint::ConstraintKind;
