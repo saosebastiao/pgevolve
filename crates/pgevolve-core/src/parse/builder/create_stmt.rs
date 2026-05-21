@@ -3,7 +3,10 @@
 #![allow(clippy::similar_names, clippy::missing_const_for_fn)]
 
 use pg_query::NodeEnum;
-use pg_query::protobuf::{self, ColumnDef, ConstrType, Constraint as PgConstraint, CreateStmt};
+use pg_query::protobuf::{
+    self, ColumnDef, ConstrType, Constraint as PgConstraint, CreateStmt, PartitionBoundSpec,
+    PartitionSpec,
+};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column::{
@@ -13,6 +16,10 @@ use crate::ir::constraint::{
     Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
 };
 use crate::ir::default_expr::DefaultExpr;
+use crate::ir::partition::{
+    BoundDatum, PartitionBounds, PartitionBy, PartitionColumn, PartitionColumnKind,
+    PartitionOf, PartitionStrategy,
+};
 use crate::ir::table::Table;
 use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
@@ -78,12 +85,52 @@ pub fn build_table(
         }
     }
 
+    // PARTITION BY <strategy> (<key-cols>) — marks this table as a partitioned parent.
+    let partition_by = create
+        .partspec
+        .as_ref()
+        .map(|spec| build_partition_by(spec, location))
+        .transpose()?;
+
+    // PARTITION OF <parent> FOR VALUES <bounds> — marks this as a partition child.
+    let partition_of = create
+        .partbound
+        .as_ref()
+        .map(|bound| {
+            let parent = create.inh_relations.first().map_or_else(
+                || {
+                    Err(ParseError::Structural {
+                        location: location.clone(),
+                        message: "PARTITION OF requires exactly one parent".into(),
+                    })
+                },
+                |node| match node.node.as_ref() {
+                    Some(NodeEnum::RangeVar(rv)) => {
+                        shared::resolve_qname(rv, default_schema, location)
+                    }
+                    _ => Err(ParseError::Structural {
+                        location: location.clone(),
+                        message: "PARTITION OF parent must be a RangeVar".into(),
+                    }),
+                },
+            )?;
+            if create.inh_relations.len() > 1 {
+                return Err(ParseError::Structural {
+                    location: location.clone(),
+                    message: "PARTITION OF accepts exactly one parent".into(),
+                });
+            }
+            let bounds = build_partition_bounds(bound, location)?;
+            Ok(PartitionOf { parent, bounds })
+        })
+        .transpose()?;
+
     Ok(Table {
         qname,
         columns,
         constraints,
-        partition_by: None,
-        partition_of: None,
+        partition_by,
+        partition_of,
         comment: None,
     })
 }
@@ -483,6 +530,237 @@ fn node_kind_name(node: &NodeEnum) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Partitioning helpers
+// ---------------------------------------------------------------------------
+
+/// Build a [`PartitionBy`] from a `PartitionSpec` node.
+///
+/// `pub(crate)` so PART3 (ATTACH PARTITION builder) and PART4 (catalog reader)
+/// can call it directly without re-parsing the node.
+pub(crate) fn build_partition_by(
+    spec: &PartitionSpec,
+    location: &SourceLocation,
+) -> Result<PartitionBy, ParseError> {
+    use pg_query::protobuf::PartitionStrategy as PgStrategy;
+
+    let pg_strategy = PgStrategy::try_from(spec.strategy).unwrap_or(PgStrategy::Undefined);
+    let strategy = match pg_strategy {
+        PgStrategy::Range => PartitionStrategy::Range,
+        PgStrategy::List => PartitionStrategy::List,
+        PgStrategy::Hash => PartitionStrategy::Hash,
+        PgStrategy::Undefined => {
+            return Err(ParseError::Structural {
+                location: location.clone(),
+                message: format!(
+                    "unknown partition strategy value {}",
+                    spec.strategy
+                ),
+            });
+        }
+    };
+
+    let mut columns = Vec::new();
+    for part_elem_node in &spec.part_params {
+        let Some(NodeEnum::PartitionElem(elem)) = part_elem_node.node.as_ref() else {
+            return Err(ParseError::Structural {
+                location: location.clone(),
+                message: "PARTITION BY entry was not a PartitionElem".into(),
+            });
+        };
+        let kind = if !elem.name.is_empty() {
+            PartitionColumnKind::Column(shared::ident(&elem.name, location)?)
+        } else if let Some(expr_node) = elem.expr.as_ref() {
+            let inner = expr_node.node.as_ref().ok_or_else(|| ParseError::Structural {
+                location: location.clone(),
+                message: "PartitionElem expr node has no inner node".into(),
+            })?;
+            PartitionColumnKind::Expr(normalize_expr::from_pg_node(inner, None, location)?)
+        } else {
+            return Err(ParseError::Structural {
+                location: location.clone(),
+                message: "PartitionElem had neither name nor expr".into(),
+            });
+        };
+        let collation = qualified_name_from_node_list(&elem.collation, location)?;
+        let opclass = qualified_name_from_node_list(&elem.opclass, location)?;
+        columns.push(PartitionColumn { kind, collation, opclass });
+    }
+
+    if columns.is_empty() {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: "PARTITION BY had no columns".into(),
+        });
+    }
+    if matches!(strategy, PartitionStrategy::Hash) && columns.len() != 1 {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: "HASH partition strategy supports exactly one column".into(),
+        });
+    }
+
+    Ok(PartitionBy { strategy, columns })
+}
+
+/// Build a [`PartitionBounds`] from a `PartitionBoundSpec` node.
+///
+/// `pub(crate)` so PART3 and PART4 can call it without re-parsing.
+pub(crate) fn build_partition_bounds(
+    spec: &PartitionBoundSpec,
+    location: &SourceLocation,
+) -> Result<PartitionBounds, ParseError> {
+    if spec.is_default {
+        return Ok(PartitionBounds::Default);
+    }
+
+    match spec.strategy.as_str() {
+        "h" | "HASH" | "hash" => {
+            if spec.modulus < 1 {
+                return Err(ParseError::Structural {
+                    location: location.clone(),
+                    message: "HASH partition modulus must be >= 1".into(),
+                });
+            }
+            if spec.remainder < 0 || spec.remainder >= spec.modulus {
+                return Err(ParseError::Structural {
+                    location: location.clone(),
+                    message: "HASH partition remainder out of range".into(),
+                });
+            }
+            Ok(PartitionBounds::Hash {
+                modulus: u32::try_from(spec.modulus).map_err(|_| ParseError::Structural {
+                    location: location.clone(),
+                    message: "modulus did not fit in u32".into(),
+                })?,
+                remainder: u32::try_from(spec.remainder).map_err(|_| ParseError::Structural {
+                    location: location.clone(),
+                    message: "remainder did not fit in u32".into(),
+                })?,
+            })
+        }
+        "l" | "LIST" | "list" => {
+            let values = spec
+                .listdatums
+                .iter()
+                .map(|n| build_bound_datum(n, location))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(PartitionBounds::List { values })
+        }
+        "r" | "RANGE" | "range" => {
+            let from = spec
+                .lowerdatums
+                .iter()
+                .map(|n| build_bound_datum(n, location))
+                .collect::<Result<Vec<_>, _>>()?;
+            let to = spec
+                .upperdatums
+                .iter()
+                .map(|n| build_bound_datum(n, location))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(PartitionBounds::Range { from, to })
+        }
+        other => Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!("unknown partition bound strategy {other:?}"),
+        }),
+    }
+}
+
+fn build_bound_datum(
+    node: &pg_query::protobuf::Node,
+    location: &SourceLocation,
+) -> Result<BoundDatum, ParseError> {
+    use pg_query::protobuf::PartitionRangeDatumKind;
+
+    if let Some(NodeEnum::PartitionRangeDatum(d)) = node.node.as_ref() {
+        let kind =
+            PartitionRangeDatumKind::try_from(d.kind).unwrap_or(PartitionRangeDatumKind::Undefined);
+        return match kind {
+            PartitionRangeDatumKind::PartitionRangeDatumValue => {
+                let v =
+                    d.value.as_ref().ok_or_else(|| ParseError::Structural {
+                        location: location.clone(),
+                        message: "PartitionRangeDatum kind=value but value is None".into(),
+                    })?;
+                let inner = v.node.as_ref().ok_or_else(|| ParseError::Structural {
+                    location: location.clone(),
+                    message: "PartitionRangeDatum value node has no inner node".into(),
+                })?;
+                Ok(BoundDatum::Literal(normalize_expr::from_pg_node(
+                    inner, None, location,
+                )?))
+            }
+            PartitionRangeDatumKind::PartitionRangeDatumMinvalue => Ok(BoundDatum::MinValue),
+            PartitionRangeDatumKind::PartitionRangeDatumMaxvalue => Ok(BoundDatum::MaxValue),
+            PartitionRangeDatumKind::Undefined => Err(ParseError::Structural {
+                location: location.clone(),
+                message: format!("unknown PartitionRangeDatumKind {}", d.kind),
+            }),
+        };
+    }
+
+    // Fallback: treat it as a literal expression (e.g., a raw AConst or FuncCall
+    // in a LIST partition).
+    let inner = node.node.as_ref().ok_or_else(|| ParseError::Structural {
+        location: location.clone(),
+        message: "bound datum node has no inner node".into(),
+    })?;
+    Ok(BoundDatum::Literal(normalize_expr::from_pg_node(
+        inner, None, location,
+    )?))
+}
+
+/// Build an optional [`QualifiedName`] from a repeated `Node` list that should
+/// contain one or two `String` nodes (e.g. collation or opclass overrides in a
+/// `PartitionElem`).
+fn qualified_name_from_node_list(
+    nodes: &[pg_query::protobuf::Node],
+    location: &SourceLocation,
+) -> Result<Option<QualifiedName>, ParseError> {
+    if nodes.is_empty() {
+        return Ok(None);
+    }
+    let mut parts: Vec<String> = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        match node.node.as_ref() {
+            Some(NodeEnum::String(s)) => parts.push(s.sval.clone()),
+            _ => {
+                return Err(ParseError::Structural {
+                    location: location.clone(),
+                    message: "expected String node in qualified name list".into(),
+                });
+            }
+        }
+    }
+    let (schema, name) = match parts.len() {
+        1 => {
+            // A bare name (e.g. `text_ops`) — treat schema as "public" since opclass
+            // names without a schema are resolved against search_path at runtime;
+            // we store the name so the diff engine can compare them.
+            ("public".to_string(), parts.remove(0))
+        }
+        2 => {
+            let n = parts.pop().unwrap();
+            let s = parts.pop().unwrap();
+            (s, n)
+        }
+        _ => {
+            return Err(ParseError::Structural {
+                location: location.clone(),
+                message: format!(
+                    "qualified name list had unexpected length {}",
+                    nodes.len()
+                ),
+            });
+        }
+    };
+    Ok(Some(QualifiedName::new(
+        shared::ident(&schema, location)?,
+        shared::ident(&name, location)?,
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -640,5 +918,102 @@ mod tests {
         };
         let err = build_table(&create, None, &loc()).unwrap_err();
         assert!(matches!(err, ParseError::UnqualifiedName { .. }));
+    }
+
+    // ------------------------------------------------------------------
+    // Helper used by the partition tests below.
+    // ------------------------------------------------------------------
+
+    fn try_build(sql: &str) -> Result<Table, ParseError> {
+        let parsed = pg_query::parse(sql).expect("pg_query parse");
+        let stmt = parsed
+            .protobuf
+            .stmts
+            .into_iter()
+            .next()
+            .and_then(|raw| raw.stmt)
+            .and_then(|n| n.node)
+            .expect("stmt");
+        let NodeEnum::CreateStmt(create) = stmt else {
+            panic!("not CreateStmt")
+        };
+        build_table(&create, None, &loc())
+    }
+
+    // ------------------------------------------------------------------
+    // Partitioning tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn parses_partition_by_list() {
+        let t = build(
+            "CREATE TABLE app.orders \
+             (id bigint NOT NULL, region text NOT NULL) \
+             PARTITION BY LIST (region);",
+        );
+        let pb = t.partition_by.expect("partition_by should be Some");
+        assert!(
+            matches!(pb.strategy, PartitionStrategy::List),
+            "expected List strategy"
+        );
+        assert_eq!(pb.columns.len(), 1);
+        assert!(
+            matches!(&pb.columns[0].kind, PartitionColumnKind::Column(id) if id.as_str() == "region")
+        );
+    }
+
+    #[test]
+    fn parses_partition_of_range() {
+        let t = build(
+            "CREATE TABLE app.orders_2024 \
+             PARTITION OF app.orders \
+             FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');",
+        );
+        let po = t.partition_of.expect("partition_of should be Some");
+        assert_eq!(po.parent.name.as_str(), "orders");
+        assert_eq!(po.parent.schema.as_str(), "app");
+        assert!(
+            matches!(po.bounds, PartitionBounds::Range { .. }),
+            "expected Range bounds"
+        );
+    }
+
+    #[test]
+    fn rejects_hash_with_two_columns() {
+        let err = try_build("CREATE TABLE app.t (a int, b int) PARTITION BY HASH (a, b);")
+            .unwrap_err();
+        assert!(
+            matches!(err, ParseError::Structural { .. }),
+            "expected Structural error, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn parses_default_partition() {
+        let t = build(
+            "CREATE TABLE app.orders_default \
+             PARTITION OF app.orders DEFAULT;",
+        );
+        let po = t.partition_of.expect("partition_of should be Some");
+        assert!(
+            matches!(po.bounds, PartitionBounds::Default),
+            "expected Default bounds"
+        );
+    }
+
+    #[test]
+    fn parses_hash_bound() {
+        let t = build(
+            "CREATE TABLE app.t0 \
+             PARTITION OF app.t \
+             FOR VALUES WITH (MODULUS 4, REMAINDER 0);",
+        );
+        match t.partition_of.unwrap().bounds {
+            PartitionBounds::Hash { modulus, remainder } => {
+                assert_eq!(modulus, 4);
+                assert_eq!(remainder, 0);
+            }
+            other => panic!("expected Hash bounds, got {other:?}"),
+        }
     }
 }
