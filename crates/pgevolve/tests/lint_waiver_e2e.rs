@@ -282,7 +282,8 @@ fn lint_waiver_survives_intent_toml_round_trip() {
         None,
         "0.1.0",
         1,
-    );
+    )
+    .unwrap();
 
     // Inject a waiver into the plan.
     plan.lint_waivers.push(LintWaiver {

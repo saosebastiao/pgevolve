@@ -157,7 +157,8 @@ fn build_demo_plan(dir: &std::path::Path, target_identity: &str) -> pgevolve_cor
         Some("git:test".into()),
         "0.1.0",
         1,
-    );
+    )
+    .expect("from_grouped");
     pgevolve_core::plan::serialize::write_plan_dir(&plan, dir).expect("write plan dir");
     plan
 }
@@ -230,6 +231,11 @@ async fn apply_succeeds_end_to_end_and_persists_audit_rows() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+// The rollback-on-failure scenario requires setting up multi-step groups,
+// injecting a deliberate SQL error, running apply, and then asserting both
+// the schema state and the audit log. There is no natural extraction point
+// that would reduce the line count without obscuring the test flow.
+#[allow(clippy::too_many_lines)]
 async fn apply_rolls_back_transactional_group_on_failure() {
     if !docker_available() {
         eprintln!("skipping: docker unavailable");
@@ -284,7 +290,8 @@ async fn apply_rolls_back_transactional_group_on_failure() {
         None,
         "0.1.0",
         1,
-    );
+    )
+    .unwrap();
     pgevolve_core::plan::serialize::write_plan_dir(&plan, dir.path()).unwrap();
 
     let filter = pgevolve_core::catalog::CatalogFilter::new(vec![id("demo")], vec![]).unwrap();
@@ -524,7 +531,8 @@ async fn refresh_mv_suppressed_by_step_override() {
         None,
         "0.2.0",
         2,
-    );
+    )
+    .unwrap();
 
     // Suppress the REFRESH step via a [[step_override]] row.
     plan.step_overrides.push(StepOverride {

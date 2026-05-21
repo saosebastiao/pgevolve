@@ -58,7 +58,8 @@ pub async fn build_plan(
         None,
         pgevolve_core::VERSION,
         policy.planner_ruleset_version,
-    );
+    )
+    .map_err(|e| anyhow!("from_grouped: {e}"))?;
     write_plan_dir(&plan, dir)?;
     Ok(plan)
 }

@@ -190,7 +190,7 @@ fn build_plan_for_shadow(source: &Catalog, target_identity: String) -> Result<Pl
         order(&empty, source, changes, &policy).map_err(|e| anyhow!("plan order: {e}"))?;
     let steps = rewrite(ordered, &empty, &policy);
     let groups = group_steps(steps);
-    Ok(Plan::from_grouped(
+    Plan::from_grouped(
         groups,
         source,
         &empty,
@@ -198,7 +198,8 @@ fn build_plan_for_shadow(source: &Catalog, target_identity: String) -> Result<Pl
         None,
         pgevolve_core::VERSION,
         policy.planner_ruleset_version,
-    ))
+    )
+    .map_err(|e| anyhow!("from_grouped: {e}"))
 }
 
 /// Parse an optional `postgres_version` string into a `PgMajor`.

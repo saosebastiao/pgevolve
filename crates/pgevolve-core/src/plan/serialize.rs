@@ -327,6 +327,7 @@ mod tests {
             "0.1.0",
             1,
         )
+        .unwrap()
     }
 
     #[test]

@@ -367,11 +367,11 @@ proptest! {
         source in arbitrary_catalog(IRGeneratorConfig::default()),
         target in arbitrary_catalog(IRGeneratorConfig::default()),
     ) {
-        let a = PlanId::compute(&source, &target, "0.1.0", 1);
-        let b = PlanId::compute(&source, &target, "0.1.0", 1);
+        let a = PlanId::compute(&source, &target, "0.1.0", 1).unwrap();
+        let b = PlanId::compute(&source, &target, "0.1.0", 1).unwrap();
         prop_assert_eq!(a, b);
         // And differ when the ruleset version differs.
-        let c = PlanId::compute(&source, &target, "0.1.0", 2);
+        let c = PlanId::compute(&source, &target, "0.1.0", 2).unwrap();
         prop_assert_ne!(a, c);
     }
 

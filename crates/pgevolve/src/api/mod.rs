@@ -139,7 +139,8 @@ pub async fn build_plan(
         opts.source_rev.clone(),
         pgevolve_core::VERSION,
         opts.planner_ruleset_version,
-    );
+    )
+    .map_err(|e| BuildPlanError::Planner(e.to_string()))?;
 
     // --- Drift-lint gate (mirrors commands::plan::run) ---
     let drift_findings = run_drift_lints(&source, &target);

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::ir::catalog::Catalog;
+use crate::plan::error::PlanError;
 use crate::plan::grouping::TransactionGroup;
 
 /// A `LintAtPlan` finding captured at plan time for apply-time replay.
@@ -43,30 +44,36 @@ impl PlanId {
     /// Deterministic identity hash over the planner's logical inputs.
     ///
     /// The hash payload is: a domain-separator string, the pgevolve version,
-    /// the planner ruleset version, and `bincode`-serialized source and target
-    /// catalogs. Bincode's encoding is deterministic — same value, same bytes —
+    /// the planner ruleset version, and JSON-serialized source and target
+    /// catalogs. `serde_json` field ordering is determined by struct
+    /// declaration order; all map-like containers in `Catalog` use `Vec` or
+    /// `BTreeMap`, so serialization is deterministic — same value, same bytes —
     /// which is the property `PlanId` requires.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PlanError::Internal` if either catalog cannot be serialized to
+    /// JSON (this would indicate a bug in the `Catalog` type, not a user error).
     pub fn compute(
         source: &Catalog,
         target: &Catalog,
         pgevolve_version: &str,
         planner_ruleset_version: u32,
-    ) -> Self {
+    ) -> Result<Self, PlanError> {
         let mut h = blake3::Hasher::new();
         h.update(b"pgevolve-plan-id-v1\n");
         h.update(pgevolve_version.as_bytes());
         h.update(&[0]);
         h.update(&planner_ruleset_version.to_be_bytes());
         h.update(&[0]);
-        let cfg = bincode::config::standard();
-        let source_bytes =
-            bincode::serde::encode_to_vec(source, cfg).expect("Catalog is bincode-serializable");
-        let target_bytes =
-            bincode::serde::encode_to_vec(target, cfg).expect("Catalog is bincode-serializable");
+        let source_bytes = serde_json::to_vec(source)
+            .map_err(|e| PlanError::Internal(format!("Catalog serialization failed: {e}")))?;
+        let target_bytes = serde_json::to_vec(target)
+            .map_err(|e| PlanError::Internal(format!("Catalog serialization failed: {e}")))?;
         h.update(&source_bytes);
         h.update(&[0]);
         h.update(&target_bytes);
-        Self(*h.finalize().as_bytes())
+        Ok(Self(*h.finalize().as_bytes()))
     }
 
     /// First 8 bytes hex-encoded (16 chars) — used in human-facing places like
@@ -223,6 +230,11 @@ impl Plan {
     ///
     /// `target_identity` is opaque to the planner — the executor binary
     /// computes it from `(host, port, dbname, system_identifier)` at apply time.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PlanError::Internal` if the source or target catalog cannot be
+    /// serialized to JSON for hashing (see [`PlanId::compute`]).
     #[allow(clippy::too_many_arguments)]
     pub fn from_grouped(
         mut groups: Vec<TransactionGroup>,
@@ -232,7 +244,7 @@ impl Plan {
         source_rev: Option<String>,
         pgevolve_version: &str,
         planner_ruleset_version: u32,
-    ) -> Self {
+    ) -> Result<Self, PlanError> {
         let mut step_no: u32 = 0;
         let mut intent_no: u32 = 0;
         let mut intents: Vec<DestructiveIntent> = Vec::new();
@@ -257,7 +269,7 @@ impl Plan {
                 }
             }
         }
-        let id = PlanId::compute(source, target, pgevolve_version, planner_ruleset_version);
+        let id = PlanId::compute(source, target, pgevolve_version, planner_ruleset_version)?;
         let metadata = PlanMetadata {
             pgevolve_version: pgevolve_version.to_string(),
             planner_ruleset_version,
@@ -267,14 +279,14 @@ impl Plan {
             created_at: OffsetDateTime::now_utc(),
             lint_at_plan_findings: Vec::new(),
         };
-        Self {
+        Ok(Self {
             id,
             groups,
             intents,
             lint_waivers: Vec::new(),
             step_overrides: Vec::new(),
             metadata,
-        }
+        })
     }
 
     /// Mark every destructive intent as `approved = true`.
@@ -461,16 +473,16 @@ mod tests {
     fn plan_id_is_deterministic_across_calls() {
         let s = cat_with_schema("app");
         let t = Catalog::empty();
-        let a = PlanId::compute(&s, &t, "0.1.0", 1);
-        let b = PlanId::compute(&s, &t, "0.1.0", 1);
+        let a = PlanId::compute(&s, &t, "0.1.0", 1).unwrap();
+        let b = PlanId::compute(&s, &t, "0.1.0", 1).unwrap();
         assert_eq!(a, b);
     }
 
     #[test]
     fn plan_id_differs_when_target_differs() {
         let s = cat_with_schema("app");
-        let a = PlanId::compute(&s, &Catalog::empty(), "0.1.0", 1);
-        let b = PlanId::compute(&s, &cat_with_schema("legacy"), "0.1.0", 1);
+        let a = PlanId::compute(&s, &Catalog::empty(), "0.1.0", 1).unwrap();
+        let b = PlanId::compute(&s, &cat_with_schema("legacy"), "0.1.0", 1).unwrap();
         assert_ne!(a, b);
     }
 
@@ -478,8 +490,8 @@ mod tests {
     fn plan_id_differs_when_version_differs() {
         let s = cat_with_schema("app");
         let t = Catalog::empty();
-        let a = PlanId::compute(&s, &t, "0.1.0", 1);
-        let b = PlanId::compute(&s, &t, "0.2.0", 1);
+        let a = PlanId::compute(&s, &t, "0.1.0", 1).unwrap();
+        let b = PlanId::compute(&s, &t, "0.2.0", 1).unwrap();
         assert_ne!(a, b);
     }
 
@@ -487,14 +499,14 @@ mod tests {
     fn plan_id_differs_when_ruleset_differs() {
         let s = cat_with_schema("app");
         let t = Catalog::empty();
-        let a = PlanId::compute(&s, &t, "0.1.0", 1);
-        let b = PlanId::compute(&s, &t, "0.1.0", 2);
+        let a = PlanId::compute(&s, &t, "0.1.0", 1).unwrap();
+        let b = PlanId::compute(&s, &t, "0.1.0", 2).unwrap();
         assert_ne!(a, b);
     }
 
     #[test]
     fn plan_id_short_is_sixteen_hex_chars() {
-        let id = PlanId::compute(&Catalog::empty(), &Catalog::empty(), "0.1.0", 1);
+        let id = PlanId::compute(&Catalog::empty(), &Catalog::empty(), "0.1.0", 1).unwrap();
         let short = id.short();
         assert_eq!(short.len(), 16);
         assert!(short.chars().all(|c| c.is_ascii_hexdigit()));
@@ -502,7 +514,7 @@ mod tests {
 
     #[test]
     fn plan_id_full_hex_round_trips() {
-        let id = PlanId::compute(&Catalog::empty(), &Catalog::empty(), "0.1.0", 1);
+        let id = PlanId::compute(&Catalog::empty(), &Catalog::empty(), "0.1.0", 1).unwrap();
         let hex = id.to_hex();
         assert_eq!(hex.len(), 64);
         let back = PlanId::from_full_hex(&hex).unwrap();
@@ -563,7 +575,8 @@ mod tests {
             None,
             "0.1.0",
             1,
-        );
+        )
+        .unwrap();
         let nos: Vec<u32> = plan
             .groups
             .iter()
@@ -590,7 +603,8 @@ mod tests {
             None,
             "0.1.0",
             1,
-        );
+        )
+        .unwrap();
         assert_eq!(plan.intents.len(), 2);
         assert_eq!(plan.intents[0].id, 1);
         assert_eq!(plan.intents[0].step, 2);
@@ -618,7 +632,8 @@ mod tests {
             Some("git:abc".into()),
             "0.1.0",
             1,
-        );
+        )
+        .unwrap();
         assert_eq!(plan.metadata.target_snapshot, target);
         assert_eq!(plan.metadata.source_rev.as_deref(), Some("git:abc"));
         assert_eq!(plan.metadata.target_identity, "tid");
@@ -808,7 +823,7 @@ reason = "rewrite-table applied; PR #234"
 
     fn sample_plan_with_two_unapproved_intents() -> Plan {
         Plan {
-            id: PlanId::compute(&Catalog::empty(), &Catalog::empty(), "0.1.0", 1),
+            id: PlanId::compute(&Catalog::empty(), &Catalog::empty(), "0.1.0", 1).unwrap(),
             groups: Vec::new(),
             intents: vec![
                 DestructiveIntent {

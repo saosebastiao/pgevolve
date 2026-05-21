@@ -643,6 +643,7 @@ mod tests {
             "0.1.0",
             1,
         )
+        .unwrap()
     }
 
     #[test]
@@ -888,7 +889,8 @@ COMMIT;
             None,
             "0.2.0",
             2,
-        );
+        )
+        .unwrap();
 
         let dir = tempfile::tempdir().unwrap();
         write_plan_dir(&plan, dir.path()).unwrap();

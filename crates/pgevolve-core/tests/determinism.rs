@@ -96,7 +96,8 @@ fn render_plan_with_views_once() -> String {
         None,
         pgevolve_core::VERSION,
         policy.planner_ruleset_version,
-    );
+    )
+    .expect("from_grouped");
 
     let mut buf = Vec::new();
     write_plan_sql(&plan, &mut buf).expect("render plan.sql");
@@ -135,7 +136,8 @@ fn render_plan_once() -> String {
         None,
         pgevolve_core::VERSION,
         policy.planner_ruleset_version,
-    );
+    )
+    .expect("from_grouped");
 
     let mut buf = Vec::new();
     write_plan_sql(&plan, &mut buf).expect("render plan.sql");

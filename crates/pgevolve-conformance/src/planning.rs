@@ -89,7 +89,7 @@ pub fn render_plan(
         None,
         pgevolve_core::VERSION,
         policy.planner_ruleset_version,
-    );
+    )?;
     let mut buf = Vec::new();
     write_plan_sql(&plan, &mut buf)?;
     let sql = String::from_utf8(buf).expect("plan.sql is utf-8");
