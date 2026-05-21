@@ -9,8 +9,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
 use crate::diff::change::{
-    Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, TriggerChange, UserTypeChange,
-    ViewChange,
+    Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, TableChange, TriggerChange,
+    UserTypeChange, ViewChange,
 };
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::TableOp;
@@ -78,8 +78,8 @@ pub fn order(
             .collect(),
     };
 
-    // 1. Bucket entries by phase.
-    let (creates, modifies, drops) = partition(changes);
+    // 1. Bucket entries by phase. Returns Err if any UnsupportedDiff is present.
+    let (creates, modifies, drops) = partition(changes)?;
 
     // 2. Try to topo-sort the create graph; extract FK cycles if needed.
     let mut working_source: Option<Catalog> = None;
@@ -206,8 +206,14 @@ fn collect_dropped_columns(changes: &ChangeSet) -> HashSet<(QualifiedName, Ident
     out
 }
 
+/// Three-bucket output of [`partition`]: (creates, modifies, drops).
+type PartitionResult = Result<(Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<ChangeEntry>), PlanError>;
+
 /// Split a `ChangeSet` into (creates, modifies, drops) buckets.
-fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<ChangeEntry>) {
+///
+/// Returns `Err(PlanError::Internal)` immediately if any entry is a
+/// `Change::UnsupportedDiff` — the plan cannot proceed.
+fn partition(changes: ChangeSet) -> PartitionResult {
     let mut creates = Vec::new();
     let mut modifies = Vec::new();
     let mut drops = Vec::new();
@@ -299,9 +305,18 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
                 TriggerChange::Drop { .. } | TriggerChange::Replace(_) => drops.push(entry),
                 TriggerChange::CommentOn { .. } => modifies.push(entry),
             },
+            // Partition changes: wired to buckets in PART7.
+            Change::Table(TableChange::AttachPartition { .. }
+            | TableChange::DetachPartition { .. }) => {
+                unimplemented!("AttachPartition / DetachPartition ordering lands in PART7")
+            }
+            // UnsupportedDiff: abort the plan immediately.
+            Change::UnsupportedDiff { reason } => {
+                return Err(PlanError::Internal(reason.clone()));
+            }
         }
     }
-    (creates, modifies, drops)
+    Ok((creates, modifies, drops))
 }
 
 /// Map a `Change` to the [`NodeId`] that represents it in the dependency graph.
@@ -407,6 +422,15 @@ fn change_node(change: &Change) -> NodeId {
                 NodeId::Trigger(qname.clone())
             }
         },
+        // Partition change node mapping: wired in PART7.
+        Change::Table(TableChange::AttachPartition { child, .. }
+        | TableChange::DetachPartition { child, .. }) => {
+            unimplemented!("AttachPartition / DetachPartition node mapping lands in PART7; child={child}")
+        }
+        // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
+        Change::UnsupportedDiff { .. } => {
+            unreachable!("UnsupportedDiff must never reach change_node")
+        }
     }
 }
 

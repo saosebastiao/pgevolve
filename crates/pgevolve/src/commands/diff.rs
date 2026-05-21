@@ -322,6 +322,21 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            // Partition changes: upgraded in PART11.
+            pgevolve_core::diff::change::Change::Table(tc) => {
+                use pgevolve_core::diff::change::TableChange;
+                match tc {
+                    TableChange::AttachPartition { parent, child, .. } => {
+                        println!("      attach partition {child} to {parent}");
+                    }
+                    TableChange::DetachPartition { parent, child } => {
+                        println!("      detach partition {child} from {parent}");
+                    }
+                }
+            }
+            pgevolve_core::diff::change::Change::UnsupportedDiff { reason } => {
+                println!("      unsupported diff: {reason}");
+            }
         }
     }
 }
@@ -488,5 +503,13 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Trigger(pgevolve_core::diff::change::TriggerChange::CommentOn { .. }) => {
             "CommentOnTrigger"
         }
+        // Partition changes: upgraded in PART11.
+        Change::Table(pgevolve_core::diff::change::TableChange::AttachPartition { .. }) => {
+            "AttachPartition"
+        }
+        Change::Table(pgevolve_core::diff::change::TableChange::DetachPartition { .. }) => {
+            "DetachPartition"
+        }
+        Change::UnsupportedDiff { .. } => "UnsupportedDiff",
     }
 }

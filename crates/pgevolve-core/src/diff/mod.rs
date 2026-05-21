@@ -29,8 +29,8 @@ pub mod types;
 pub mod views;
 
 pub use change::{
-    Change, ChangeEntry, ExtensionChange, FunctionChange, MvChange, ProcedureChange, TriggerChange,
-    UserTypeChange, ViewChange,
+    Change, ChangeEntry, ExtensionChange, FunctionChange, MvChange, ProcedureChange, TableChange,
+    TriggerChange, UserTypeChange, ViewChange,
 };
 pub use changeset::ChangeSet;
 pub use destructiveness::Destructiveness;

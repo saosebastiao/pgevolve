@@ -16,6 +16,7 @@ use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::extension::Extension;
 use crate::ir::function::{Function, NormalizedArgTypes};
 use crate::ir::index::Index;
+use crate::ir::partition::PartitionBounds;
 use crate::ir::procedure::Procedure;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
@@ -133,6 +134,21 @@ pub enum Change {
     Extension(ExtensionChange),
     /// A trigger change.
     Trigger(TriggerChange),
+    /// A partition-membership change (ATTACH / DETACH PARTITION).
+    Table(TableChange),
+    /// A change that cannot be performed in-place.
+    ///
+    /// Emitted by the differ when it detects a structural difference that has
+    /// no safe automatic migration path (e.g., changing a table's `PARTITION BY`
+    /// clause). The ordering phase converts this into a [`PlanError`] so the
+    /// plan never reaches execution.
+    ///
+    /// [`PlanError`]: crate::plan::error::PlanError
+    UnsupportedDiff {
+        /// Human-readable explanation of what changed and why it cannot be
+        /// performed in-place.
+        reason: String,
+    },
 }
 
 /// A structural change to a single user-defined type.
@@ -443,6 +459,35 @@ pub enum TriggerChange {
         table: QualifiedName,
         /// New comment value (`None` clears the comment).
         comment: Option<String>,
+    },
+}
+
+/// A partition-membership change on a child table.
+///
+/// These changes are emitted by the differ when the `partition_of` field of a
+/// table changes. Wiring to SQL steps lands in PART9.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum TableChange {
+    /// Attach a child table to a parent partitioned table.
+    ///
+    /// Corresponds to `ALTER TABLE <parent> ATTACH PARTITION <child> <bounds>`.
+    AttachPartition {
+        /// The partitioned parent table.
+        parent: QualifiedName,
+        /// The child table being attached.
+        child: QualifiedName,
+        /// The partition bounds clause.
+        bounds: PartitionBounds,
+    },
+    /// Detach a child table from a parent partitioned table.
+    ///
+    /// Corresponds to `ALTER TABLE <parent> DETACH PARTITION <child>`.
+    DetachPartition {
+        /// The partitioned parent table.
+        parent: QualifiedName,
+        /// The child table being detached.
+        child: QualifiedName,
     },
 }
 
