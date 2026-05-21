@@ -57,9 +57,8 @@ impl ShadowBackend for TestcontainersBackend {
                 .get_host_port_ipv4(5432)
                 .await
                 .with_context(|| "could not get mapped 5432 port")?;
-            let dsn = format!(
-                "postgresql://pgevolve:pgevolve@{host}:{port}/pgevolve?connect_timeout=5"
-            );
+            let dsn =
+                format!("postgresql://pgevolve:pgevolve@{host}:{port}/pgevolve?connect_timeout=5");
 
             wait_until_ready(&dsn).await?;
 

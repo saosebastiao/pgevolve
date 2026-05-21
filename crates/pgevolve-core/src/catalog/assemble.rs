@@ -497,9 +497,8 @@ const fn parse_match_type(s: &str) -> FkMatchType {
 /// through `pg_query`.
 fn parse_fk_referenced_columns(def: &str) -> Option<Vec<Identifier>> {
     // Wrap in a synthetic CREATE TABLE so pg_query sees a full statement.
-    let synthetic = format!(
-        "CREATE TABLE _pgevolve_synth (_pgevolve_dummy int, CONSTRAINT _c {def});"
-    );
+    let synthetic =
+        format!("CREATE TABLE _pgevolve_synth (_pgevolve_dummy int, CONSTRAINT _c {def});");
     let parsed = pg_query::parse(&synthetic).ok()?;
 
     // Dig into: RawStmt → CreateStmt → table_elts → Constraint

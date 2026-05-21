@@ -232,8 +232,7 @@ impl TestPgGuard for DsnGuard {
 
     fn reset(&mut self) -> ResetFuture<'_> {
         Box::pin(async move {
-            let (client, conn) =
-                tokio_postgres::connect(&self.url, tokio_postgres::NoTls).await?;
+            let (client, conn) = tokio_postgres::connect(&self.url, tokio_postgres::NoTls).await?;
             let conn_handle = tokio::spawn(conn);
             let result = client
                 .batch_execute(
