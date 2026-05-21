@@ -21,6 +21,7 @@ pub mod emit;
 pub mod extensions;
 pub mod fk_not_valid_validate;
 pub mod functions;
+pub mod partitions;
 pub mod refresh_mv_concurrently;
 pub mod set_not_null_check_pattern;
 pub mod sql;

@@ -43,34 +43,55 @@ pub fn comment_on_schema(name: &Identifier, comment: Option<&str>) -> String {
 }
 
 /// `CREATE TABLE schema.name ( ... );` with inline columns and constraints.
+///
+/// When `table.partition_of` is set the column list is omitted entirely
+/// (partitions inherit their columns) and a `PARTITION OF parent FOR VALUES
+/// …` clause is emitted instead.  When `table.partition_by` is set a
+/// `PARTITION BY …` clause is appended before the trailing `;`.
 pub fn create_table(t: &Table) -> String {
     let mut s = String::new();
     s.push_str("CREATE TABLE ");
     s.push_str(&t.qname.render_sql());
-    s.push_str(" (");
-    let mut first = true;
-    for col in &t.columns {
-        if !first {
-            s.push(',');
+
+    if let Some(po) = &t.partition_of {
+        // Child partition: no column list — columns are inherited from the
+        // parent.  Emit the PARTITION OF clause directly.
+        s.push(' ');
+        s.push_str(&crate::plan::rewrite::partitions::render_partition_of(po));
+    } else {
+        // Normal table (possibly a partitioned parent): emit the column list.
+        s.push_str(" (");
+        let mut first = true;
+        for col in &t.columns {
+            if !first {
+                s.push(',');
+            }
+            s.push('\n');
+            s.push_str("    ");
+            s.push_str(&column_def(col));
+            first = false;
         }
-        s.push('\n');
-        s.push_str("    ");
-        s.push_str(&column_def(col));
-        first = false;
-    }
-    for c in &t.constraints {
-        if !first {
-            s.push(',');
+        for c in &t.constraints {
+            if !first {
+                s.push(',');
+            }
+            s.push('\n');
+            s.push_str("    ");
+            s.push_str(&inline_constraint(c));
+            first = false;
         }
-        s.push('\n');
-        s.push_str("    ");
-        s.push_str(&inline_constraint(c));
-        first = false;
+        if !first {
+            s.push('\n');
+        }
+        s.push(')');
     }
-    if !first {
-        s.push('\n');
+
+    if let Some(pb) = &t.partition_by {
+        s.push(' ');
+        s.push_str(&crate::plan::rewrite::partitions::render_partition_by(pb));
     }
-    s.push_str(");");
+
+    s.push(';');
     s
 }
 
@@ -733,5 +754,94 @@ fn render_comment(comment: Option<&str>) -> String {
     match comment {
         Some(t) => format!("'{}'", t.replace('\'', "''")),
         None => "NULL".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identifier::Identifier;
+    use crate::ir::column_type::ColumnType;
+    use crate::ir::partition::{
+        BoundDatum, PartitionBounds, PartitionBy, PartitionColumn, PartitionColumnKind,
+        PartitionOf, PartitionStrategy,
+    };
+
+    fn id(s: &str) -> Identifier {
+        Identifier::from_unquoted(s).unwrap()
+    }
+
+    fn qn(schema: &str, name: &str) -> QualifiedName {
+        QualifiedName::new(id(schema), id(name))
+    }
+
+    fn simple_col(name: &str) -> Column {
+        Column {
+            name: id(name),
+            ty: ColumnType::Text,
+            nullable: true,
+            collation: None,
+            default: None,
+            identity: None,
+            generated: None,
+            comment: None,
+        }
+    }
+
+    fn lit(s: &str) -> crate::ir::default_expr::NormalizedExpr {
+        crate::ir::default_expr::NormalizedExpr::from_text(s)
+    }
+
+    fn empty_table(qname: QualifiedName) -> Table {
+        Table {
+            qname,
+            columns: vec![],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn partitioned_parent_includes_partition_by() {
+        let mut t = empty_table(qn("app", "orders"));
+        t.columns = vec![simple_col("region")];
+        t.partition_by = Some(PartitionBy {
+            strategy: PartitionStrategy::List,
+            columns: vec![PartitionColumn {
+                kind: PartitionColumnKind::Column(id("region")),
+                collation: None,
+                opclass: None,
+            }],
+        });
+        let sql = create_table(&t);
+        assert!(
+            sql.ends_with("PARTITION BY LIST (region);"),
+            "expected PARTITION BY LIST (region); at end, got: {sql}"
+        );
+        assert!(sql.contains("region text"), "expected column def, got: {sql}");
+    }
+
+    #[test]
+    fn child_partition_emits_partition_of_no_column_list() {
+        let mut t = empty_table(qn("app", "orders_2024"));
+        t.partition_of = Some(PartitionOf {
+            parent: qn("app", "orders"),
+            bounds: PartitionBounds::Range {
+                from: vec![BoundDatum::Literal(lit("'2024-01-01'"))],
+                to: vec![BoundDatum::Literal(lit("'2025-01-01'"))],
+            },
+        });
+        let sql = create_table(&t);
+        assert_eq!(
+            sql,
+            "CREATE TABLE app.orders_2024 PARTITION OF app.orders FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');"
+        );
+        // Must not contain a column list parenthesis block
+        assert!(
+            !sql.contains('(') || sql.contains("FOR VALUES FROM ("),
+            "should not contain a column list opening paren, got: {sql}"
+        );
     }
 }
