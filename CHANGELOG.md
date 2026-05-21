@@ -225,10 +225,7 @@ Extends the v0.1 surface with **views, materialized views, user-defined types, f
 
 - **15 conformance fixtures** (Tier C): `objects/views/` (8), `objects/materialized_views/` (6), `intent/drop-view-requires-intent` (1), `scenarios/dependency-chains/` (2).
 - **Property test** `view_canonicalization_closed_under_pg_rewrite` (`#[ignore]`, Docker-gated) — verifies `NormalizedBody::from_sql` closure under the PG rewrite for a fixed set of representative view bodies.
-
-### Deferred
-
-- `arb_view_dependency_graph` proptest (spec §12 step 12.2) — deferred post-v0.2; requires substantial generator engineering and is not load-bearing for the closure invariant.
+- **Property test** `arb_view_dependency_graph` (`#[ignore]`, Docker-free) — generates random view DAGs over a generated table corpus, mutates a leaf-table column, and asserts the resulting plan recreates exactly the transitively-dependent views in valid topological order. Closes the deferred test from sub-spec #1 §12.2. New `arbitrary_view_catalog` generator in `pgevolve-testkit`.
 
 ## [0.1.0] — 2026-05-17
 
