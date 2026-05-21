@@ -81,6 +81,7 @@ Runs after the AST canonicalization pass. Validates structural references before
 | User-defined types (enums, domains, composites) | ✅ Implemented | `pg_type` joined with `pg_enum`, `pg_attribute`, `pg_constraint`, `pg_attrdef`. |
 | Extensions | ✅ Implemented | `pg_extension` joined with `pg_namespace` and `pg_description`. Extension-owned objects excluded via `pg_depend deptype='e'` filter. |
 | Triggers | ✅ Implemented | `pg_trigger` joined with `pg_class`, `pg_namespace`, `pg_description`. Filtered: `NOT tgisinternal`; NOT extension-owned. |
+| Partitioning (parents + children) | ✅ Implemented | `pg_class.relkind='p'` + `pg_get_partkeydef` for partitioned parents; `relispartition=true` + `pg_get_expr(relpartbound)` for partition children. Both queries: NOT extension-owned; scoped to managed schemas. |
 | Object kinds beyond v0.2 (roles, RLS policies, statistics, …) | 📋 Planned, v0.3+ | Lands with the corresponding object-kind support. |
 | Catalog filtering by `[managed]` schemas + `[managed].ignore_objects` globs | ✅ Implemented | Unmanaged schemas don't appear in the IR at all. |
 | Catalog drift detection — returns `(Catalog, DriftReport)` | ✅ Implemented | See "Catalog drift detection" section below. |

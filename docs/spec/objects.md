@@ -18,9 +18,11 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Feature | Status | Notes |
 |---|---|---|
-| Declarative partitioned table (`PARTITION BY`) | 📋 Planned, v0.2 | Range, list, hash partition strategies. Each partition is a `Table` with a `partition_of` parent. |
-| Partition attach / detach | 📋 Planned, v0.2 | `ATTACH PARTITION` / `DETACH PARTITION CONCURRENTLY` lands with declarative partitioning. |
-| Partition pruning at plan time | 🔮 Future | Plan can skip unaffected partitions when a change touches only the parent; v0.2 first ships the basic case. |
+| Declarative partitioned table (`PARTITION BY`) | ✅ Implemented | Range, list, hash partition strategies. `partition_by: Option<PartitionBy>` on `Table`. Source Forms 1, 2, and 3 all unified into the same IR. |
+| Partition attach / detach (`ATTACH PARTITION` / `DETACH PARTITION`) | ✅ Implemented | `TableChange::AttachPartition` / `DetachPartition`. Bounds rebound = detach + reattach. `DetachPartition` is destructive; intent required. |
+| Sub-partitioning | ✅ Implemented | A table may have both `partition_by` (is a partitioned parent) and `partition_of` (is a partition child). |
+| `DETACH PARTITION CONCURRENTLY` | ⛔ Not planned | The non-concurrent form is used for now; concurrent detach adds apply-time complexity for minimal benefit. |
+| Partition pruning at plan time | 🔮 Future | Plan can skip unaffected partitions when a change touches only the parent. |
 
 ## Views
 
@@ -141,6 +143,103 @@ Both edges are `DepSource::Structural`. The function edge also ensures that a fu
 - **`ALTER TRIGGER … RENAME TO`** — not supported. Rename is treated as Drop + Create (old name disappears, new name appears).
 - **Event triggers** (`CREATE EVENT TRIGGER`) — a separate object kind; tracked as 🔮 Future in the table above.
 - **`WHEN` clause dependency extraction** — the WHEN predicate is stored as a `NormalizedExpr` for canonical diffing but its column references are not added as explicit dep edges. Renames of referenced columns will surface as a structural diff, prompting a Drop + Create.
+
+## Partitioning (detail)
+
+### IR shape
+
+Partitioning is modeled as two optional fields on `Table` in `pgevolve-core::ir::table`, backed by types in `pgevolve-core::ir::partition`:
+
+**`partition_by: Option<PartitionBy>`** — present on partitioned-parent tables.
+
+| Field | Type | Notes |
+|---|---|---|
+| `strategy` | `PartitionStrategy` | `Range` \| `List` \| `Hash` |
+| `columns` | `Vec<PartitionColumn>` | Ordered partition key elements |
+
+Each `PartitionColumn` carries `kind: PartitionColumnKind` (`Column(Identifier)` or `Expr(NormalizedExpr)`), an optional `collation: Option<QualifiedName>`, and an optional `opclass: Option<QualifiedName>`.
+
+**`partition_of: Option<PartitionOf>`** — present on partition-child tables.
+
+| Field | Type | Notes |
+|---|---|---|
+| `parent` | `QualifiedName` | Schema-qualified parent table name |
+| `bounds` | `PartitionBounds` | The `FOR VALUES …` clause |
+
+`PartitionBounds` variants:
+
+| Variant | Syntax | Fields |
+|---|---|---|
+| `Range { from, to }` | `FOR VALUES FROM (…) TO (…)` | `from: Vec<BoundDatum>`, `to: Vec<BoundDatum>` |
+| `List { values }` | `FOR VALUES IN (…)` | `values: Vec<BoundDatum>` |
+| `Hash { modulus, remainder }` | `FOR VALUES WITH (MODULUS m, REMAINDER r)` | `modulus: u32`, `remainder: u32` |
+| `Default` | `DEFAULT` | — |
+
+`BoundDatum` — `Literal(NormalizedExpr)` | `MinValue` | `MaxValue`.
+
+A table may have both `partition_by` and `partition_of` set simultaneously (sub-partitioning).
+
+### Source surface — three syntactic forms
+
+All three forms parse into the same `Table` IR:
+
+| Form | Source syntax | Notes |
+|---|---|---|
+| Form 1 (inline) | `CREATE TABLE child PARTITION OF parent FOR VALUES …` | Parent and child in the same file or directory; child inherits columns from parent. |
+| Form 2 (standalone) | `CREATE TABLE child PARTITION OF parent FOR VALUES …` in a separate file | Identical parse result to Form 1. |
+| Form 3 (attach) | Plain `CREATE TABLE child (…)` + separate `ALTER TABLE parent ATTACH PARTITION child FOR VALUES …` | The parser merges the `ATTACH PARTITION` statement into the child's `partition_of`, producing the same IR as Form 2. A conformance fixture verifies Form 2 and Form 3 generate identical plans. |
+
+### Catalog reader
+
+Two catalog queries:
+
+- **`SELECT_PARTITIONED_TABLES`** — `pg_class.relkind = 'p'` + `pg_get_partkeydef(c.oid)`. Reads the partition key definition for each partitioned-parent table and re-parses it into `PartitionBy`. Filters: NOT extension-owned.
+- **`SELECT_PARTITIONS`** — `pg_class.relispartition = true` + `pg_get_expr(c.relpartbound, c.oid)`. Reads the partition bounds text and re-parses it into `PartitionOf`. Joins `pg_inherits` to get the parent name. Filters: NOT extension-owned; scoped to managed schemas.
+
+Both queries apply the `NOT EXISTS (pg_depend deptype='e')` filter consistent with every other catalog query.
+
+### Differ
+
+| Scenario | Change variant |
+|---|---|
+| `partition_of` present in source, absent in catalog | `TableChange::AttachPartition { parent, child, bounds }` |
+| `partition_of` absent in source, present in catalog | `TableChange::DetachPartition { parent, child }` |
+| `partition_of` present on both sides, bounds differ | `TableChange::DetachPartition` + `TableChange::AttachPartition` (rebound) |
+| `partition_by` present on both sides, strategy or key differs | `UnsupportedDiff` — no safe in-place rekey path in Postgres |
+| Either side is a partition (`partition_of.is_some()`) | Column and constraint diff suppressed — partition children inherit columns from the parent |
+
+### Planner steps
+
+| Step kind | Description |
+|---|---|
+| `AttachPartition` | `ALTER TABLE parent ATTACH PARTITION child FOR VALUES …` — non-destructive |
+| `DetachPartition` | `ALTER TABLE parent DETACH PARTITION child` — destructive; gated on intent approval |
+
+`AttachPartition` is ordered in the same post-create bucket as `CreateIndex` (after the parent and child tables both exist). `DetachPartition` is ordered in the same destructive bucket as `DropTable`.
+
+For a `CreateTable` on a partition child (Form 1 / Form 2 source), the planner emits the `CREATE TABLE … PARTITION OF parent FOR VALUES …` SQL directly; no separate `AttachPartition` step is needed. `AttachPartition` is emitted only when an existing standalone table is being attached to a parent, or when bounds are rebounding.
+
+### Dependency edges
+
+| Edge | Meaning |
+|---|---|
+| `Table (child partition) → Table (parent)` | Parent table must exist before the child partition is created or attached |
+
+The edge is `DepSource::Structural`. It ensures that when both a parent and a child partition are new, the parent's `CreateTable` is ordered before the child's.
+
+### Lint rules
+
+| Rule | Severity | Condition |
+|---|---|---|
+| `partition-references-unmanaged-parent` | Error | `partition_of.parent` schema is not in `[managed].schemas` |
+
+### Out of scope / notable gaps
+
+- **`DETACH PARTITION CONCURRENTLY`** — not emitted. The non-concurrent `DETACH PARTITION` is used, which takes an `AccessExclusiveLock`. Concurrent detach is listed as ⛔ not planned for now.
+- **`FOREIGN TABLE PARTITION OF`** — foreign-table partitions are not modeled. Foreign tables are 🔮 Future.
+- **Per-partition `TABLESPACE` and storage parameters** — the partition bounds are modeled but per-partition storage overrides (tablespace, fillfactor, etc.) are not. They land when table reloptions are extended.
+- **Partition pruning at plan time** — pgevolve does not skip unaffected partitions when only the parent changes. All managed partitions are included in every diff. Pruning is 🔮 Future.
+- **Pre-flight partition-overlap detection** — pgevolve does not validate that declared bounds are non-overlapping before applying. Postgres enforces this at DDL time; a failed `ATTACH PARTITION` will surface as an apply error.
 
 ## Security and roles
 

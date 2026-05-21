@@ -9,7 +9,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.2.0] — Unreleased
 
-Extends the v0.1 surface with **views, materialized views, user-defined types, functions/procedures, extensions, and triggers** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
+Extends the v0.1 surface with **views, materialized views, user-defined types, functions/procedures, extensions, triggers, and declarative partitioning** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
 
 ### Added — internal architecture (2026-05-19)
 
@@ -85,6 +85,54 @@ Extends the v0.1 surface with **views, materialized views, user-defined types, f
 ### Added — tests (triggers)
 
 - **Conformance fixtures** (Tier C): `objects/triggers/` covering create/drop/comment, BEFORE/AFTER/INSTEAD OF variants, ROW vs STATEMENT, WHEN clause, UPDATE OF columns, REFERENCING transition tables, CONSTRAINT TRIGGER with DEFERRABLE, and both lint rules.
+
+### Added — IR (partitioning)
+
+- `partition_by: Option<PartitionBy>` and `partition_of: Option<PartitionOf>` fields added to `Table` in `pgevolve-core::ir::table`.
+- New `ir/partition.rs` module:
+  - `PartitionBy { strategy: PartitionStrategy, columns: Vec<PartitionColumn> }` — the `PARTITION BY` clause on a partitioned parent.
+  - `PartitionStrategy` — `Range` | `List` | `Hash`.
+  - `PartitionColumn { kind: PartitionColumnKind, collation: Option<QualifiedName>, opclass: Option<QualifiedName> }` — a single partition key element with optional collation and opclass overrides.
+  - `PartitionColumnKind` — `Column(Identifier)` | `Expr(NormalizedExpr)`.
+  - `PartitionOf { parent: QualifiedName, bounds: PartitionBounds }` — the `PARTITION OF parent FOR VALUES …` clause on a partition child.
+  - `PartitionBounds` — `Range { from, to }` | `List { values }` | `Hash { modulus, remainder }` | `Default`.
+  - `BoundDatum` — `Literal(NormalizedExpr)` | `MinValue` | `MaxValue`.
+
+### Added — pipeline (partitioning)
+
+- **Source Form 1** — `CREATE TABLE child PARTITION OF parent FOR VALUES …` parsed directly into `Table { partition_of: Some(…) }`. The parent's key is inferred from its `partition_by`.
+- **Source Form 2** — standalone `CREATE TABLE child PARTITION OF parent FOR VALUES …` in a separate file. Identical IR as Form 1.
+- **Source Form 3** — `ALTER TABLE parent ATTACH PARTITION child FOR VALUES …` combined with a standalone child `CREATE TABLE` (no inline `PARTITION OF`). The parser merges the attach statement into the child's `partition_of`, producing the same IR as Form 2. Equivalence of Form 2 and Form 3 is verified by a conformance fixture.
+- **Sub-partitioning** — a `Table` may have both `partition_by` (it is itself a partitioned parent) and `partition_of` (it is a partition of another parent).
+- **Catalog reader** — two new queries: `SELECT_PARTITIONED_TABLES` (`pg_class.relkind='p'` + `pg_get_partkeydef`) reads partitioned-parent keys; `SELECT_PARTITIONS` (`relispartition=true` + `pg_get_expr(relpartbound, oid)`) reads partition children and re-parses the bounds text. Both filters apply `NOT EXISTS (pg_depend deptype='e')`.
+- **Differ** — `TableChange::AttachPartition { parent, child, bounds }` and `TableChange::DetachPartition { parent, child }` variants. Bounds change on a stable parent → DetachPartition + AttachPartition. Parent `partition_by` rekey → `UnsupportedDiff` (no safe in-place path in Postgres). Column and constraint diff is suppressed when either the source or target side is a partition (columns are inherited from the parent).
+- **Planner** — 2 new step kinds: `AttachPartition` (non-destructive) and `DetachPartition` (destructive; intent required). `AttachPartition` is placed in the same post-create ordering bucket as `CreateIndex`; `DetachPartition` is placed in the same destructive bucket as `DropTable`.
+- **`NodeId` dep edge** — child partition → parent table (`DepSource::Structural`). Ensures the parent exists (and has its `partition_by` applied) before the child is attached.
+
+### Added — lint rules (partitioning)
+
+- `partition-references-unmanaged-parent` (Error) — a partition child's `partition_of.parent` schema is not in `[managed].schemas`. Prevents silent attach failures when the parent table is outside pgevolve's control.
+
+### Added — tests (partitioning)
+
+- **14 conformance fixtures** (Tier C): `objects/partitions/` covering:
+  - `create-range-parent-and-two-partitions` — RANGE parent with `FOR VALUES FROM … TO …`.
+  - `create-list-parent` — LIST parent.
+  - `create-hash-parent-and-partitions` — HASH parent with `FOR VALUES WITH (MODULUS m, REMAINDER r)`.
+  - `create-default-partition` — `DEFAULT` partition.
+  - `add-partition` — attaching a new partition to an existing parent.
+  - `drop-partition` — detach + destructive intent path.
+  - `replace-bounds` — bounds change → detach + reattach.
+  - `attach-existing-standalone` — Form 3 attach of a pre-existing standalone table.
+  - `attach-form-vs-declarative-form-equivalent` — Form 2 vs Form 3 produce identical plans.
+  - `detach-to-standalone` — detach leaves the child as a standalone table.
+  - `subpartitioned` — sub-partitioned child (both `partition_by` and `partition_of` set).
+  - `lint-unmanaged-parent` — `partition-references-unmanaged-parent` fires when parent is in an unmanaged schema.
+  - Reject path fixtures for invalid bounds expressions.
+
+### Changed — differ (partitioning)
+
+- `diff_tables` now skips column and constraint diffing when either the source or the target side of a table pair is a partition (`partition_of.is_some()`). Partition children inherit their column list from the parent; diffing inherited columns produces spurious changes. The partition bounds themselves are diffed via `AttachPartition`/`DetachPartition` instead.
 
 ### Added — IR (extensions)
 

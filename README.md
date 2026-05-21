@@ -8,7 +8,7 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-> **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-specs #1 (views/MVs), #2 (types), #3 (extensions), #4 (functions/procedures), and #5 (triggers) merged. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
+> **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-specs #1 (views/MVs), #2 (types), #3 (extensions), #4 (functions/procedures), #5 (triggers), and #6 (declarative partitioning) merged. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
 
 ## Usage at a glance
 
@@ -137,7 +137,7 @@ Per the [arch-readiness spec §16](./docs/superpowers/specs/2026-05-15-v0.2-arch
 | 3 | Extensions | ✅ Landed `c17b3bc..8522c95` |
 | 4 | Functions and procedures | ✅ Landed `3c3f6ee` |
 | 5 | Triggers | ✅ Landed `25ca3a5` |
-| 6 | Declarative partitioning + table reloptions | 📋 Planned |
+| 6 | Declarative partitioning + table reloptions | ✅ Landed `fbff481` |
 
 v0.3+ work (cluster-level surface — roles, GRANTs, `postgresql.conf`, RLS) is sketched in the arch spec §17 but not yet designed.
 
@@ -220,6 +220,28 @@ v0.3+ work (cluster-level surface — roles, GRANTs, `postgresql.conf`, RLS) is 
 | `NodeId::Trigger` + dep-graph edges (trigger → table/view/MV target; trigger → function) | ✅ Implemented |
 | 2 new lint rules (`trigger-references-unmanaged-table`, `trigger-references-unmanaged-function`) | ✅ Implemented |
 | Conformance fixtures (Tier C): `objects/triggers/` covering create/drop/comment and all trigger variants | ✅ Implemented |
+
+### v0.2 partitioning — what's in `fbff481`
+
+| Feature | Status |
+|---|---|
+| `partition_by: Option<PartitionBy>` field on `Table` — strategy (Range/List/Hash) + key columns/expressions | ✅ Implemented |
+| `partition_of: Option<PartitionOf>` field on `Table` — parent reference + partition bounds | ✅ Implemented |
+| `ir/partition.rs` — `PartitionBy`, `PartitionOf`, `PartitionStrategy`, `PartitionColumn`, `PartitionBounds` (Range/List/Hash/Default), `BoundDatum` (Literal/MinValue/MaxValue) | ✅ Implemented |
+| Source Form 1: `CREATE TABLE child PARTITION OF parent FOR VALUES …` — declarative inline form | ✅ Implemented |
+| Source Form 2: standalone `CREATE TABLE child PARTITION OF parent …` in separate file | ✅ Implemented |
+| Source Form 3: `ALTER TABLE parent ATTACH PARTITION child FOR VALUES …` form (Form 2 + attach) | ✅ Implemented |
+| Form 2 and Form 3 unify into the same IR; equivalence verified by conformance fixture | ✅ Implemented |
+| Sub-partitioning: `PARTITION BY` on a child that is itself `PARTITION OF` another parent | ✅ Implemented |
+| Catalog reader — `pg_class.relkind='p'` + `pg_get_partkeydef` for parents; `relispartition + pg_get_expr(relpartbound)` for children | ✅ Implemented |
+| `TableChange::AttachPartition` + `TableChange::DetachPartition` differ variants | ✅ Implemented |
+| Rebound partition (bounds change) → DetachPartition + AttachPartition | ✅ Implemented |
+| Parent `partition_by` rekey → `UnsupportedDiff` (no safe in-place path) | ✅ Implemented |
+| Child column/constraint diff suppressed when either side is a partition | ✅ Implemented |
+| 2 new step kinds: `AttachPartition`, `DetachPartition` (destructive; intent required) | ✅ Implemented |
+| Dep edge: child partition → parent table (child created after parent) | ✅ Implemented |
+| `partition-references-unmanaged-parent` lint rule (Error) | ✅ Implemented |
+| 14 conformance fixtures: create range/list/hash parents, add/drop/replace partitions, attach-from-standalone, Form 2 vs Form 3 equivalence, sub-partitioning, reject paths, lint | ✅ Implemented |
 
 ## Workspace layout
 
