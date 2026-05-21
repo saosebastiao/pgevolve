@@ -166,6 +166,12 @@ pub enum StepKind {
     DropTrigger,
     /// `COMMENT ON TRIGGER name ON table IS '...'`.
     CommentOnTrigger,
+
+    // --- v0.2 partition step kinds ---
+    /// `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...`.
+    AttachPartition,
+    /// `ALTER TABLE parent DETACH PARTITION child`.
+    DetachPartition,
 }
 
 /// One unit of work the executor will attempt.
@@ -266,6 +272,8 @@ mod tests {
             StepKind::CreateTrigger,
             StepKind::DropTrigger,
             StepKind::CommentOnTrigger,
+            StepKind::AttachPartition,
+            StepKind::DetachPartition,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

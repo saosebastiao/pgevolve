@@ -355,6 +355,8 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::CreateTrigger => "create_trigger",
         K::DropTrigger => "drop_trigger",
         K::CommentOnTrigger => "comment_on_trigger",
+        K::AttachPartition => "attach_partition",
+        K::DetachPartition => "detach_partition",
     }
 }
 
@@ -421,6 +423,8 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "create_trigger" => K::CreateTrigger,
         "drop_trigger" => K::DropTrigger,
         "comment_on_trigger" => K::CommentOnTrigger,
+        "attach_partition" => K::AttachPartition,
+        "detach_partition" => K::DetachPartition,
         _ => return None,
     })
 }

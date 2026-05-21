@@ -305,10 +305,10 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                 TriggerChange::Drop { .. } | TriggerChange::Replace(_) => drops.push(entry),
                 TriggerChange::CommentOn { .. } => modifies.push(entry),
             },
-            // Partition changes: wired to buckets in PART7.
+            // Partition changes: alter partition membership, not the table's existence.
             Change::Table(TableChange::AttachPartition { .. }
             | TableChange::DetachPartition { .. }) => {
-                unimplemented!("AttachPartition / DetachPartition ordering lands in PART7")
+                modifies.push(entry);
             }
             // UnsupportedDiff: abort the plan immediately.
             Change::UnsupportedDiff { reason } => {
@@ -422,10 +422,10 @@ fn change_node(change: &Change) -> NodeId {
                 NodeId::Trigger(qname.clone())
             }
         },
-        // Partition change node mapping: wired in PART7.
+        // Partition change node mapping: use the child partition table.
         Change::Table(TableChange::AttachPartition { child, .. }
         | TableChange::DetachPartition { child, .. }) => {
-            unimplemented!("AttachPartition / DetachPartition node mapping lands in PART7; child={child}")
+            NodeId::Table(child.clone())
         }
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
