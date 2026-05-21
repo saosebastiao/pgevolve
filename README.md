@@ -331,3 +331,13 @@ choices:
 ## License
 
 Dual-licensed under MIT or Apache-2.0, at your option.
+
+### License + dependency policy
+
+pgevolve is dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE).
+All dependencies must be MIT/Apache-2.0/BSD-style licensed (no copyleft); the
+policy is enforced by `cargo deny check` (see [`deny.toml`](deny.toml)) and verified
+in CI. Only permissive licenses are allowed: MIT, Apache-2.0, BSD-2-Clause,
+BSD-3-Clause, ISC, Unicode-DFS-2016, Unicode-3.0, CC0-1.0, and Zlib. Vulnerable
+and yanked crates are denied; the check enforces that all dependencies come
+from crates.io.

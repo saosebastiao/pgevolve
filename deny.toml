@@ -1,0 +1,48 @@
+# pgevolve license + advisory policy for cargo-deny.
+# Enforces docs/CONSTITUTION.md: MIT/Apache-2.0 + permissive licenses only; no copyleft;
+# no vulnerable or unmaintained dependencies.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+# Use empty ignore list so we can audit all security advisories.
+ignore = []
+yanked = "deny"
+unmaintained = "deny"
+notice = "warn"
+vulnerability = "deny"
+
+[licenses]
+version = 2
+# Strict allowlist: only truly permissive licenses.
+# MIT/Apache-2.0 are primary; BSD-family, ISC, Unicode-DFS-2016 (unicode-ident),
+# CC0-1.0 (for testkit), and Zlib are acceptable per docs/CONSTITUTION.md.
+# Note: Unicode-3.0 may appear in unicode-ident; both are permissive.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Zlib",
+]
+# No explicit deny list needed; anything not in allow[] is rejected.
+confidence-threshold = 0.93
+exceptions = []
+
+[bans]
+# Warn on multiple versions (expected in large dep trees) rather than fail.
+multiple-versions = "warn"
+# Disallow wildcard version specs in direct dependencies.
+wildcards = "deny"
+
+[sources]
+# Restrict package sources to crates.io (via GitHub registry mirror).
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
