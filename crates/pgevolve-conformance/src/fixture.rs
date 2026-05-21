@@ -145,7 +145,7 @@ pub struct ExpectFailure {
 
 /// One `[[expect.intent]]` row.
 ///
-/// Matches against a generated [`DestructiveIntent`] row in the plan.
+/// Matches against a generated [`pgevolve_core::plan::DestructiveIntent`] row in the plan.
 /// The assertion is mandatory for destructive fixtures (see L7).
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ExpectIntentRow {

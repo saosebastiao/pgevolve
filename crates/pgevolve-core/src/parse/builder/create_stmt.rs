@@ -350,7 +350,7 @@ fn make_unique_constraint(
 ///
 /// The local columns come from `con.fk_attrs` (an inline column-spec list is
 /// what populates them at parse time), so we forward straight into
-/// [`make_fk_constraint`] after extracting them.
+/// `make_fk_constraint` after extracting them.
 pub fn build_fk_for_alter(
     con: &PgConstraint,
     target_table: &QualifiedName,

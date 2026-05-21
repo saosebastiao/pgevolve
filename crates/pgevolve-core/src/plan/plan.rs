@@ -291,7 +291,7 @@ impl Plan {
 
 /// Human-readable kind name used in directive comments and intent rows.
 ///
-/// The vocabulary matches [`StepKind`]'s `snake_case` serde encoding; this
+/// The vocabulary matches [`crate::plan::StepKind`]'s `snake_case` serde encoding; this
 /// `const fn` exists so callers do not pay for a serde round-trip.
 pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
     use crate::plan::raw_step::StepKind as K;
@@ -360,7 +360,7 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
     }
 }
 
-/// Parse [`kind_name`]'s output back into [`StepKind`].
+/// Parse [`kind_name`]'s output back into [`crate::plan::StepKind`].
 pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
     use crate::plan::raw_step::StepKind as K;
     Some(match s {

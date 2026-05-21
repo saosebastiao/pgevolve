@@ -1,7 +1,7 @@
 //! pgevolve CLI internals — runtime executor, connection management, config
 //! loading, command dispatch.
 //!
-//! The binary at `src/main.rs` is a thin wrapper around [`run_main`].
+//! The binary at `src/main.rs` is a thin wrapper that dispatches CLI commands.
 
 #![warn(missing_docs)]
 #![deny(unsafe_code)]

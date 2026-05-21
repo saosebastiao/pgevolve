@@ -15,7 +15,7 @@
 //!
 //! New columns may only be appended at the end.
 //!
-//! [`or_replace_compatible`] encodes exactly these rules.
+//! `or_replace_compatible` encodes exactly these rules.
 
 use crate::identifier::QualifiedName;
 use crate::ir::view::{MaterializedView, View, ViewColumn};

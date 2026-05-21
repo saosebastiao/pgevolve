@@ -989,7 +989,7 @@ fn walk_node_for_deps(
     }
 }
 
-/// Extract [`DepEdge`]s from a view body on the catalog side.
+/// Extract [`crate::plan::edges::DepEdge`]s from a view body on the catalog side.
 ///
 /// On the catalog side we are the ground truth — there is no "unknown object"
 /// error. We perform a best-effort extraction: any schema-qualified `RangeVar`
@@ -1725,7 +1725,7 @@ fn build_extensions(rows: &[Row]) -> Result<Vec<Extension>, CatalogError> {
 }
 
 /// Re-parse `pg_get_partkeydef` and `pg_get_expr(relpartbound)` output and
-/// merge the resulting [`PartitionBy`] / [`PartitionOf`] onto the matching
+/// merge the resulting [`crate::ir::partition::PartitionBy`] / [`crate::ir::partition::PartitionOf`] onto the matching
 /// [`Table`] entries that were already loaded by the main table query.
 fn merge_partition_metadata(
     catalog: &mut Catalog,

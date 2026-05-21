@@ -1,6 +1,6 @@
 //! Rewrite pass: turn an [`OrderedChangeSet`] into a flat `Vec<RawStep>`.
 //!
-//! Each [`Change`] / [`TableOp`] / [`SequenceOp`] is dispatched to an emitter
+//! Each [`Change`] / [`crate::diff::TableOp`] / [`crate::diff::SequenceOp`] is dispatched to an emitter
 //! that produces one or more `RawStep`s. Most emitters produce a single step;
 //! the four documented online rewrites (spec §6.5) produce multiple. Online
 //! rewrites are gated on [`PlannerPolicy`] switches so atomic mode is a single

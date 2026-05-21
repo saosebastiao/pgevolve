@@ -1,6 +1,6 @@
 //! Statement-scope body canonicalization.
 //!
-//! Counterpart to [`NormalizedExpr`](super::normalize_expr::NormalizedExpr).
+//! Counterpart to [`crate::ir::default_expr::NormalizedExpr`].
 //! Where `NormalizedExpr` canonicalizes one expression, `NormalizedBody`
 //! canonicalizes a statement-shaped body — a view's `SELECT`, a function
 //! body, an expression-index predicate at full-statement scope.

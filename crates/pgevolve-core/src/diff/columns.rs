@@ -7,7 +7,7 @@
 //!
 //! ## Widening whitelist
 //!
-//! [`is_widening`] returns true only for type changes Postgres can perform
+//! `is_widening` returns true only for type changes Postgres can perform
 //! without rewriting data: `int2 → int4 → int8`, `varchar(N) → varchar(M>N)`,
 //! `varchar(*) → text`. Everything else is conservative and tagged
 //! [`Destructiveness::RequiresApprovalAndDataLossWarning`].

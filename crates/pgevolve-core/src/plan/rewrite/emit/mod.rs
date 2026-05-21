@@ -1,7 +1,7 @@
 //! Per-object-family dispatchers for the rewrite pass.
 //!
 //! Each file in this module handles the `Change::*` variants for one
-//! family. The top-level [`super::emit_change`] dispatcher routes each
+//! family. The top-level `emit_change` dispatcher routes each
 //! variant to a `pub(super) fn` here. Future v0.2 sub-specs (extensions,
 //! triggers, partitioning) add new files in this directory.
 

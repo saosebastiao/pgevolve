@@ -270,7 +270,7 @@ fn parse_post_apply_target(fixture: &Fixture) -> anyhow::Result<Catalog> {
     parse_directory(tmp.path(), &[]).map_err(|e| anyhow::anyhow!("parse {rel}: {e}"))
 }
 
-/// Crude regex scan: every line containing `CREATE SCHEMA <name>` adds <name>.
+/// Crude regex scan: every line containing `CREATE SCHEMA <name>` adds the schema name.
 fn collect_managed_schemas(after_sql: &str) -> Vec<String> {
     let re = regex::Regex::new(r"(?i)CREATE\s+SCHEMA\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)")
         .expect("static regex");

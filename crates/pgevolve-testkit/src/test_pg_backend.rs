@@ -67,7 +67,7 @@ impl BackendMode {
 
 /// A live connection / container for a single test run.
 ///
-/// The guard is borrowed for the duration of a test; calling [`reset`] drops
+/// The guard is borrowed for the duration of a test; calling [`TestPgGuard::reset`] drops
 /// all user-created schemas so the next caller gets a clean slate.
 #[async_trait]
 pub trait TestPgGuard: Send {
@@ -81,7 +81,7 @@ pub trait TestPgGuard: Send {
 
 /// Source of [`TestPgGuard`] instances.
 ///
-/// Each call to [`checkout`] returns a ready-to-use guard for the requested
+/// Each call to [`TestPgBackend::checkout`] returns a ready-to-use guard for the requested
 /// major Postgres version.
 #[async_trait]
 pub trait TestPgBackend: Send + Sync {

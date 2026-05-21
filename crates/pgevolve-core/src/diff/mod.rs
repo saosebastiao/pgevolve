@@ -1,7 +1,7 @@
 //! Pure-function diff over the IR.
 //!
 //! `diff(target, source)` returns a [`ChangeSet`] describing every structural
-//! difference between two [`Catalog`](crate::ir::catalog::Catalog) snapshots.
+//! difference between two [`Catalog`] snapshots.
 //! No SQL is generated here — that is the job of phases 5+ (planner, rewrites).
 //!
 //! ## Direction

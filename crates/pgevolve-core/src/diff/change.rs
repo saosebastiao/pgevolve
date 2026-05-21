@@ -4,9 +4,9 @@
 //! a source catalog at the level of a top-level object (schema, table, index,
 //! sequence). Per-column / per-constraint operations live inside the
 //! [`AlterTable`](Change::AlterTable) variant as a list of
-//! [`TableOpEntry`](super::table_op::TableOpEntry); per-field sequence updates
+//! [`TableOpEntry`]; per-field sequence updates
 //! live inside [`AlterSequence`](Change::AlterSequence) as
-//! [`SequenceOpEntry`](super::sequence_op::SequenceOpEntry).
+//! [`SequenceOpEntry`].
 
 use serde::{Deserialize, Serialize};
 
@@ -366,7 +366,7 @@ pub enum FunctionChange {
         args: NormalizedArgTypes,
     },
     /// Replace the function body and/or attributes using `CREATE OR REPLACE
-    /// FUNCTION`. Only valid when [`function_can_or_replace`] returns `true`.
+    /// FUNCTION`. Only valid when `function_can_or_replace` returns `true`.
     CreateOrReplace(Function),
     /// The function's return type or language changed in a way that PG's
     /// `CREATE OR REPLACE FUNCTION` rejects. The planner must emit

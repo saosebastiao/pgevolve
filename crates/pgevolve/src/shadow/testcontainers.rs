@@ -2,7 +2,7 @@
 //!
 //! Starts a `postgres:<major>-alpine` container, waits for it to be
 //! ready, and exposes the DSN via [`ShadowGuard::url`].  The container
-//! is removed when [`TestcontainersGuard`] drops.
+//! is removed when the guard drops.
 
 use std::time::Duration;
 

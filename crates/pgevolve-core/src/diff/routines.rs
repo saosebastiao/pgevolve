@@ -3,11 +3,11 @@
 //! [`diff_functions`] compares two slices of [`Function`] — one from the live
 //! catalog (`catalog`) and one from the declared source (`source`) — and
 //! populates a [`ChangeSet`] with the minimal sequence of
-//! [`FunctionChange`](super::change::FunctionChange) variants required to
+//! [`FunctionChange`] variants required to
 //! converge the catalog toward the source.
 //!
 //! [`diff_procedures`] does the same for [`Procedure`] /
-//! [`ProcedureChange`](super::change::ProcedureChange).
+//! [`ProcedureChange`].
 //!
 //! ## Identity keys
 //!

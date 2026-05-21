@@ -3,7 +3,7 @@
 //! [`diff_user_types`] compares two slices of [`UserType`] — one from the live
 //! catalog (`catalog`) and one from the declared source (`source`) — and
 //! populates a [`ChangeSet`] with the minimal sequence of
-//! [`UserTypeChange`](super::change::UserTypeChange) variants required to
+//! [`UserTypeChange`] variants required to
 //! converge the catalog toward the source.
 
 use std::collections::{BTreeMap, BTreeSet};

@@ -2,7 +2,7 @@
 //!
 //! Idempotent: running [`bootstrap_metadata`] on a fresh database creates the
 //! schema and every table; running it again is a no-op. Future schema
-//! evolutions append a new [`BootstrapMigration`] entry rather than editing
+//! evolutions append a new `BootstrapMigration` entry rather than editing
 //! the existing SQL.
 
 use tokio_postgres::Client;
