@@ -96,6 +96,8 @@ pub enum CatalogQuery {
     Functions,
     /// `pg_extension` rows for installed extensions.
     Extensions,
+    /// `pg_trigger` rows for user triggers (excluding internal + extension-owned).
+    Triggers,
 }
 
 impl CatalogQuery {
@@ -154,6 +156,7 @@ pub fn read_catalog(
     let composite_attributes_rows = querier.fetch(CatalogQuery::CompositeAttributes, &managed)?;
     let functions_rows = querier.fetch(CatalogQuery::Functions, &managed)?;
     let extensions_rows = querier.fetch(CatalogQuery::Extensions, &managed)?;
+    let triggers_rows = querier.fetch(CatalogQuery::Triggers, &managed)?;
 
     let raw = assemble::RawRows {
         version,
@@ -173,6 +176,7 @@ pub fn read_catalog(
         composite_attributes: composite_attributes_rows,
         functions: functions_rows,
         extensions: extensions_rows,
+        triggers: triggers_rows,
     };
     let (catalog, drift) = assemble::assemble(raw, filter)?;
     Ok((catalog.canonicalize()?, drift))

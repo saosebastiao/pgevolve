@@ -11,6 +11,7 @@ pub mod pg15;
 pub mod pg16;
 pub mod pg17;
 pub mod shared;
+pub mod triggers;
 pub mod types;
 pub mod views;
 
@@ -40,6 +41,7 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::CompositeAttributes) => types::SELECT_COMPOSITE_ATTRIBUTES,
         (_, CatalogQuery::Functions) => functions::SELECT_FUNCTIONS,
         (_, CatalogQuery::Extensions) => extensions::SELECT_EXTENSIONS,
+        (_, CatalogQuery::Triggers) => triggers::SELECT_TRIGGERS,
     }
 }
 
