@@ -24,6 +24,7 @@ pub mod functions;
 pub mod refresh_mv_concurrently;
 pub mod set_not_null_check_pattern;
 pub mod sql;
+pub mod triggers;
 pub mod types;
 pub mod views;
 
