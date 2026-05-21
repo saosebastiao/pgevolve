@@ -1,11 +1,16 @@
 [package]
 name         = "pgevolve-core"
-description  = "Postgres declarative schema management — core library (parser, IR, diff, planner)"
+description  = "Postgres declarative schema management — core library (parser, IR, diff, planner) powering the pgevolve CLI."
 version      = { workspace = true }
 edition      = { workspace = true }
 rust-version = { workspace = true }
 license      = { workspace = true }
 repository   = { workspace = true }
+homepage     = "https://github.com/saosebastiao/pgevolve"
+documentation = "https://docs.rs/pgevolve-core"
+readme       = "../../README.md"
+keywords     = ["postgres", "postgresql", "migration", "schema", "database"]
+categories   = ["database", "development-tools"]
 authors      = { workspace = true }
 
 [lints]

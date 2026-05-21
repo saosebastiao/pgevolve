@@ -3,7 +3,7 @@ name        = "pgevolve-core-macros"
 version     = "0.1.0-dev"
 edition     = "2024"
 description = "Internal proc-macros for pgevolve-core. Not a public API."
-license     = "AGPL-3.0-or-later"
+license     = { workspace = true }
 publish     = false
 
 [lib]

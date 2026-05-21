@@ -1,11 +1,16 @@
 [package]
 name         = "pgevolve"
-description  = "Postgres declarative schema management CLI"
+description  = "Postgres declarative schema management CLI — diff source SQL against a live database and generate reviewable migrations."
 version      = { workspace = true }
 edition      = { workspace = true }
 rust-version = { workspace = true }
 license      = { workspace = true }
 repository   = { workspace = true }
+homepage     = "https://github.com/saosebastiao/pgevolve"
+documentation = "https://docs.rs/pgevolve"
+readme       = "../../README.md"
+keywords     = ["postgres", "postgresql", "migration", "schema", "database"]
+categories   = ["database", "command-line-utilities", "development-tools"]
 authors      = { workspace = true }
 
 [lints]

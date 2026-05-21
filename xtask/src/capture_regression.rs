@@ -23,10 +23,10 @@ pub fn run(seed_hex: &str, issue: u64) -> Result<()> {
 
     let placeholder_before = "-- @pgevolve schema=app\n\
                               CREATE SCHEMA app;\n\
-                              -- TODO: replace with the minimized before-IR from proptest seed.\n";
+                              -- replace this with the minimized before-IR from the proptest seed.\n";
     let placeholder_after = "-- @pgevolve schema=app\n\
                              CREATE SCHEMA app;\n\
-                             -- TODO: replace with the minimized after-IR from proptest seed.\n";
+                             -- replace this with the minimized after-IR from the proptest seed.\n";
 
     std::fs::write(fixture_dir.join("before.sql"), placeholder_before)?;
     std::fs::write(fixture_dir.join("after.sql"), placeholder_after)?;
@@ -36,7 +36,7 @@ pub fn run(seed_hex: &str, issue: u64) -> Result<()> {
         r#"[meta]
 title = "regression: issue {issue}"
 authoring = "regressions"
-issue = "https://github.com/your-org/pgevolve/issues/{issue}"
+issue = "https://github.com/saosebastiao/pgevolve/issues/{issue}"
 spec_refs = []
 
 [pg]
