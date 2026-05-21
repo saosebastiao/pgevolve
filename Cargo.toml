@@ -58,10 +58,11 @@ anyhow    = "1"
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
 toml        = "1"
-# Pinned to 2.x because bincode 3 dropped the bundled serde feature in
-# favor of a not-yet-published companion crate. Our only use site is the
-# PlanId hash payload, which depends on `bincode::serde::encode_to_vec`.
-# Revisit when the bincode 3 serde story stabilizes.
+# Pinned to 2.x. bincode 3.0.0 has shipped but moves serde support out
+# to a companion crate; our only use site is the PlanId hash payload via
+# `bincode::serde::encode_to_vec`. Stage 3 of the constitution cleanup
+# (docs/superpowers/plans/2026-05-21-constitution-cleanup.md) replaces
+# this with `serde_json::to_vec` and drops the dep entirely.
 bincode     = { version = "2", features = ["serde"] }
 
 # Hashing / IDs
@@ -86,6 +87,10 @@ tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-time-0_3"] 
 # Ephemeral Postgres (used by `validate --shadow` in the binary and by
 # the testkit's tier-3/4 fixtures).
 testcontainers   = "0.27"
+
+# Filesystem helpers (used across multiple crates).
+walkdir  = "2"
+tempfile = "3"
 
 # Testing
 proptest         = "1"

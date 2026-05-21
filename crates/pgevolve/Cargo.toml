@@ -43,7 +43,7 @@ blake3              = { workspace = true }
 hex                 = { workspace = true }
 testcontainers      = { workspace = true }
 async-trait         = "0.1"
-tempfile            = "3"
+tempfile            = { workspace = true }
 
 [dev-dependencies]
 pgevolve-testkit  = { path = "../pgevolve-testkit" }

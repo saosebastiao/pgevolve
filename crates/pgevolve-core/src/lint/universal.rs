@@ -62,18 +62,18 @@ pub fn check_universal(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Findin
     out.extend(view_shadows_table(tree));
     out.extend(mv_no_unique_index(tree));
     out.extend(view_body_references_unmanaged_schema(tree, managed));
-    out.extend(type_shadows_table_rule(tree));
-    out.extend(enum_value_collision_rule(tree));
-    out.extend(composite_attribute_collision_rule(tree));
-    out.extend(domain_check_references_unmanaged_type_rule(tree, managed));
-    out.extend(pl_pgsql_dynamic_sql_rule(tree));
-    out.extend(procedure_contains_commit_rule(tree));
-    out.extend(function_references_unmanaged_schema_rule(tree, managed));
+    out.extend(type_shadows_table(tree));
+    out.extend(enum_value_collision(tree));
+    out.extend(composite_attribute_collision(tree));
+    out.extend(domain_check_references_unmanaged_type(tree, managed));
+    out.extend(pl_pgsql_dynamic_sql(tree));
+    out.extend(procedure_contains_commit(tree));
+    out.extend(function_references_unmanaged_schema(tree, managed));
     out.extend(extension_version_unpinned(tree));
     out.extend(extension_references_unmanaged_schema(tree));
-    out.extend(trigger_references_unmanaged_table_rule(tree));
-    out.extend(trigger_references_unmanaged_function_rule(tree));
-    out.extend(partition_references_unmanaged_parent_rule(tree));
+    out.extend(trigger_references_unmanaged_table(tree));
+    out.extend(trigger_references_unmanaged_function(tree));
+    out.extend(partition_references_unmanaged_parent(tree));
     out
 }
 
@@ -373,7 +373,7 @@ fn view_body_references_unmanaged_schema(
 /// `type-shadows-table` — fires when a user-defined type's qname collides with
 /// a table, view, or materialized-view qname. `PostgreSQL` uses one namespace for
 /// relations and types, so the conflict would be rejected at apply time.
-fn type_shadows_table_rule(tree: &SourceTree) -> Vec<Finding> {
+fn type_shadows_table(tree: &SourceTree) -> Vec<Finding> {
     let mut out = Vec::new();
 
     // Build a set of all relation qnames (table + view + MV).
@@ -408,7 +408,7 @@ fn type_shadows_table_rule(tree: &SourceTree) -> Vec<Finding> {
 ///
 /// The source parser rejects duplicates at parse time, so this is a
 /// defense-in-depth check for catalogs constructed programmatically.
-fn enum_value_collision_rule(tree: &SourceTree) -> Vec<Finding> {
+fn enum_value_collision(tree: &SourceTree) -> Vec<Finding> {
     let mut out = Vec::new();
 
     for ty in &tree.catalog.types {
@@ -437,7 +437,7 @@ fn enum_value_collision_rule(tree: &SourceTree) -> Vec<Finding> {
 ///
 /// The source parser rejects duplicates at parse time, so this is a
 /// defense-in-depth check for catalogs constructed programmatically.
-fn composite_attribute_collision_rule(tree: &SourceTree) -> Vec<Finding> {
+fn composite_attribute_collision(tree: &SourceTree) -> Vec<Finding> {
     let mut out = Vec::new();
 
     for ty in &tree.catalog.types {
@@ -501,12 +501,10 @@ fn extract_qualified_refs(text: &str) -> Vec<(String, String)> {
     result
 }
 
-#[inline]
 const fn is_id_start(b: u8) -> bool {
     b.is_ascii_alphabetic() || b == b'_'
 }
 
-#[inline]
 const fn is_id_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
@@ -518,7 +516,7 @@ const fn is_id_char(b: u8) -> bool {
 /// This is a forward-looking check (full resolution lands in v0.3 when
 /// functions are supported), using simple text-based extraction of qualified
 /// identifiers from the canonical expression text.
-fn domain_check_references_unmanaged_type_rule(
+fn domain_check_references_unmanaged_type(
     tree: &SourceTree,
     managed: &ManagedConfig,
 ) -> Vec<Finding> {
@@ -580,7 +578,7 @@ fn domain_check_references_unmanaged_type_rule(
 /// Dynamic SQL bypasses static analysis. Developers must annotate every
 /// dynamic reference with a directive so pgevolve can maintain the dependency
 /// graph correctly.
-fn pl_pgsql_dynamic_sql_rule(tree: &SourceTree) -> Vec<Finding> {
+fn pl_pgsql_dynamic_sql(tree: &SourceTree) -> Vec<Finding> {
     let mut out = Vec::new();
 
     for f in &tree.catalog.functions {
@@ -646,7 +644,7 @@ fn check_dynamic_sql_in_routine(
 /// with `transactional=OutsideTransaction`. Surfaces in code review so
 /// reviewers know the step cannot be rolled back as part of a larger migration
 /// transaction.
-fn procedure_contains_commit_rule(tree: &SourceTree) -> Vec<Finding> {
+fn procedure_contains_commit(tree: &SourceTree) -> Vec<Finding> {
     let mut out = Vec::new();
 
     for p in &tree.catalog.procedures {
@@ -671,7 +669,7 @@ fn procedure_contains_commit_rule(tree: &SourceTree) -> Vec<Finding> {
 /// schema (`pg_catalog`, `information_schema`).
 ///
 /// Mirrors `view-body-references-unmanaged-schema` for routines.
-fn function_references_unmanaged_schema_rule(
+fn function_references_unmanaged_schema(
     tree: &SourceTree,
     managed: &ManagedConfig,
 ) -> Vec<Finding> {
@@ -791,7 +789,7 @@ fn extension_references_unmanaged_schema(tree: &SourceTree) -> Vec<Finding> {
 /// target table is not declared in the source catalog as a table, view, or
 /// materialized view. Triggers can fire on plain tables, views (`INSTEAD OF`),
 /// and materialized views, so all three collections are checked.
-fn trigger_references_unmanaged_table_rule(tree: &SourceTree) -> Vec<Finding> {
+fn trigger_references_unmanaged_table(tree: &SourceTree) -> Vec<Finding> {
     let mut out = Vec::new();
 
     for trigger in &tree.catalog.triggers {
@@ -823,7 +821,7 @@ fn trigger_references_unmanaged_table_rule(tree: &SourceTree) -> Vec<Finding> {
 /// execute function is not declared in the source catalog. The function must be
 /// a managed source object, not just present in the live database via an
 /// extension or external schema.
-fn trigger_references_unmanaged_function_rule(tree: &SourceTree) -> Vec<Finding> {
+fn trigger_references_unmanaged_function(tree: &SourceTree) -> Vec<Finding> {
     let mut out = Vec::new();
 
     for trigger in &tree.catalog.triggers {
@@ -852,7 +850,7 @@ fn trigger_references_unmanaged_function_rule(tree: &SourceTree) -> Vec<Finding>
 /// `partition-references-unmanaged-parent` — fires (Error) when a partition
 /// table's PARTITION OF target parent is not declared in the source catalog
 /// as a table. The parent must be a managed source object.
-fn partition_references_unmanaged_parent_rule(tree: &SourceTree) -> Vec<Finding> {
+fn partition_references_unmanaged_parent(tree: &SourceTree) -> Vec<Finding> {
     let mut out = Vec::new();
 
     for table in &tree.catalog.tables {
@@ -894,7 +892,7 @@ pub const LINT_AT_PLAN_RULES: &[&str] = &["column-position-drift"];
 /// catalogs, as opposed to [`check_universal`] which only needs the source tree.
 pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
     let mut out = Vec::new();
-    column_position_drift_rule(source, target, &mut out);
+    column_position_drift(source, target, &mut out);
     out
 }
 
@@ -905,7 +903,7 @@ pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
 /// Source is canonical; the lint says "your DB has columns in a different
 /// order." Severity is `LintAtPlan` — plan refuses unless the finding is
 /// waived in `intent.toml` (waiver mechanism in Task 8).
-fn column_position_drift_rule(source: &Catalog, target: &Catalog, out: &mut Vec<Finding>) {
+fn column_position_drift(source: &Catalog, target: &Catalog, out: &mut Vec<Finding>) {
     let target_tables: BTreeMap<_, _> =
         target.tables.iter().map(|t| (t.qname.clone(), t)).collect();
 

@@ -27,4 +27,4 @@ uuid           = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
-tempfile          = "3"
+tempfile          = { workspace = true }
