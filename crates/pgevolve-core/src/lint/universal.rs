@@ -328,6 +328,7 @@ fn view_body_references_unmanaged_schema(
                 | NodeId::Sequence(q)
                 | NodeId::Type(q)
                 | NodeId::Procedure(q)
+                | NodeId::Trigger(q)
                 | NodeId::Function(q, _) => q.schema.as_str(),
                 NodeId::Schema(s) | NodeId::Extension(s) => s.as_str(),
                 NodeId::Constraint { table, .. } => table.schema.as_str(),
@@ -694,6 +695,7 @@ fn function_references_unmanaged_schema_rule(
                 | NodeId::Sequence(q)
                 | NodeId::Type(q)
                 | NodeId::Procedure(q)
+                | NodeId::Trigger(q)
                 | NodeId::Function(q, _) => q.schema.as_str(),
                 NodeId::Schema(s) | NodeId::Extension(s) => s.as_str(),
                 NodeId::Constraint { table, .. } => table.schema.as_str(),

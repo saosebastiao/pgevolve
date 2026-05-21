@@ -9,7 +9,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
 use crate::diff::change::{
-    Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, UserTypeChange, ViewChange,
+    Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, TriggerChange, UserTypeChange,
+    ViewChange,
 };
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::TableOp;
@@ -391,8 +392,15 @@ fn change_node(change: &Change) -> NodeId {
             };
             NodeId::Extension(name)
         }
-        // Trigger node mapping: placeholder until TRG5 adds NodeId::Trigger.
-        Change::Trigger(_) => unimplemented!("Trigger node mapping lands in TRG5"),
+        // Trigger node mapping.
+        Change::Trigger(tc) => match tc {
+            TriggerChange::Create(t) | TriggerChange::Replace(t) => {
+                NodeId::Trigger(t.qname.clone())
+            }
+            TriggerChange::Drop { qname, .. } | TriggerChange::CommentOn { qname, .. } => {
+                NodeId::Trigger(qname.clone())
+            }
+        },
     }
 }
 
@@ -472,6 +480,7 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Type(q) => format!("type:{q}"),
         NodeId::Procedure(q) => format!("procedure:{q}"),
         NodeId::Extension(name) => format!("extension:{name}"),
+        NodeId::Trigger(q) => format!("trigger:{q}"),
         NodeId::Function(q, args) => format!(
             "function:{}({})",
             q,

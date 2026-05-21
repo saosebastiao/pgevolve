@@ -59,6 +59,8 @@ pub enum NodeId {
     Procedure(QualifiedName),
     /// An installed extension.
     Extension(Identifier),
+    /// A trigger (qname unique within schema).
+    Trigger(QualifiedName),
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.
@@ -111,6 +113,32 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     }
     for p in &catalog.procedures {
         g.add_node(NodeId::Procedure(p.qname.clone()));
+    }
+    // Register triggers; trigger depends on its target relation and function.
+    for t in &catalog.triggers {
+        g.add_node(NodeId::Trigger(t.qname.clone()));
+        let target_node = if catalog.tables.iter().any(|x| x.qname == t.table) {
+            NodeId::Table(t.table.clone())
+        } else if catalog.views.iter().any(|x| x.qname == t.table) {
+            NodeId::View(t.table.clone())
+        } else if catalog.materialized_views.iter().any(|x| x.qname == t.table) {
+            NodeId::Mv(t.table.clone())
+        } else {
+            // Unresolved target — the lint rule trigger-references-unmanaged-table
+            // catches this in T9. Skip the edge so the graph builder doesn't
+            // panic on a missing target node.
+            continue;
+        };
+        g.add_edge(NodeId::Trigger(t.qname.clone()), target_node);
+        if let Some(func) = catalog.functions.iter().find(|f| f.qname == t.function_qname) {
+            g.add_edge(
+                NodeId::Trigger(t.qname.clone()),
+                NodeId::Function(
+                    t.function_qname.clone(),
+                    func.arg_types_normalized.clone(),
+                ),
+            );
+        }
     }
     // Register extensions; an extension with WITH SCHEMA s depends on the schema.
     for e in &catalog.extensions {
