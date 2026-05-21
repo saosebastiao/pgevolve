@@ -61,6 +61,49 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  deny:
+    name: cargo deny check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  doc:
+    name: cargo doc
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --no-deps
+
+  changelog:
+    name: CHANGELOG version sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Cargo.toml version has a CHANGELOG entry
+        run: |
+          v=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          case "$v" in
+            *-dev|*-alpha*|*-beta*|*-rc*)
+              echo "Skipping CHANGELOG check for pre-release version $v"
+              exit 0
+              ;;
+          esac
+          if grep -q "^## \[$v\] — " CHANGELOG.md; then
+            echo "CHANGELOG entry present for $v"
+          else
+            echo "::error::Cargo.toml version $v has no \"## [$v] — DATE\" entry in CHANGELOG.md"
+            exit 1
+          fi
+
   conformance:
     name: conformance (tier 3 + tier C)
     needs: [test]

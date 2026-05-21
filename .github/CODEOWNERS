@@ -1,0 +1,4 @@
+# Default reviewer for all changes.
+# Per docs/CONSTITUTION.md §9: green CI is a necessary (not sufficient)
+# condition for merge — reviewer approval is the other half.
+* @saosebastiao
