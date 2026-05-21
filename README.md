@@ -2,6 +2,11 @@
 
 Postgres-specific declarative schema management.
 
+[![crates.io](https://img.shields.io/crates/v/pgevolve.svg)](https://crates.io/crates/pgevolve)
+[![docs.rs](https://img.shields.io/docsrs/pgevolve-core)](https://docs.rs/pgevolve-core)
+[![CI](https://github.com/saosebastiao/pgevolve/actions/workflows/ci.yml/badge.svg)](https://github.com/saosebastiao/pgevolve/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+
 `pgevolve` treats a directory of `CREATE`-style SQL files as the source of
 truth for one or more Postgres schemas, introspects a live database to
 derive its current state, and computes ordered, dependency-aware migration
@@ -9,6 +14,24 @@ plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
 > **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-specs #1 (views/MVs), #2 (types), #3 (extensions), #4 (functions/procedures), #5 (triggers), and #6 (declarative partitioning) merged. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
+
+## Install
+
+From [crates.io](https://crates.io/crates/pgevolve) (recommended):
+
+```sh
+cargo install pgevolve
+```
+
+From source:
+
+```sh
+git clone https://github.com/saosebastiao/pgevolve
+cd pgevolve
+cargo install --path crates/pgevolve
+```
+
+`pgevolve` requires Rust 1.95+.
 
 ## Usage at a glance
 
