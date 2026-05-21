@@ -50,25 +50,33 @@ pub async fn run(args: DiffArgs, cfg: &PgevolveConfig, format: OutputFormat) -> 
             args.shadow_strict,
         )
         .await?;
-        eprintln!(
-            "shadow-validate: {} structural edge(s) checked",
-            report.structural_edges_checked
-        );
-        if !report.warnings.is_empty() {
-            eprintln!("shadow-validate: {} warning(s):", report.warnings.len());
-            for w in &report.warnings {
-                eprintln!("  - {w}");
+        let mismatch_count = report.canonical_mismatches.len()
+            + report.extra_ast_edges.len()
+            + report.missing_ast_edges.len();
+        if mismatch_count > 0 {
+            for m in &report.canonical_mismatches {
+                eprintln!(
+                    "  canonical mismatch {}: source={:?} catalog={:?}",
+                    m.view_qname, m.source_canonical, m.catalog_canonical
+                );
+            }
+            for e in &report.extra_ast_edges {
+                eprintln!("  extra AST edge {}: {}", e.view_qname, e.dep_node);
+            }
+            for m in &report.missing_ast_edges {
+                eprintln!(
+                    "  missing AST edge {}: {}.{}",
+                    m.view_qname, m.ref_schema, m.ref_name
+                );
             }
             if args.shadow_strict {
-                anyhow::bail!("shadow-validate --strict: warnings treated as errors");
+                anyhow::bail!("shadow-validate --strict: {mismatch_count} mismatch(es)");
             }
         }
-        if !report.errors.is_empty() {
-            for e in &report.errors {
-                eprintln!("  - {e}");
-            }
-            anyhow::bail!("shadow-validate: {} error(s)", report.errors.len());
-        }
+        let n_edges = report.structural_edges_checked;
+        eprintln!(
+            "shadow-validate: ok ({n_edges} structural edge(s), {mismatch_count} canonical mismatch(es))"
+        );
     }
 
     // Spec §10.1: `diff` is informational — always exit 0 regardless of change count.

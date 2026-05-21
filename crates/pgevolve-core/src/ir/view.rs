@@ -75,7 +75,7 @@ pub struct View {
     /// `body_canonical` and `body_dependencies`. Not serialized to plan
     /// output or JSON (T4 produces the canonical form which IS serialized).
     #[serde(skip, default)]
-    pub(crate) raw_body: String,
+    pub raw_body: String,
 }
 
 /// A Postgres `CREATE MATERIALIZED VIEW`.
@@ -100,7 +100,7 @@ pub struct MaterializedView {
     /// `body_canonical` and `body_dependencies`. Not serialized to plan
     /// output or JSON (T4 produces the canonical form which IS serialized).
     #[serde(skip, default)]
-    pub(crate) raw_body: String,
+    pub raw_body: String,
 }
 
 impl Diff for View {
