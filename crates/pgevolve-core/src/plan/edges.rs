@@ -121,7 +121,11 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
             NodeId::Table(t.table.clone())
         } else if catalog.views.iter().any(|x| x.qname == t.table) {
             NodeId::View(t.table.clone())
-        } else if catalog.materialized_views.iter().any(|x| x.qname == t.table) {
+        } else if catalog
+            .materialized_views
+            .iter()
+            .any(|x| x.qname == t.table)
+        {
             NodeId::Mv(t.table.clone())
         } else {
             // Unresolved target — the lint rule trigger-references-unmanaged-table
@@ -130,13 +134,14 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
             continue;
         };
         g.add_edge(NodeId::Trigger(t.qname.clone()), target_node);
-        if let Some(func) = catalog.functions.iter().find(|f| f.qname == t.function_qname) {
+        if let Some(func) = catalog
+            .functions
+            .iter()
+            .find(|f| f.qname == t.function_qname)
+        {
             g.add_edge(
                 NodeId::Trigger(t.qname.clone()),
-                NodeId::Function(
-                    t.function_qname.clone(),
-                    func.arg_types_normalized.clone(),
-                ),
+                NodeId::Function(t.function_qname.clone(), func.arg_types_normalized.clone()),
             );
         }
     }

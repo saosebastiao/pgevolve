@@ -405,8 +405,7 @@ fn process_file(
                 catalog.extensions.push(ext);
             }
             Statement::CreateTrigger(s) => {
-                let trigger =
-                    builder::create_trigger_stmt::build_trigger(&s, &location)?;
+                let trigger = builder::create_trigger_stmt::build_trigger(&s, &location)?;
                 let key = format!("triggers.{}", trigger.qname);
                 if let Some(prior) = locations.get(&key) {
                     return Err(ParseError::DuplicateObject {

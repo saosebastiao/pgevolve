@@ -20,8 +20,8 @@ use crate::ir::procedure::Procedure;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
-use crate::ir::user_type::{CompositeAttribute, DomainCheck, UserType};
 use crate::ir::trigger::Trigger;
+use crate::ir::user_type::{CompositeAttribute, DomainCheck, UserType};
 use crate::ir::view::{MaterializedView, View};
 
 use super::destructiveness::Destructiveness;

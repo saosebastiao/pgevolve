@@ -294,9 +294,33 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
-            // Trigger human-readable output: placeholder until TRG8 lands.
-            pgevolve_core::diff::change::Change::Trigger(_) => {
-                println!("      trigger change (detail lands in TRG8)");
+            pgevolve_core::diff::change::Change::Trigger(tc) => {
+                use pgevolve_core::diff::change::TriggerChange;
+                match tc {
+                    TriggerChange::Create(t) => {
+                        println!("      create trigger {} on {}", t.qname, t.table);
+                    }
+                    TriggerChange::Drop { qname, table } => {
+                        println!("      drop trigger {qname} on {table}");
+                    }
+                    TriggerChange::Replace(t) => {
+                        println!(
+                            "      replace trigger {} on {} (drop + recreate)",
+                            t.qname, t.table
+                        );
+                    }
+                    TriggerChange::CommentOn {
+                        qname,
+                        table,
+                        comment,
+                    } => {
+                        if comment.is_some() {
+                            println!("      trigger {qname} on {table}: set comment");
+                        } else {
+                            println!("      trigger {qname} on {table}: clear comment");
+                        }
+                    }
+                }
             }
         }
     }
@@ -458,7 +482,11 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Extension(pgevolve_core::diff::change::ExtensionChange::CommentOn { .. }) => {
             "CommentOnExtension"
         }
-        // Trigger kind name: placeholder until TRG8 lands.
-        Change::Trigger(_) => "TriggerChange",
+        Change::Trigger(pgevolve_core::diff::change::TriggerChange::Create(_)) => "CreateTrigger",
+        Change::Trigger(pgevolve_core::diff::change::TriggerChange::Drop { .. }) => "DropTrigger",
+        Change::Trigger(pgevolve_core::diff::change::TriggerChange::Replace(_)) => "ReplaceTrigger",
+        Change::Trigger(pgevolve_core::diff::change::TriggerChange::CommentOn { .. }) => {
+            "CommentOnTrigger"
+        }
     }
 }

@@ -38,7 +38,6 @@ use crate::ir::constraint::{
 };
 use crate::ir::default_expr::{DefaultExpr, NormalizedExpr};
 use crate::ir::extension::Extension;
-use crate::ir::trigger::Trigger;
 use crate::ir::function::{
     ArgMode, Function, FunctionArg, FunctionLanguage, NormalizedArgTypes, ParallelSafety,
     ReturnType, SecurityMode, TableColumn, Volatility,
@@ -48,6 +47,7 @@ use crate::ir::procedure::Procedure;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::{Sequence, SequenceOwner};
 use crate::ir::table::Table;
+use crate::ir::trigger::Trigger;
 use crate::ir::user_type::{CompositeAttribute, DomainCheck, EnumValue, UserType, UserTypeKind};
 use crate::ir::view::{MaterializedView, View, ViewColumn};
 use crate::parse::builder;

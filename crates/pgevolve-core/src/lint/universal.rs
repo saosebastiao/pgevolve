@@ -794,16 +794,8 @@ fn trigger_references_unmanaged_table_rule(tree: &SourceTree) -> Vec<Finding> {
     let mut out = Vec::new();
 
     for trigger in &tree.catalog.triggers {
-        let managed = tree
-            .catalog
-            .tables
-            .iter()
-            .any(|t| t.qname == trigger.table)
-            || tree
-                .catalog
-                .views
-                .iter()
-                .any(|v| v.qname == trigger.table)
+        let managed = tree.catalog.tables.iter().any(|t| t.qname == trigger.table)
+            || tree.catalog.views.iter().any(|v| v.qname == trigger.table)
             || tree
                 .catalog
                 .materialized_views
@@ -2317,7 +2309,14 @@ mod tests {
             comment: None,
         });
         c.functions.push(make_function_bare("app", "audit_fn"));
-        c.triggers.push(make_trigger("app", "trg_orders", "app", "orders", "app", "audit_fn"));
+        c.triggers.push(make_trigger(
+            "app",
+            "trg_orders",
+            "app",
+            "orders",
+            "app",
+            "audit_fn",
+        ));
         // Extra unrelated objects — just to confirm no false positives.
         c.views.push(View {
             qname: qn("app", "active_orders"),
@@ -2372,7 +2371,10 @@ mod tests {
             .iter()
             .filter(|f| f.rule == "trigger-references-unmanaged-table")
             .count();
-        assert_eq!(count, 1, "expected one trigger-references-unmanaged-table finding");
+        assert_eq!(
+            count, 1,
+            "expected one trigger-references-unmanaged-table finding"
+        );
         assert_eq!(
             findings
                 .iter()
@@ -2408,7 +2410,10 @@ mod tests {
             .iter()
             .filter(|f| f.rule == "trigger-references-unmanaged-function")
             .count();
-        assert_eq!(count, 1, "expected one trigger-references-unmanaged-function finding");
+        assert_eq!(
+            count, 1,
+            "expected one trigger-references-unmanaged-function finding"
+        );
         assert_eq!(
             findings
                 .iter()

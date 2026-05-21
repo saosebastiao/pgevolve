@@ -6,9 +6,7 @@
 #![allow(dead_code)]
 
 use crate::identifier::{Identifier, QualifiedName};
-use crate::ir::trigger::{
-    TransitionKind, Trigger, TriggerEvent, TriggerLevel, TriggerTiming,
-};
+use crate::ir::trigger::{TransitionKind, Trigger, TriggerEvent, TriggerLevel, TriggerTiming};
 
 /// `CREATE [CONSTRAINT] TRIGGER name { BEFORE | AFTER | INSTEAD OF }
 ///     event [ OR ... ] ON table

@@ -76,8 +76,7 @@ pub(crate) fn build_trigger(
 
     let transition_tables = parse_transition_rels(&stmt.transition_rels, location, &qname)?;
 
-    let function_qname =
-        qualified_name_from_list(&stmt.funcname, location, "trigger function")?;
+    let function_qname = qualified_name_from_list(&stmt.funcname, location, "trigger function")?;
     let function_args = string_list(&stmt.args);
 
     let is_constraint = stmt.isconstraint;
@@ -254,7 +253,10 @@ fn range_var_to_qname(
     if rv.schemaname.is_empty() {
         return Err(ParseError::Structural {
             location: location.clone(),
-            message: format!("{context}: relation '{}' has no schema qualifier", rv.relname),
+            message: format!(
+                "{context}: relation '{}' has no schema qualifier",
+                rv.relname
+            ),
         });
     }
     let schema = Identifier::from_unquoted(&rv.schemaname).map_err(|e| ParseError::Structural {
