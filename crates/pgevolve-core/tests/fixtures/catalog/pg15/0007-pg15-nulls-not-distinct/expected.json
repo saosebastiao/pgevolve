@@ -66,5 +66,6 @@
   "materialized_views": [],
   "types": [],
   "functions": [],
-  "procedures": []
+  "procedures": [],
+  "triggers": []
 }
