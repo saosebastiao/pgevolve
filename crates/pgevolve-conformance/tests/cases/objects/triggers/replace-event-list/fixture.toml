@@ -1,0 +1,17 @@
+[meta]
+title     = "REPLACE TRIGGER — event list change (INSERT → INSERT OR UPDATE) → DROP + CREATE"
+authoring = "objects"
+spec_refs = ["triggers.replace"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_products_notify",
+]
+
+[expect.plan]
+steps = 2
+minimality = false  # DROP is irreversible; post-apply re-plan is empty

@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE TRIGGER — INSTEAD OF INSERT on a view"
+authoring = "objects"
+spec_refs = ["triggers.create", "triggers.instead_of"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_users_view_insert",
+]
+
+[expect.plan]
+steps = 1

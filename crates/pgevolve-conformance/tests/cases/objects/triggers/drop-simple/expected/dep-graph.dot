@@ -1,0 +1,11 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.accounts.accounts_pkey";
+  "function:app.validate_balance()";
+  "schema:app";
+  "table:app.accounts";
+  "table:app.accounts" -> "schema:app" [style=solid];
+  "constraint:app.accounts.accounts_pkey" -> "table:app.accounts" [style=solid];
+  "function:app.validate_balance()" -> "schema:app" [style=solid];
+}

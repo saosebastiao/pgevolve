@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE TRIGGER — AFTER UPDATE FOR EACH STATEMENT (statement-level trigger)"
+authoring = "objects"
+spec_refs = ["triggers.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_events_log",
+]
+
+[expect.plan]
+steps = 1

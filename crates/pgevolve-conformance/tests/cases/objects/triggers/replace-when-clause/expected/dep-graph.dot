@@ -1,0 +1,14 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.transactions.transactions_pkey";
+  "function:app.record_transaction()";
+  "schema:app";
+  "table:app.transactions";
+  "trigger:app.trg_transactions_record";
+  "table:app.transactions" -> "schema:app" [style=solid];
+  "constraint:app.transactions.transactions_pkey" -> "table:app.transactions" [style=solid];
+  "function:app.record_transaction()" -> "schema:app" [style=solid];
+  "trigger:app.trg_transactions_record" -> "table:app.transactions" [style=solid];
+  "trigger:app.trg_transactions_record" -> "function:app.record_transaction()" [style=solid];
+}

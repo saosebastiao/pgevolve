@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE TRIGGER — AFTER INSERT FOR EACH ROW (row-level trigger)"
+authoring = "objects"
+spec_refs = ["triggers.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_orders_audit",
+]
+
+[expect.plan]
+steps = 1

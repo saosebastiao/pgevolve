@@ -1,0 +1,17 @@
+[meta]
+title     = "DROP TRIGGER — removes a row-level trigger"
+authoring = "objects"
+spec_refs = ["triggers.drop"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_accounts_validate",
+]
+
+[expect.plan]
+steps = 1
+minimality = false  # DROP is irreversible; post-apply re-plan is empty

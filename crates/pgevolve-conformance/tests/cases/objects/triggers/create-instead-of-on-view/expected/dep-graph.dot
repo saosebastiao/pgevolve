@@ -1,0 +1,19 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.users.users_pkey";
+  "function:app.upsert_user()";
+  "schema:app";
+  "table:app.upsert_user";
+  "table:app.users";
+  "table:app.users_view";
+  "trigger:app.trg_users_view_insert";
+  "view:app.users_view";
+  "table:app.upsert_user" -> "table:app.users" [style=solid];
+  "table:app.users" -> "schema:app" [style=solid];
+  "table:app.users_view" -> "table:app.users" [style=solid];
+  "constraint:app.users.users_pkey" -> "table:app.users" [style=solid];
+  "function:app.upsert_user()" -> "schema:app" [style=solid];
+  "trigger:app.trg_users_view_insert" -> "view:app.users_view" [style=solid];
+  "trigger:app.trg_users_view_insert" -> "function:app.upsert_user()" [style=solid];
+}

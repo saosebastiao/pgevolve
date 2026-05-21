@@ -162,6 +162,23 @@ fn apply_comment_inner(
                 .ok_or_else(|| missing(location, "extension", &ext_name.to_string()))?;
             ext.comment = comment;
         }
+        ObjectType::ObjectTrigger => {
+            // `COMMENT ON TRIGGER trigger_name ON schema.table IS '...'`
+            // pg_query encodes this as a List of string parts:
+            //   [schema, table, trigger_name]   (3 parts, schema-qualified table)
+            //   [table, trigger_name]           (2 parts, unqualified table — handled
+            //                                    by inferring the default schema)
+            let parts = string_parts(stmt, location)?;
+            let (table_qn, ident) = split_column_target(&parts, default_schema, location)?;
+            // The trigger qname mirrors the owning table's schema.
+            let qname = crate::identifier::QualifiedName::new(table_qn.schema, ident);
+            let trg = catalog
+                .triggers
+                .iter_mut()
+                .find(|t| t.qname == qname)
+                .ok_or_else(|| missing(location, "trigger", &qname.to_string()))?;
+            trg.comment = comment;
+        }
         other => {
             return Err(ParseError::Structural {
                 location: location.clone(),

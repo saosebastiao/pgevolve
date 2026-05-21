@@ -1,0 +1,14 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.inventory.inventory_pkey";
+  "function:app.sync_inventory_changes()";
+  "schema:app";
+  "table:app.inventory";
+  "trigger:app.trg_inventory_sync";
+  "table:app.inventory" -> "schema:app" [style=solid];
+  "constraint:app.inventory.inventory_pkey" -> "table:app.inventory" [style=solid];
+  "function:app.sync_inventory_changes()" -> "schema:app" [style=solid];
+  "trigger:app.trg_inventory_sync" -> "table:app.inventory" [style=solid];
+  "trigger:app.trg_inventory_sync" -> "function:app.sync_inventory_changes()" [style=solid];
+}

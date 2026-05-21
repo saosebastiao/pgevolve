@@ -1,0 +1,14 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.items.items_pkey";
+  "function:app.check_item_status()";
+  "schema:app";
+  "table:app.items";
+  "trigger:app.trg_items_status_check";
+  "table:app.items" -> "schema:app" [style=solid];
+  "constraint:app.items.items_pkey" -> "table:app.items" [style=solid];
+  "function:app.check_item_status()" -> "schema:app" [style=solid];
+  "trigger:app.trg_items_status_check" -> "table:app.items" [style=solid];
+  "trigger:app.trg_items_status_check" -> "function:app.check_item_status()" [style=solid];
+}

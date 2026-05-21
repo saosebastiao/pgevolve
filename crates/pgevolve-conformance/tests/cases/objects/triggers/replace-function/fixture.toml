@@ -1,0 +1,17 @@
+[meta]
+title     = "REPLACE TRIGGER — execute function changes (fn_a → fn_b) → DROP + CREATE"
+authoring = "objects"
+spec_refs = ["triggers.replace"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_sessions_hook",
+]
+
+[expect.plan]
+steps = 2
+minimality = false  # DROP is irreversible; post-apply re-plan is empty

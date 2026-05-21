@@ -1,0 +1,16 @@
+[meta]
+title     = "COMMENT ON TRIGGER — adds a comment to an existing trigger"
+authoring = "objects"
+spec_refs = ["triggers.comment_on"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_notifications_send",
+]
+
+[expect.plan]
+steps = 1

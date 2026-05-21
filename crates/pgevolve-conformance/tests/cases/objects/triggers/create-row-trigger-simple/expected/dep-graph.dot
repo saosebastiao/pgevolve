@@ -1,0 +1,14 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.orders.orders_pkey";
+  "function:app.stamp_audit()";
+  "schema:app";
+  "table:app.orders";
+  "trigger:app.trg_orders_audit";
+  "table:app.orders" -> "schema:app" [style=solid];
+  "constraint:app.orders.orders_pkey" -> "table:app.orders" [style=solid];
+  "function:app.stamp_audit()" -> "schema:app" [style=solid];
+  "trigger:app.trg_orders_audit" -> "table:app.orders" [style=solid];
+  "trigger:app.trg_orders_audit" -> "function:app.stamp_audit()" [style=solid];
+}

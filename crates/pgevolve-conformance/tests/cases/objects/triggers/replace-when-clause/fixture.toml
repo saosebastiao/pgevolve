@@ -1,0 +1,17 @@
+[meta]
+title     = "REPLACE TRIGGER — adds WHEN clause → DROP + CREATE"
+authoring = "objects"
+spec_refs = ["triggers.replace", "triggers.when_clause"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_transactions_record",
+]
+
+[expect.plan]
+steps = 2
+minimality = false  # DROP is irreversible; post-apply re-plan is empty

@@ -1,0 +1,14 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.notifications.notifications_pkey";
+  "function:app.send_notification()";
+  "schema:app";
+  "table:app.notifications";
+  "trigger:app.trg_notifications_send";
+  "table:app.notifications" -> "schema:app" [style=solid];
+  "constraint:app.notifications.notifications_pkey" -> "table:app.notifications" [style=solid];
+  "function:app.send_notification()" -> "schema:app" [style=solid];
+  "trigger:app.trg_notifications_send" -> "table:app.notifications" [style=solid];
+  "trigger:app.trg_notifications_send" -> "function:app.send_notification()" [style=solid];
+}

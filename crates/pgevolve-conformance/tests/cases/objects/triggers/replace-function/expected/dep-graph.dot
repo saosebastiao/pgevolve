@@ -1,0 +1,16 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.sessions.sessions_pkey";
+  "function:app.fn_a()";
+  "function:app.fn_b()";
+  "schema:app";
+  "table:app.sessions";
+  "trigger:app.trg_sessions_hook";
+  "table:app.sessions" -> "schema:app" [style=solid];
+  "constraint:app.sessions.sessions_pkey" -> "table:app.sessions" [style=solid];
+  "function:app.fn_a()" -> "schema:app" [style=solid];
+  "function:app.fn_b()" -> "schema:app" [style=solid];
+  "trigger:app.trg_sessions_hook" -> "table:app.sessions" [style=solid];
+  "trigger:app.trg_sessions_hook" -> "function:app.fn_b()" [style=solid];
+}

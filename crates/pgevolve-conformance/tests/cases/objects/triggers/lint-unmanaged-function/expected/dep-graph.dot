@@ -1,0 +1,11 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.widgets.widgets_pkey";
+  "schema:app";
+  "table:app.widgets";
+  "trigger:app.trg_widgets_hook";
+  "table:app.widgets" -> "schema:app" [style=solid];
+  "constraint:app.widgets.widgets_pkey" -> "table:app.widgets" [style=solid];
+  "trigger:app.trg_widgets_hook" -> "table:app.widgets" [style=solid];
+}

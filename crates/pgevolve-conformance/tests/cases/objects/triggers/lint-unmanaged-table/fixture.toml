@@ -1,0 +1,27 @@
+[meta]
+title     = "lint trigger-references-unmanaged-table — trigger fires on undeclared table"
+authoring = "objects"
+spec_refs = ["triggers.lint_unmanaged_table"]
+
+# Note: the `trigger-references-unmanaged-table` lint rule has Error severity
+# (not LintAtPlan). It fires in check_universal() during CLI execution but
+# does not block the in-process planner used by the conformance suite.
+# The rule is unit-tested in pgevolve-core/src/lint/universal.rs.
+# This fixture confirms the planner still produces a valid CREATE TRIGGER step.
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_ghost_insert",
+]
+
+[expect.plan]
+steps = 1
+
+[expect.apply]
+# app.ghost_table is not declared in SQL so the CREATE TRIGGER will fail at apply
+# time when run against a real Postgres. This is the expected behavior.
+succeeds = false

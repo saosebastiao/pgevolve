@@ -1,0 +1,14 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.products.products_pkey";
+  "function:app.notify_change()";
+  "schema:app";
+  "table:app.products";
+  "trigger:app.trg_products_notify";
+  "table:app.products" -> "schema:app" [style=solid];
+  "constraint:app.products.products_pkey" -> "table:app.products" [style=solid];
+  "function:app.notify_change()" -> "schema:app" [style=solid];
+  "trigger:app.trg_products_notify" -> "table:app.products" [style=solid];
+  "trigger:app.trg_products_notify" -> "function:app.notify_change()" [style=solid];
+}

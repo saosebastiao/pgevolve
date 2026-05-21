@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE CONSTRAINT TRIGGER — AFTER FOR EACH ROW DEFERRABLE INITIALLY DEFERRED"
+authoring = "objects"
+spec_refs = ["triggers.create", "triggers.constraint"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_items_status_check",
+]
+
+[expect.plan]
+steps = 1

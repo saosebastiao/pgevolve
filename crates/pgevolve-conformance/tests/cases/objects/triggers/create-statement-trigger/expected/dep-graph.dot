@@ -1,0 +1,14 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.events.events_pkey";
+  "function:app.log_statement()";
+  "schema:app";
+  "table:app.events";
+  "trigger:app.trg_events_log";
+  "table:app.events" -> "schema:app" [style=solid];
+  "constraint:app.events.events_pkey" -> "table:app.events" [style=solid];
+  "function:app.log_statement()" -> "schema:app" [style=solid];
+  "trigger:app.trg_events_log" -> "table:app.events" [style=solid];
+  "trigger:app.trg_events_log" -> "function:app.log_statement()" [style=solid];
+}

@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE TRIGGER — AFTER UPDATE with REFERENCING OLD TABLE / NEW TABLE (transition tables)"
+authoring = "objects"
+spec_refs = ["triggers.create", "triggers.transition_tables"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "triggers.app.trg_inventory_sync",
+]
+
+[expect.plan]
+steps = 1
