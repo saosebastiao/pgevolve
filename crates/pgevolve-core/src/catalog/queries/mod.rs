@@ -6,6 +6,8 @@
 
 pub mod extensions;
 pub mod functions;
+pub mod partitioned_tables;
+pub mod partitions;
 pub mod pg14;
 pub mod pg15;
 pub mod pg16;
@@ -42,6 +44,8 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::Functions) => functions::SELECT_FUNCTIONS,
         (_, CatalogQuery::Extensions) => extensions::SELECT_EXTENSIONS,
         (_, CatalogQuery::Triggers) => triggers::SELECT_TRIGGERS,
+        (_, CatalogQuery::PartitionedTables) => partitioned_tables::SELECT_PARTITIONED_TABLES,
+        (_, CatalogQuery::Partitions) => partitions::SELECT_PARTITIONS,
     }
 }
 

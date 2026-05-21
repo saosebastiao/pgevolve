@@ -98,6 +98,10 @@ pub enum CatalogQuery {
     Extensions,
     /// `pg_trigger` rows for user triggers (excluding internal + extension-owned).
     Triggers,
+    /// `pg_class` (relkind='p') rows for partitioned-table parents.
+    PartitionedTables,
+    /// `pg_class` (relispartition=true) rows for child partitions.
+    Partitions,
 }
 
 impl CatalogQuery {
@@ -157,6 +161,8 @@ pub fn read_catalog(
     let functions_rows = querier.fetch(CatalogQuery::Functions, &managed)?;
     let extensions_rows = querier.fetch(CatalogQuery::Extensions, &managed)?;
     let triggers_rows = querier.fetch(CatalogQuery::Triggers, &managed)?;
+    let partitioned_tables_rows = querier.fetch(CatalogQuery::PartitionedTables, &managed)?;
+    let partitions_rows = querier.fetch(CatalogQuery::Partitions, &managed)?;
 
     let raw = assemble::RawRows {
         version,
@@ -177,6 +183,8 @@ pub fn read_catalog(
         functions: functions_rows,
         extensions: extensions_rows,
         triggers: triggers_rows,
+        partitioned_tables: partitioned_tables_rows,
+        partitions: partitions_rows,
     };
     let (catalog, drift) = assemble::assemble(raw, filter)?;
     Ok((catalog.canonicalize()?, drift))
