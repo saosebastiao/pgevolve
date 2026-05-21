@@ -1,6 +1,6 @@
 [package]
 name        = "pgevolve-core-macros"
-version     = "0.1.0-dev"
+version     = "0.2.0"
 edition     = "2024"
 description = "Internal proc-macros for pgevolve-core. Not a public API."
 license     = { workspace = true }

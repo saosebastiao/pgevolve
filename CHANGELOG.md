@@ -7,9 +7,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-## [0.2.0] — Unreleased
+## [0.2.0] — 2026-05-21
 
-Extends the v0.1 surface with **views, materialized views, user-defined types, functions/procedures, extensions, triggers, and declarative partitioning** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
+Extends the v0.1 surface with **views, materialized views, user-defined types, functions/procedures, extensions, triggers, and declarative partitioning** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds. Ships alongside a project constitution (`docs/CONSTITUTION.md`), `cargo-deny`-enforced license + advisory policy (`deny.toml`), `CLAUDE.md` agent guidance, and shadow validation for view bodies (T13).
 
 ### Added — internal architecture (2026-05-19)
 

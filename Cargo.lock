@@ -1656,7 +1656,7 @@ dependencies = [
 
 [[package]]
 name = "pgevolve"
-version = "0.1.0-dev"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1683,7 +1683,7 @@ dependencies = [
 
 [[package]]
 name = "pgevolve-conformance"
-version = "0.1.0-dev"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "pgevolve",
@@ -1703,7 +1703,7 @@ dependencies = [
 
 [[package]]
 name = "pgevolve-core"
-version = "0.1.0-dev"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bincode",
@@ -1730,7 +1730,7 @@ dependencies = [
 
 [[package]]
 name = "pgevolve-core-macros"
-version = "0.1.0-dev"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1740,7 +1740,7 @@ dependencies = [
 
 [[package]]
 name = "pgevolve-testkit"
-version = "0.1.0-dev"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3659,7 +3659,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0-dev"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "pgevolve-conformance",
