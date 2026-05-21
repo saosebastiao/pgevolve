@@ -33,10 +33,17 @@
 
 use std::collections::BTreeMap;
 use std::env;
+use std::future::Future;
+use std::pin::Pin;
 
 use anyhow::Result;
-use async_trait::async_trait;
 use pgevolve_core::catalog::PgVersion;
+
+/// Boxed future returned by [`TestPgGuard::reset`].
+type ResetFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
+
+/// Boxed future returned by [`TestPgBackend::checkout`].
+type CheckoutFuture<'a> = Pin<Box<dyn Future<Output = Result<Box<dyn TestPgGuard>>> + Send + 'a>>;
 
 /// Which Postgres provisioning strategy to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,26 +76,24 @@ impl BackendMode {
 ///
 /// The guard is borrowed for the duration of a test; calling [`TestPgGuard::reset`] drops
 /// all user-created schemas so the next caller gets a clean slate.
-#[async_trait]
 pub trait TestPgGuard: Send {
     /// DSN string suitable for `tokio_postgres::connect`.
     fn dsn(&self) -> &str;
     /// Reset the database to a clean state (drop all user schemas, recreate
     /// `public`). For the testcontainers backend this is a no-op because the
     /// container is torn down on drop.
-    async fn reset(&mut self) -> Result<()>;
+    fn reset(&mut self) -> ResetFuture<'_>;
 }
 
 /// Source of [`TestPgGuard`] instances.
 ///
 /// Each call to [`TestPgBackend::checkout`] returns a ready-to-use guard for the requested
 /// major Postgres version.
-#[async_trait]
 pub trait TestPgBackend: Send + Sync {
     /// Check out a connection to a Postgres instance of the given major
     /// version.  The caller is responsible for calling [`TestPgGuard::reset`]
     /// between independent test cases when reusing the same guard.
-    async fn checkout(&self, version: PgVersion) -> Result<Box<dyn TestPgGuard>>;
+    fn checkout(&self, version: PgVersion) -> CheckoutFuture<'_>;
 }
 
 /// Build the backend indicated by [`BackendMode::from_env`].
@@ -107,11 +112,12 @@ pub fn resolve() -> Result<Box<dyn TestPgBackend>> {
 /// Starts a fresh `postgres:<major>-alpine` container per checkout.
 pub struct TestcontainersBackend;
 
-#[async_trait]
 impl TestPgBackend for TestcontainersBackend {
-    async fn checkout(&self, version: PgVersion) -> Result<Box<dyn TestPgGuard>> {
-        let pg = crate::ephemeral_pg::EphemeralPostgres::start(version).await?;
-        Ok(Box::new(TestcontainersGuard { pg }))
+    fn checkout(&self, version: PgVersion) -> CheckoutFuture<'_> {
+        Box::pin(async move {
+            let pg = crate::ephemeral_pg::EphemeralPostgres::start(version).await?;
+            Ok(Box::new(TestcontainersGuard { pg }) as Box<dyn TestPgGuard>)
+        })
     }
 }
 
@@ -119,16 +125,15 @@ struct TestcontainersGuard {
     pg: crate::ephemeral_pg::EphemeralPostgres,
 }
 
-#[async_trait]
 impl TestPgGuard for TestcontainersGuard {
     fn dsn(&self) -> &str {
         self.pg.dsn()
     }
 
-    async fn reset(&mut self) -> Result<()> {
+    fn reset(&mut self) -> ResetFuture<'_> {
         // Testcontainers backend: the container is destroyed on Drop and a new
         // container is booted for the next checkout, so reset is a no-op.
-        Ok(())
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -158,16 +163,17 @@ impl ComposeBackend {
     }
 }
 
-#[async_trait]
 impl TestPgBackend for ComposeBackend {
-    async fn checkout(&self, version: PgVersion) -> Result<Box<dyn TestPgGuard>> {
-        let major = version.major();
-        let url = self.urls.get(&major).ok_or_else(|| {
-            anyhow::anyhow!("no PGEVOLVE_TEST_PG_{major}_URL configured for compose mode")
-        })?;
-        let mut guard = DsnGuard { url: url.clone() };
-        guard.reset().await?;
-        Ok(Box::new(guard))
+    fn checkout(&self, version: PgVersion) -> CheckoutFuture<'_> {
+        Box::pin(async move {
+            let major = version.major();
+            let url = self.urls.get(&major).ok_or_else(|| {
+                anyhow::anyhow!("no PGEVOLVE_TEST_PG_{major}_URL configured for compose mode")
+            })?;
+            let mut guard = DsnGuard { url: url.clone() };
+            guard.reset().await?;
+            Ok(Box::new(guard) as Box<dyn TestPgGuard>)
+        })
     }
 }
 
@@ -197,16 +203,17 @@ impl DsnBackend {
     }
 }
 
-#[async_trait]
 impl TestPgBackend for DsnBackend {
-    async fn checkout(&self, version: PgVersion) -> Result<Box<dyn TestPgGuard>> {
-        let major = version.major();
-        let url = self.urls.get(&major).ok_or_else(|| {
-            anyhow::anyhow!("no PGEVOLVE_TEST_PG_{major}_URL configured for dsn mode")
-        })?;
-        let mut guard = DsnGuard { url: url.clone() };
-        guard.reset().await?;
-        Ok(Box::new(guard))
+    fn checkout(&self, version: PgVersion) -> CheckoutFuture<'_> {
+        Box::pin(async move {
+            let major = version.major();
+            let url = self.urls.get(&major).ok_or_else(|| {
+                anyhow::anyhow!("no PGEVOLVE_TEST_PG_{major}_URL configured for dsn mode")
+            })?;
+            let mut guard = DsnGuard { url: url.clone() };
+            guard.reset().await?;
+            Ok(Box::new(guard) as Box<dyn TestPgGuard>)
+        })
     }
 }
 
@@ -218,37 +225,39 @@ struct DsnGuard {
     url: String,
 }
 
-#[async_trait]
 impl TestPgGuard for DsnGuard {
     fn dsn(&self) -> &str {
         &self.url
     }
 
-    async fn reset(&mut self) -> Result<()> {
-        let (client, conn) = tokio_postgres::connect(&self.url, tokio_postgres::NoTls).await?;
-        let conn_handle = tokio::spawn(conn);
-        let result = client
-            .batch_execute(
-                "DO $$
-                 DECLARE r record;
-                 BEGIN
-                   FOR r IN SELECT nspname FROM pg_namespace
-                            WHERE nspname NOT IN (
-                              'pg_catalog', 'information_schema',
-                              'pg_toast', 'public'
-                            )
-                              AND nspname NOT LIKE 'pg_temp_%'
-                              AND nspname NOT LIKE 'pg_toast_temp_%'
-                   LOOP EXECUTE format('DROP SCHEMA %I CASCADE', r.nspname); END LOOP;
-                   EXECUTE 'DROP SCHEMA public CASCADE';
-                   EXECUTE 'CREATE SCHEMA public';
-                 END $$;",
-            )
-            .await;
-        drop(client);
-        let _ = conn_handle.await;
-        result?;
-        Ok(())
+    fn reset(&mut self) -> ResetFuture<'_> {
+        Box::pin(async move {
+            let (client, conn) =
+                tokio_postgres::connect(&self.url, tokio_postgres::NoTls).await?;
+            let conn_handle = tokio::spawn(conn);
+            let result = client
+                .batch_execute(
+                    "DO $$
+                     DECLARE r record;
+                     BEGIN
+                       FOR r IN SELECT nspname FROM pg_namespace
+                                WHERE nspname NOT IN (
+                                  'pg_catalog', 'information_schema',
+                                  'pg_toast', 'public'
+                                )
+                                  AND nspname NOT LIKE 'pg_temp_%'
+                                  AND nspname NOT LIKE 'pg_toast_temp_%'
+                       LOOP EXECUTE format('DROP SCHEMA %I CASCADE', r.nspname); END LOOP;
+                       EXECUTE 'DROP SCHEMA public CASCADE';
+                       EXECUTE 'CREATE SCHEMA public';
+                     END $$;",
+                )
+                .await;
+            drop(client);
+            let _ = conn_handle.await;
+            result?;
+            Ok(())
+        })
     }
 }
 

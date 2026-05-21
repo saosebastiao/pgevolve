@@ -8,12 +8,11 @@
 //! (default: `drop_schema_cascade`) so each checkout starts clean.
 
 use anyhow::Result;
-use async_trait::async_trait;
 use tokio_postgres::NoTls;
 
 use crate::config::ShadowConfig;
 
-use super::{PgMajor, ShadowBackend, ShadowGuard};
+use super::{CheckoutFuture, PgMajor, ResetFuture, ShadowBackend, ShadowGuard};
 
 /// Backend that connects to a caller-supplied Postgres DSN.
 pub struct DsnBackend {
@@ -53,18 +52,19 @@ impl DsnBackend {
     }
 }
 
-#[async_trait]
 impl ShadowBackend for DsnBackend {
-    async fn checkout(&self, _major: PgMajor) -> Result<Box<dyn ShadowGuard>> {
-        let guard = DsnGuard {
-            url: self.base_url.clone(),
-            reset: self.reset.clone(),
-        };
-        guard.reset_now().await?;
-        if !self.extensions.is_empty() {
-            super::install_extensions(&guard.url, &self.extensions).await?;
-        }
-        Ok(Box::new(guard))
+    fn checkout(&self, _major: PgMajor) -> CheckoutFuture<'_> {
+        Box::pin(async move {
+            let guard = DsnGuard {
+                url: self.base_url.clone(),
+                reset: self.reset.clone(),
+            };
+            guard.reset_now().await?;
+            if !self.extensions.is_empty() {
+                super::install_extensions(&guard.url, &self.extensions).await?;
+            }
+            Ok(Box::new(guard) as Box<dyn ShadowGuard>)
+        })
     }
 }
 
@@ -102,13 +102,12 @@ impl DsnGuard {
     }
 }
 
-#[async_trait]
 impl ShadowGuard for DsnGuard {
     fn url(&self) -> &str {
         &self.url
     }
 
-    async fn reset(&mut self) -> Result<()> {
-        self.reset_now().await
+    fn reset(&mut self) -> ResetFuture<'_> {
+        Box::pin(self.reset_now())
     }
 }

@@ -13,26 +13,32 @@ pub mod dsn;
 pub mod testcontainers;
 pub mod validate;
 
-use async_trait::async_trait;
+use std::future::Future;
+use std::pin::Pin;
 
 /// PG major version requested.
 pub type PgMajor = u32;
 
+/// Boxed future returned by [`ShadowGuard::reset`].
+type ResetFuture<'a> = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>>;
+
+/// Boxed future returned by [`ShadowBackend::checkout`].
+type CheckoutFuture<'a> =
+    Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn ShadowGuard>>> + Send + 'a>>;
+
 /// One reservation of a shadow Postgres. Drop returns it (or destroys it)
 /// per the backend's reset policy.
-#[async_trait]
 pub trait ShadowGuard: Send {
     /// DSN of the live shadow database.
     fn url(&self) -> &str;
     /// Reset the database to a clean state.
-    async fn reset(&mut self) -> anyhow::Result<()>;
+    fn reset(&mut self) -> ResetFuture<'_>;
 }
 
 /// A pluggable shadow Postgres backend.
-#[async_trait]
 pub trait ShadowBackend: Send + Sync {
     /// Check out a shadow instance for the given PG major.
-    async fn checkout(&self, major: PgMajor) -> anyhow::Result<Box<dyn ShadowGuard>>;
+    fn checkout(&self, major: PgMajor) -> CheckoutFuture<'_>;
 }
 
 /// Resolve the configured backend from the `[shadow]` section.
