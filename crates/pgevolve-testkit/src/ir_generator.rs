@@ -32,6 +32,9 @@ use pgevolve_core::ir::index::{
 use pgevolve_core::ir::schema::Schema;
 use pgevolve_core::ir::sequence::Sequence;
 use pgevolve_core::ir::table::Table;
+use pgevolve_core::ir::view::View;
+use pgevolve_core::parse::normalize_body::NormalizedBody;
+use pgevolve_core::plan::edges::{DepEdge, DepSource, NodeId};
 
 /// Knobs controlling [`arbitrary_catalog`] output.
 #[derive(Debug, Clone)]
@@ -356,6 +359,156 @@ fn arbitrary_indexes_for_table(
 /// `crates/pgevolve-testkit/src/ir_mutator.rs::add_index`.
 pub(crate) const fn is_btree_indexable(ty: &ColumnType) -> bool {
     !matches!(ty, ColumnType::Json)
+}
+
+/// Generate a random valid `Catalog` that also includes a topologically-ordered
+/// DAG of views over the catalog's tables (and over earlier views).
+///
+/// The number of views per schema is controlled by the new `views_per_schema`
+/// field on `IRViewCatalogConfig`. Each view's `body_dependencies` is set
+/// programmatically — no real SQL parsing is required. This makes the generator
+/// pure and fast, and keeps the focus on the planner's dep-graph walk rather
+/// than the canonicalizer.
+pub fn arbitrary_view_catalog() -> impl Strategy<Value = Catalog> {
+    // Re-use the existing table generator with a small config.
+    let cfg = IRGeneratorConfig {
+        schema_count_range: (1, 2),
+        tables_per_schema_range: (2, 5),
+        columns_per_table_range: (1, 3),
+        fk_density: 0.0, // no FKs — keeps graph acyclic and simple
+        index_per_table_range: (0, 0),
+    };
+
+    arbitrary_catalog(cfg).prop_flat_map(|catalog| {
+        // For each schema, generate 1–6 views in topological order.
+        // View #i may reference any subset of:
+        //   - tables in the same schema
+        //   - views [0..i) in the same schema (earlier views only → guarantees DAG)
+        let schema_names: Vec<Identifier> = catalog.schemas.iter().map(|s| s.name.clone()).collect();
+
+        // Build per-schema table lists.
+        let schema_tables: Vec<Vec<QualifiedName>> = schema_names
+            .iter()
+            .map(|sname| {
+                catalog
+                    .tables
+                    .iter()
+                    .filter(|t| &t.qname.schema == sname)
+                    .map(|t| t.qname.clone())
+                    .collect()
+            })
+            .collect();
+
+        // We need at least one table per schema to generate views.
+        // If a schema somehow has no tables, skip view generation for it.
+
+        // Generate view count per schema (1..=6).
+        let schema_count = schema_names.len();
+        let view_count_strategy: Vec<_> = (0..schema_count)
+            .map(|i| {
+                if schema_tables[i].is_empty() {
+                    Just(0usize).boxed()
+                } else {
+                    (1usize..=6usize).boxed()
+                }
+            })
+            .collect();
+
+        view_count_strategy.prop_flat_map(move |view_counts_per_schema| {
+            let schema_names = schema_names.clone();
+            let schema_tables = schema_tables.clone();
+            let catalog = catalog.clone();
+
+            // For each schema, generate exactly `view_counts[i]` views.
+            // We use a sequential strategy: we build them one by one in a
+            // flat_map chain. But since proptest doesn't natively support
+            // sequential generation with shared state, we use a different
+            // approach: generate all random bits upfront (a vec of bitmasks),
+            // then interpret them deterministically.
+            let total_views: usize = view_counts_per_schema.iter().sum();
+
+            // Strategy: generate `total_views` bitmasks (u32), each mask
+            // determines which prior refs the view depends on (from the pool
+            // of tables + prior views within the same schema).
+            proptest_vec(any::<u32>(), total_views..=(total_views.max(1))).prop_map(
+                move |masks| {
+                    let mut views: Vec<View> = Vec::new();
+                    let mut mask_idx = 0;
+
+                    // Per-schema: we track the views generated so far for
+                    // that schema so later views can reference earlier ones.
+                    for (schema_idx, &view_count) in view_counts_per_schema.iter().enumerate() {
+                        let schema_name = &schema_names[schema_idx];
+                        let schema_tbls = &schema_tables[schema_idx];
+
+                        // views in this schema generated so far (by index in `views`).
+                        let schema_view_start = views.len();
+
+                        for view_i in 0..view_count {
+                            let mask = masks.get(mask_idx).copied().unwrap_or(0);
+                            mask_idx += 1;
+
+                            // Pool of eligible deps:
+                            //   - schema tables
+                            //   - views[schema_view_start .. schema_view_start + view_i]
+                            let all_refs: Vec<NodeId> = schema_tbls
+                                .iter()
+                                .map(|q| NodeId::Table(q.clone()))
+                                .chain(
+                                    (schema_view_start..schema_view_start + view_i)
+                                        .map(|idx| NodeId::View(views[idx].qname.clone())),
+                                )
+                                .collect();
+
+                            // Name: view_<schema>_<i>
+                            let view_name = Identifier::from_unquoted(&format!(
+                                "view_{}_{}",
+                                schema_name.as_str(),
+                                view_i
+                            ))
+                            .unwrap();
+                            let qname = QualifiedName::new(schema_name.clone(), view_name);
+
+                            // Pick deps from all_refs based on bitmask.
+                            // Always pick at least one if pool is non-empty.
+                            let deps: Vec<DepEdge> = if all_refs.is_empty() {
+                                vec![]
+                            } else {
+                                let mut chosen = Vec::new();
+                                for (bit, target_node) in all_refs.iter().enumerate() {
+                                    if bit == 0 || (mask >> bit) & 1 == 1 {
+                                        // bit 0 is always chosen (guarantees at least one dep).
+                                        chosen.push(DepEdge {
+                                            from: NodeId::View(qname.clone()),
+                                            to: target_node.clone(),
+                                            source: DepSource::AstExtracted,
+                                        });
+                                    }
+                                }
+                                chosen
+                            };
+
+                            views.push(View {
+                                qname,
+                                columns: vec![],
+                                body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+                                body_dependencies: deps,
+                                security_barrier: None,
+                                security_invoker: None,
+                                comment: None,
+                                raw_body: String::new(),
+                            });
+                        }
+                    }
+
+                    let mut cat = catalog.clone();
+                    cat.views = views;
+                    // canonicalize sorts views and checks for duplicates.
+                    cat.canonicalize().expect("view generator produced invalid catalog")
+                },
+            )
+        })
+    })
 }
 
 fn stand_alone_sequence(schema: &Identifier) -> Sequence {
