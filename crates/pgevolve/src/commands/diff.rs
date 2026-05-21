@@ -294,6 +294,10 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            // Trigger human-readable output: placeholder until TRG8 lands.
+            pgevolve_core::diff::change::Change::Trigger(_) => {
+                println!("      trigger change (detail lands in TRG8)");
+            }
         }
     }
 }
@@ -454,5 +458,7 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Extension(pgevolve_core::diff::change::ExtensionChange::CommentOn { .. }) => {
             "CommentOnExtension"
         }
+        // Trigger kind name: placeholder until TRG8 lands.
+        Change::Trigger(_) => "TriggerChange",
     }
 }

@@ -21,6 +21,7 @@ use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
 use crate::ir::user_type::{CompositeAttribute, DomainCheck, UserType};
+use crate::ir::trigger::Trigger;
 use crate::ir::view::{MaterializedView, View};
 
 use super::destructiveness::Destructiveness;
@@ -130,6 +131,8 @@ pub enum Change {
     Procedure(ProcedureChange),
     /// An extension change.
     Extension(ExtensionChange),
+    /// A trigger change.
+    Trigger(TriggerChange),
 }
 
 /// A structural change to a single user-defined type.
@@ -411,6 +414,33 @@ pub enum ExtensionChange {
     CommentOn {
         /// Extension name.
         name: Identifier,
+        /// New comment value (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// Change to one trigger. Pair-by-qname semantics; any structural
+/// difference emits `Replace`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum TriggerChange {
+    /// Install a new trigger.
+    Create(Trigger),
+    /// Drop a trigger by qname (needs the table for `DROP TRIGGER name ON table`).
+    Drop {
+        /// Qualified name of the trigger.
+        qname: QualifiedName,
+        /// Owning table (needed for `DROP TRIGGER name ON table`).
+        table: QualifiedName,
+    },
+    /// Any structural change: drop + create.
+    Replace(Trigger),
+    /// Change the `COMMENT ON TRIGGER` text.
+    CommentOn {
+        /// Qualified name of the trigger.
+        qname: QualifiedName,
+        /// Owning table (needed for `COMMENT ON TRIGGER name ON table`).
+        table: QualifiedName,
         /// New comment value (`None` clears the comment).
         comment: Option<String>,
     },

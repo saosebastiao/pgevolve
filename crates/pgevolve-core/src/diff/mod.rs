@@ -24,12 +24,13 @@ pub mod sequence_op;
 pub mod sequences;
 pub mod table_op;
 pub mod tables;
+pub mod triggers;
 pub mod types;
 pub mod views;
 
 pub use change::{
     Change, ChangeEntry, ExtensionChange, FunctionChange, MvChange, ProcedureChange,
-    UserTypeChange, ViewChange,
+    TriggerChange, UserTypeChange, ViewChange,
 };
 pub use changeset::ChangeSet;
 pub use destructiveness::Destructiveness;
@@ -86,6 +87,7 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
     types::diff_user_types(&target.types, &source.types, &mut out);
     routines::diff_functions(&target.functions, &source.functions, &mut out);
     routines::diff_procedures(&target.procedures, &source.procedures, &mut out);
+    triggers::diff_triggers(&target.triggers, &source.triggers, &mut out);
     out
 }
 

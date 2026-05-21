@@ -290,6 +290,8 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
                 crate::diff::change::ExtensionChange::AlterUpdate { .. }
                 | crate::diff::change::ExtensionChange::CommentOn { .. } => modifies.push(entry),
             },
+            // Trigger changes: placeholder until TRG6 wires ordering buckets.
+            Change::Trigger(_) => unimplemented!("Trigger ordering lands in TRG6"),
         }
     }
     (creates, modifies, drops)
@@ -389,6 +391,8 @@ fn change_node(change: &Change) -> NodeId {
             };
             NodeId::Extension(name)
         }
+        // Trigger node mapping: placeholder until TRG5 adds NodeId::Trigger.
+        Change::Trigger(_) => unimplemented!("Trigger node mapping lands in TRG5"),
     }
 }
 
