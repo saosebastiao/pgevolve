@@ -67,6 +67,8 @@
           "comment": null
         }
       ],
+      "partition_by": null,
+      "partition_of": null,
       "comment": null
     },
     {
@@ -129,6 +131,8 @@
           "comment": null
         }
       ],
+      "partition_by": null,
+      "partition_of": null,
       "comment": null
     },
     {
@@ -186,6 +190,8 @@
           "comment": null
         }
       ],
+      "partition_by": null,
+      "partition_of": null,
       "comment": null
     }
   ],
