@@ -91,6 +91,24 @@ pub fn render_catalog(catalog: &Catalog) -> String {
         out.push_str(&sequence::render_sequence(s));
         out.push('\n');
     }
+    if !catalog.sequences.is_empty() {
+        out.push('\n');
+    }
+
+    // 6. Views (after sequences — views may reference sequence defaults).
+    for v in &catalog.views {
+        out.push_str(&view::render_view(v));
+        out.push('\n');
+    }
+    if !catalog.views.is_empty() {
+        out.push('\n');
+    }
+
+    // 7. Materialized views.
+    for mv in &catalog.materialized_views {
+        out.push_str(&view::render_materialized_view(mv));
+        out.push('\n');
+    }
 
     // Strip trailing blank line.
     while out.ends_with("\n\n") {
@@ -415,6 +433,63 @@ mod tests {
         assert!(
             r.is_ok(),
             "pg_query rejected rendered catalog:\n{rendered}\nerr: {r:?}"
+        );
+    }
+
+    #[test]
+    fn views_rendered_after_sequences() {
+        use crate::ir::view::View;
+        use crate::parse::normalize_body::NormalizedBody;
+
+        let mut cat = Catalog::empty();
+        cat.sequences.push(Sequence {
+            qname: qn("app", "users_id_seq"),
+            data_type: ColumnType::BigInt,
+            start: 1,
+            increment: 1,
+            min_value: None,
+            max_value: None,
+            cache: 1,
+            cycle: false,
+            owned_by: None,
+            comment: None,
+        });
+        cat.views.push(View {
+            qname: qn("app", "active_users"),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![],
+            security_barrier: None,
+            security_invoker: None,
+            comment: None,
+            raw_body: String::new(),
+        });
+
+        let rendered = render_catalog(&cat);
+        let seq_pos = rendered.find("CREATE SEQUENCE").unwrap();
+        let view_pos = rendered.find("CREATE VIEW").unwrap();
+        assert!(seq_pos < view_pos, "views must come after sequences");
+    }
+
+    #[test]
+    fn materialized_views_rendered_in_catalog() {
+        use crate::ir::view::MaterializedView;
+        use crate::parse::normalize_body::NormalizedBody;
+
+        let mut cat = Catalog::empty();
+        cat.materialized_views.push(MaterializedView {
+            qname: qn("app", "summary"),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT count(*) FROM app.users").unwrap(),
+            body_dependencies: vec![],
+            comment: None,
+            raw_body: String::new(),
+        });
+
+        let rendered = render_catalog(&cat);
+        assert!(
+            rendered.contains("CREATE MATERIALIZED VIEW"),
+            "expected CREATE MATERIALIZED VIEW: {rendered}"
         );
     }
 }
