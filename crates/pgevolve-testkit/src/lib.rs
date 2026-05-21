@@ -17,7 +17,9 @@ pub mod test_pg_backend;
 
 pub use ephemeral_pg::{EphemeralPostgres, default_pg_version, docker_available};
 pub use equivalence_asserter::assert_canonical_eq;
-pub use ir_generator::{IRGeneratorConfig, arbitrary_catalog, arbitrary_column_type, arbitrary_view_catalog};
+pub use ir_generator::{
+    IRGeneratorConfig, arbitrary_catalog, arbitrary_column_type, arbitrary_view_catalog,
+};
 pub use ir_mutator::arbitrary_mutation;
 pub use migration_fixture::MigrationFixture;
 pub use pg_querier::PgCatalogQuerier;

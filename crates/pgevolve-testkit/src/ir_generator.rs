@@ -384,7 +384,8 @@ pub fn arbitrary_view_catalog() -> impl Strategy<Value = Catalog> {
         // View #i may reference any subset of:
         //   - tables in the same schema
         //   - views [0..i) in the same schema (earlier views only → guarantees DAG)
-        let schema_names: Vec<Identifier> = catalog.schemas.iter().map(|s| s.name.clone()).collect();
+        let schema_names: Vec<Identifier> =
+            catalog.schemas.iter().map(|s| s.name.clone()).collect();
 
         // Build per-schema table lists.
         let schema_tables: Vec<Vec<QualifiedName>> = schema_names
@@ -430,83 +431,82 @@ pub fn arbitrary_view_catalog() -> impl Strategy<Value = Catalog> {
             // Strategy: generate `total_views` bitmasks (u32), each mask
             // determines which prior refs the view depends on (from the pool
             // of tables + prior views within the same schema).
-            proptest_vec(any::<u32>(), total_views..=(total_views.max(1))).prop_map(
-                move |masks| {
-                    let mut views: Vec<View> = Vec::new();
-                    let mut mask_idx = 0;
+            proptest_vec(any::<u32>(), total_views..=(total_views.max(1))).prop_map(move |masks| {
+                let mut views: Vec<View> = Vec::new();
+                let mut mask_idx = 0;
 
-                    // Per-schema: we track the views generated so far for
-                    // that schema so later views can reference earlier ones.
-                    for (schema_idx, &view_count) in view_counts_per_schema.iter().enumerate() {
-                        let schema_name = &schema_names[schema_idx];
-                        let schema_tbls = &schema_tables[schema_idx];
+                // Per-schema: we track the views generated so far for
+                // that schema so later views can reference earlier ones.
+                for (schema_idx, &view_count) in view_counts_per_schema.iter().enumerate() {
+                    let schema_name = &schema_names[schema_idx];
+                    let schema_tbls = &schema_tables[schema_idx];
 
-                        // views in this schema generated so far (by index in `views`).
-                        let schema_view_start = views.len();
+                    // views in this schema generated so far (by index in `views`).
+                    let schema_view_start = views.len();
 
-                        for view_i in 0..view_count {
-                            let mask = masks.get(mask_idx).copied().unwrap_or(0);
-                            mask_idx += 1;
+                    for view_i in 0..view_count {
+                        let mask = masks.get(mask_idx).copied().unwrap_or(0);
+                        mask_idx += 1;
 
-                            // Pool of eligible deps:
-                            //   - schema tables
-                            //   - views[schema_view_start .. schema_view_start + view_i]
-                            let all_refs: Vec<NodeId> = schema_tbls
-                                .iter()
-                                .map(|q| NodeId::Table(q.clone()))
-                                .chain(
-                                    (schema_view_start..schema_view_start + view_i)
-                                        .map(|idx| NodeId::View(views[idx].qname.clone())),
-                                )
-                                .collect();
+                        // Pool of eligible deps:
+                        //   - schema tables
+                        //   - views[schema_view_start .. schema_view_start + view_i]
+                        let all_refs: Vec<NodeId> = schema_tbls
+                            .iter()
+                            .map(|q| NodeId::Table(q.clone()))
+                            .chain(
+                                (schema_view_start..schema_view_start + view_i)
+                                    .map(|idx| NodeId::View(views[idx].qname.clone())),
+                            )
+                            .collect();
 
-                            // Name: view_<schema>_<i>
-                            let view_name = Identifier::from_unquoted(&format!(
-                                "view_{}_{}",
-                                schema_name.as_str(),
-                                view_i
-                            ))
-                            .unwrap();
-                            let qname = QualifiedName::new(schema_name.clone(), view_name);
+                        // Name: view_<schema>_<i>
+                        let view_name = Identifier::from_unquoted(&format!(
+                            "view_{}_{}",
+                            schema_name.as_str(),
+                            view_i
+                        ))
+                        .unwrap();
+                        let qname = QualifiedName::new(schema_name.clone(), view_name);
 
-                            // Pick deps from all_refs based on bitmask.
-                            // Always pick at least one if pool is non-empty.
-                            let deps: Vec<DepEdge> = if all_refs.is_empty() {
-                                vec![]
-                            } else {
-                                let mut chosen = Vec::new();
-                                for (bit, target_node) in all_refs.iter().enumerate() {
-                                    if bit == 0 || (mask >> bit) & 1 == 1 {
-                                        // bit 0 is always chosen (guarantees at least one dep).
-                                        chosen.push(DepEdge {
-                                            from: NodeId::View(qname.clone()),
-                                            to: target_node.clone(),
-                                            source: DepSource::AstExtracted,
-                                        });
-                                    }
+                        // Pick deps from all_refs based on bitmask.
+                        // Always pick at least one if pool is non-empty.
+                        let deps: Vec<DepEdge> = if all_refs.is_empty() {
+                            vec![]
+                        } else {
+                            let mut chosen = Vec::new();
+                            for (bit, target_node) in all_refs.iter().enumerate() {
+                                if bit == 0 || (mask >> bit) & 1 == 1 {
+                                    // bit 0 is always chosen (guarantees at least one dep).
+                                    chosen.push(DepEdge {
+                                        from: NodeId::View(qname.clone()),
+                                        to: target_node.clone(),
+                                        source: DepSource::AstExtracted,
+                                    });
                                 }
-                                chosen
-                            };
+                            }
+                            chosen
+                        };
 
-                            views.push(View {
-                                qname,
-                                columns: vec![],
-                                body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
-                                body_dependencies: deps,
-                                security_barrier: None,
-                                security_invoker: None,
-                                comment: None,
-                                raw_body: String::new(),
-                            });
-                        }
+                        views.push(View {
+                            qname,
+                            columns: vec![],
+                            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+                            body_dependencies: deps,
+                            security_barrier: None,
+                            security_invoker: None,
+                            comment: None,
+                            raw_body: String::new(),
+                        });
                     }
+                }
 
-                    let mut cat = catalog.clone();
-                    cat.views = views;
-                    // canonicalize sorts views and checks for duplicates.
-                    cat.canonicalize().expect("view generator produced invalid catalog")
-                },
-            )
+                let mut cat = catalog.clone();
+                cat.views = views;
+                // canonicalize sorts views and checks for duplicates.
+                cat.canonicalize()
+                    .expect("view generator produced invalid catalog")
+            })
         })
     })
 }

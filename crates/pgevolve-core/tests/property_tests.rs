@@ -51,7 +51,9 @@ use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::parse::normalize_body::NormalizedBody;
 use pgevolve_core::plan::edges::NodeId;
 use pgevolve_core::plan::{PlanId, build_create_graph};
-use pgevolve_testkit::{IRGeneratorConfig, arbitrary_catalog, arbitrary_view_catalog, docker_available};
+use pgevolve_testkit::{
+    IRGeneratorConfig, arbitrary_catalog, arbitrary_view_catalog, docker_available,
+};
 
 // ---------------------------------------------------------------------------
 // v0.2: representative view bodies for the closure invariant test
@@ -191,7 +193,12 @@ fn mutate_leaf_column(mut catalog: Catalog, leaf_qname: &QualifiedName) -> Optio
             if let pgevolve_core::ir::constraint::ConstraintKind::PrimaryKey { columns, .. } =
                 &c.kind
             {
-                Some(columns.iter().map(|id| id.as_str().to_string()).collect::<Vec<_>>())
+                Some(
+                    columns
+                        .iter()
+                        .map(|id| id.as_str().to_string())
+                        .collect::<Vec<_>>(),
+                )
             } else {
                 None
             }
@@ -220,7 +227,9 @@ fn mutate_leaf_column(mut catalog: Catalog, leaf_qname: &QualifiedName) -> Optio
 
 /// Collect the set of view qnames that appear as `ViewChange::ReplaceBody`
 /// targets in the change list produced by the differ + dep-recreation walker.
-fn view_recreations_in_changes(changes: &pgevolve_core::diff::ChangeSet) -> BTreeSet<QualifiedName> {
+fn view_recreations_in_changes(
+    changes: &pgevolve_core::diff::ChangeSet,
+) -> BTreeSet<QualifiedName> {
     use pgevolve_core::diff::Change;
     changes
         .entries
