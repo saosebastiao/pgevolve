@@ -483,23 +483,58 @@ const fn parse_match_type(s: &str) -> FkMatchType {
     }
 }
 
-/// Extract `(col, col, ...)` after `REFERENCES schema.tab` from a constraint
-/// definition. Returns `None` if the structure is unrecognized.
+/// Extract the referenced-column list from a `pg_get_constraintdef` FK body.
+///
+/// Wraps the constraint body in a synthetic `CREATE TABLE` statement so that
+/// `pg_query` can produce a typed AST, then reads the `pk_attrs` field of the
+/// resulting [`pg_query::protobuf::Constraint`] node — those are the columns on
+/// the *referenced* (primary-key) side of the FK.
+///
+/// Returns `None` when the body cannot be parsed or yields no constraint node,
+/// so callers can fall back to a placeholder list.
+///
+/// Constitution §5: parsing is not reimplemented — all SQL decomposition goes
+/// through `pg_query`.
 fn parse_fk_referenced_columns(def: &str) -> Option<Vec<Identifier>> {
-    let lower = def.to_ascii_lowercase();
-    let refs_pos = lower.find("references")?;
-    let after_refs = &def[refs_pos + "references".len()..];
-    let lparen = after_refs.find('(')?;
-    let rparen_offset = after_refs[lparen + 1..].find(')')?;
-    let inner = &after_refs[lparen + 1..lparen + 1 + rparen_offset];
-    Some(
-        inner
-            .split(',')
-            .map(|s| s.trim().trim_matches('"'))
-            .filter(|s| !s.is_empty())
-            .filter_map(|s| Identifier::from_unquoted(s).ok())
-            .collect(),
-    )
+    // Wrap in a synthetic CREATE TABLE so pg_query sees a full statement.
+    let synthetic = format!(
+        "CREATE TABLE _pgevolve_synth (_pgevolve_dummy int, CONSTRAINT _c {def});"
+    );
+    let parsed = pg_query::parse(&synthetic).ok()?;
+
+    // Dig into: RawStmt → CreateStmt → table_elts → Constraint
+    let stmt_node = parsed
+        .protobuf
+        .stmts
+        .into_iter()
+        .next()
+        .and_then(|raw| raw.stmt)
+        .and_then(|n| n.node)?;
+    let NodeEnum::CreateStmt(create) = stmt_node else {
+        return None;
+    };
+
+    let constraint = create.table_elts.into_iter().find_map(|n| match n.node {
+        Some(NodeEnum::Constraint(c)) => Some(c),
+        _ => None,
+    })?;
+
+    // pk_attrs holds the referenced (right-hand) column names; fk_attrs holds
+    // the local (left-hand) column names.
+    let columns: Vec<Identifier> = constraint
+        .pk_attrs
+        .into_iter()
+        .filter_map(|n| match n.node {
+            Some(NodeEnum::String(s)) => Identifier::from_unquoted(&s.sval).ok(),
+            _ => None,
+        })
+        .collect();
+
+    if columns.is_empty() {
+        None
+    } else {
+        Some(columns)
+    }
 }
 
 /// Strip the outer `CHECK (` / `)` from a `pg_get_constraintdef` payload and
