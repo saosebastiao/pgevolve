@@ -15,5 +15,6 @@ pub(super) mod procedure;
 pub(super) mod schema;
 pub(super) mod sequence;
 pub(super) mod table;
+pub(super) mod trigger;
 pub(super) mod user_type;
 pub(super) mod view;

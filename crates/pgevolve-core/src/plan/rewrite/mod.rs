@@ -145,8 +145,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         Change::Function(fc) => emit::function::emit(fc, destructive, destructive_reason, out),
         Change::Procedure(pc) => emit::procedure::emit(pc, destructive, destructive_reason, out),
         Change::Extension(ec) => emit::extension::emit(ec, destructive, destructive_reason, out),
-        // Trigger SQL emission: placeholder until TRG8 lands.
-        Change::Trigger(_) => unimplemented!("Trigger emit lands in TRG8"),
+        Change::Trigger(tc) => emit::trigger::emit(tc, destructive, destructive_reason, out),
     }
 }
 
