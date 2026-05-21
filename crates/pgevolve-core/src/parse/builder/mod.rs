@@ -4,6 +4,7 @@
 //! and produces zero-or-more IR objects, optionally appended to a partial
 //! [`crate::ir::catalog::Catalog`] via [`Builder`].
 
+pub mod alter_table_attach_partition;
 pub mod alter_table_stmt;
 pub mod comment_stmt;
 pub mod create_composite_type_stmt;

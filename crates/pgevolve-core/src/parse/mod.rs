@@ -417,6 +417,34 @@ fn process_file(
                 locations.insert(key, location.clone());
                 catalog.triggers.push(trigger);
             }
+            Statement::AlterTableAttachPartition(s) => {
+                let attach = builder::alter_table_attach_partition::build_attach_partition(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                )?;
+                let child_table = catalog
+                    .tables
+                    .iter_mut()
+                    .find(|t| t.qname == attach.child)
+                    .ok_or_else(|| ParseError::Structural {
+                        location: location.clone(),
+                        message: format!(
+                            "ATTACH PARTITION {} must follow its CREATE TABLE statement",
+                            attach.child
+                        ),
+                    })?;
+                if child_table.partition_of.is_some() {
+                    return Err(ParseError::Structural {
+                        location,
+                        message: format!(
+                            "table {} already declared as a partition",
+                            attach.child
+                        ),
+                    });
+                }
+                child_table.partition_of = Some(attach.partition_of);
+            }
         }
     }
     Ok(())

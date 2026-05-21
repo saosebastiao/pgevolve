@@ -43,6 +43,8 @@ pub enum Statement {
     CreateExtension(protobuf::CreateExtensionStmt),
     /// `CREATE [CONSTRAINT] TRIGGER ...`.
     CreateTrigger(protobuf::CreateTrigStmt),
+    /// `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...`.
+    AlterTableAttachPartition(protobuf::AlterTableStmt),
 }
 
 impl Statement {
@@ -54,7 +56,13 @@ impl Statement {
             NodeEnum::CreateStmt(s) => Ok(Self::CreateTable(s)),
             NodeEnum::CreateSeqStmt(s) => Ok(Self::CreateSequence(s)),
             NodeEnum::IndexStmt(s) => Ok(Self::CreateIndex(*s)),
-            NodeEnum::AlterTableStmt(s) => Ok(Self::AlterTable(s)),
+            NodeEnum::AlterTableStmt(s) => {
+                if is_attach_partition_stmt(&s) {
+                    Ok(Self::AlterTableAttachPartition(s))
+                } else {
+                    Ok(Self::AlterTable(s))
+                }
+            }
             NodeEnum::CommentStmt(s) => Ok(Self::Comment(*s)),
             NodeEnum::ViewStmt(s) => Ok(Self::CreateView(*s)),
             NodeEnum::CreateEnumStmt(s) => Ok(Self::CreateEnum(s)),
@@ -85,6 +93,23 @@ impl Statement {
             }
             other => Err(unsupported(location, friendly_kind(&other))),
         }
+    }
+}
+
+/// Returns `true` when the `AlterTableStmt` is exactly one `ATTACH PARTITION`
+/// sub-command so the classifier can route it to the dedicated variant.
+fn is_attach_partition_stmt(stmt: &protobuf::AlterTableStmt) -> bool {
+    use pg_query::protobuf::AlterTableType;
+    if stmt.cmds.len() != 1 {
+        return false;
+    }
+    match &stmt.cmds[0].node {
+        Some(NodeEnum::AlterTableCmd(c)) => {
+            AlterTableType::try_from(c.subtype)
+                .ok()
+                .is_some_and(|t| matches!(t, AlterTableType::AtAttachPartition))
+        }
+        _ => false,
     }
 }
 
