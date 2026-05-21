@@ -77,7 +77,11 @@ Runs after the AST canonicalization pass. Validates structural references before
 | `pg_catalog.default` collation normalized to "none" | ✅ Implemented | Avoids phantom drift on every text column. |
 | Sequence / function / collation PG defaults normalized to `None` | ✅ Implemented | PG stores explicit values for things the user didn't declare (sequence min/max, function `procost=100`/`prorows=1000`, implicit `pg_catalog.default` collation on text columns). The catalog reader returns raw values; `ir::canon::filter_pg_defaults` strips them on both the source-built and catalog-read `Catalog`. One place for "next time PG returns a surprising default." |
 | Views and materialized views | ✅ Implemented | `read_views` and `read_materialized_views` query `pg_views` / `pg_matviews`, call `pg_get_viewdef` for the body text, and feed it through `NormalizedBody::from_sql` so the catalog-side canonical text is directly comparable with the source-side canonical text. |
-| Object kinds beyond v0.1/v0.2 views (functions, triggers, types, …) | 📋 Planned, v0.2+ | Lands with the corresponding object-kind support. |
+| Functions, procedures | ✅ Implemented | `pg_proc` joined with `pg_language`, `pg_type`, `pg_namespace`; body reconstructed via `pg_get_functiondef`. |
+| User-defined types (enums, domains, composites) | ✅ Implemented | `pg_type` joined with `pg_enum`, `pg_attribute`, `pg_constraint`, `pg_attrdef`. |
+| Extensions | ✅ Implemented | `pg_extension` joined with `pg_namespace` and `pg_description`. Extension-owned objects excluded via `pg_depend deptype='e'` filter. |
+| Triggers | ✅ Implemented | `pg_trigger` joined with `pg_class`, `pg_namespace`, `pg_description`. Filtered: `NOT tgisinternal`; NOT extension-owned. |
+| Object kinds beyond v0.2 (roles, RLS policies, statistics, …) | 📋 Planned, v0.3+ | Lands with the corresponding object-kind support. |
 | Catalog filtering by `[managed]` schemas + `[managed].ignore_objects` globs | ✅ Implemented | Unmanaged schemas don't appear in the IR at all. |
 | Catalog drift detection — returns `(Catalog, DriftReport)` | ✅ Implemented | See "Catalog drift detection" section below. |
 

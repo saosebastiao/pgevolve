@@ -41,7 +41,7 @@ manage. See [`../README.md`](./README.md) for the status legend.
 | `FUNCTION` (PL/pgSQL body) | ✅ Implemented | PL/pgSQL bodies parsed via `pg_query::parse_plpgsql`; static SQL deps extracted; dynamic SQL closed by `-- @pgevolve dep:` directives. change_kinds: [create, drop, create_or_replace, replace_with_cascade, comment_on] |
 | `FUNCTION` (other PL languages — PL/Python, PL/Perl, etc.) | 🔮 Future | Requires support for `CREATE EXTENSION` for the language first. |
 | `PROCEDURE` | ✅ Implemented | Same as functions, qname-only identity. COMMIT/ROLLBACK in body auto-detected; step runs with transactional=OutsideTransaction. change_kinds: [create, drop, create_or_replace, comment_on] |
-| `TRIGGER` | 📋 Planned, v0.2 | Both row- and statement-level; before/after/instead-of. Constraint triggers as a subkind. |
+| `TRIGGER` | ✅ Implemented | BEFORE/AFTER/INSTEAD OF; FOR EACH ROW/STATEMENT; WHEN clause; UPDATE OF columns; REFERENCING transition tables; CONSTRAINT TRIGGER with DEFERRABLE/INITIALLY DEFERRED. Any structural diff → Drop + Create. change_kinds: [create, drop, comment_on] |
 | `EVENT TRIGGER` | 🔮 Future | Lower priority; intersects with admin/security tooling. |
 | `AGGREGATE` | 🔮 Future | Custom aggregates require user-defined functions; lands with PL languages. |
 
@@ -61,6 +61,86 @@ manage. See [`../README.md`](./README.md) for the status legend.
 |---|---|---|
 | `EXTENSION` | ✅ Implemented | Source: `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA s] [VERSION 'v']` in `.sql` files. Catalog: `pg_extension` joined with `pg_namespace`. Differ: Create, Drop (CASCADE; intent required), AlterUpdate, ReplaceWithCascade for schema changes (intent required), CommentOn. Objects installed by extensions (`pg_depend.deptype='e'`) are excluded from every other catalog query. change_kinds: [create, drop, alter_update, replace_with_cascade, comment_on] |
 | Extension version upgrade (`ALTER EXTENSION ... UPDATE`) | ✅ Implemented | Non-destructive. Emits `ALTER EXTENSION foo UPDATE TO 'v';` when source pins a version different from the installed one. |
+
+## Triggers
+
+### IR shape
+
+`Trigger` is a flat struct in `pgevolve-core::ir::trigger`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `qname` | `QualifiedName` | `schema.trigger_name` — pgevolve uses the schema of the *table*, not a separate trigger namespace |
+| `table_name` | `QualifiedName` | Target relation (table, view, or MV) |
+| `function_name` | `QualifiedName` | Trigger function (must return `TRIGGER`) |
+| `timing` | `TriggerTiming` | `Before` \| `After` \| `InsteadOf` |
+| `events` | `Vec<TriggerEvent>` | One or more of `Insert` \| `Update` \| `Delete` \| `Truncate` |
+| `for_each` | `ForEach` | `Row` \| `Statement` |
+| `when_clause` | `Option<NormalizedExpr>` | WHEN predicate, normalized for canonical comparison |
+| `update_columns` | `Vec<Identifier>` | Column list for `UPDATE OF col, …`; empty means all columns |
+| `referencing` | `Option<TransitionTables>` | `OLD TABLE AS old_tbl` / `NEW TABLE AS new_tbl` names |
+| `constraint` | `bool` | `true` for `CREATE CONSTRAINT TRIGGER` |
+| `deferrable` | `bool` | Constraint trigger deferred-ability flag |
+| `initially_deferred` | `bool` | `true` for `INITIALLY DEFERRED`; `false` for `INITIALLY IMMEDIATE` |
+| `comment` | `Option<String>` | `COMMENT ON TRIGGER` value |
+
+`Catalog::triggers: Vec<Trigger>` — flat collection, sorted by `(table_name, qname)` after `canonicalize()`.
+
+### Parser support
+
+- `CREATE [CONSTRAINT] TRIGGER name timing event [OR event …] ON table [REFERENCING …] [FOR [EACH] {ROW|STATEMENT}] [WHEN (expr)] EXECUTE {FUNCTION|PROCEDURE} fn()` — all documented Postgres syntax variants accepted.
+- `COMMENT ON TRIGGER name ON table IS '…'` — accepted alongside `COMMENT ON FUNCTION` and `COMMENT ON EXTENSION`.
+- `ALTER TRIGGER` in source files — rejected at statement classification with a structural error. The only `ALTER TRIGGER` Postgres exposes is a rename; pgevolve does not support trigger renames.
+
+### Catalog reader
+
+Queries `pg_trigger` joined with `pg_class` (for the relation name), `pg_namespace`, and `pg_description`. Two filters apply:
+
+- `NOT tgisinternal` — excludes system-generated internal triggers (e.g., deferrable constraint enforcement triggers).
+- `NOT EXISTS (SELECT 1 FROM pg_depend WHERE objid = tg.oid AND deptype = 'e')` — excludes triggers installed by extensions; consistent with the `deptype='e'` filter applied to every other catalog query.
+
+### Differ
+
+| Scenario | Change variant |
+|---|---|
+| Trigger present in source, absent in catalog | `TriggerChange::Create` |
+| Trigger absent in source, present in catalog | `TriggerChange::Drop` (destructive — intent required) |
+| Comment-only diff | `TriggerChange::CommentOn` |
+| Any structural diff (timing, events, for-each, function, WHEN clause, UPDATE OF columns, REFERENCING, constraint/deferrable flags) | `TriggerChange::Drop` + `TriggerChange::Create` |
+
+There is no `ALTER TRIGGER` for body-level changes in Postgres; the only path is drop + recreate. `CommentOn` is always emitted separately when only the comment differs.
+
+### Planner steps
+
+| Step kind | Description |
+|---|---|
+| `CreateTrigger` | `CREATE [CONSTRAINT] TRIGGER …` |
+| `DropTrigger` | `DROP TRIGGER name ON table` — destructive; gated on intent approval |
+| `CommentOnTrigger` | `COMMENT ON TRIGGER name ON table IS '…'` |
+
+`DropTrigger` is placed in the same destructive ordering bucket as `DropTable` and `DropFunction`. `CreateTrigger` is placed after the target relation and trigger function are both created/updated.
+
+### Dependency edges
+
+| Edge | Meaning |
+|---|---|
+| `Trigger → Table / View / MV` | Target relation must exist before the trigger is created |
+| `Trigger → Function` | Trigger function must exist (and be up-to-date) before the trigger is created |
+
+Both edges are `DepSource::Structural`. The function edge also ensures that a function change that triggers `ReplaceWithCascade` (drop + recreate the function) will cascade a drop + recreate of any trigger that references it, in the correct order.
+
+### Lint rules
+
+| Rule | Severity | Condition |
+|---|---|---|
+| `trigger-references-unmanaged-table` | Warning | The trigger's `table_name` schema is not in `[managed].schemas` |
+| `trigger-references-unmanaged-function` | Warning | The trigger's `function_name` schema is not in `[managed].schemas` |
+
+### Out of scope / notable gaps
+
+- **`ALTER TRIGGER … RENAME TO`** — not supported. Rename is treated as Drop + Create (old name disappears, new name appears).
+- **Event triggers** (`CREATE EVENT TRIGGER`) — a separate object kind; tracked as 🔮 Future in the table above.
+- **`WHEN` clause dependency extraction** — the WHEN predicate is stored as a `NormalizedExpr` for canonical diffing but its column references are not added as explicit dep edges. Renames of referenced columns will surface as a structural diff, prompting a Drop + Create.
 
 ## Security and roles
 

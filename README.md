@@ -8,7 +8,7 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-> **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-specs #1 (views/MVs), #2 (types), #3 (extensions), and #4 (functions/procedures) merged. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
+> **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-specs #1 (views/MVs), #2 (types), #3 (extensions), #4 (functions/procedures), and #5 (triggers) merged. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
 
 ## Usage at a glance
 
@@ -136,7 +136,7 @@ Per the [arch-readiness spec §16](./docs/superpowers/specs/2026-05-15-v0.2-arch
 | 2 | Types (enums, domains, composites) | ✅ Landed `6127bdd` |
 | 3 | Extensions | ✅ Landed `c17b3bc..8522c95` |
 | 4 | Functions and procedures | ✅ Landed `3c3f6ee` |
-| 5 | Triggers | 📋 Planned |
+| 5 | Triggers | ✅ Landed `25ca3a5` |
 | 6 | Declarative partitioning + table reloptions | 📋 Planned |
 
 v0.3+ work (cluster-level surface — roles, GRANTs, `postgresql.conf`, RLS) is sketched in the arch spec §17 but not yet designed.
@@ -204,6 +204,22 @@ v0.3+ work (cluster-level surface — roles, GRANTs, `postgresql.conf`, RLS) is 
 | 3 new lint rules (`pl-pgsql-dynamic-sql`, `procedure-contains-commit`, `function-references-unmanaged-schema`) | ✅ Implemented |
 | 22 conformance fixtures (functions, procedures, intent, scenarios) | ✅ Implemented |
 | Property test `plpgsql_canonicalization_is_idempotent` (pure, `#[ignore]`'d) | ✅ Implemented |
+
+### v0.2 triggers — what's in `25ca3a5`
+
+| Feature | Status |
+|---|---|
+| `CREATE TRIGGER` parser — BEFORE/AFTER/INSTEAD OF, ROW/STATEMENT, WHEN clause, REFERENCING transition tables | ✅ Implemented |
+| `CONSTRAINT TRIGGER` with `DEFERRABLE [INITIALLY DEFERRED\|IMMEDIATE]` | ✅ Implemented |
+| `UPDATE OF column, …` column-list variant | ✅ Implemented |
+| `COMMENT ON TRIGGER` parser arm | ✅ Implemented |
+| Catalog reader via `pg_trigger` (filtered: `NOT tgisinternal`, NOT extension-owned) | ✅ Implemented |
+| `TriggerChange` variants: Create, Drop (destructive; intent required), CommentOn | ✅ Implemented |
+| Any structural diff → Drop + Create (no `ALTER TRIGGER` beyond rename, which is not supported) | ✅ Implemented |
+| 3 new step kinds: `CreateTrigger`, `DropTrigger` (destructive), `CommentOnTrigger` | ✅ Implemented |
+| `NodeId::Trigger` + dep-graph edges (trigger → table/view/MV target; trigger → function) | ✅ Implemented |
+| 2 new lint rules (`trigger-references-unmanaged-table`, `trigger-references-unmanaged-function`) | ✅ Implemented |
+| Conformance fixtures (Tier C): `objects/triggers/` covering create/drop/comment and all trigger variants | ✅ Implemented |
 
 ## Workspace layout
 

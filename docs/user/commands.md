@@ -272,8 +272,7 @@ pgevolve dump --db dev -o /tmp/schema-snapshot
   `pgevolve lint` or used with `parse_directory` without first adding those
   directives. After `dump`, add directives manually or use a future
   `pgevolve annotate` helper.
-- Views, materialized views, functions, and triggers are not emitted (not
-  yet modelled in v0.1 IR).
+- Views, materialized views, functions, procedures, triggers, user-defined types, and extensions are not emitted by `dump`. The `dump` command targets the v0.1 IR surface (schemas, tables, indexes, sequences); v0.2 object kinds require a separate emit pass not yet wired into `dump`.
 
 The primary use case is *adoption*: pointing `dump` at an existing production
 database to produce a starting `schema/` tree for a new pgevolve project.

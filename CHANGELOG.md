@@ -9,7 +9,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.2.0] — Unreleased
 
-Extends the v0.1 surface with **views, materialized views, user-defined types, functions/procedures, and extensions** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
+Extends the v0.1 surface with **views, materialized views, user-defined types, functions/procedures, extensions, and triggers** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds.
 
 ### Added — internal architecture (2026-05-19)
 
@@ -58,6 +58,33 @@ Extends the v0.1 surface with **views, materialized views, user-defined types, f
 
 - **~22 conformance fixtures** (Tier C): `objects/functions/` and `objects/procedures/` covering SQL functions, PL/pgSQL functions, procedures, overloads, dep-edge extraction, `ReplaceWithCascade`, and all three lint rules.
 - **Property test** `plpgsql_canonicalization_is_idempotent` (`#[ignore]`, pure, no Docker) — for each body in the representative `PLPGSQL_BODIES` corpus, `parse_routine_body → canonical_text → re-parse → canonical_text` produces byte-identical output. Closes the round-trip invariant the differ relies on.
+
+### Added — IR (triggers)
+
+- `Trigger { qname, table_name, function_name, timing: TriggerTiming, events: Vec<TriggerEvent>, for_each: ForEach, when_clause: Option<NormalizedExpr>, update_columns: Vec<Identifier>, referencing: Option<TransitionTables>, constraint: bool, deferrable: bool, initially_deferred: bool, comment: Option<String> }` flat IR type in `pgevolve-core::ir::trigger`.
+- `TriggerTiming` — `Before` | `After` | `InsteadOf`.
+- `TriggerEvent` — `Insert` | `Update` | `Delete` | `Truncate`.
+- `ForEach` — `Row` | `Statement`.
+- `TransitionTables { old_table: Option<Identifier>, new_table: Option<Identifier> }` — REFERENCING clause for transition tables.
+- `Catalog::triggers: Vec<Trigger>` flat collection, sorted by `(table_name, qname)` after `canonicalize()`.
+
+### Added — pipeline (triggers)
+
+- **Source parser** — `CREATE [CONSTRAINT] TRIGGER` parses into the `Trigger` IR. BEFORE/AFTER/INSTEAD OF timing, INSERT/UPDATE/DELETE/TRUNCATE events, FOR EACH ROW/STATEMENT, WHEN clause (as `NormalizedExpr`), UPDATE OF column list, and REFERENCING transition tables all modeled. `ALTER TRIGGER` in source files rejected at statement classification.
+- **`COMMENT ON TRIGGER` parser arm** — recognized alongside `COMMENT ON FUNCTION` and `COMMENT ON EXTENSION` in the comment-statement path.
+- **Catalog reader** — queries `pg_trigger` joined with `pg_class`, `pg_namespace`, and `pg_description`. Filters: `NOT tgisinternal` (system-generated triggers excluded); `NOT EXISTS (pg_depend deptype='e')` (extension-owned triggers excluded). Reconstructs all modeled fields including constraint, deferrable, and initially-deferred flags.
+- **Differ** — `TriggerChange` variants: `Create`, `Drop`, `CommentOn`. Any structural difference (timing, events, for-each, when-clause, function, columns, transition tables, constraint flags) emits `Drop` + `Create` — there is no `ALTER TRIGGER` for body-level changes. `CommentOn` is comment-only.
+- **Planner** — 3 new step kinds: `CreateTrigger`, `DropTrigger` (destructive; intent required), `CommentOnTrigger`. `DropTrigger` is placed in the same destructive bucket as `DropTable` and `DropFunction`.
+- **`NodeId::Trigger`** — added to the dep graph; `Trigger → Table/View/MV` edges ensure the target relation exists before the trigger is created; `Trigger → Function` edges ensure the trigger function exists before the trigger fires.
+
+### Added — lint rules (triggers)
+
+- `trigger-references-unmanaged-table` (Warning) — trigger's target relation is not in any managed schema.
+- `trigger-references-unmanaged-function` (Warning) — trigger function is not in any managed schema.
+
+### Added — tests (triggers)
+
+- **Conformance fixtures** (Tier C): `objects/triggers/` covering create/drop/comment, BEFORE/AFTER/INSTEAD OF variants, ROW vs STATEMENT, WHEN clause, UPDATE OF columns, REFERENCING transition tables, CONSTRAINT TRIGGER with DEFERRABLE, and both lint rules.
 
 ### Added — IR (extensions)
 
