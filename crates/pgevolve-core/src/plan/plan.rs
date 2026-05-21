@@ -352,6 +352,9 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::DropExtension => "drop_extension",
         K::AlterExtensionUpdate => "alter_extension_update",
         K::CommentOnExtension => "comment_on_extension",
+        K::CreateTrigger => "create_trigger",
+        K::DropTrigger => "drop_trigger",
+        K::CommentOnTrigger => "comment_on_trigger",
     }
 }
 
@@ -415,6 +418,9 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "drop_extension" => K::DropExtension,
         "alter_extension_update" => K::AlterExtensionUpdate,
         "comment_on_extension" => K::CommentOnExtension,
+        "create_trigger" => K::CreateTrigger,
+        "drop_trigger" => K::DropTrigger,
+        "comment_on_trigger" => K::CommentOnTrigger,
         _ => return None,
     })
 }

@@ -291,8 +291,14 @@ fn partition(changes: ChangeSet) -> (Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<Cha
                 crate::diff::change::ExtensionChange::AlterUpdate { .. }
                 | crate::diff::change::ExtensionChange::CommentOn { .. } => modifies.push(entry),
             },
-            // Trigger changes: placeholder until TRG6 wires ordering buckets.
-            Change::Trigger(_) => unimplemented!("Trigger ordering lands in TRG6"),
+            // Trigger changes: bucket by lifecycle phase.
+            Change::Trigger(tc) => match tc {
+                TriggerChange::Create(_) => creates.push(entry),
+                // Replace emits drop+create; both land in drops so the emitter
+                // can sequence them correctly.
+                TriggerChange::Drop { .. } | TriggerChange::Replace(_) => drops.push(entry),
+                TriggerChange::CommentOn { .. } => modifies.push(entry),
+            },
         }
     }
     (creates, modifies, drops)

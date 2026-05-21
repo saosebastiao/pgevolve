@@ -158,6 +158,14 @@ pub enum StepKind {
     AlterExtensionUpdate,
     /// `COMMENT ON EXTENSION name IS '...'`.
     CommentOnExtension,
+
+    // --- v0.2 trigger step kinds ---
+    /// `CREATE [CONSTRAINT] TRIGGER name ... ON table ...`.
+    CreateTrigger,
+    /// `DROP TRIGGER name ON table`.
+    DropTrigger,
+    /// `COMMENT ON TRIGGER name ON table IS '...'`.
+    CommentOnTrigger,
 }
 
 /// One unit of work the executor will attempt.
@@ -255,6 +263,9 @@ mod tests {
             StepKind::DropExtension,
             StepKind::AlterExtensionUpdate,
             StepKind::CommentOnExtension,
+            StepKind::CreateTrigger,
+            StepKind::DropTrigger,
+            StepKind::CommentOnTrigger,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();
