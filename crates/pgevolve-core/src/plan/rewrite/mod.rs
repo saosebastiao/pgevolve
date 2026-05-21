@@ -147,15 +147,34 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         Change::Procedure(pc) => emit::procedure::emit(pc, destructive, destructive_reason, out),
         Change::Extension(ec) => emit::extension::emit(ec, destructive, destructive_reason, out),
         Change::Trigger(tc) => emit::trigger::emit(tc, destructive, destructive_reason, out),
-        // Partition changes: SQL emission wired in PART9.
         Change::Table(tc) => {
             use crate::diff::change::TableChange;
             match tc {
-                TableChange::AttachPartition { .. } => {
-                    unimplemented!("AttachPartition SQL emission lands in PART9")
+                TableChange::AttachPartition { parent, child, bounds } => {
+                    out.push(RawStep {
+                        step_no: 0,
+                        kind: crate::plan::raw_step::StepKind::AttachPartition,
+                        destructive: false,
+                        destructive_reason: None,
+                        intent_id: None,
+                        targets: vec![child.clone()],
+                        sql: crate::plan::rewrite::partitions::attach_partition(
+                            &parent, &child, &bounds,
+                        ),
+                        transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                    });
                 }
-                TableChange::DetachPartition { .. } => {
-                    unimplemented!("DetachPartition SQL emission lands in PART9")
+                TableChange::DetachPartition { parent, child } => {
+                    out.push(RawStep {
+                        step_no: 0,
+                        kind: crate::plan::raw_step::StepKind::DetachPartition,
+                        destructive: false,
+                        destructive_reason: None,
+                        intent_id: None,
+                        targets: vec![child.clone()],
+                        sql: crate::plan::rewrite::partitions::detach_partition(&parent, &child),
+                        transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                    });
                 }
             }
         }

@@ -1315,3 +1315,55 @@ comment: None,
         ]
     );
 }
+
+#[test]
+fn emits_attach_partition_step() {
+    use crate::diff::change::TableChange;
+    use crate::ir::partition::PartitionBounds;
+
+    let mut cs = ChangeSet::new();
+    cs.push(
+        Change::Table(TableChange::AttachPartition {
+            parent: qn("app", "orders"),
+            child: qn("app", "orders_2024"),
+            bounds: PartitionBounds::Default,
+        }),
+        Destructiveness::Safe,
+    );
+    let steps = rewrite_changeset_only(cs);
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].kind, StepKind::AttachPartition);
+    assert!(
+        steps[0].sql.contains("ATTACH PARTITION"),
+        "expected ATTACH PARTITION in sql, got: {}",
+        steps[0].sql
+    );
+    assert!(!steps[0].destructive);
+    assert_eq!(steps[0].targets, vec![qn("app", "orders_2024")]);
+    assert_eq!(steps[0].transactional, TransactionConstraint::InTransaction);
+}
+
+#[test]
+fn emits_detach_partition_step() {
+    use crate::diff::change::TableChange;
+
+    let mut cs = ChangeSet::new();
+    cs.push(
+        Change::Table(TableChange::DetachPartition {
+            parent: qn("app", "orders"),
+            child: qn("app", "orders_2024"),
+        }),
+        Destructiveness::Safe,
+    );
+    let steps = rewrite_changeset_only(cs);
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].kind, StepKind::DetachPartition);
+    assert!(
+        steps[0].sql.contains("DETACH PARTITION"),
+        "expected DETACH PARTITION in sql, got: {}",
+        steps[0].sql
+    );
+    assert!(!steps[0].destructive);
+    assert_eq!(steps[0].targets, vec![qn("app", "orders_2024")]);
+    assert_eq!(steps[0].transactional, TransactionConstraint::InTransaction);
+}

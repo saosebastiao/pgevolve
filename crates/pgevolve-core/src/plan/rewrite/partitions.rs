@@ -1,7 +1,5 @@
 //! SQL emission for partition operations.
 
-#![allow(dead_code)]
-
 use crate::identifier::QualifiedName;
 use crate::ir::partition::{
     BoundDatum, PartitionBounds, PartitionBy, PartitionColumnKind, PartitionOf, PartitionStrategy,
