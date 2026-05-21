@@ -23,9 +23,12 @@ Extends the v0.1 surface with **views, materialized views, user-defined types, f
 
 - Conformance Layer 4 (apply roundtrip) now runs **in-process** via `pgevolve::api::build_plan` + `pgevolve::executor::apply_plan`. The subprocess scaffolding (`cargo_bin`, `run_pgevolve`, `plan_and_locate`, `patch_intent_toml_approve_all`, `write_project`) is gone — ~150 fewer lines in `crates/pgevolve-conformance/src/assertions/apply.rs`. Faster (no per-fixture binary rebuild + spawn) and easier to debug (assertions can inspect the `Plan` value rather than its on-disk rendering).
 
-### Deferred
+### Added — shadow validation for view bodies (T13)
 
-- **T13: `--shadow-validate` extended for view bodies** — plan filed at `docs/superpowers/plans/2026-05-18-t13-shadow-validate-views.md` but implementation pushed past v0.2.0. Tracked separately.
+- **`--shadow-validate` now cross-checks view + materialized view bodies** against an ephemeral Postgres. `render_catalog` emits views/MVs (after sequences); `cross_check` queries `pg_get_viewdef` for each declared view/MV, re-parses through the source canonicalizer, and compares against the source IR's body canonical text + body_dependencies (the latter walked via `pg_rewrite → pg_depend → pg_class`). Defaults to warnings; `--shadow-strict` promotes mismatches to errors.
+- New `crates/pgevolve-core/src/render/view.rs` (`render_view`, `render_materialized_view`).
+- Docker-gated integration tests in `crates/pgevolve/tests/shadow_validate_views.rs`.
+- Closes the deferred T13 plan from sub-spec #1 (views/MVs).
 
 ### Added — IR (functions and procedures)
 

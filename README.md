@@ -132,7 +132,7 @@ Per the [arch-readiness spec §16](./docs/superpowers/specs/2026-05-15-v0.2-arch
 | # | Sub-spec | Status |
 |---|---|---|
 | 0 | Architecture readiness (foundation) | ✅ Landed `26d8ebc..ec774ff` |
-| 1 | Views and materialized views | ✅ Landed `0e2a7a0` (T13 deferred) |
+| 1 | Views and materialized views | ✅ Landed `0e2a7a0`; T13 shadow-validate `b96899f` |
 | 2 | Types (enums, domains, composites) | ✅ Landed `6127bdd` |
 | 3 | Extensions | ✅ Landed `c17b3bc..8522c95` |
 | 4 | Functions and procedures | ✅ Landed `3c3f6ee` |
