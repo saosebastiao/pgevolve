@@ -73,6 +73,7 @@ pub fn check_universal(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Findin
     out.extend(extension_references_unmanaged_schema(tree));
     out.extend(trigger_references_unmanaged_table_rule(tree));
     out.extend(trigger_references_unmanaged_function_rule(tree));
+    out.extend(partition_references_unmanaged_parent_rule(tree));
     out
 }
 
@@ -840,6 +841,37 @@ fn trigger_references_unmanaged_function_rule(tree: &SourceTree) -> Vec<Finding>
                      this project's managed schema",
                     qname = trigger.qname,
                     func = trigger.function_qname,
+                ),
+            ));
+        }
+    }
+
+    out
+}
+
+/// `partition-references-unmanaged-parent` — fires (Error) when a partition
+/// table's PARTITION OF target parent is not declared in the source catalog
+/// as a table. The parent must be a managed source object.
+fn partition_references_unmanaged_parent_rule(tree: &SourceTree) -> Vec<Finding> {
+    let mut out = Vec::new();
+
+    for table in &tree.catalog.tables {
+        let Some(po) = &table.partition_of else {
+            continue;
+        };
+        let found = tree
+            .catalog
+            .tables
+            .iter()
+            .any(|other| other.qname == po.parent);
+
+        if !found {
+            out.push(Finding::error(
+                "partition-references-unmanaged-parent",
+                format!(
+                    "partition `{}` references parent `{}`, which is not declared in this \
+                     project's managed schema",
+                    table.qname, po.parent,
                 ),
             ));
         }
@@ -2514,6 +2546,124 @@ comment: None,
         assert_eq!(
             count, 0,
             "trigger-references-unmanaged-table must not fire when target is a managed MV",
+        );
+    }
+
+    // ── partition-references-unmanaged-parent
+
+    #[test]
+    fn partition_with_managed_parent_no_finding() {
+        use crate::ir::partition::{PartitionBounds, PartitionBy, PartitionColumn, PartitionColumnKind, PartitionOf, PartitionStrategy};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+
+        // Parent table with PARTITION BY clause.
+        c.tables.push(Table {
+            qname: qn("app", "orders"),
+            columns: vec![],
+            constraints: vec![],
+            partition_by: Some(PartitionBy {
+                strategy: PartitionStrategy::Range,
+                columns: vec![PartitionColumn {
+                    kind: PartitionColumnKind::Column(id("id")),
+                    collation: None,
+                    opclass: None,
+                }],
+            }),
+            partition_of: None,
+            comment: None,
+        });
+
+        // Child partition referencing the parent.
+        c.tables.push(Table {
+            qname: qn("app", "orders_p1"),
+            columns: vec![],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: Some(PartitionOf {
+                parent: qn("app", "orders"),
+                bounds: PartitionBounds::Default,
+            }),
+            comment: None,
+        });
+
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "partition-references-unmanaged-parent")
+            .count();
+        assert_eq!(
+            count, 0,
+            "expected no partition-references-unmanaged-parent finding when parent is managed"
+        );
+    }
+
+    #[test]
+    fn partition_with_unmanaged_parent_fires() {
+        use crate::ir::partition::{PartitionBounds, PartitionOf};
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+
+        // Child partition references a parent NOT in the catalog.
+        c.tables.push(Table {
+            qname: qn("app", "orders_p1"),
+            columns: vec![],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: Some(PartitionOf {
+                parent: qn("app", "ghost_orders"),
+                bounds: PartitionBounds::Default,
+            }),
+            comment: None,
+        });
+
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "partition-references-unmanaged-parent")
+            .count();
+        assert_eq!(
+            count, 1,
+            "expected one partition-references-unmanaged-parent finding"
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "partition-references-unmanaged-parent")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Error,
+        );
+    }
+
+    #[test]
+    fn non_partition_tables_ignored() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+
+        // Regular table without partition_of.
+        c.tables.push(Table {
+            qname: qn("app", "orders"),
+            columns: vec![],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+        });
+
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "partition-references-unmanaged-parent")
+            .count();
+        assert_eq!(
+            count, 0,
+            "partition-references-unmanaged-parent must not fire for regular tables"
         );
     }
 }
