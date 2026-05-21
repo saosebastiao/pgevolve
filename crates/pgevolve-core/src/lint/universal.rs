@@ -32,6 +32,10 @@
 //! - **`extension-references-unmanaged-schema`** — fires when
 //!   `CREATE EXTENSION ... WITH SCHEMA s` references a schema not in
 //!   the source catalog.
+//! - **`trigger-references-unmanaged-table`** — fires when a trigger's target
+//!   table is not declared in source as a table, view, or materialized view.
+//! - **`trigger-references-unmanaged-function`** — fires when a trigger's
+//!   execute function is not declared in source.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -67,6 +71,8 @@ pub fn check_universal(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Findin
     out.extend(function_references_unmanaged_schema_rule(tree, managed));
     out.extend(extension_version_unpinned(tree));
     out.extend(extension_references_unmanaged_schema(tree));
+    out.extend(trigger_references_unmanaged_table_rule(tree));
+    out.extend(trigger_references_unmanaged_function_rule(tree));
     out
 }
 
@@ -775,6 +781,78 @@ fn extension_references_unmanaged_schema(tree: &SourceTree) -> Vec<Finding> {
             ));
         }
     }
+    out
+}
+
+// ── trigger lint rules ────────────────────────────────────────────────────────
+
+/// `trigger-references-unmanaged-table` — fires (Error) when a trigger's
+/// target table is not declared in the source catalog as a table, view, or
+/// materialized view. Triggers can fire on plain tables, views (`INSTEAD OF`),
+/// and materialized views, so all three collections are checked.
+fn trigger_references_unmanaged_table_rule(tree: &SourceTree) -> Vec<Finding> {
+    let mut out = Vec::new();
+
+    for trigger in &tree.catalog.triggers {
+        let managed = tree
+            .catalog
+            .tables
+            .iter()
+            .any(|t| t.qname == trigger.table)
+            || tree
+                .catalog
+                .views
+                .iter()
+                .any(|v| v.qname == trigger.table)
+            || tree
+                .catalog
+                .materialized_views
+                .iter()
+                .any(|mv| mv.qname == trigger.table);
+
+        if !managed {
+            out.push(Finding::error(
+                "trigger-references-unmanaged-table",
+                format!(
+                    "trigger `{qname}` fires on `{table}`, which is not declared in this \
+                     project's managed schema",
+                    qname = trigger.qname,
+                    table = trigger.table,
+                ),
+            ));
+        }
+    }
+
+    out
+}
+
+/// `trigger-references-unmanaged-function` — fires (Error) when a trigger's
+/// execute function is not declared in the source catalog. The function must be
+/// a managed source object, not just present in the live database via an
+/// extension or external schema.
+fn trigger_references_unmanaged_function_rule(tree: &SourceTree) -> Vec<Finding> {
+    let mut out = Vec::new();
+
+    for trigger in &tree.catalog.triggers {
+        let managed = tree
+            .catalog
+            .functions
+            .iter()
+            .any(|f| f.qname == trigger.function_qname);
+
+        if !managed {
+            out.push(Finding::error(
+                "trigger-references-unmanaged-function",
+                format!(
+                    "trigger `{qname}` executes function `{func}`, which is not declared in \
+                     this project's managed schema",
+                    qname = trigger.qname,
+                    func = trigger.function_qname,
+                ),
+            ));
+        }
+    }
+
     out
 }
 
@@ -2191,5 +2269,228 @@ mod tests {
             .filter(|f| f.rule == "extension-references-unmanaged-schema")
             .count();
         assert_eq!(count, 0);
+    }
+
+    // ── trigger-references-unmanaged-table / trigger-references-unmanaged-function
+
+    fn make_trigger(
+        schema: &str,
+        name: &str,
+        table_schema: &str,
+        table_name: &str,
+        fn_schema: &str,
+        fn_name: &str,
+    ) -> crate::ir::trigger::Trigger {
+        use crate::ir::constraint::Deferrable;
+        use crate::ir::trigger::{TriggerEvent, TriggerLevel, TriggerTiming};
+        crate::ir::trigger::Trigger {
+            qname: qn(schema, name),
+            table: qn(table_schema, table_name),
+            timing: TriggerTiming::Before,
+            events: vec![TriggerEvent::Insert],
+            level: TriggerLevel::Row,
+            when_clause: None,
+            transition_tables: vec![],
+            function_qname: qn(fn_schema, fn_name),
+            function_args: vec![],
+            is_constraint: false,
+            deferrable: Deferrable::NotDeferrable,
+            comment: None,
+        }
+    }
+
+    fn make_function_bare(schema: &str, name: &str) -> crate::ir::function::Function {
+        make_plpgsql_function(schema, name, "BEGIN NULL; END", vec![])
+    }
+
+    #[test]
+    fn trigger_references_managed_table_and_function_no_findings() {
+        use crate::ir::view::{MaterializedView, View};
+        use crate::parse::normalize_body::NormalizedBody;
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.tables.push(Table {
+            qname: qn("app", "orders"),
+            columns: vec![],
+            constraints: vec![],
+            comment: None,
+        });
+        c.functions.push(make_function_bare("app", "audit_fn"));
+        c.triggers.push(make_trigger("app", "trg_orders", "app", "orders", "app", "audit_fn"));
+        // Extra unrelated objects — just to confirm no false positives.
+        c.views.push(View {
+            qname: qn("app", "active_orders"),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![],
+            security_barrier: None,
+            security_invoker: None,
+            comment: None,
+            raw_body: String::new(),
+        });
+        c.materialized_views.push(MaterializedView {
+            qname: qn("app", "order_summary"),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![],
+            comment: None,
+            raw_body: String::new(),
+        });
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let trg_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| {
+                f.rule == "trigger-references-unmanaged-table"
+                    || f.rule == "trigger-references-unmanaged-function"
+            })
+            .collect();
+        assert!(
+            trg_findings.is_empty(),
+            "expected no trigger lint findings when table and function are managed: {trg_findings:?}",
+        );
+    }
+
+    #[test]
+    fn trigger_references_unmanaged_table_fires() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        // Function IS managed but the table is not in the catalog.
+        c.functions.push(make_function_bare("app", "audit_fn"));
+        c.triggers.push(make_trigger(
+            "app",
+            "trg_missing",
+            "app",
+            "ghost_table", // not in catalog
+            "app",
+            "audit_fn",
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "trigger-references-unmanaged-table")
+            .count();
+        assert_eq!(count, 1, "expected one trigger-references-unmanaged-table finding");
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "trigger-references-unmanaged-table")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Error,
+        );
+    }
+
+    #[test]
+    fn trigger_references_unmanaged_function_fires() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        // Table IS managed but the function is not.
+        c.tables.push(Table {
+            qname: qn("app", "orders"),
+            columns: vec![],
+            constraints: vec![],
+            comment: None,
+        });
+        c.triggers.push(make_trigger(
+            "app",
+            "trg_no_fn",
+            "app",
+            "orders",
+            "app",
+            "missing_fn", // not in catalog
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "trigger-references-unmanaged-function")
+            .count();
+        assert_eq!(count, 1, "expected one trigger-references-unmanaged-function finding");
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "trigger-references-unmanaged-function")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Error,
+        );
+    }
+
+    #[test]
+    fn trigger_on_managed_view_no_finding() {
+        use crate::ir::view::View;
+        use crate::parse::normalize_body::NormalizedBody;
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        // INSTEAD OF triggers fire on views.
+        c.views.push(View {
+            qname: qn("app", "editable_orders"),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![],
+            security_barrier: None,
+            security_invoker: None,
+            comment: None,
+            raw_body: String::new(),
+        });
+        c.functions.push(make_function_bare("app", "audit_fn"));
+        c.triggers.push(make_trigger(
+            "app",
+            "trg_view",
+            "app",
+            "editable_orders", // view, not a table
+            "app",
+            "audit_fn",
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "trigger-references-unmanaged-table")
+            .count();
+        assert_eq!(
+            count, 0,
+            "trigger-references-unmanaged-table must not fire when target is a managed view",
+        );
+    }
+
+    #[test]
+    fn trigger_on_managed_mv_no_finding() {
+        use crate::ir::view::MaterializedView;
+        use crate::parse::normalize_body::NormalizedBody;
+
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.materialized_views.push(MaterializedView {
+            qname: qn("app", "order_summary"),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![],
+            comment: None,
+            raw_body: String::new(),
+        });
+        c.functions.push(make_function_bare("app", "audit_fn"));
+        c.triggers.push(make_trigger(
+            "app",
+            "trg_mv",
+            "app",
+            "order_summary", // materialized view
+            "app",
+            "audit_fn",
+        ));
+        let tree = empty_tree(c);
+        let findings = check_universal(&tree, &ManagedConfig::default());
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "trigger-references-unmanaged-table")
+            .count();
+        assert_eq!(
+            count, 0,
+            "trigger-references-unmanaged-table must not fire when target is a managed MV",
+        );
     }
 }
