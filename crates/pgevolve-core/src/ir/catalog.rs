@@ -14,6 +14,7 @@ use crate::ir::procedure::Procedure;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
+use crate::ir::trigger::Trigger;
 use crate::ir::user_type::UserType;
 use crate::ir::view::{MaterializedView, View};
 
@@ -40,6 +41,8 @@ pub struct Catalog {
     pub functions: Vec<Function>,
     /// User-defined procedures.
     pub procedures: Vec<Procedure>,
+    /// Triggers (`CREATE TRIGGER` / `CREATE CONSTRAINT TRIGGER`).
+    pub triggers: Vec<Trigger>,
 }
 
 impl Catalog {
@@ -57,6 +60,7 @@ impl Catalog {
             types: Vec::new(),
             functions: Vec::new(),
             procedures: Vec::new(),
+            triggers: Vec::new(),
         }
     }
 
@@ -132,6 +136,10 @@ impl Diff for Catalog {
         out.extend(prefix_diffs(
             "procedures",
             diff_keyed(&self.procedures, &other.procedures, |p| p.qname.to_string()),
+        ));
+        out.extend(prefix_diffs(
+            "triggers",
+            diff_keyed(&self.triggers, &other.triggers, |t| t.qname.to_string()),
         ));
         out
     }

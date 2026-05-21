@@ -107,7 +107,7 @@ pub enum FkMatchType {
 }
 
 /// Deferrability of a constraint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Deferrable {
     /// `NOT DEFERRABLE` (default).

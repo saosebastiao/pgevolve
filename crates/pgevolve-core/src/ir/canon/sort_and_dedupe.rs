@@ -102,6 +102,13 @@ pub fn run(cat: &mut Catalog) -> Result<(), IrError> {
         )));
     }
 
+    cat.triggers.sort_by(|a, b| a.qname.cmp(&b.qname));
+    if let Some(dupe) = first_duplicate(cat.triggers.iter().map(|t| t.qname.to_string())) {
+        return Err(IrError::InvalidIdentifier(format!(
+            "duplicate trigger: {dupe}"
+        )));
+    }
+
     Ok(())
 }
 
