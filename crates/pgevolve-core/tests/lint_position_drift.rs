@@ -39,9 +39,9 @@ fn catalog_with_columns(order: &[&str]) -> Catalog {
         qname: qn("app", "users"),
         columns: order.iter().map(|name| col(name)).collect(),
         constraints: vec![],
-                partition_by: None,
+        partition_by: None,
         partition_of: None,
-comment: None,
+        comment: None,
     });
     c
 }

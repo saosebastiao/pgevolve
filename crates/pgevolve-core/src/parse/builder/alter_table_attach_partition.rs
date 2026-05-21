@@ -29,10 +29,13 @@ pub fn build_attach_partition(
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
 ) -> Result<AttachPartition, ParseError> {
-    let parent_rangevar = stmt.relation.as_ref().ok_or_else(|| ParseError::Structural {
-        location: location.clone(),
-        message: "ALTER TABLE ATTACH PARTITION missing relation".into(),
-    })?;
+    let parent_rangevar = stmt
+        .relation
+        .as_ref()
+        .ok_or_else(|| ParseError::Structural {
+            location: location.clone(),
+            message: "ALTER TABLE ATTACH PARTITION missing relation".into(),
+        })?;
     let parent = shared::resolve_qname(parent_rangevar, default_schema, location)?;
 
     if stmt.cmds.len() != 1 {
@@ -76,16 +79,22 @@ pub fn build_attach_partition(
         });
     }
 
-    let child_rangevar = part_cmd.name.as_ref().ok_or_else(|| ParseError::Structural {
-        location: location.clone(),
-        message: "ATTACH PARTITION missing child name".into(),
-    })?;
+    let child_rangevar = part_cmd
+        .name
+        .as_ref()
+        .ok_or_else(|| ParseError::Structural {
+            location: location.clone(),
+            message: "ATTACH PARTITION missing child name".into(),
+        })?;
     let child = shared::resolve_qname(child_rangevar, default_schema, location)?;
 
-    let bound_spec = part_cmd.bound.as_ref().ok_or_else(|| ParseError::Structural {
-        location: location.clone(),
-        message: "ATTACH PARTITION missing FOR VALUES bounds".into(),
-    })?;
+    let bound_spec = part_cmd
+        .bound
+        .as_ref()
+        .ok_or_else(|| ParseError::Structural {
+            location: location.clone(),
+            message: "ATTACH PARTITION missing FOR VALUES bounds".into(),
+        })?;
     let bounds = crate::parse::builder::create_stmt::build_partition_bounds(bound_spec, location)?;
 
     Ok(AttachPartition {
@@ -129,9 +138,8 @@ mod tests {
 
     #[test]
     fn parses_attach_partition_default() {
-        let stmt = parse_alter(
-            "ALTER TABLE app.orders ATTACH PARTITION app.orders_default DEFAULT;",
-        );
+        let stmt =
+            parse_alter("ALTER TABLE app.orders ATTACH PARTITION app.orders_default DEFAULT;");
         let r = build_attach_partition(&stmt, None, &loc()).unwrap();
         assert!(matches!(
             r.partition_of.bounds,

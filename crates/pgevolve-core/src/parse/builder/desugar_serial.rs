@@ -117,9 +117,9 @@ mod tests {
                 comment: None,
             }],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         }
     }
 
@@ -188,9 +188,9 @@ comment: None,
                 comment: None,
             }],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         };
         let seqs = desugar_serials_in_table(&mut t, &loc()).unwrap();
         assert!(seqs.is_empty());

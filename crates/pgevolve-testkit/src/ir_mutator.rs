@@ -247,9 +247,9 @@ fn add_table(c: &mut Catalog, seed: usize) {
         qname,
         columns: vec![id_col],
         constraints: vec![pk],
-                partition_by: None,
+        partition_by: None,
         partition_of: None,
-comment: None,
+        comment: None,
     });
 }
 
@@ -480,9 +480,9 @@ mod tests {
                 deferrable: pgevolve_core::ir::constraint::Deferrable::NotDeferrable,
                 comment: None,
             }],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         };
         let mut catalog = Catalog {
             schemas: vec![Schema {

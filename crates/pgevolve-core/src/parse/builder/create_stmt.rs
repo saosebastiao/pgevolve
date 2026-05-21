@@ -17,8 +17,8 @@ use crate::ir::constraint::{
 };
 use crate::ir::default_expr::DefaultExpr;
 use crate::ir::partition::{
-    BoundDatum, PartitionBounds, PartitionBy, PartitionColumn, PartitionColumnKind,
-    PartitionOf, PartitionStrategy,
+    BoundDatum, PartitionBounds, PartitionBy, PartitionColumn, PartitionColumnKind, PartitionOf,
+    PartitionStrategy,
 };
 use crate::ir::table::Table;
 use crate::parse::builder::shared;
@@ -552,10 +552,7 @@ pub(crate) fn build_partition_by(
         PgStrategy::Undefined => {
             return Err(ParseError::Structural {
                 location: location.clone(),
-                message: format!(
-                    "unknown partition strategy value {}",
-                    spec.strategy
-                ),
+                message: format!("unknown partition strategy value {}", spec.strategy),
             });
         }
     };
@@ -571,10 +568,13 @@ pub(crate) fn build_partition_by(
         let kind = if !elem.name.is_empty() {
             PartitionColumnKind::Column(shared::ident(&elem.name, location)?)
         } else if let Some(expr_node) = elem.expr.as_ref() {
-            let inner = expr_node.node.as_ref().ok_or_else(|| ParseError::Structural {
-                location: location.clone(),
-                message: "PartitionElem expr node has no inner node".into(),
-            })?;
+            let inner = expr_node
+                .node
+                .as_ref()
+                .ok_or_else(|| ParseError::Structural {
+                    location: location.clone(),
+                    message: "PartitionElem expr node has no inner node".into(),
+                })?;
             PartitionColumnKind::Expr(normalize_expr::from_pg_node(inner, None, location)?)
         } else {
             return Err(ParseError::Structural {
@@ -584,7 +584,11 @@ pub(crate) fn build_partition_by(
         };
         let collation = qualified_name_from_node_list(&elem.collation, location)?;
         let opclass = qualified_name_from_node_list(&elem.opclass, location)?;
-        columns.push(PartitionColumn { kind, collation, opclass });
+        columns.push(PartitionColumn {
+            kind,
+            collation,
+            opclass,
+        });
     }
 
     if columns.is_empty() {
@@ -678,11 +682,10 @@ fn build_bound_datum(
             PartitionRangeDatumKind::try_from(d.kind).unwrap_or(PartitionRangeDatumKind::Undefined);
         return match kind {
             PartitionRangeDatumKind::PartitionRangeDatumValue => {
-                let v =
-                    d.value.as_ref().ok_or_else(|| ParseError::Structural {
-                        location: location.clone(),
-                        message: "PartitionRangeDatum kind=value but value is None".into(),
-                    })?;
+                let v = d.value.as_ref().ok_or_else(|| ParseError::Structural {
+                    location: location.clone(),
+                    message: "PartitionRangeDatum kind=value but value is None".into(),
+                })?;
                 let inner = v.node.as_ref().ok_or_else(|| ParseError::Structural {
                     location: location.clone(),
                     message: "PartitionRangeDatum value node has no inner node".into(),
@@ -748,10 +751,7 @@ fn qualified_name_from_node_list(
         _ => {
             return Err(ParseError::Structural {
                 location: location.clone(),
-                message: format!(
-                    "qualified name list had unexpected length {}",
-                    nodes.len()
-                ),
+                message: format!("qualified name list had unexpected length {}", nodes.len()),
             });
         }
     };
@@ -980,8 +980,8 @@ mod tests {
 
     #[test]
     fn rejects_hash_with_two_columns() {
-        let err = try_build("CREATE TABLE app.t (a int, b int) PARTITION BY HASH (a, b);")
-            .unwrap_err();
+        let err =
+            try_build("CREATE TABLE app.t (a int, b int) PARTITION BY HASH (a, b);").unwrap_err();
         assert!(
             matches!(err, ParseError::Structural { .. }),
             "expected Structural error, got {err:?}"

@@ -437,10 +437,7 @@ fn process_file(
                 if child_table.partition_of.is_some() {
                     return Err(ParseError::Structural {
                         location,
-                        message: format!(
-                            "table {} already declared as a partition",
-                            attach.child
-                        ),
+                        message: format!("table {} already declared as a partition", attach.child),
                     });
                 }
                 child_table.partition_of = Some(attach.partition_of);

@@ -104,11 +104,9 @@ fn is_attach_partition_stmt(stmt: &protobuf::AlterTableStmt) -> bool {
         return false;
     }
     match &stmt.cmds[0].node {
-        Some(NodeEnum::AlterTableCmd(c)) => {
-            AlterTableType::try_from(c.subtype)
-                .ok()
-                .is_some_and(|t| matches!(t, AlterTableType::AtAttachPartition))
-        }
+        Some(NodeEnum::AlterTableCmd(c)) => AlterTableType::try_from(c.subtype)
+            .ok()
+            .is_some_and(|t| matches!(t, AlterTableType::AtAttachPartition)),
         _ => false,
     }
 }

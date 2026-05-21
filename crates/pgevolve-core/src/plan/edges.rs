@@ -487,9 +487,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -535,9 +535,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -554,9 +554,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -591,9 +591,9 @@ comment: None,
             qname: qn("app", "orgs"),
             columns: vec![col_id_bigint()],
             constraints: vec![pk("orgs_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -611,9 +611,9 @@ comment: None,
                 },
             ],
             constraints: vec![fk("users_orgs_fk", qn("app", "orgs"))],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let g = build_create_graph(&c);
         let fk_node = NodeId::Constraint {
@@ -654,9 +654,9 @@ comment: None,
                 comment: None,
             }],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -673,9 +673,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         c.sequences.push(Sequence {
             qname: qn("app", "users_id_seq"),
@@ -707,9 +707,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let g = build_create_graph(&c);
         let pk_node = NodeId::Constraint {
@@ -727,9 +727,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         // Same edges; equality is structural via topological output.
         let cg = build_create_graph(&c);
@@ -758,9 +758,9 @@ comment: None,
                 },
             ],
             constraints: vec![pk("a_pk", &["id"]), fk("a_to_b", qn("app", "b"))],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         c.tables.push(Table {
             qname: qn("app", "b"),
@@ -778,9 +778,9 @@ comment: None,
                 },
             ],
             constraints: vec![pk("b_pk", &["id"]), fk("b_to_a", qn("app", "a"))],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let g = build_create_graph(&c);
         let err = g.topological_sort().unwrap_err();
@@ -812,9 +812,9 @@ comment: None,
                 pk("tree_pk", &["id"]),
                 fk("tree_parent_fk", qn("app", "tree")),
             ],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let g = build_create_graph(&c);
         assert!(g.topological_sort().is_ok());
@@ -823,7 +823,7 @@ comment: None,
     #[test]
     fn partition_child_depends_on_parent() {
         // A partition child table depends on its parent table being created first.
-        use crate::ir::partition::{PartitionBy, PartitionBounds, PartitionOf};
+        use crate::ir::partition::{PartitionBounds, PartitionBy, PartitionOf};
         let mut c = Catalog::empty();
 
         // Parent table with PARTITION BY LIST.
@@ -894,9 +894,7 @@ comment: None,
             partition_by: None,
             partition_of: Some(PartitionOf {
                 parent: qn("app", "parent"),
-                bounds: PartitionBounds::List {
-                    values: vec![],
-                },
+                bounds: PartitionBounds::List { values: vec![] },
             }),
             comment: None,
         };
@@ -985,9 +983,9 @@ comment: None,
                 comment: None,
             }],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let g = build_create_graph(&c);
         assert!(

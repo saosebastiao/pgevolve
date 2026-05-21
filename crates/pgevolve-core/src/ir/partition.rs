@@ -112,7 +112,10 @@ mod tests {
 
     #[test]
     fn hash_bounds_round_trip() {
-        let b = PartitionBounds::Hash { modulus: 4, remainder: 1 };
+        let b = PartitionBounds::Hash {
+            modulus: 4,
+            remainder: 1,
+        };
         let json = serde_json::to_string(&b).unwrap();
         let back: PartitionBounds = serde_json::from_str(&json).unwrap();
         assert_eq!(b, back);

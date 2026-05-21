@@ -94,9 +94,9 @@ mod tests {
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         // users table with various features.
@@ -146,9 +146,9 @@ comment: None,
                     comment: None,
                 },
             ],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         // Standalone index.

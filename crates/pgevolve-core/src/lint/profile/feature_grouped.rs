@@ -64,9 +64,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let mut locs = HashMap::new();
         locs.insert(
@@ -84,9 +84,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let mut locs = HashMap::new();
         locs.insert(

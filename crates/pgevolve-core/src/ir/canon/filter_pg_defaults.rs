@@ -156,9 +156,9 @@ mod tests {
                 comment: None,
             }],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, None);
@@ -181,9 +181,9 @@ comment: None,
                 comment: None,
             }],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, Some(explicit));

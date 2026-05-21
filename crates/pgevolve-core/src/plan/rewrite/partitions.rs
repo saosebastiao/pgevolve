@@ -138,7 +138,10 @@ mod tests {
     #[test]
     fn hash_renders() {
         assert_eq!(
-            render_for_values(&PartitionBounds::Hash { modulus: 4, remainder: 1 }),
+            render_for_values(&PartitionBounds::Hash {
+                modulus: 4,
+                remainder: 1
+            }),
             "FOR VALUES WITH (MODULUS 4, REMAINDER 1)"
         );
     }

@@ -157,17 +157,17 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         cat.tables.push(Table {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let err = run(&mut cat).expect_err("duplicate must error");
         assert!(err.to_string().contains("duplicate table"));

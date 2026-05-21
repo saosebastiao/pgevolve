@@ -322,7 +322,6 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
-            // Partition changes: upgraded in PART11.
             pgevolve_core::diff::change::Change::Table(tc) => {
                 use pgevolve_core::diff::change::TableChange;
                 match tc {
@@ -503,7 +502,6 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Trigger(pgevolve_core::diff::change::TriggerChange::CommentOn { .. }) => {
             "CommentOnTrigger"
         }
-        // Partition changes: upgraded in PART11.
         Change::Table(pgevolve_core::diff::change::TableChange::AttachPartition { .. }) => {
             "AttachPartition"
         }

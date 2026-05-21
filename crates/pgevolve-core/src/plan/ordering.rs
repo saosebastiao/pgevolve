@@ -306,8 +306,9 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                 TriggerChange::CommentOn { .. } => modifies.push(entry),
             },
             // Partition changes: alter partition membership, not the table's existence.
-            Change::Table(TableChange::AttachPartition { .. }
-            | TableChange::DetachPartition { .. }) => {
+            Change::Table(
+                TableChange::AttachPartition { .. } | TableChange::DetachPartition { .. },
+            ) => {
                 modifies.push(entry);
             }
             // UnsupportedDiff: abort the plan immediately.
@@ -423,10 +424,9 @@ fn change_node(change: &Change) -> NodeId {
             }
         },
         // Partition change node mapping: use the child partition table.
-        Change::Table(TableChange::AttachPartition { child, .. }
-        | TableChange::DetachPartition { child, .. }) => {
-            NodeId::Table(child.clone())
-        }
+        Change::Table(
+            TableChange::AttachPartition { child, .. } | TableChange::DetachPartition { child, .. },
+        ) => NodeId::Table(child.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")
@@ -658,9 +658,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         source
             .indexes
@@ -706,9 +706,9 @@ comment: None,
             qname: qn("app", "orgs"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![pk("orgs_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
@@ -720,9 +720,9 @@ comment: None,
                 pk("users_pkey", &["id"]),
                 fk("users_org_fk", &["org_id"], qn("app", "orgs"), &["id"]),
             ],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -773,9 +773,9 @@ comment: None,
                 pk("a_pk", &["id"]),
                 fk("a_to_b", &["ref_id"], qn("app", "b"), &["id"]),
             ],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         source.tables.push(Table {
             qname: qn("app", "b"),
@@ -787,9 +787,9 @@ comment: None,
                 pk("b_pk", &["id"]),
                 fk("b_to_a", &["ref_id"], qn("app", "a"), &["id"]),
             ],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -840,9 +840,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         target
             .indexes
@@ -887,9 +887,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -916,17 +916,17 @@ comment: None,
             qname: qn("app", "orgs"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![pk("orgs_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         let mk_cs = |reversed: bool| {
@@ -961,9 +961,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         source
             .indexes
@@ -1025,9 +1025,9 @@ comment: None,
                     col("ref_id", ColumnType::BigInt, false),
                 ],
                 constraints: vec![pk(&format!("{n}_pk"), &["id"])],
-                                partition_by: None,
+                partition_by: None,
                 partition_of: None,
-comment: None,
+                comment: None,
             });
         }
         // Add FKs forming a cycle: a -> b, b -> c, c -> a.
@@ -1070,17 +1070,17 @@ comment: None,
             qname: QualifiedName::new(id("a"), id("t1")),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         target.tables.push(Table {
             qname: QualifiedName::new(id("b"), id("t2")),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1150,9 +1150,9 @@ comment: None,
                 col("deleted_at", ColumnType::Text, true),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         target.indexes.push(Index {
             qname: qn("app", "users_deleted_at_idx"),
@@ -1179,9 +1179,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1233,9 +1233,9 @@ comment: None,
                 col("unused", ColumnType::Text, true),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         // Index on `email`, but the column being dropped is `unused`.
         target.indexes.push(Index {
@@ -1266,9 +1266,9 @@ comment: None,
                 col("email", ColumnType::Text, true),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         // Source still has the email index, but it's being dropped from the
         // source for an unrelated reason (simulate user removing it).
@@ -1321,9 +1321,9 @@ comment: None,
                 col("payload", ColumnType::Text, true),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         target.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -1353,9 +1353,9 @@ comment: None,
                 col("email", ColumnType::Text, true),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1522,9 +1522,9 @@ comment: None,
                 comment: None,
             }],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         let mut cs = ChangeSet::new();

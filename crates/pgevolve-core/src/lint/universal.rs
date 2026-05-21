@@ -1046,9 +1046,9 @@ mod tests {
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let tree = empty_tree(c);
         let findings = check_universal(
@@ -1077,9 +1077,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         // View with the same qname as the table.
         c.views.push(View {
@@ -1125,9 +1125,9 @@ comment: None,
             qname: qn("app", "orders"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         // MV with the same qname as the table.
         c.materialized_views.push(MaterializedView {
@@ -1166,9 +1166,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         c.views.push(View {
             qname: qn("app", "active_users"),
@@ -1319,9 +1319,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let tree = empty_tree(c);
         let findings = check_universal(&tree, &ManagedConfig::default());
@@ -1508,9 +1508,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         // An enum type that collides with the table.
         c.types.push(UserType {
@@ -1550,9 +1550,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         c.types.push(UserType {
             qname: qn("app", "user_status"),
@@ -2352,9 +2352,9 @@ comment: None,
             qname: qn("app", "orders"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         c.functions.push(make_function_bare("app", "audit_fn"));
         c.triggers.push(make_trigger(
@@ -2442,9 +2442,9 @@ comment: None,
             qname: qn("app", "orders"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         c.triggers.push(make_trigger(
             "app",
@@ -2553,7 +2553,10 @@ comment: None,
 
     #[test]
     fn partition_with_managed_parent_no_finding() {
-        use crate::ir::partition::{PartitionBounds, PartitionBy, PartitionColumn, PartitionColumnKind, PartitionOf, PartitionStrategy};
+        use crate::ir::partition::{
+            PartitionBounds, PartitionBy, PartitionColumn, PartitionColumnKind, PartitionOf,
+            PartitionStrategy,
+        };
 
         let mut c = Catalog::empty();
         c.schemas.push(Schema::new(id("app")));

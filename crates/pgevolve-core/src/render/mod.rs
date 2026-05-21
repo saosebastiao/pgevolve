@@ -148,9 +148,9 @@ mod tests {
                 comment: None,
             }],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let rendered = render_catalog(&cat);
         let schema_pos = rendered.find("CREATE SCHEMA").unwrap();
@@ -183,9 +183,9 @@ comment: None,
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         cat.tables.push(Table {
             qname: qn("app", "users"),
@@ -235,9 +235,9 @@ comment: None,
                     comment: None,
                 },
             ],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         let rendered = render_catalog(&cat);
@@ -279,9 +279,9 @@ comment: None,
                 comment: None,
             }],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -336,9 +336,9 @@ comment: None,
                 comment: None,
             }],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
 
         let rendered = render_catalog(&cat);
@@ -384,9 +384,9 @@ comment: None,
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: Some("user accounts".into()),
+            comment: Some("user accounts".into()),
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),

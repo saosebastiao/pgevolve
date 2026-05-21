@@ -820,7 +820,10 @@ mod tests {
             sql.ends_with("PARTITION BY LIST (region);"),
             "expected PARTITION BY LIST (region); at end, got: {sql}"
         );
-        assert!(sql.contains("region text"), "expected column def, got: {sql}");
+        assert!(
+            sql.contains("region text"),
+            "expected column def, got: {sql}"
+        );
     }
 
     #[test]

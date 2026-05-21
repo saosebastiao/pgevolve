@@ -150,7 +150,11 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         Change::Table(tc) => {
             use crate::diff::change::TableChange;
             match tc {
-                TableChange::AttachPartition { parent, child, bounds } => {
+                TableChange::AttachPartition {
+                    parent,
+                    child,
+                    bounds,
+                } => {
                     out.push(RawStep {
                         step_no: 0,
                         kind: crate::plan::raw_step::StepKind::AttachPartition,

@@ -218,9 +218,9 @@ mod tests {
             qname: qn("users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         }
     }
 
@@ -400,10 +400,9 @@ comment: None,
         let target = sample_table_with_qname("app", "orders_2024");
         let changes = run_diff(&src, &target);
         assert!(
-            changes.iter().any(|c| matches!(
-                c,
-                Change::Table(TableChange::AttachPartition { .. })
-            )),
+            changes
+                .iter()
+                .any(|c| matches!(c, Change::Table(TableChange::AttachPartition { .. }))),
             "got: {changes:?}"
         );
     }
@@ -415,10 +414,9 @@ comment: None,
         target.partition_of = Some(po_default("app", "orders"));
         let changes = run_diff(&src, &target);
         assert!(
-            changes.iter().any(|c| matches!(
-                c,
-                Change::Table(TableChange::DetachPartition { .. })
-            )),
+            changes
+                .iter()
+                .any(|c| matches!(c, Change::Table(TableChange::DetachPartition { .. }))),
             "got: {changes:?}"
         );
     }

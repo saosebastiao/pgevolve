@@ -97,9 +97,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let mut locs = HashMap::new();
         locs.insert(ObjectKey::Schema(id("app")), loc("schema/schemas/app.sql"));
@@ -118,9 +118,9 @@ comment: None,
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-                        partition_by: None,
+            partition_by: None,
             partition_of: None,
-comment: None,
+            comment: None,
         });
         let mut locs = HashMap::new();
         locs.insert(

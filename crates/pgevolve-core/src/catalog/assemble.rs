@@ -1789,14 +1789,11 @@ fn apply_partitioned_parents(
                 "expected CreateStmt for partkey re-parse".into(),
             )));
         };
-        let spec = create_stmt
-            .partspec
-            .as_ref()
-            .ok_or_else(|| {
-                CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-                    "synthetic CREATE TABLE lost partspec".into(),
-                ))
-            })?;
+        let spec = create_stmt.partspec.as_ref().ok_or_else(|| {
+            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
+                "synthetic CREATE TABLE lost partspec".into(),
+            ))
+        })?;
 
         table.partition_by = Some(build_partition_by(spec, loc)?);
     }
@@ -1853,12 +1850,13 @@ fn apply_partition_children(
 fn extract_partition_bound_spec(
     parsed: pg_query::ParseResult,
 ) -> Result<pg_query::protobuf::PartitionBoundSpec, CatalogError> {
-    let ir_err = |msg: &str| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(msg.to_string()))
-    };
+    let ir_err =
+        |msg: &str| CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(msg.to_string()));
 
     let Some(raw_stmt) = parsed.protobuf.stmts.into_iter().next() else {
-        return Err(ir_err("synthetic partbound ALTER TABLE yielded no statement"));
+        return Err(ir_err(
+            "synthetic partbound ALTER TABLE yielded no statement",
+        ));
     };
     let Some(node) = raw_stmt.stmt.and_then(|n| n.node) else {
         return Err(ir_err("synthetic partbound ALTER TABLE node was empty"));
