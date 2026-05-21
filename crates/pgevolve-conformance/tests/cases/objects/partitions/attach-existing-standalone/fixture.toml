@@ -1,0 +1,16 @@
+[meta]
+title     = "Partitioning — attach an existing standalone table as a partition"
+authoring = "objects"
+spec_refs = ["partitioning.attach"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.readings_2024",
+]
+
+[expect.plan]
+steps = 1

@@ -1,0 +1,14 @@
+[meta]
+title     = "Partitioning — Form 3 (ALTER TABLE ATTACH) vs Form 2 (PARTITION OF) produce identical IR"
+authoring = "objects"
+spec_refs = ["partitioning.form_equivalence"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+steps = 0

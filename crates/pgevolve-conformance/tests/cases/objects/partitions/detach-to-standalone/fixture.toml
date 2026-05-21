@@ -1,0 +1,16 @@
+[meta]
+title     = "Partitioning — detach a partition to become a standalone table"
+authoring = "objects"
+spec_refs = ["partitioning.detach"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.metrics_2024",
+]
+
+[expect.plan]
+steps = 1

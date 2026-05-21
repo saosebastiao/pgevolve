@@ -51,8 +51,32 @@ pub fn diff_tables(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
             }
             Some(source_table) => {
                 let mut ops: Vec<TableOpEntry> = Vec::new();
-                diff_columns(target_table, source_table, &mut ops);
-                diff_constraints(target_table, source_table, &mut ops);
+
+                // Skip column and constraint diffs when either side is a
+                // partition child (`partition_of.is_some()`).
+                //
+                // A partition child's column list is always inherited from the
+                // parent; the canonical source form (`PARTITION OF …`) never
+                // includes explicit columns. Diffing them would produce spurious
+                // ADD/DROP COLUMN steps. Three sub-cases:
+                //
+                //   1. partition_of is changing (None → Some / Some → None):
+                //      ATTACH / DETACH handles column inheritance atomically.
+                //      - ATTACH: child columns must already match parent.
+                //      - DETACH: inherited columns become explicit automatically.
+                //
+                //   2. partition_of is stable (both Some): e.g. Form 3 parses
+                //      a standalone CREATE TABLE + ALTER TABLE ATTACH, giving the
+                //      child an explicit column list; Form 2 gives an empty list.
+                //      Skip to avoid spurious DROP COLUMN steps.
+                //
+                //   3. partition_of is None in both: ordinary table → run diff.
+                let either_is_partition =
+                    source_table.partition_of.is_some() || target_table.partition_of.is_some();
+                if !either_is_partition {
+                    diff_columns(target_table, source_table, &mut ops);
+                    diff_constraints(target_table, source_table, &mut ops);
+                }
 
                 if target_table.comment != source_table.comment {
                     ops.push(TableOpEntry {

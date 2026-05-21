@@ -1,0 +1,16 @@
+[meta]
+title     = "Partitioning — add a new range partition to an existing partitioned parent"
+authoring = "objects"
+spec_refs = ["partitioning.add"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.invoices_2025",
+]
+
+[expect.plan]
+steps = 1

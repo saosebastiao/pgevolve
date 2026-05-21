@@ -27,7 +27,9 @@ WHERE n.nspname <> ALL (ARRAY['pg_catalog','pg_toast','information_schema','pgev
 ORDER BY n.nspname
 ";
 
-/// Ordinary tables (relkind='r'). Partitioned tables ('p') are out of v0.1 scope.
+/// Ordinary tables (relkind='r') and partitioned-parent tables (relkind='p').
+/// Child partitions are also ordinary tables (`relkind='r'` with
+/// `relispartition=true`), so they are included here as well.
 pub const TABLES_QUERY: &str = r"
 SELECT
   c.oid::bigint AS oid,
@@ -40,7 +42,7 @@ LEFT JOIN pg_catalog.pg_description d
   ON d.objoid = c.oid
  AND d.classoid = 'pg_catalog.pg_class'::regclass
  AND d.objsubid = 0
-WHERE c.relkind = 'r'
+WHERE c.relkind IN ('r', 'p')
   AND n.nspname = ANY($1::text[])
   AND NOT EXISTS (
       SELECT 1
@@ -102,7 +104,7 @@ LEFT JOIN pg_catalog.pg_description d
   ON d.objoid = a.attrelid
  AND d.classoid = 'pg_catalog.pg_class'::regclass
  AND d.objsubid = a.attnum
-WHERE c.relkind = 'r'
+WHERE c.relkind IN ('r', 'p')
   AND a.attnum > 0
   AND NOT a.attisdropped
   AND n.nspname = ANY($1::text[])

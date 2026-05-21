@@ -1,0 +1,19 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "schema:app";
+  "table:app.events";
+  "table:app.events_p0";
+  "table:app.events_p1";
+  "table:app.events_p2";
+  "table:app.events_p3";
+  "table:app.events" -> "schema:app" [style=solid];
+  "table:app.events_p0" -> "schema:app" [style=solid];
+  "table:app.events_p0" -> "table:app.events" [style=solid];
+  "table:app.events_p1" -> "schema:app" [style=solid];
+  "table:app.events_p1" -> "table:app.events" [style=solid];
+  "table:app.events_p2" -> "schema:app" [style=solid];
+  "table:app.events_p2" -> "table:app.events" [style=solid];
+  "table:app.events_p3" -> "schema:app" [style=solid];
+  "table:app.events_p3" -> "table:app.events" [style=solid];
+}

@@ -1,0 +1,16 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "schema:app";
+  "table:app.transactions";
+  "table:app.transactions_emea";
+  "table:app.transactions_emea_2024";
+  "table:app.transactions_emea_2025";
+  "table:app.transactions" -> "schema:app" [style=solid];
+  "table:app.transactions_emea" -> "schema:app" [style=solid];
+  "table:app.transactions_emea" -> "table:app.transactions" [style=solid];
+  "table:app.transactions_emea_2024" -> "schema:app" [style=solid];
+  "table:app.transactions_emea_2024" -> "table:app.transactions_emea" [style=solid];
+  "table:app.transactions_emea_2025" -> "schema:app" [style=solid];
+  "table:app.transactions_emea_2025" -> "table:app.transactions_emea" [style=solid];
+}

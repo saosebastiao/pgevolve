@@ -10,6 +10,8 @@
 //!   `AstResolution` variant (asserted via the `"AST resolution failed"` prefix
 //!   that the `ParseError` `Display` implementation renders).
 //! - `"order"` — runs `parse` + `diff` + `order`; expects a `PlanError`.
+//! - `"plan"` — runs the full `before → after` pipeline via `render_plan`;
+//!   expects a `PipelineError::Plan` (e.g. `UnsupportedDiff` → `PlanError::Internal`).
 //! - `"lint_at_plan"` — deferred; requires CLI orchestration (see below).
 
 use anyhow::Result;
@@ -32,6 +34,7 @@ pub fn run_failure_fixture(fixture: &Fixture) -> Result<()> {
         "parse" => run_parse_stage(fixture, exp),
         "ast_resolution" => run_ast_resolution_stage(fixture, exp),
         "order" => run_order_stage(fixture, exp),
+        "plan" => run_plan_stage(fixture, exp),
         "lint_at_plan" => run_lint_at_plan_stage(fixture, exp),
         other => anyhow::bail!("unknown failure stage: {other}"),
     }
@@ -78,6 +81,22 @@ fn run_order_stage(fixture: &Fixture, exp: &ExpectFailure) -> Result<()> {
     if !msg.contains("UnbreakableCycle") && !msg.contains("body-derived") {
         anyhow::bail!("expected cycle error, got: {msg}");
     }
+    assert_substrings(&msg, &exp.stderr_contains)
+}
+
+fn run_plan_stage(fixture: &Fixture, exp: &ExpectFailure) -> Result<()> {
+    use crate::planning::{PipelineError, render_plan};
+    use pgevolve_core::plan::Strategy;
+
+    let err = render_plan(&fixture.before_sql, &fixture.after_sql, Strategy::Online)
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("expected plan-stage failure, but render_plan succeeded"))?;
+    // Only PipelineError::Plan is accepted here (parse errors would be a fixture
+    // authoring bug, not the condition under test).
+    let msg = match &err {
+        PipelineError::Plan(e) => e.to_string(),
+        other => anyhow::bail!("expected PipelineError::Plan, got: {other}"),
+    };
     assert_substrings(&msg, &exp.stderr_contains)
 }
 

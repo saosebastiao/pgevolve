@@ -1,0 +1,13 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "schema:app";
+  "table:app.logs";
+  "table:app.logs_app";
+  "table:app.logs_other";
+  "table:app.logs" -> "schema:app" [style=solid];
+  "table:app.logs_app" -> "schema:app" [style=solid];
+  "table:app.logs_app" -> "table:app.logs" [style=solid];
+  "table:app.logs_other" -> "schema:app" [style=solid];
+  "table:app.logs_other" -> "table:app.logs" [style=solid];
+}

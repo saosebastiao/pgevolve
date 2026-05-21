@@ -1,0 +1,10 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "schema:app";
+  "table:app.fleet";
+  "table:app.fleet_2024";
+  "table:app.fleet" -> "schema:app" [style=solid];
+  "table:app.fleet_2024" -> "schema:app" [style=solid];
+  "table:app.fleet_2024" -> "table:app.fleet" [style=solid];
+}

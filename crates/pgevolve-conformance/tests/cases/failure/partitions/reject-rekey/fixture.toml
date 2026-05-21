@@ -1,0 +1,15 @@
+[meta]
+title     = "Partitioning — reject changing partition strategy from RANGE to LIST (UnsupportedDiff)"
+authoring = "failure"
+spec_refs = ["partitioning.reject_rekey"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.failure]
+stage = "plan"
+stderr_contains = [
+  "cannot change PARTITION BY clause",
+  "manual migration required",
+]

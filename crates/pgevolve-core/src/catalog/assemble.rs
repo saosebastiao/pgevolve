@@ -1841,6 +1841,12 @@ fn apply_partition_children(
         let bound_spec = extract_partition_bound_spec(parsed)?;
         let bounds = build_partition_bounds(&bound_spec, loc)?;
         table.partition_of = Some(PartitionOf { parent, bounds });
+        // Clear inherited columns: a partition child's canonical source form
+        // uses `PARTITION OF parent FOR VALUES …` with no column list.
+        // Keeping the inherited columns would cause spurious diff against a
+        // source that omits them, so we drop them here to match the source IR.
+        table.columns.clear();
+        table.constraints.clear();
     }
     Ok(())
 }

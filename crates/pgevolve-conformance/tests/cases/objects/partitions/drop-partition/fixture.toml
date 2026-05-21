@@ -1,0 +1,22 @@
+[meta]
+title     = "Partitioning — drop a range partition from an existing partitioned parent"
+authoring = "objects"
+spec_refs = ["partitioning.drop"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.shipments_2023",
+]
+
+[expect.plan]
+steps = 1
+minimality = false  # DROP is irreversible; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "drop_table"
+target = "app.shipments_2023"
+reason_contains = []

@@ -1,0 +1,27 @@
+[meta]
+title     = "lint partition-references-unmanaged-parent — partition fires on undeclared parent"
+authoring = "objects"
+spec_refs = ["partitioning.lint_unmanaged_parent"]
+
+# Note: the `partition-references-unmanaged-parent` lint rule has Error severity
+# (not LintAtPlan). It fires in check_universal() during CLI execution but
+# does not block the in-process planner used by the conformance suite.
+# The rule is unit-tested in pgevolve-core/src/lint/universal.rs.
+# This fixture confirms the planner still produces a valid CREATE TABLE step.
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.orders_2024",
+]
+
+[expect.plan]
+steps = 1
+
+[expect.apply]
+# app.external_orders is not declared in SQL so the CREATE TABLE will fail at
+# apply time when run against a real Postgres. This is the expected behavior.
+succeeds = false

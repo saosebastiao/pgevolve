@@ -1,0 +1,16 @@
+[meta]
+title     = "Partitioning — create LIST-partitioned parent and one list partition"
+authoring = "objects"
+spec_refs = ["partitioning.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.products",
+]
+
+[expect.plan]
+steps = 2

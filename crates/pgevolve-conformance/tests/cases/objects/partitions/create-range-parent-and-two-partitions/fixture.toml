@@ -1,0 +1,16 @@
+[meta]
+title     = "Partitioning — create RANGE parent and two range partitions"
+authoring = "objects"
+spec_refs = ["partitioning.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.orders",
+]
+
+[expect.plan]
+steps = 3

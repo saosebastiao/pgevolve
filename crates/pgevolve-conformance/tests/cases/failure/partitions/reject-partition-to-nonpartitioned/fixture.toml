@@ -1,0 +1,15 @@
+[meta]
+title     = "Partitioning — reject removing PARTITION BY from a partitioned parent (UnsupportedDiff)"
+authoring = "failure"
+spec_refs = ["partitioning.reject_remove_partition_by"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.failure]
+stage = "plan"
+stderr_contains = [
+  "cannot remove PARTITION BY from",
+  "manual migration required",
+]

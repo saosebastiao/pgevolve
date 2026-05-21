@@ -1,0 +1,16 @@
+[meta]
+title     = "Partitioning — sub-partitioned table (parent → LIST child → RANGE grandchildren)"
+authoring = "objects"
+spec_refs = ["partitioning.subpartitioned"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.transactions",
+]
+
+[expect.plan]
+steps = 4

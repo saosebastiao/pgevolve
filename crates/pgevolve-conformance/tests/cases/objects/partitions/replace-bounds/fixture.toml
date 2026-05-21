@@ -1,0 +1,16 @@
+[meta]
+title     = "Partitioning — replace partition bounds (extend TO from 2025 to 2026)"
+authoring = "objects"
+spec_refs = ["partitioning.replace_bounds"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.sales_window",
+]
+
+[expect.plan]
+steps = 2
