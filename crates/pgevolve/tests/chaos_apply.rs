@@ -108,7 +108,9 @@ async fn aborted_mid_apply_recovers_after_replan() {
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
     }
     let canonical = catalog.canonicalize().unwrap();

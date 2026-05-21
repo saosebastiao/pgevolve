@@ -196,6 +196,8 @@ fn build_tables(
                 qname,
                 columns: vec![],
                 constraints: vec![],
+                partition_by: None,
+                partition_of: None,
                 comment,
             },
         );

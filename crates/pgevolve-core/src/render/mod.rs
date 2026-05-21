@@ -148,7 +148,9 @@ mod tests {
                 comment: None,
             }],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let rendered = render_catalog(&cat);
         let schema_pos = rendered.find("CREATE SCHEMA").unwrap();
@@ -181,7 +183,9 @@ mod tests {
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         cat.tables.push(Table {
             qname: qn("app", "users"),
@@ -231,7 +235,9 @@ mod tests {
                     comment: None,
                 },
             ],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
 
         let rendered = render_catalog(&cat);
@@ -273,7 +279,9 @@ mod tests {
                 comment: None,
             }],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -328,7 +336,9 @@ mod tests {
                 comment: None,
             }],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
 
         let rendered = render_catalog(&cat);
@@ -374,7 +384,9 @@ mod tests {
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-            comment: Some("user accounts".into()),
+                        partition_by: None,
+            partition_of: None,
+comment: Some("user accounts".into()),
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),

@@ -19,6 +19,10 @@ pub struct Table {
     pub columns: Vec<Column>,
     /// Constraints, paired by `qname` for diffing.
     pub constraints: Vec<Constraint>,
+    /// `Some` → this table is a partitioned parent (`PARTITION BY …`).
+    pub partition_by: Option<crate::ir::partition::PartitionBy>,
+    /// `Some` → this table is itself a partition (`PARTITION OF … FOR VALUES …`).
+    pub partition_of: Option<crate::ir::partition::PartitionOf>,
     /// Optional comment.
     pub comment: Option<String>,
 }
@@ -27,6 +31,16 @@ impl Diff for Table {
     fn diff(&self, other: &Self) -> Vec<Difference> {
         let mut out = Vec::new();
         out.extend(diff_field("qname", &self.qname, &other.qname));
+        out.extend(diff_field(
+            "partition_by",
+            &format!("{:?}", self.partition_by),
+            &format!("{:?}", other.partition_by),
+        ));
+        out.extend(diff_field(
+            "partition_of",
+            &format!("{:?}", self.partition_of),
+            &format!("{:?}", other.partition_of),
+        ));
         out.extend(diff_field(
             "comment",
             &format!("{:?}", self.comment),
@@ -146,6 +160,8 @@ mod tests {
                 col("email", ColumnType::Text, false),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
+            partition_by: None,
+            partition_of: None,
             comment: None,
         }
     }

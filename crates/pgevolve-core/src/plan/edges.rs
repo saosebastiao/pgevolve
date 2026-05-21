@@ -479,7 +479,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -525,7 +527,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -542,7 +546,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -577,7 +583,9 @@ mod tests {
             qname: qn("app", "orgs"),
             columns: vec![col_id_bigint()],
             constraints: vec![pk("orgs_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -595,7 +603,9 @@ mod tests {
                 },
             ],
             constraints: vec![fk("users_orgs_fk", qn("app", "orgs"))],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let g = build_create_graph(&c);
         let fk_node = NodeId::Constraint {
@@ -636,7 +646,9 @@ mod tests {
                 comment: None,
             }],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -653,7 +665,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.sequences.push(Sequence {
             qname: qn("app", "users_id_seq"),
@@ -685,7 +699,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let g = build_create_graph(&c);
         let pk_node = NodeId::Constraint {
@@ -703,7 +719,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col_id_bigint()],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         // Same edges; equality is structural via topological output.
         let cg = build_create_graph(&c);
@@ -732,7 +750,9 @@ mod tests {
                 },
             ],
             constraints: vec![pk("a_pk", &["id"]), fk("a_to_b", qn("app", "b"))],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.tables.push(Table {
             qname: qn("app", "b"),
@@ -750,7 +770,9 @@ mod tests {
                 },
             ],
             constraints: vec![pk("b_pk", &["id"]), fk("b_to_a", qn("app", "a"))],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let g = build_create_graph(&c);
         let err = g.topological_sort().unwrap_err();
@@ -782,7 +804,9 @@ mod tests {
                 pk("tree_pk", &["id"]),
                 fk("tree_parent_fk", qn("app", "tree")),
             ],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let g = build_create_graph(&c);
         assert!(g.topological_sort().is_ok());
@@ -860,7 +884,9 @@ mod tests {
                 comment: None,
             }],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let g = build_create_graph(&c);
         assert!(

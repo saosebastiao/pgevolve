@@ -634,7 +634,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         source
             .indexes
@@ -680,7 +682,9 @@ mod tests {
             qname: qn("app", "orgs"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![pk("orgs_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
@@ -692,7 +696,9 @@ mod tests {
                 pk("users_pkey", &["id"]),
                 fk("users_org_fk", &["org_id"], qn("app", "orgs"), &["id"]),
             ],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -743,7 +749,9 @@ mod tests {
                 pk("a_pk", &["id"]),
                 fk("a_to_b", &["ref_id"], qn("app", "b"), &["id"]),
             ],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         source.tables.push(Table {
             qname: qn("app", "b"),
@@ -755,7 +763,9 @@ mod tests {
                 pk("b_pk", &["id"]),
                 fk("b_to_a", &["ref_id"], qn("app", "a"), &["id"]),
             ],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -806,7 +816,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         target
             .indexes
@@ -851,7 +863,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -878,13 +892,17 @@ mod tests {
             qname: qn("app", "orgs"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![pk("orgs_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
 
         let mk_cs = |reversed: bool| {
@@ -919,7 +937,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         source
             .indexes
@@ -981,7 +1001,9 @@ mod tests {
                     col("ref_id", ColumnType::BigInt, false),
                 ],
                 constraints: vec![pk(&format!("{n}_pk"), &["id"])],
-                comment: None,
+                                partition_by: None,
+                partition_of: None,
+comment: None,
             });
         }
         // Add FKs forming a cycle: a -> b, b -> c, c -> a.
@@ -1024,13 +1046,17 @@ mod tests {
             qname: QualifiedName::new(id("a"), id("t1")),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         target.tables.push(Table {
             qname: QualifiedName::new(id("b"), id("t2")),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1100,7 +1126,9 @@ mod tests {
                 col("deleted_at", ColumnType::Text, true),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         target.indexes.push(Index {
             qname: qn("app", "users_deleted_at_idx"),
@@ -1127,7 +1155,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1179,7 +1209,9 @@ mod tests {
                 col("unused", ColumnType::Text, true),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         // Index on `email`, but the column being dropped is `unused`.
         target.indexes.push(Index {
@@ -1210,7 +1242,9 @@ mod tests {
                 col("email", ColumnType::Text, true),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         // Source still has the email index, but it's being dropped from the
         // source for an unrelated reason (simulate user removing it).
@@ -1263,7 +1297,9 @@ mod tests {
                 col("payload", ColumnType::Text, true),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         target.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -1293,7 +1329,9 @@ mod tests {
                 col("email", ColumnType::Text, true),
             ],
             constraints: vec![pk("users_pkey", &["id"])],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1460,7 +1498,9 @@ mod tests {
                 comment: None,
             }],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
 
         let mut cs = ChangeSet::new();

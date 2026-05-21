@@ -222,7 +222,9 @@ mod tests {
             qname: qn("users"),
             columns: cols,
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         }
     }
 

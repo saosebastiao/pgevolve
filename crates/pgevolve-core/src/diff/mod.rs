@@ -148,7 +148,9 @@ mod tests {
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-            comment: Some("user accounts".into()),
+                        partition_by: None,
+            partition_of: None,
+comment: Some("user accounts".into()),
         });
         c
     }
@@ -168,7 +170,9 @@ mod tests {
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -201,7 +205,9 @@ mod tests {
                     comment: None,
                 },
             ],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.indexes.push(Index {
             qname: qn("app", "users_email_idx"),

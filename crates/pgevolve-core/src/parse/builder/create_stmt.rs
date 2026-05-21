@@ -82,6 +82,8 @@ pub fn build_table(
         qname,
         columns,
         constraints,
+        partition_by: None,
+        partition_of: None,
         comment: None,
     })
 }

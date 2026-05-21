@@ -475,7 +475,9 @@ mod tests {
                 comment: None,
             }],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         }
     }
 

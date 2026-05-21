@@ -1014,7 +1014,9 @@ mod tests {
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let tree = empty_tree(c);
         let findings = check_universal(
@@ -1043,7 +1045,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         // View with the same qname as the table.
         c.views.push(View {
@@ -1089,7 +1093,9 @@ mod tests {
             qname: qn("app", "orders"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         // MV with the same qname as the table.
         c.materialized_views.push(MaterializedView {
@@ -1128,7 +1134,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.views.push(View {
             qname: qn("app", "active_users"),
@@ -1279,7 +1287,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let tree = empty_tree(c);
         let findings = check_universal(&tree, &ManagedConfig::default());
@@ -1466,7 +1476,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         // An enum type that collides with the table.
         c.types.push(UserType {
@@ -1506,7 +1518,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.types.push(UserType {
             qname: qn("app", "user_status"),
@@ -2306,7 +2320,9 @@ mod tests {
             qname: qn("app", "orders"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.functions.push(make_function_bare("app", "audit_fn"));
         c.triggers.push(make_trigger(
@@ -2394,7 +2410,9 @@ mod tests {
             qname: qn("app", "orders"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.triggers.push(make_trigger(
             "app",

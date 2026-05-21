@@ -15,6 +15,7 @@ pub mod eq;
 pub mod extension;
 pub mod function;
 pub mod index;
+pub mod partition;
 pub mod schema;
 pub mod sequence;
 pub mod table;

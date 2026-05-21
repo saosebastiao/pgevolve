@@ -128,6 +128,8 @@ mod tests {
             qname: qn("users"),
             columns: vec![col("id"), col("org_id")],
             constraints,
+            partition_by: None,
+            partition_of: None,
             comment: None,
         }
     }

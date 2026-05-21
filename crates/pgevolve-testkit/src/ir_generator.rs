@@ -221,6 +221,8 @@ fn arbitrary_table(
             qname,
             columns: cols,
             constraints: vec![pk],
+            partition_by: None,
+            partition_of: None,
             comment: None,
         }
     })

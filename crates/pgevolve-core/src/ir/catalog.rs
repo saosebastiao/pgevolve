@@ -196,7 +196,9 @@ mod tests {
             qname: qn("users"),
             columns: vec![col("id", ColumnType::BigInt)],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         }
     }
 
@@ -240,7 +242,9 @@ mod tests {
             qname: qn("zzz"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.tables.push(table_users());
         let canonical = c.canonicalize().unwrap();

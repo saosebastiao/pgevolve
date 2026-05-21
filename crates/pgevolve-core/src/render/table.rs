@@ -37,7 +37,9 @@ pub fn render_table(t: &Table) -> String {
             .filter(|c| !matches!(c.kind, ConstraintKind::ForeignKey(_)))
             .cloned()
             .collect(),
-        comment: t.comment.clone(),
+                partition_by: None,
+        partition_of: None,
+comment: t.comment.clone(),
     };
 
     out.push_str(&rewrite_sql::create_table(&table_without_fks));
@@ -162,7 +164,9 @@ mod tests {
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         };
         let sql = render_table(&t);
         assert!(sql.contains("CREATE TABLE app.users"));
@@ -204,7 +208,9 @@ mod tests {
                     comment: None,
                 },
             ],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         };
         let sql = render_table(&t);
         assert!(
@@ -242,7 +248,9 @@ mod tests {
             qname: qn("app", "orgs"),
             columns: vec![col("id", ColumnType::BigInt)],
             constraints: vec![],
-            comment: Some("organization records".into()),
+                        partition_by: None,
+            partition_of: None,
+comment: Some("organization records".into()),
         };
         let sql = render_table(&t);
         assert!(sql.contains("COMMENT ON TABLE app.orgs IS 'organization records';"));
@@ -257,7 +265,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![c],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         };
         let sql = render_table(&t);
         assert!(sql.contains("COMMENT ON COLUMN app.users.email IS 'email address';"));
@@ -273,7 +283,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![c],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         };
         let sql = render_table(&t);
         assert!(sql.contains("DEFAULT true"));
@@ -288,7 +300,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![c],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         };
         let sql = render_table(&t);
         // nullable columns must not have NOT NULL.
@@ -312,7 +326,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![col("email", ColumnType::Text)],
             constraints: vec![check],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         };
         let sql = render_table(&t);
         assert!(sql.contains("CHECK"), "expected CHECK in CREATE TABLE");

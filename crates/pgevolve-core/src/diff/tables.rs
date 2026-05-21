@@ -109,7 +109,9 @@ mod tests {
             qname: qn("users"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         }
     }
 

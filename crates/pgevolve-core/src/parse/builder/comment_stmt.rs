@@ -544,7 +544,9 @@ mod tests {
                 deferrable: Deferrable::NotDeferrable,
                 comment: None,
             }],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.indexes.push(IrIndex {
             qname: qn("users_email_idx"),

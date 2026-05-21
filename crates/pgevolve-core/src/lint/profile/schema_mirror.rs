@@ -106,7 +106,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let mut locs = HashMap::new();
         locs.insert(ObjectKey::Schema(id("app")), loc("schema/app/_schema.sql"));
@@ -126,7 +128,9 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let mut locs = HashMap::new();
         locs.insert(
@@ -147,13 +151,17 @@ mod tests {
             qname: qn("app", "users"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         c.tables.push(Table {
             qname: qn("app", "orgs"),
             columns: vec![],
             constraints: vec![],
-            comment: None,
+                        partition_by: None,
+            partition_of: None,
+comment: None,
         });
         let mut locs = HashMap::new();
         locs.insert(
