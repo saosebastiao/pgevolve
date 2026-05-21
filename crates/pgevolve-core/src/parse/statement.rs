@@ -41,6 +41,8 @@ pub enum Statement {
     CreateProcedure(protobuf::CreateFunctionStmt),
     /// `CREATE EXTENSION ...`.
     CreateExtension(protobuf::CreateExtensionStmt),
+    /// `CREATE [CONSTRAINT] TRIGGER ...`.
+    CreateTrigger(protobuf::CreateTrigStmt),
 }
 
 impl Statement {
@@ -66,6 +68,7 @@ impl Statement {
                 }
             }
             NodeEnum::CreateExtensionStmt(s) => Ok(Self::CreateExtension(s)),
+            NodeEnum::CreateTrigStmt(s) => Ok(Self::CreateTrigger(*s)),
             NodeEnum::AlterExtensionStmt(_) => Err(ParseError::Structural {
                 location,
                 message: "ALTER EXTENSION is not supported in source files — \
@@ -96,7 +99,7 @@ const fn friendly_kind(node: &NodeEnum) -> &'static str {
         NodeEnum::ViewStmt(_) => "CREATE VIEW", // never reached — routed above
         NodeEnum::CreateEnumStmt(_) => "CREATE TYPE ... AS ENUM", // never reached — routed above
         NodeEnum::CreateFunctionStmt(_) => "CREATE FUNCTION/PROCEDURE", // never reached — routed above
-        NodeEnum::CreateTrigStmt(_) => "CREATE TRIGGER",
+        NodeEnum::CreateTrigStmt(_) => "CREATE TRIGGER", // never reached — routed above
         NodeEnum::CreateRangeStmt(_) => "CREATE TYPE ... AS RANGE",
         NodeEnum::CreateExtensionStmt(_) => "CREATE EXTENSION", // never reached — routed above
         NodeEnum::CreatePolicyStmt(_) => "CREATE POLICY",
