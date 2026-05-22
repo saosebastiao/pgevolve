@@ -1,0 +1,17 @@
+[meta]
+title     = "ADD CONSTRAINT FOREIGN KEY — NOT VALID + VALIDATE pattern (online strategy)"
+authoring = "objects"
+spec_refs = ["objects.table.add_constraint"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "products_category_id_fkey",
+]
+
+[expect.plan]
+steps        = 2
+rewrites_used = ["fk_not_valid_then_validate"]

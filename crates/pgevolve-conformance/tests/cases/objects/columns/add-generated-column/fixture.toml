@@ -1,0 +1,16 @@
+[meta]
+title     = "ADD COLUMN generated — GENERATED ALWAYS AS (expr) STORED"
+authoring = "objects"
+spec_refs = ["objects.column.add"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.measurements.columns.area",
+]
+
+[expect.plan]
+steps = 1

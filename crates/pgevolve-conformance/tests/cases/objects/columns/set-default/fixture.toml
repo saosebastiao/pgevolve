@@ -1,0 +1,16 @@
+[meta]
+title     = "SET DEFAULT — ALTER COLUMN SET DEFAULT (non-destructive)"
+authoring = "objects"
+spec_refs = ["objects.column.set_default"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.items.columns.priority",
+]
+
+[expect.plan]
+steps = 1

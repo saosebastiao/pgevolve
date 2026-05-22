@@ -1,0 +1,11 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.products.products_pkey";
+  "constraint:app.products.products_quantity_positive";
+  "schema:app";
+  "table:app.products";
+  "table:app.products" -> "schema:app" [style=solid];
+  "constraint:app.products.products_pkey" -> "table:app.products" [style=solid];
+  "constraint:app.products.products_quantity_positive" -> "table:app.products" [style=solid];
+}

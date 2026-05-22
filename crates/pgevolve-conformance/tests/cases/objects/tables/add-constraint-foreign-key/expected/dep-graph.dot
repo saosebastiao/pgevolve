@@ -1,0 +1,17 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.categories.categories_pkey";
+  "constraint:app.products.products_category_id_fkey";
+  "constraint:app.products.products_pkey";
+  "schema:app";
+  "table:app.categories";
+  "table:app.products";
+  "table:app.categories" -> "schema:app" [style=solid];
+  "table:app.products" -> "schema:app" [style=solid];
+  "table:app.products" -> "table:app.categories" [style=solid];
+  "constraint:app.categories.categories_pkey" -> "table:app.categories" [style=solid];
+  "constraint:app.products.products_category_id_fkey" -> "table:app.categories" [style=solid];
+  "constraint:app.products.products_category_id_fkey" -> "table:app.products" [style=solid];
+  "constraint:app.products.products_pkey" -> "table:app.products" [style=solid];
+}

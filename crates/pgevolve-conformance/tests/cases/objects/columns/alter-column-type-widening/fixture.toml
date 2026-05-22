@@ -1,0 +1,16 @@
+[meta]
+title     = "ALTER COLUMN TYPE widening — int to bigint (safe, no data loss)"
+authoring = "objects"
+spec_refs = ["objects.column.alter_type"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.events.columns.count",
+]
+
+[expect.plan]
+steps = 1

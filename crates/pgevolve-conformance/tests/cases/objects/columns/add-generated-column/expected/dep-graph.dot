@@ -1,0 +1,9 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.measurements.measurements_pkey";
+  "schema:app";
+  "table:app.measurements";
+  "table:app.measurements" -> "schema:app" [style=solid];
+  "constraint:app.measurements.measurements_pkey" -> "table:app.measurements" [style=solid];
+}

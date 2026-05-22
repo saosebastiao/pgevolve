@@ -1,0 +1,16 @@
+[meta]
+title     = "ADD CONSTRAINT UNIQUE — single ALTER TABLE step (no concurrent rewrite for unique)"
+authoring = "objects"
+spec_refs = ["objects.table.add_constraint"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "users_email_uq",
+]
+
+[expect.plan]
+steps = 1

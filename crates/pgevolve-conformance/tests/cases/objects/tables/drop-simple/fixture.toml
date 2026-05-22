@@ -1,0 +1,22 @@
+[meta]
+title     = "DROP TABLE — requires intent approval"
+authoring = "objects"
+spec_refs = ["objects.table.drop"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.legacy",
+]
+
+[expect.plan]
+steps      = 1
+minimality = false  # DROP TABLE is irreversible; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "drop_table"
+target = "app.legacy"
+reason_contains = []

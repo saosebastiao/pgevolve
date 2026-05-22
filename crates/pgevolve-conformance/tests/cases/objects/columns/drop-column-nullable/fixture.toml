@@ -1,0 +1,22 @@
+[meta]
+title     = "DROP COLUMN nullable — requires intent approval"
+authoring = "objects"
+spec_refs = ["objects.column.drop"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.users.columns.notes",
+]
+
+[expect.plan]
+steps       = 1
+minimality  = false  # DROP COLUMN is irreversible; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "drop_column"
+target = "app.users"
+reason_contains = []

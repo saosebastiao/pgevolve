@@ -1,0 +1,16 @@
+[meta]
+title     = "DROP DEFAULT — ALTER COLUMN DROP DEFAULT (non-destructive)"
+authoring = "objects"
+spec_refs = ["objects.column.drop_default"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.items.columns.priority",
+]
+
+[expect.plan]
+steps = 1

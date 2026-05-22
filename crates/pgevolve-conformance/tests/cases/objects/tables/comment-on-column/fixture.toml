@@ -1,0 +1,16 @@
+[meta]
+title     = "COMMENT ON COLUMN — adds a column comment"
+authoring = "objects"
+spec_refs = ["objects.column.comment"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "tables.app.users.columns.name.comment",
+]
+
+[expect.plan]
+steps = 1

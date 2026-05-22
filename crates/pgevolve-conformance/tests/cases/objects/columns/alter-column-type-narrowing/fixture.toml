@@ -1,0 +1,22 @@
+[meta]
+title     = "ALTER COLUMN TYPE narrowing — bigint to int (potentially lossy, intent-gated)"
+authoring = "objects"
+spec_refs = ["objects.column.alter_type"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.events.columns.count",
+]
+
+[expect.plan]
+steps      = 1
+minimality = false  # ALTER COLUMN TYPE with data loss risk; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "alter_column_type"
+target = "app.events"
+reason_contains = []

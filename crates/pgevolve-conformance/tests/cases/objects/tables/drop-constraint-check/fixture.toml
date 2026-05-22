@@ -1,0 +1,22 @@
+[meta]
+title     = "DROP CONSTRAINT CHECK — requires intent approval (conservative policy)"
+authoring = "objects"
+spec_refs = ["objects.table.drop_constraint"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "products_price_positive",
+]
+
+[expect.plan]
+steps      = 1
+minimality = false  # DROP CONSTRAINT is irreversible; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "drop_constraint"
+target = "app.products"
+reason_contains = []

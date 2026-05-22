@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE TABLE — bare CREATE with primary key"
+authoring = "objects"
+spec_refs = ["objects.table.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.t",
+]
+
+[expect.plan]
+steps = 1
