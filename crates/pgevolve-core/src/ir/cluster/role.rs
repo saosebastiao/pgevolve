@@ -11,7 +11,7 @@ pub struct Role {
     /// Role name.
     pub name: Identifier,
     /// Boolean + numeric attributes from `pg_authid`.
-    #[diff(via_debug)]
+    #[diff(nested)]
     pub attributes: RoleAttributes,
     /// Roles this role is a member of (the `IN ROLE x` direction).
     /// Canonicalized to lexicographic order in [`crate::ir::canon`].
@@ -27,7 +27,7 @@ pub struct Role {
 // them with two-variant enums would obscure the direct PG mapping without adding
 // type-safety benefit — the columns are genuinely independent boolean flags.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
 pub struct RoleAttributes {
     /// `SUPERUSER` / `NOSUPERUSER`. Default false.
     pub superuser: bool,
@@ -44,8 +44,10 @@ pub struct RoleAttributes {
     /// `BYPASSRLS` / `NOBYPASSRLS`. Default false.
     pub bypass_rls: bool,
     /// `CONNECTION LIMIT n`. `None` means unlimited (PG `-1`).
+    #[diff(via_debug)]
     pub connection_limit: Option<i64>,
     /// `VALID UNTIL 'ts'`. RFC 3339 string; opaque to differ.
+    #[diff(via_debug)]
     pub valid_until: Option<String>,
 }
 
@@ -92,7 +94,44 @@ mod tests {
     fn login_change_diffs() {
         let mut b = base();
         b.attributes.login = true;
-        assert!(base().diff(&b).iter().any(|x| x.path == "attributes"));
+        // Per-field path: "attributes.login", not the coarse "attributes".
+        assert!(base().diff(&b).iter().any(|x| x.path == "attributes.login"));
+    }
+
+    #[test]
+    fn connection_limit_change_diffs() {
+        let mut b = base();
+        b.attributes.connection_limit = Some(10);
+        assert!(
+            base()
+                .diff(&b)
+                .iter()
+                .any(|x| x.path == "attributes.connection_limit")
+        );
+    }
+
+    #[test]
+    fn valid_until_change_diffs() {
+        let mut b = base();
+        b.attributes.valid_until = Some("2030-01-01T00:00:00Z".into());
+        assert!(
+            base()
+                .diff(&b)
+                .iter()
+                .any(|x| x.path == "attributes.valid_until")
+        );
+    }
+
+    #[test]
+    fn attributes_diff_does_not_emit_coarse_path() {
+        let mut b = base();
+        b.attributes.superuser = true;
+        // The diff must NOT produce the coarse "attributes" path; it should be
+        // "attributes.superuser" so callers can introspect individual flags.
+        assert!(
+            !base().diff(&b).iter().any(|x| x.path == "attributes"),
+            "coarse 'attributes' path must not appear; use per-field paths"
+        );
     }
 
     #[test]
