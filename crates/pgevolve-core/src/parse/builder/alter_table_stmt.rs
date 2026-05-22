@@ -1,13 +1,19 @@
-//! `ALTER TABLE ... ADD CONSTRAINT FOREIGN KEY ...` — the only `ALTER TABLE`
-//! permitted in source DDL.
+//! `ALTER TABLE` support for source DDL.
 //!
 //! Source SQL is declarative: tables, columns, constraints, etc. are stated as
-//! the desired end-state via `CREATE`. The single exception is forward-referencing
-//! foreign keys: when two tables reference each other, neither can declare its FK
-//! inline because the other side does not exist yet at parse time. For that case,
-//! source files are allowed to follow the second `CREATE TABLE` with an
-//! `ALTER TABLE ... ADD CONSTRAINT <name> FOREIGN KEY (...) REFERENCES ...`,
-//! which lands directly into the target table's `Constraint` list.
+//! the desired end-state via `CREATE`. Two classes of `ALTER TABLE` are accepted
+//! because they cannot always be expressed inline:
+//!
+//! 1. **`ADD CONSTRAINT FOREIGN KEY`** — forward-referencing FKs: when two
+//!    tables reference each other, neither can declare its FK inline because the
+//!    other side does not exist yet at parse time.
+//!
+//! 2. **`ALTER COLUMN … SET STORAGE / SET COMPRESSION`** — per-column storage
+//!    strategy and compression codec. These may appear after the `CREATE TABLE`
+//!    (for example when the source is derived from `pg_dump`).
+//!
+//! Everything else raises [`ParseError::Structural`] pointing the user to the
+//! declarative source-of-truth model.
 
 use pg_query::NodeEnum;
 use pg_query::protobuf::{
@@ -15,6 +21,7 @@ use pg_query::protobuf::{
 };
 
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::column::{Compression, StorageKind};
 use crate::ir::constraint::Constraint;
 use crate::parse::builder::create_stmt;
 use crate::parse::builder::shared;
@@ -30,18 +37,47 @@ pub struct PendingFk {
     pub constraint: Constraint,
 }
 
-/// Process an `ALTER TABLE` statement. Returns one or more pending FK
-/// constraints that should be appended to their target tables once parsing
-/// completes.
+/// A per-column attribute update (`SET STORAGE` / `SET COMPRESSION`) to apply
+/// to an already-built [`crate::ir::column::Column`] once all tables exist.
+#[derive(Debug, Clone)]
+pub struct PendingColumnAttr {
+    /// Table that owns the column.
+    pub target: QualifiedName,
+    /// Column to update.
+    pub column: Identifier,
+    /// The attribute change to apply.
+    pub kind: PendingColumnAttrKind,
+}
+
+/// Which column attribute is being set.
+#[derive(Debug, Clone)]
+pub enum PendingColumnAttrKind {
+    /// `ALTER COLUMN … SET STORAGE <strategy>`.
+    Storage(StorageKind),
+    /// `ALTER COLUMN … SET COMPRESSION <codec>` — `None` means `DEFAULT`
+    /// (revert to cluster GUC).
+    Compression(Option<Compression>),
+}
+
+/// The combined output of processing one `ALTER TABLE` statement.
+#[derive(Debug, Default)]
+pub struct AlterTableOutput {
+    /// Forward-reference FK constraints to merge after all tables are parsed.
+    pub pending_fks: Vec<PendingFk>,
+    /// Per-column attribute updates to apply after all tables are parsed.
+    pub pending_column_attrs: Vec<PendingColumnAttr>,
+}
+
+/// Process an `ALTER TABLE` statement.
 ///
-/// Any other `ALTER TABLE` subcommand (`DROP COLUMN`, `ADD COLUMN`,
-/// `ALTER COLUMN`, etc.) raises [`ParseError::Structural`] with a message
+/// Returns a combined [`AlterTableOutput`] covering the two supported
+/// subcommand classes. Any other subcommand raises [`ParseError::Structural`]
 /// pointing the user to the declarative source-of-truth model.
 pub fn build_alter_table(
     stmt: &AlterTableStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
-) -> Result<Vec<PendingFk>, ParseError> {
+) -> Result<AlterTableOutput, ParseError> {
     let relation = stmt
         .relation
         .as_ref()
@@ -51,13 +87,12 @@ pub fn build_alter_table(
         })?;
     let target = shared::resolve_qname(relation, default_schema, location)?;
 
-    let mut out = Vec::new();
+    let mut out = AlterTableOutput::default();
     for cmd_node in &stmt.cmds {
         let Some(NodeEnum::AlterTableCmd(cmd)) = cmd_node.node.as_ref() else {
             return Err(unsupported_alter(location));
         };
-        let pending = process_cmd(cmd, &target, default_schema, location)?;
-        out.push(pending);
+        process_cmd(cmd, &target, default_schema, location, &mut out)?;
     }
     Ok(out)
 }
@@ -67,11 +102,33 @@ fn process_cmd(
     target: &QualifiedName,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
-) -> Result<PendingFk, ParseError> {
+    out: &mut AlterTableOutput,
+) -> Result<(), ParseError> {
     let subtype = AlterTableType::try_from(cmd.subtype).unwrap_or(AlterTableType::Undefined);
-    if !matches!(subtype, AlterTableType::AtAddConstraint) {
-        return Err(unsupported_alter(location));
+    match subtype {
+        AlterTableType::AtAddConstraint => {
+            let pending = process_add_constraint_cmd(cmd, target, default_schema, location)?;
+            out.pending_fks.push(pending);
+        }
+        AlterTableType::AtSetStorage => {
+            let pending = process_set_storage_cmd(cmd, target, location)?;
+            out.pending_column_attrs.push(pending);
+        }
+        AlterTableType::AtSetCompression => {
+            let pending = process_set_compression_cmd(cmd, target, location)?;
+            out.pending_column_attrs.push(pending);
+        }
+        _ => return Err(unsupported_alter(location)),
     }
+    Ok(())
+}
+
+fn process_add_constraint_cmd(
+    cmd: &AlterTableCmd,
+    target: &QualifiedName,
+    default_schema: Option<&Identifier>,
+    location: &SourceLocation,
+) -> Result<PendingFk, ParseError> {
     let con = cmd
         .def
         .as_ref()
@@ -103,6 +160,74 @@ fn process_cmd(
     })
 }
 
+fn process_set_storage_cmd(
+    cmd: &AlterTableCmd,
+    target: &QualifiedName,
+    location: &SourceLocation,
+) -> Result<PendingColumnAttr, ParseError> {
+    // cmd.name = column name; cmd.def = String node with lowercase strategy keyword.
+    let column = shared::ident(&cmd.name, location)?;
+    let keyword = def_as_string(cmd, location)?;
+    let storage = match keyword.to_ascii_lowercase().as_str() {
+        "plain" => StorageKind::Plain,
+        "external" => StorageKind::External,
+        "extended" => StorageKind::Extended,
+        "main" => StorageKind::Main,
+        other => {
+            return Err(ParseError::Structural {
+                location: location.clone(),
+                message: format!("unknown STORAGE attribute '{other}'"),
+            });
+        }
+    };
+    Ok(PendingColumnAttr {
+        target: target.clone(),
+        column,
+        kind: PendingColumnAttrKind::Storage(storage),
+    })
+}
+
+fn process_set_compression_cmd(
+    cmd: &AlterTableCmd,
+    target: &QualifiedName,
+    location: &SourceLocation,
+) -> Result<PendingColumnAttr, ParseError> {
+    // cmd.name = column name; cmd.def = String node with lowercase codec name.
+    let column = shared::ident(&cmd.name, location)?;
+    let keyword = def_as_string(cmd, location)?;
+    let compression = match keyword.to_ascii_lowercase().as_str() {
+        "default" => None,
+        "pglz" => Some(Compression::Pglz),
+        "lz4" => Some(Compression::Lz4),
+        other => {
+            return Err(ParseError::Structural {
+                location: location.clone(),
+                message: format!("unknown COMPRESSION codec '{other}'"),
+            });
+        }
+    };
+    Ok(PendingColumnAttr {
+        target: target.clone(),
+        column,
+        kind: PendingColumnAttrKind::Compression(compression),
+    })
+}
+
+/// Extract the String node from `cmd.def` and return its `sval`.
+fn def_as_string(cmd: &AlterTableCmd, location: &SourceLocation) -> Result<String, ParseError> {
+    cmd.def
+        .as_ref()
+        .and_then(|d| d.node.as_ref())
+        .and_then(|n| match n {
+            NodeEnum::String(s) => Some(s.sval.clone()),
+            _ => None,
+        })
+        .ok_or_else(|| ParseError::Structural {
+            location: location.clone(),
+            message: "ALTER COLUMN SET STORAGE/COMPRESSION missing keyword node".into(),
+        })
+}
+
 /// Reuse the FK builder from `create_stmt` so source ALTER and inline
 /// `REFERENCES` produce identical IR.
 fn build_fk_constraint(
@@ -120,7 +245,7 @@ fn unsupported_alter(location: &SourceLocation) -> ParseError {
     ParseError::Structural {
         location: location.clone(),
         message: "ALTER TABLE in source DDL is restricted to ADD CONSTRAINT FOREIGN KEY \
-                 for forward-referencing foreign keys; pgevolve treats source SQL as \
+                 and ALTER COLUMN SET STORAGE/COMPRESSION; pgevolve treats source SQL as \
                  declarative — express the desired schema state via CREATE statements"
             .into(),
     }
@@ -136,7 +261,7 @@ mod tests {
         SourceLocation::new(PathBuf::from("test.sql"), 1, 1)
     }
 
-    fn build(sql: &str) -> Result<Vec<PendingFk>, ParseError> {
+    fn build(sql: &str) -> Result<AlterTableOutput, ParseError> {
         let parsed = pg_query::parse(sql).expect("parses");
         let stmt = parsed
             .protobuf
@@ -154,15 +279,85 @@ mod tests {
 
     #[test]
     fn allowed_add_fk() {
-        let pendings = build(
+        let out = build(
             "ALTER TABLE app.invoices ADD CONSTRAINT invoices_customer_fk \
              FOREIGN KEY (customer_id) REFERENCES app.customers (id);",
         )
         .expect("builds");
-        assert_eq!(pendings.len(), 1);
-        let p = &pendings[0];
+        assert_eq!(out.pending_fks.len(), 1);
+        let p = &out.pending_fks[0];
         assert_eq!(p.target.to_string(), "app.invoices");
         assert!(matches!(p.constraint.kind, ConstraintKind::ForeignKey(_)));
+    }
+
+    #[test]
+    fn alter_column_set_storage_external() {
+        let out = build("ALTER TABLE app.t ALTER COLUMN doc SET STORAGE EXTERNAL;")
+            .expect("builds");
+        assert_eq!(out.pending_column_attrs.len(), 1);
+        let attr = &out.pending_column_attrs[0];
+        assert_eq!(attr.target.to_string(), "app.t");
+        assert_eq!(attr.column.as_str(), "doc");
+        assert!(matches!(
+            attr.kind,
+            PendingColumnAttrKind::Storage(StorageKind::External)
+        ));
+    }
+
+    #[test]
+    fn alter_column_set_storage_plain() {
+        let out =
+            build("ALTER TABLE app.t ALTER COLUMN n SET STORAGE PLAIN;").expect("builds");
+        let attr = &out.pending_column_attrs[0];
+        assert!(matches!(
+            attr.kind,
+            PendingColumnAttrKind::Storage(StorageKind::Plain)
+        ));
+    }
+
+    #[test]
+    fn alter_column_set_storage_main() {
+        let out =
+            build("ALTER TABLE app.t ALTER COLUMN n SET STORAGE MAIN;").expect("builds");
+        let attr = &out.pending_column_attrs[0];
+        assert!(matches!(
+            attr.kind,
+            PendingColumnAttrKind::Storage(StorageKind::Main)
+        ));
+    }
+
+    #[test]
+    fn alter_column_set_compression_lz4() {
+        let out =
+            build("ALTER TABLE app.t ALTER COLUMN doc SET COMPRESSION lz4;").expect("builds");
+        assert_eq!(out.pending_column_attrs.len(), 1);
+        let attr = &out.pending_column_attrs[0];
+        assert!(matches!(
+            attr.kind,
+            PendingColumnAttrKind::Compression(Some(Compression::Lz4))
+        ));
+    }
+
+    #[test]
+    fn alter_column_set_compression_pglz() {
+        let out =
+            build("ALTER TABLE app.t ALTER COLUMN doc SET COMPRESSION pglz;").expect("builds");
+        let attr = &out.pending_column_attrs[0];
+        assert!(matches!(
+            attr.kind,
+            PendingColumnAttrKind::Compression(Some(Compression::Pglz))
+        ));
+    }
+
+    #[test]
+    fn alter_column_set_compression_default() {
+        let out =
+            build("ALTER TABLE app.t ALTER COLUMN doc SET COMPRESSION DEFAULT;").expect("builds");
+        let attr = &out.pending_column_attrs[0];
+        assert!(matches!(
+            attr.kind,
+            PendingColumnAttrKind::Compression(None)
+        ));
     }
 
     #[test]

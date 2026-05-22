@@ -33,6 +33,8 @@
           },
           "generated": null,
           "collation": null,
+          "storage": null,
+          "compression": null,
           "comment": null
         },
         {
@@ -45,6 +47,8 @@
           "identity": null,
           "generated": null,
           "collation": null,
+          "storage": null,
+          "compression": null,
           "comment": null
         }
       ],
@@ -97,6 +101,8 @@
           },
           "generated": null,
           "collation": null,
+          "storage": null,
+          "compression": null,
           "comment": null
         },
         {
@@ -109,6 +115,8 @@
           "identity": null,
           "generated": null,
           "collation": null,
+          "storage": null,
+          "compression": null,
           "comment": null
         }
       ],
@@ -156,6 +164,8 @@
           "identity": null,
           "generated": null,
           "collation": null,
+          "storage": null,
+          "compression": null,
           "comment": null
         },
         {
@@ -168,6 +178,8 @@
           "identity": null,
           "generated": null,
           "collation": null,
+          "storage": null,
+          "compression": null,
           "comment": null
         }
       ],

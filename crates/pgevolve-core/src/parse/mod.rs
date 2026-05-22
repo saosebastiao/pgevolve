@@ -71,6 +71,7 @@ pub fn parse_directory_with_locations(
     let mut catalog = Catalog::default();
     let mut locations: HashMap<String, SourceLocation> = HashMap::new();
     let mut pending_fks: Vec<builder::alter_table_stmt::PendingFk> = Vec::new();
+    let mut pending_column_attrs: Vec<builder::alter_table_stmt::PendingColumnAttr> = Vec::new();
     let mut deferred_comments: Vec<(
         pg_query::protobuf::CommentStmt,
         SourceLocation,
@@ -88,6 +89,7 @@ pub fn parse_directory_with_locations(
             &mut catalog,
             &mut locations,
             &mut pending_fks,
+            &mut pending_column_attrs,
             &mut deferred_comments,
         )?;
     }
@@ -103,18 +105,9 @@ pub fn parse_directory_with_locations(
         )?;
     }
 
-    // Merge pending FKs from ALTER TABLE statements onto their target tables.
-    for pending in pending_fks {
-        let table = catalog
-            .tables
-            .iter_mut()
-            .find(|t| t.qname == pending.target)
-            .ok_or_else(|| ParseError::Structural {
-                location: SourceLocation::new(PathBuf::new(), 0, 0),
-                message: format!("ALTER TABLE referenced unknown table {}", pending.target),
-            })?;
-        table.constraints.push(pending.constraint);
-    }
+    // Merge pending FKs and column-attribute updates from ALTER TABLE statements.
+    apply_pending_fks(&mut catalog, pending_fks)?;
+    apply_pending_column_attrs(&mut catalog, pending_column_attrs)?;
 
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
@@ -140,6 +133,66 @@ pub fn parse_directory_with_locations(
     Ok((canonical, locations))
 }
 
+/// Merge accumulated pending FKs onto their target tables.
+fn apply_pending_fks(
+    catalog: &mut Catalog,
+    pending_fks: Vec<builder::alter_table_stmt::PendingFk>,
+) -> Result<(), ParseError> {
+    for pending in pending_fks {
+        let table = catalog
+            .tables
+            .iter_mut()
+            .find(|t| t.qname == pending.target)
+            .ok_or_else(|| ParseError::Structural {
+                location: SourceLocation::new(PathBuf::new(), 0, 0),
+                message: format!("ALTER TABLE referenced unknown table {}", pending.target),
+            })?;
+        table.constraints.push(pending.constraint);
+    }
+    Ok(())
+}
+
+/// Apply accumulated `ALTER COLUMN SET STORAGE / SET COMPRESSION` updates.
+fn apply_pending_column_attrs(
+    catalog: &mut Catalog,
+    pending: Vec<builder::alter_table_stmt::PendingColumnAttr>,
+) -> Result<(), ParseError> {
+    use builder::alter_table_stmt::PendingColumnAttrKind;
+    for attr in pending {
+        let table = catalog
+            .tables
+            .iter_mut()
+            .find(|t| t.qname == attr.target)
+            .ok_or_else(|| ParseError::Structural {
+                location: SourceLocation::new(PathBuf::new(), 0, 0),
+                message: format!(
+                    "ALTER TABLE ALTER COLUMN referenced unknown table {}",
+                    attr.target
+                ),
+            })?;
+        let col = table
+            .columns
+            .iter_mut()
+            .find(|c| c.name == attr.column)
+            .ok_or_else(|| ParseError::Structural {
+                location: SourceLocation::new(PathBuf::new(), 0, 0),
+                message: format!(
+                    "ALTER TABLE ALTER COLUMN referenced unknown column {}.{}",
+                    attr.target, attr.column
+                ),
+            })?;
+        match attr.kind {
+            PendingColumnAttrKind::Storage(s) => {
+                col.storage = Some(s);
+            }
+            PendingColumnAttrKind::Compression(c) => {
+                col.compression = c;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_lines)]
 fn process_file(
     path: &Path,
@@ -147,6 +200,7 @@ fn process_file(
     catalog: &mut Catalog,
     locations: &mut HashMap<String, SourceLocation>,
     pending_fks: &mut Vec<builder::alter_table_stmt::PendingFk>,
+    pending_column_attrs: &mut Vec<builder::alter_table_stmt::PendingColumnAttr>,
     deferred_comments: &mut Vec<(
         pg_query::protobuf::CommentStmt,
         SourceLocation,
@@ -236,12 +290,13 @@ fn process_file(
                 catalog.indexes.push(idx);
             }
             Statement::AlterTable(s) => {
-                let pendings = builder::alter_table_stmt::build_alter_table(
+                let alter_out = builder::alter_table_stmt::build_alter_table(
                     &s,
                     directives.schema.as_ref(),
                     &location,
                 )?;
-                pending_fks.extend(pendings);
+                pending_fks.extend(alter_out.pending_fks);
+                pending_column_attrs.extend(alter_out.pending_column_attrs);
             }
             Statement::Comment(s) => {
                 deferred_comments.push((s, location, directives.schema.clone()));

@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::Path;
 
+use pgevolve_core::ir::column::{Compression, StorageKind};
 use pgevolve_core::parse;
 
 fn write(path: &Path, contents: &str) {
@@ -141,4 +142,109 @@ fn ignored_paths_are_skipped() {
     let pat = glob::Pattern::new(&format!("{}/ignore_me/**/*", root.display())).unwrap();
     let catalog = parse::parse_directory(root, &[pat]).expect("parses without bad");
     assert_eq!(catalog.schemas.len(), 1);
+}
+
+// ------------------------------------------------------------------
+// ALTER COLUMN SET STORAGE / SET COMPRESSION integration tests
+// ------------------------------------------------------------------
+
+#[test]
+fn alter_column_set_storage_external_applies_to_column() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(
+        &root.join("schema.sql"),
+        "CREATE SCHEMA app;\n\
+         CREATE TABLE app.t (doc text);\n\
+         ALTER TABLE app.t ALTER COLUMN doc SET STORAGE EXTERNAL;\n",
+    );
+    let catalog = parse::parse_directory(root, &[]).expect("parses");
+    let col = &catalog.tables[0].columns[0];
+    assert_eq!(col.storage, Some(StorageKind::External));
+    assert_eq!(col.compression, None);
+}
+
+#[test]
+fn alter_column_set_compression_lz4_applies_to_column() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(
+        &root.join("schema.sql"),
+        "CREATE SCHEMA app;\n\
+         CREATE TABLE app.t (blob bytea);\n\
+         ALTER TABLE app.t ALTER COLUMN blob SET COMPRESSION lz4;\n",
+    );
+    let catalog = parse::parse_directory(root, &[]).expect("parses");
+    let col = &catalog.tables[0].columns[0];
+    assert_eq!(col.compression, Some(Compression::Lz4));
+    assert_eq!(col.storage, None);
+}
+
+#[test]
+fn alter_column_set_compression_default_clears_compression() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    // Inline COMPRESSION lz4 then ALTER to DEFAULT: result must be None.
+    write(
+        &root.join("schema.sql"),
+        "CREATE SCHEMA app;\n\
+         CREATE TABLE app.t (blob bytea COMPRESSION lz4);\n\
+         ALTER TABLE app.t ALTER COLUMN blob SET COMPRESSION DEFAULT;\n",
+    );
+    let catalog = parse::parse_directory(root, &[]).expect("parses");
+    let col = &catalog.tables[0].columns[0];
+    assert_eq!(
+        col.compression, None,
+        "DEFAULT should revert to cluster GUC (None)"
+    );
+}
+
+#[test]
+fn alter_column_set_storage_and_compression_together() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(
+        &root.join("schema.sql"),
+        "CREATE SCHEMA app;\n\
+         CREATE TABLE app.t (doc text);\n\
+         ALTER TABLE app.t ALTER COLUMN doc SET STORAGE EXTERNAL;\n\
+         ALTER TABLE app.t ALTER COLUMN doc SET COMPRESSION lz4;\n",
+    );
+    let catalog = parse::parse_directory(root, &[]).expect("parses");
+    let col = &catalog.tables[0].columns[0];
+    assert_eq!(col.storage, Some(StorageKind::External));
+    assert_eq!(col.compression, Some(Compression::Lz4));
+}
+
+#[test]
+fn alter_column_unknown_table_errors() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(
+        &root.join("schema.sql"),
+        "CREATE SCHEMA app;\n\
+         ALTER TABLE app.nonexistent ALTER COLUMN doc SET STORAGE EXTERNAL;\n",
+    );
+    let err = parse::parse_directory(root, &[]).unwrap_err();
+    assert!(
+        matches!(err, parse::ParseError::Structural { .. }),
+        "expected Structural error for unknown table, got {err:?}"
+    );
+}
+
+#[test]
+fn alter_column_unknown_column_errors() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(
+        &root.join("schema.sql"),
+        "CREATE SCHEMA app;\n\
+         CREATE TABLE app.t (id integer);\n\
+         ALTER TABLE app.t ALTER COLUMN nonexistent SET STORAGE EXTERNAL;\n",
+    );
+    let err = parse::parse_directory(root, &[]).unwrap_err();
+    assert!(
+        matches!(err, parse::ParseError::Structural { .. }),
+        "expected Structural error for unknown column, got {err:?}"
+    );
 }

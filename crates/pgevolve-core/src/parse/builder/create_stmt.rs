@@ -10,7 +10,8 @@ use pg_query::protobuf::{
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column::{
-    Column, Generated, GeneratedKind, Identity, IdentityKind, SequenceOptions,
+    Column, Compression, Generated, GeneratedKind, Identity, IdentityKind, SequenceOptions,
+    StorageKind,
 };
 use crate::ir::constraint::{
     Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
@@ -135,6 +136,44 @@ pub fn build_table(
     })
 }
 
+/// Decode the inline `STORAGE x` clause from a `ColumnDef.storage_name` string.
+///
+/// `pg_query` populates `storage_name` (not `storage`) with the lowercase keyword
+/// for inline `STORAGE x` in `CREATE TABLE / ALTER TABLE ADD COLUMN`; `storage`
+/// is left empty. Returns `None` if no clause was written.
+fn decode_inline_storage(
+    storage_name: &str,
+    location: &SourceLocation,
+) -> Result<Option<StorageKind>, ParseError> {
+    match storage_name.to_ascii_lowercase().as_str() {
+        "" => Ok(None),
+        "plain" => Ok(Some(StorageKind::Plain)),
+        "external" => Ok(Some(StorageKind::External)),
+        "extended" => Ok(Some(StorageKind::Extended)),
+        "main" => Ok(Some(StorageKind::Main)),
+        other => Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!("unknown STORAGE attribute '{other}'"),
+        }),
+    }
+}
+
+/// Decode `COMPRESSION codec` from `ColumnDef.compression` (empty = unset).
+fn decode_inline_compression(
+    s: &str,
+    location: &SourceLocation,
+) -> Result<Option<Compression>, ParseError> {
+    match s.to_ascii_lowercase().as_str() {
+        "" => Ok(None),
+        "pglz" => Ok(Some(Compression::Pglz)),
+        "lz4" => Ok(Some(Compression::Lz4)),
+        other => Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!("unknown COMPRESSION codec '{other}'"),
+        }),
+    }
+}
+
 /// Build a [`Column`] plus any inline-constraint [`Constraint`]s the column
 /// declared. Returns `(column, table_constraints, pk_inline_column)`.
 ///
@@ -184,6 +223,12 @@ fn build_column(
         .as_ref()
         .map(|cc| collate_clause_to_qname(cc, default_schema, location))
         .transpose()?;
+
+    // Inline STORAGE / COMPRESSION clauses (PG 16+ for STORAGE inline in CREATE TABLE;
+    // COMPRESSION inline is PG 14+). pg_query populates `storage_name` (not `storage`)
+    // for the inline STORAGE keyword; `compression` is populated directly.
+    let storage = decode_inline_storage(&col.storage_name, location)?;
+    let compression = decode_inline_compression(&col.compression, location)?;
 
     for c in &col.constraints {
         let Some(NodeEnum::Constraint(con)) = c.node.as_ref() else {
@@ -277,8 +322,8 @@ fn build_column(
             identity,
             generated,
             collation,
-            storage: None,
-            compression: None,
+            storage,
+            compression,
             comment,
         },
         produced_constraints,
@@ -1022,5 +1067,61 @@ mod tests {
             }
             other => panic!("expected Hash bounds, got {other:?}"),
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Inline STORAGE / COMPRESSION in CREATE TABLE (PG 14+/16+)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn inline_storage_external() {
+        let t = build("CREATE TABLE app.t (doc text STORAGE EXTERNAL);");
+        assert_eq!(t.columns[0].storage, Some(StorageKind::External));
+        assert_eq!(t.columns[0].compression, None);
+    }
+
+    #[test]
+    fn inline_storage_plain() {
+        let t = build("CREATE TABLE app.t (n integer STORAGE PLAIN);");
+        assert_eq!(t.columns[0].storage, Some(StorageKind::Plain));
+    }
+
+    #[test]
+    fn inline_storage_extended() {
+        let t = build("CREATE TABLE app.t (doc text STORAGE EXTENDED);");
+        assert_eq!(t.columns[0].storage, Some(StorageKind::Extended));
+    }
+
+    #[test]
+    fn inline_storage_main() {
+        let t = build("CREATE TABLE app.t (doc text STORAGE MAIN);");
+        assert_eq!(t.columns[0].storage, Some(StorageKind::Main));
+    }
+
+    #[test]
+    fn inline_compression_lz4() {
+        let t = build("CREATE TABLE app.t (blob bytea COMPRESSION lz4);");
+        assert_eq!(t.columns[0].storage, None);
+        assert_eq!(t.columns[0].compression, Some(Compression::Lz4));
+    }
+
+    #[test]
+    fn inline_compression_pglz() {
+        let t = build("CREATE TABLE app.t (blob bytea COMPRESSION pglz);");
+        assert_eq!(t.columns[0].compression, Some(Compression::Pglz));
+    }
+
+    #[test]
+    fn inline_storage_and_compression_together() {
+        let t = build("CREATE TABLE app.t (doc text STORAGE EXTERNAL COMPRESSION lz4);");
+        assert_eq!(t.columns[0].storage, Some(StorageKind::External));
+        assert_eq!(t.columns[0].compression, Some(Compression::Lz4));
+    }
+
+    #[test]
+    fn no_storage_no_compression_leaves_none() {
+        let t = build("CREATE TABLE app.t (n integer);");
+        assert_eq!(t.columns[0].storage, None);
+        assert_eq!(t.columns[0].compression, None);
     }
 }
