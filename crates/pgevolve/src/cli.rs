@@ -73,6 +73,8 @@ pub enum Command {
         #[arg(long)]
         confirm_rewrite: bool,
     },
+    /// Cluster-level commands (roles; future: tablespaces, GUCs, etc.).
+    Cluster(ClusterArgs),
     /// Render the dep graph (name-derived + AST-derived edges).
     Graph {
         /// Graph output format (dot or mermaid). Note: the global `--format`
@@ -108,6 +110,39 @@ pub enum OutputFormat {
     Json,
     /// Naive ALTER SQL — only valid for `diff`.
     Sql,
+}
+
+/// `cluster` top-level arguments.
+#[derive(Args, Debug)]
+pub struct ClusterArgs {
+    /// Path to `pgevolve-cluster.toml`. Defaults to `./pgevolve-cluster.toml`.
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
+
+    /// Cluster subcommand to invoke.
+    #[command(subcommand)]
+    pub cmd: ClusterCommand,
+}
+
+/// Subcommands for `pgevolve cluster`.
+#[derive(Subcommand, Debug)]
+pub enum ClusterCommand {
+    /// Scaffold a new cluster project (`pgevolve-cluster.toml` + `roles/`).
+    Init {
+        /// Directory to initialize. Defaults to the current directory.
+        path: Option<PathBuf>,
+    },
+    /// Show the diff between the source roles and the live cluster.
+    Diff,
+    /// Produce a cluster plan directory (`cluster-plans/<id>/`).
+    Plan,
+    /// Apply a cluster plan directory.
+    Apply {
+        /// Plan id to apply. When omitted, applies the most recently created plan.
+        plan_id: Option<String>,
+    },
+    /// List cluster plans under `cluster-plans/`.
+    Status,
 }
 
 /// `init` arguments.

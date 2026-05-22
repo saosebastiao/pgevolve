@@ -6,6 +6,7 @@
 
 pub mod apply;
 pub mod bootstrap;
+pub mod cluster;
 pub mod diff;
 pub mod doctor;
 pub mod dump;

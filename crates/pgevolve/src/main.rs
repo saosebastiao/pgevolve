@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt};
 
-use pgevolve::cli::{Cli, Command, OutputFormat};
+use pgevolve::cli::{Cli, ClusterCommand, Command, OutputFormat};
 use pgevolve::commands;
 use pgevolve::config;
 
@@ -25,11 +25,53 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<u8, anyhow::Error> {
-    // `init` doesn't need a config (it creates one); every other command does.
+    // `init` doesn't need a config (it creates one).
     if let Command::Init(args) = cli.cmd {
         return Ok(u8::try_from(commands::init::run(args)?).unwrap_or(0));
     }
 
+    // `cluster` commands use `pgevolve-cluster.toml`, not `pgevolve.toml`.
+    if let Command::Cluster(args) = cli.cmd {
+        let cfg_path = args
+            .config
+            .unwrap_or_else(|| PathBuf::from("pgevolve-cluster.toml"));
+        let cluster_cmd = args.cmd;
+
+        // `cluster init` scaffolds the config; it doesn't need one to exist.
+        if let ClusterCommand::Init { path } = cluster_cmd {
+            return Ok(u8::try_from(commands::cluster::init::run(path)?).unwrap_or(0));
+        }
+
+        let cfg = match pgevolve::cluster_config::load(&cfg_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("cluster config error: {e}");
+                return Ok(4);
+            }
+        };
+        let project_root = cfg_path
+            .parent()
+            .map_or_else(|| PathBuf::from("."), std::path::Path::to_path_buf);
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        let code: i32 = runtime.block_on(async move {
+            match cluster_cmd {
+                ClusterCommand::Init { .. } => unreachable!("handled above"),
+                ClusterCommand::Diff => commands::cluster::diff::run(&project_root, &cfg).await,
+                ClusterCommand::Plan => commands::cluster::plan::run(&project_root, &cfg).await,
+                ClusterCommand::Apply { plan_id } => {
+                    commands::cluster::apply::run(&project_root, &cfg, plan_id.as_deref()).await
+                }
+                ClusterCommand::Status => commands::cluster::status::run(&project_root, &cfg)
+                    .map_err(|e| anyhow::anyhow!("{e}")),
+            }
+        })?;
+        return Ok(u8::try_from(code).unwrap_or(1));
+    }
+
+    // All remaining commands require `pgevolve.toml`.
     let cfg_path = cli
         .config
         .clone()
@@ -47,7 +89,7 @@ fn run(cli: Cli) -> Result<u8, anyhow::Error> {
         .build()?;
     let code: i32 = runtime.block_on(async move {
         match cli.cmd {
-            Command::Init(_) => unreachable!("handled above"),
+            Command::Init(_) | Command::Cluster(_) => unreachable!("handled above"),
             Command::Lint(args) => commands::lint::run(args, &cfg, cli.format),
             Command::Validate(args) => commands::validate::run(&args, &cfg).await,
             Command::Diff(args) => commands::diff::run(args, &cfg, cli.format).await,
