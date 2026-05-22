@@ -15,6 +15,7 @@ pub mod difference;
 pub mod eq;
 pub mod extension;
 pub mod function;
+pub mod grant;
 pub mod index;
 pub mod partition;
 pub mod schema;
