@@ -12,6 +12,7 @@
 //! Rules are order-insensitive — each runs over disjoint IR fields.
 
 use crate::ir::catalog::Catalog;
+use crate::ir::column::StorageKind;
 use crate::ir::column_type::ColumnType;
 use crate::ir::function::Function;
 use crate::ir::sequence::Sequence;
@@ -24,6 +25,7 @@ pub fn run(cat: &mut Catalog) {
     for table in &mut cat.tables {
         for col in &mut table.columns {
             normalize_column_collation(col);
+            normalize_column_storage(col);
         }
     }
     for f in &mut cat.functions {
@@ -86,6 +88,65 @@ fn normalize_column_collation(col: &mut crate::ir::column::Column) {
         && qname.name.as_str() == "default"
     {
         col.collation = None;
+    }
+}
+
+/// Postgres's default `attstorage` for the column's type.
+///
+/// Derived from `pg_type.typstorage`. The mapping is stable across all
+/// supported PG versions for built-in types. Adding a new `ColumnType`
+/// variant requires extending this match — the compiler will catch it.
+pub(crate) const fn type_default_storage(ty: &ColumnType) -> StorageKind {
+    use crate::ir::column_type::NetAddressKind;
+    match ty {
+        // Fixed-width by-value types: typstorage = 'p' (PLAIN).
+        // time/timestamp/interval are also fixed-width on disk (8/8/16 bytes).
+        // macaddr/macaddr8 are fixed 6/8 bytes: typstorage = 'p'.
+        ColumnType::Boolean
+        | ColumnType::SmallInt
+        | ColumnType::Integer
+        | ColumnType::BigInt
+        | ColumnType::Real
+        | ColumnType::DoublePrecision
+        | ColumnType::Date
+        | ColumnType::Uuid
+        | ColumnType::Time { .. }
+        | ColumnType::Timestamp { .. }
+        | ColumnType::Interval { .. }
+        | ColumnType::NetAddress(NetAddressKind::MacAddr | NetAddressKind::MacAddr8) => {
+            StorageKind::Plain
+        }
+        // numeric: typstorage = 'm' (MAIN).
+        // inet/cidr: variable up to ~32 bytes, typstorage = 'm'.
+        ColumnType::Numeric { .. }
+        | ColumnType::NetAddress(NetAddressKind::Inet | NetAddressKind::Cidr) => StorageKind::Main,
+        // Variable-width/toastable types: typstorage = 'x' (EXTENDED).
+        // text/varchar/char: character varying data.
+        // bytea: binary data.
+        // bit/bit varying: typstorage = 'e' in pg_type (same as EXTENDED).
+        // json/jsonb: JSON data.
+        // arrays: always variable-length toastable.
+        // User-defined and unknown types: conservatively EXTENDED; enums are
+        // PLAIN but we cannot distinguish them here, so we do not strip.
+        ColumnType::Text
+        | ColumnType::Varchar { .. }
+        | ColumnType::Char { .. }
+        | ColumnType::Bytea
+        | ColumnType::Bit { .. }
+        | ColumnType::Json
+        | ColumnType::Jsonb
+        | ColumnType::Array { .. }
+        | ColumnType::UserDefined(_)
+        | ColumnType::Other { .. } => StorageKind::Extended,
+    }
+}
+
+/// If `col.storage` equals the type default, strip it to `None`.
+fn normalize_column_storage(col: &mut crate::ir::column::Column) {
+    if let Some(s) = col.storage
+        && s == type_default_storage(&col.ty)
+    {
+        col.storage = None;
     }
 }
 
@@ -267,5 +328,60 @@ mod tests {
         cat.functions.push(f);
         run(&mut cat);
         assert_eq!(cat.functions[0].rows, Some(42.0));
+    }
+
+    // ── normalize_column_storage tests ───────────────────────────────────────
+
+    use crate::ir::column::{Compression, StorageKind};
+
+    fn col(name: &str, ty: ColumnType) -> Column {
+        Column {
+            name: Identifier::from_unquoted(name).unwrap(),
+            ty,
+            nullable: true,
+            default: None,
+            identity: None,
+            generated: None,
+            collation: None,
+            storage: None,
+            compression: None,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn type_default_storage_stripped() {
+        let mut c = col("body", ColumnType::Text);
+        c.storage = Some(StorageKind::Extended); // text default
+        normalize_column_storage(&mut c);
+        assert_eq!(c.storage, None, "EXTENDED on text should normalize to None");
+    }
+
+    #[test]
+    fn non_default_storage_preserved() {
+        let mut c = col("body", ColumnType::Text);
+        c.storage = Some(StorageKind::External); // text default is EXTENDED
+        normalize_column_storage(&mut c);
+        assert_eq!(c.storage, Some(StorageKind::External));
+    }
+
+    #[test]
+    fn type_default_for_int_is_plain() {
+        let mut c = col("id", ColumnType::BigInt);
+        c.storage = Some(StorageKind::Plain);
+        normalize_column_storage(&mut c);
+        assert_eq!(c.storage, None);
+    }
+
+    #[test]
+    fn compression_is_not_stripped_by_canon() {
+        let mut c = col("body", ColumnType::Text);
+        c.compression = Some(Compression::Pglz);
+        normalize_column_storage(&mut c);
+        assert_eq!(
+            c.compression,
+            Some(Compression::Pglz),
+            "canon does not touch compression"
+        );
     }
 }
