@@ -10,6 +10,7 @@
 //! - [`read_catalog`] — top-level entry point that orchestrates the queries
 //!   and assembles their rows into IR.
 
+pub mod cluster;
 pub mod error;
 pub mod filter;
 pub mod queries;
@@ -102,6 +103,16 @@ pub enum CatalogQuery {
     PartitionedTables,
     /// `pg_class` (relispartition=true) rows for child partitions.
     Partitions,
+    /// `pg_authid` rows for cluster roles (with `pg_shdescription` for comments).
+    ///
+    /// Uses `$1::text[]` as the bootstrap-role filter (names to exclude), not a
+    /// managed-schema list. `needs_schema_param` returns `true` so the adapter
+    /// passes the parameter; the cluster reader supplies bootstrap role names.
+    ClusterRoles,
+    /// `pg_auth_members` edges joined to `pg_authid` for role names.
+    ///
+    /// Same `$1::text[]` bootstrap-role filter as [`Self::ClusterRoles`].
+    ClusterMembers,
 }
 
 impl CatalogQuery {
