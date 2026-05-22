@@ -7,6 +7,36 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-05-22
+
+### Added
+
+- **Object grants + ownership** — all 8 grantable IR types (Schema, Sequence, Table, View, MaterializedView, Function, Procedure, UserType) gain `owner: Option<Identifier>` + `grants: Vec<Grant>`. Column-level grants on tables/views/MVs.
+- **Default privileges** — `Catalog.default_privileges: Vec<DefaultPrivilegeRule>` mirroring `pg_default_acl`. Supports `FOR ROLE x IN SCHEMA y GRANT/REVOKE ... ON {TABLES, SEQUENCES, FUNCTIONS, TYPES, SCHEMAS}`.
+- **Lenient drift policy** — catalog grants to roles outside source surface as `grants-to-unmanaged-role` warning, never silently revoked.
+- **Optional cluster-link** — `[cluster].project` in pgevolve.toml validates grantee role names against the linked cluster project's `roles/*.sql` via the `grant-references-unknown-role` lint (Error severity).
+- **Three new lint rules**:
+  - `grant-references-unknown-role` (Error, cluster-aware) — grantee not in linked cluster source.
+  - `grants-to-unmanaged-role` (Warning) — catalog grants to roles not declared in source.
+  - `revoke-from-owner` (Error) — REVOKE would target object's owner.
+- **Six new StepKind variants:** `AlterObjectOwner`, `GrantObjectPrivilege`, `RevokeObjectPrivilege`, `GrantColumnPrivilege`, `RevokeColumnPrivilege`, `AlterDefaultPrivileges`.
+
+### Catalog reader
+
+- New `catalog::grants` module decodes PG aclitem text format. All 6 family queries gain `<obj>owner` + `<obj>acl::text[]`. Tables/views/MVs also decode `pg_attribute.attacl` for column-level grants. Owner self-grants stripped (PG materializes them when any explicit grant exists; they're implicit by ownership).
+
+### Source parser
+
+- Three new builder modules: object-level `GRANT`, `ALTER ... OWNER TO`, `ALTER DEFAULT PRIVILEGES`. `GRANT ALL` expands per object type. Column-level grants extracted from `AccessPriv.cols`. REVOKE rejected in source.
+
+### Shadow validate
+
+- `validate --shadow` now respects "unmanaged owner" semantics: when source declares `owner = None` (no `OWNER TO`), shadow-validate ignores any catalog-side owner. Similarly for grants — only managed grantees compared.
+
+### Conformance
+
+- 13 new fixtures under `objects/grants/` covering table/schema/function/sequence/owner/default-privs/lint sub-roots. Two cluster-link fixtures deferred (harness extension out of scope for v0.3.1).
+
 ## [0.3.0] — 2026-05-22
 
 ### Added

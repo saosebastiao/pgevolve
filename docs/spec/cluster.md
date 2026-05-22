@@ -47,6 +47,12 @@ that pgevolve treats as PG-owned and never diffs in or out. Defaults
 to `["postgres"]`. Cloud Postgres (RDS, Cloud SQL, etc.) typically
 needs additional entries (e.g. `["postgres", "cloudsqlsuperuser"]`).
 
+## Linking from per-DB projects
+
+Per-DB projects can lint-check grantee role names against the cluster
+project by setting `[cluster].project = "../my-cluster"` in
+`pgevolve.toml`. See `docs/spec/grants.md` for details.
+
 ## Known limitations (v0.3.0)
 
 - Cluster apply does not yet write to a per-DB-style `pgevolve.apply_log`.
