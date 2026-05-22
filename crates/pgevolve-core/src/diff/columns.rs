@@ -73,6 +73,10 @@ fn add_column_entry(col: Column) -> TableOpEntry {
     }
 }
 
+// Each attribute's diff block is a self-contained guard + push; extracting
+// them into sub-functions would scatter the logic across many tiny helpers
+// without reducing cognitive load.
+#[allow(clippy::too_many_lines)]
 fn diff_column(target: &Column, source: &Column, out: &mut Vec<TableOpEntry>) {
     if target.ty != source.ty {
         let destructiveness = if is_widening(&target.ty, &source.ty) {
@@ -162,6 +166,38 @@ fn diff_column(target: &Column, source: &Column, out: &mut Vec<TableOpEntry>) {
             destructiveness: Destructiveness::Safe,
         });
     }
+
+    // Storage: resolve None to the type default on both sides so the
+    // emitted op is always explicit. Carries both `from` and `to` so the
+    // lint rule can detect downgrades.
+    {
+        let from = target.storage.unwrap_or_else(|| {
+            crate::ir::canon::filter_pg_defaults::type_default_storage(&target.ty)
+        });
+        let to = source.storage.unwrap_or_else(|| {
+            crate::ir::canon::filter_pg_defaults::type_default_storage(&source.ty)
+        });
+        if from != to {
+            out.push(TableOpEntry {
+                op: TableOp::SetColumnStorage {
+                    name: target.name.clone(),
+                    from,
+                    to,
+                },
+                destructiveness: Destructiveness::Safe,
+            });
+        }
+    }
+
+    if target.compression != source.compression {
+        out.push(TableOpEntry {
+            op: TableOp::SetColumnCompression {
+                name: target.name.clone(),
+                compression: source.compression,
+            },
+            destructiveness: Destructiveness::Safe,
+        });
+    }
 }
 
 /// Postgres can perform these type changes in place without rewriting data.
@@ -194,6 +230,7 @@ fn is_widening(from: &ColumnType, to: &ColumnType) -> bool {
 mod tests {
     use super::*;
     use crate::identifier::QualifiedName;
+    use crate::ir::column::{Compression, StorageKind};
     use crate::ir::default_expr::{DefaultExpr, LiteralValue};
 
     fn id(s: &str) -> Identifier {
@@ -470,5 +507,81 @@ mod tests {
         ]);
         let ops = diff_one(&target, &source);
         assert!(ops.is_empty(), "v0.1 ignores logical column order");
+    }
+
+    // ---- storage ----
+
+    #[test]
+    fn storage_change_emits_safe_op() {
+        let mut from_col = col("doc", ColumnType::Text, true);
+        from_col.storage = Some(StorageKind::Extended); // text default → canon would strip
+        let mut to_col = col("doc", ColumnType::Text, true);
+        to_col.storage = Some(StorageKind::External);
+        let target = tbl(vec![from_col]);
+        let source = tbl(vec![to_col]);
+        let ops = diff_one(&target, &source);
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(
+            ops[0].op,
+            TableOp::SetColumnStorage {
+                from: StorageKind::Extended,
+                to: StorageKind::External,
+                ..
+            }
+        ));
+        assert_eq!(ops[0].destructiveness, Destructiveness::Safe);
+    }
+
+    #[test]
+    fn storage_none_vs_type_default_is_noop() {
+        let from_col = col("doc", ColumnType::Text, true);
+        let mut to_col = col("doc", ColumnType::Text, true);
+        to_col.storage = Some(StorageKind::Extended); // text default
+        let target = tbl(vec![from_col]);
+        let source = tbl(vec![to_col]);
+        let ops = diff_one(&target, &source);
+        assert!(
+            ops.is_empty(),
+            "None and Some(type_default) must collapse to the same effective storage"
+        );
+    }
+
+    // ---- compression ----
+
+    #[test]
+    fn compression_change_emits_safe_op() {
+        let mut from_col = col("blob", ColumnType::Bytea, true);
+        from_col.compression = Some(Compression::Pglz);
+        let mut to_col = col("blob", ColumnType::Bytea, true);
+        to_col.compression = Some(Compression::Lz4);
+        let target = tbl(vec![from_col]);
+        let source = tbl(vec![to_col]);
+        let ops = diff_one(&target, &source);
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(
+            ops[0].op,
+            TableOp::SetColumnCompression {
+                compression: Some(Compression::Lz4),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn compression_to_cluster_default_emits_none() {
+        let mut from_col = col("blob", ColumnType::Bytea, true);
+        from_col.compression = Some(Compression::Lz4);
+        let to_col = col("blob", ColumnType::Bytea, true);
+        let target = tbl(vec![from_col]);
+        let source = tbl(vec![to_col]);
+        let ops = diff_one(&target, &source);
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(
+            ops[0].op,
+            TableOp::SetColumnCompression {
+                compression: None,
+                ..
+            }
+        ));
     }
 }

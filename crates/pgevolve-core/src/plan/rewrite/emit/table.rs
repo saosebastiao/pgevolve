@@ -211,6 +211,26 @@ pub fn op(
             sql: sql::comment_on_column(qname, &name, comment.as_deref()),
             transactional: TransactionConstraint::InTransaction,
         }),
+        TableOp::SetColumnStorage { name, to, .. } => out.push(RawStep {
+            step_no: 0,
+            kind: StepKind::SetColumnStorage,
+            destructive: false,
+            destructive_reason: None,
+            intent_id: None,
+            targets: vec![qname.clone()],
+            sql: sql::alter_column_set_storage(qname, &name, to),
+            transactional: TransactionConstraint::InTransaction,
+        }),
+        TableOp::SetColumnCompression { name, compression } => out.push(RawStep {
+            step_no: 0,
+            kind: StepKind::SetColumnCompression,
+            destructive: false,
+            destructive_reason: None,
+            intent_id: None,
+            targets: vec![qname.clone()],
+            sql: sql::alter_column_set_compression(qname, &name, compression),
+            transactional: TransactionConstraint::InTransaction,
+        }),
 
         TableOp::AddConstraint(c) => {
             if fk_not_valid_validate::should_rewrite(qname, &c, ctx.target, ctx.policy) {

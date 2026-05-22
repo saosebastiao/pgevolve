@@ -61,6 +61,10 @@ pub enum StepKind {
     SetColumnIdentity,
     /// `ALTER TABLE ... ALTER COLUMN ... SET/DROP EXPRESSION`.
     SetColumnGenerated,
+    /// `ALTER TABLE ... ALTER COLUMN ... SET STORAGE`.
+    SetColumnStorage,
+    /// `ALTER TABLE ... ALTER COLUMN ... SET COMPRESSION`.
+    SetColumnCompression,
 
     /// `ALTER TABLE ... ADD CONSTRAINT` (validated immediately).
     AddConstraint,
@@ -227,6 +231,8 @@ mod tests {
             StepKind::SetColumnComment,
             StepKind::SetColumnIdentity,
             StepKind::SetColumnGenerated,
+            StepKind::SetColumnStorage,
+            StepKind::SetColumnCompression,
             StepKind::AddConstraint,
             StepKind::AddConstraintNotValid,
             StepKind::ValidateConstraint,

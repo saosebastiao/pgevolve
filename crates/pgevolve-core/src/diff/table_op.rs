@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
-use crate::ir::column::{Column, Generated, Identity};
+use crate::ir::column::{Column, Compression, Generated, Identity, StorageKind};
 use crate::ir::column_type::ColumnType;
 use crate::ir::constraint::Constraint;
 use crate::ir::default_expr::{DefaultExpr, NormalizedExpr};
@@ -81,6 +81,26 @@ pub enum TableOp {
         name: Identifier,
         /// New comment (`None` clears).
         comment: Option<String>,
+    },
+    /// Change a column's TOAST storage strategy.
+    SetColumnStorage {
+        /// Column name.
+        name: Identifier,
+        /// Previous storage. Caller resolves `Column.storage = None` to
+        /// the type default before emitting, so both sides are explicit.
+        /// Carried so the lint rule (Stage 6) can detect downgrades
+        /// without needing to re-derive the previous state.
+        from: StorageKind,
+        /// New storage. Same resolution rule as `from`.
+        to: StorageKind,
+    },
+    /// Change a column's TOAST compression codec.
+    SetColumnCompression {
+        /// Column name.
+        name: Identifier,
+        /// New compression. `None` means "use cluster default" — emits
+        /// `SET COMPRESSION DEFAULT` at render time.
+        compression: Option<Compression>,
     },
 
     /// Add a table constraint.

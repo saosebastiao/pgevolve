@@ -9,7 +9,7 @@
 //! the plan-id hash in spec §6.6.
 
 use crate::identifier::{Identifier, QualifiedName};
-use crate::ir::column::{Column, GeneratedKind, Identity, IdentityKind, SequenceOptions};
+use crate::ir::column::{Column, Compression, GeneratedKind, Identity, IdentityKind, SequenceOptions, StorageKind};
 use crate::ir::constraint::{
     Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
 };
@@ -331,6 +331,45 @@ pub fn alter_column_set_generated(
             )
         }
     }
+}
+
+/// `ALTER TABLE qname ALTER COLUMN name SET STORAGE {PLAIN|EXTERNAL|EXTENDED|MAIN};`
+pub fn alter_column_set_storage(
+    qname: &QualifiedName,
+    name: &Identifier,
+    storage: StorageKind,
+) -> String {
+    let kw = match storage {
+        StorageKind::Plain => "PLAIN",
+        StorageKind::External => "EXTERNAL",
+        StorageKind::Extended => "EXTENDED",
+        StorageKind::Main => "MAIN",
+    };
+    format!(
+        "ALTER TABLE {} ALTER COLUMN {} SET STORAGE {};",
+        qname.render_sql(),
+        name.render_sql(),
+        kw,
+    )
+}
+
+/// `ALTER TABLE qname ALTER COLUMN name SET COMPRESSION {pglz|lz4|DEFAULT};`
+pub fn alter_column_set_compression(
+    qname: &QualifiedName,
+    name: &Identifier,
+    compression: Option<Compression>,
+) -> String {
+    let kw = match compression {
+        Some(Compression::Pglz) => "pglz",
+        Some(Compression::Lz4) => "lz4",
+        None => "DEFAULT",
+    };
+    format!(
+        "ALTER TABLE {} ALTER COLUMN {} SET COMPRESSION {};",
+        qname.render_sql(),
+        name.render_sql(),
+        kw,
+    )
 }
 
 /// `COMMENT ON COLUMN qname.col IS '...';`
