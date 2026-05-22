@@ -336,4 +336,58 @@ mod tests {
         assert!(sql.contains("CHECK"), "expected CHECK in CREATE TABLE");
         assert_pg_parseable(&sql);
     }
+
+    // -----------------------------------------------------------------------
+    // Inline STORAGE / COMPRESSION in CREATE TABLE
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn renders_inline_storage_external() {
+        use crate::ir::column::StorageKind;
+        let mut c = col("doc", ColumnType::Text);
+        c.storage = Some(StorageKind::External);
+        let t = Table {
+            qname: qn("app", "users"),
+            columns: vec![c],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+        };
+        let sql = render_table(&t);
+        assert!(sql.contains("STORAGE EXTERNAL"), "got: {sql}");
+    }
+
+    #[test]
+    fn renders_inline_compression_lz4() {
+        use crate::ir::column::Compression;
+        let mut c = col("blob", ColumnType::Bytea);
+        c.compression = Some(Compression::Lz4);
+        let t = Table {
+            qname: qn("app", "users"),
+            columns: vec![c],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+        };
+        let sql = render_table(&t);
+        assert!(sql.contains("COMPRESSION lz4"), "got: {sql}");
+    }
+
+    #[test]
+    fn renders_no_storage_compression_when_none() {
+        let c = col("plain", ColumnType::Text);
+        let t = Table {
+            qname: qn("app", "users"),
+            columns: vec![c],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+        };
+        let sql = render_table(&t);
+        assert!(!sql.contains("STORAGE"), "got: {sql}");
+        assert!(!sql.contains("COMPRESSION"), "got: {sql}");
+    }
 }

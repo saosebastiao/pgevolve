@@ -545,6 +545,27 @@ pub fn column_def(c: &Column) -> String {
         s.push_str(") ");
         s.push_str(generated_kind(g.kind));
     }
+    // Inline STORAGE is PG 16+ syntax; on older targets the shadow apply will
+    // surface a clear PG error, which is the correct semantics — the user wrote
+    // unsupported syntax for their target.
+    if let Some(storage) = c.storage {
+        let kw = match storage {
+            StorageKind::Plain => "PLAIN",
+            StorageKind::External => "EXTERNAL",
+            StorageKind::Extended => "EXTENDED",
+            StorageKind::Main => "MAIN",
+        };
+        s.push_str(" STORAGE ");
+        s.push_str(kw);
+    }
+    if let Some(compression) = c.compression {
+        let kw = match compression {
+            Compression::Pglz => "pglz",
+            Compression::Lz4 => "lz4",
+        };
+        s.push_str(" COMPRESSION ");
+        s.push_str(kw);
+    }
     s
 }
 
@@ -889,5 +910,86 @@ mod tests {
             !sql.contains('(') || sql.contains("FOR VALUES FROM ("),
             "should not contain a column list opening paren, got: {sql}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // SQL helpers: alter_column_set_storage / alter_column_set_compression
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn renders_set_storage_external() {
+        let s = alter_column_set_storage(&qn("app", "t"), &id("c"), StorageKind::External);
+        assert_eq!(
+            s.trim(),
+            "ALTER TABLE app.t ALTER COLUMN c SET STORAGE EXTERNAL;"
+        );
+    }
+
+    #[test]
+    fn renders_all_storage_variants() {
+        for (storage, expected) in [
+            (StorageKind::Plain, "PLAIN"),
+            (StorageKind::External, "EXTERNAL"),
+            (StorageKind::Extended, "EXTENDED"),
+            (StorageKind::Main, "MAIN"),
+        ] {
+            let s = alter_column_set_storage(&qn("app", "t"), &id("c"), storage);
+            assert!(s.contains(&format!("SET STORAGE {expected}")), "got: {s}");
+        }
+    }
+
+    #[test]
+    fn renders_set_compression_lz4() {
+        let s = alter_column_set_compression(&qn("app", "t"), &id("c"), Some(Compression::Lz4));
+        assert_eq!(
+            s.trim(),
+            "ALTER TABLE app.t ALTER COLUMN c SET COMPRESSION lz4;"
+        );
+    }
+
+    #[test]
+    fn renders_set_compression_pglz() {
+        let s = alter_column_set_compression(&qn("app", "t"), &id("c"), Some(Compression::Pglz));
+        assert_eq!(
+            s.trim(),
+            "ALTER TABLE app.t ALTER COLUMN c SET COMPRESSION pglz;"
+        );
+    }
+
+    #[test]
+    fn renders_set_compression_default() {
+        let s = alter_column_set_compression(&qn("app", "t"), &id("c"), None);
+        assert_eq!(
+            s.trim(),
+            "ALTER TABLE app.t ALTER COLUMN c SET COMPRESSION DEFAULT;"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // column_def: inline STORAGE / COMPRESSION
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn column_def_renders_storage_external() {
+        let mut c = simple_col("doc");
+        c.storage = Some(StorageKind::External);
+        let s = column_def(&c);
+        assert!(s.contains("STORAGE EXTERNAL"), "got: {s}");
+    }
+
+    #[test]
+    fn column_def_renders_compression_lz4() {
+        let mut c = simple_col("blob");
+        c.compression = Some(Compression::Lz4);
+        let s = column_def(&c);
+        assert!(s.contains("COMPRESSION lz4"), "got: {s}");
+    }
+
+    #[test]
+    fn column_def_renders_no_clauses_when_none() {
+        let c = simple_col("plain");
+        let s = column_def(&c);
+        assert!(!s.contains("STORAGE"), "got: {s}");
+        assert!(!s.contains("COMPRESSION"), "got: {s}");
     }
 }
