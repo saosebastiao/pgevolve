@@ -45,6 +45,12 @@ pub enum Statement {
     CreateTrigger(protobuf::CreateTrigStmt),
     /// `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...`.
     AlterTableAttachPartition(protobuf::AlterTableStmt),
+    /// `GRANT priv ON obj TO grantee` — object-level grant (not REVOKE, not role grant).
+    Grant(protobuf::GrantStmt),
+    /// `ALTER <kind> name OWNER TO role`.
+    AlterOwner(protobuf::AlterOwnerStmt),
+    /// `ALTER DEFAULT PRIVILEGES ... GRANT ...`.
+    AlterDefaultPrivileges(protobuf::AlterDefaultPrivilegesStmt),
 }
 
 impl Statement {
@@ -77,6 +83,9 @@ impl Statement {
             }
             NodeEnum::CreateExtensionStmt(s) => Ok(Self::CreateExtension(s)),
             NodeEnum::CreateTrigStmt(s) => Ok(Self::CreateTrigger(*s)),
+            NodeEnum::GrantStmt(s) => Ok(Self::Grant(s)),
+            NodeEnum::AlterOwnerStmt(s) => Ok(Self::AlterOwner(*s)),
+            NodeEnum::AlterDefaultPrivilegesStmt(s) => Ok(Self::AlterDefaultPrivileges(s)),
             NodeEnum::AlterExtensionStmt(_) => Err(ParseError::Structural {
                 location,
                 message: "ALTER EXTENSION is not supported in source files — \
@@ -130,7 +139,7 @@ const fn friendly_kind(node: &NodeEnum) -> &'static str {
         NodeEnum::CreateFdwStmt(_) => "CREATE FOREIGN DATA WRAPPER",
         NodeEnum::CreateForeignServerStmt(_) => "CREATE FOREIGN SERVER",
         NodeEnum::CreateRoleStmt(_) => "CREATE ROLE",
-        NodeEnum::GrantStmt(_) => "GRANT/REVOKE",
+        NodeEnum::GrantStmt(_) => "GRANT/REVOKE", // never reached — routed above
         NodeEnum::GrantRoleStmt(_) => "GRANT/REVOKE ROLE",
         NodeEnum::CreateTableAsStmt(_) => "CREATE TABLE AS",
         NodeEnum::CreateAmStmt(_) => "CREATE ACCESS METHOD",

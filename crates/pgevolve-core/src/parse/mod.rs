@@ -73,6 +73,7 @@ pub fn parse_directory_with_locations(
     let mut locations: HashMap<String, SourceLocation> = HashMap::new();
     let mut pending_fks: Vec<builder::alter_table_stmt::PendingFk> = Vec::new();
     let mut pending_column_attrs: Vec<builder::alter_table_stmt::PendingColumnAttr> = Vec::new();
+    let mut pending_owners: Vec<builder::alter_table_stmt::PendingOwner> = Vec::new();
     let mut deferred_comments: Vec<(
         pg_query::protobuf::CommentStmt,
         SourceLocation,
@@ -91,6 +92,7 @@ pub fn parse_directory_with_locations(
             &mut locations,
             &mut pending_fks,
             &mut pending_column_attrs,
+            &mut pending_owners,
             &mut deferred_comments,
         )?;
     }
@@ -109,6 +111,7 @@ pub fn parse_directory_with_locations(
     // Merge pending FKs and column-attribute updates from ALTER TABLE statements.
     apply_pending_fks(&mut catalog, pending_fks)?;
     apply_pending_column_attrs(&mut catalog, pending_column_attrs)?;
+    apply_pending_owners(&mut catalog, pending_owners)?;
 
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
@@ -194,7 +197,21 @@ fn apply_pending_column_attrs(
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
+/// Apply accumulated `ALTER TABLE ... OWNER TO` ownership assignments.
+///
+/// Called after all tables, views, and materialized views are built.
+fn apply_pending_owners(
+    catalog: &mut Catalog,
+    pending: Vec<builder::alter_table_stmt::PendingOwner>,
+) -> Result<(), ParseError> {
+    let loc = SourceLocation::new(PathBuf::new(), 0, 0);
+    for po in pending {
+        builder::alter_table_stmt::apply_pending_owners(catalog, vec![po], &loc)?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn process_file(
     path: &Path,
     contents: &str,
@@ -202,6 +219,7 @@ fn process_file(
     locations: &mut HashMap<String, SourceLocation>,
     pending_fks: &mut Vec<builder::alter_table_stmt::PendingFk>,
     pending_column_attrs: &mut Vec<builder::alter_table_stmt::PendingColumnAttr>,
+    pending_owners: &mut Vec<builder::alter_table_stmt::PendingOwner>,
     deferred_comments: &mut Vec<(
         pg_query::protobuf::CommentStmt,
         SourceLocation,
@@ -298,6 +316,7 @@ fn process_file(
                 )?;
                 pending_fks.extend(alter_out.pending_fks);
                 pending_column_attrs.extend(alter_out.pending_column_attrs);
+                pending_owners.extend(alter_out.pending_owners);
             }
             Statement::Comment(s) => {
                 deferred_comments.push((s, location, directives.schema.clone()));
@@ -497,6 +516,15 @@ fn process_file(
                     });
                 }
                 child_table.partition_of = Some(attach.partition_of);
+            }
+            Statement::Grant(s) => {
+                builder::grants::apply(&s, catalog, &location)?;
+            }
+            Statement::AlterOwner(s) => {
+                builder::owner_stmt::apply(&s, catalog, &location)?;
+            }
+            Statement::AlterDefaultPrivileges(s) => {
+                builder::default_privileges::apply(&s, catalog, &location)?;
             }
         }
     }

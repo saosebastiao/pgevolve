@@ -18,9 +18,11 @@
 use pg_query::NodeEnum;
 use pg_query::protobuf::{
     AlterTableCmd, AlterTableStmt, AlterTableType, ConstrType, Constraint as PgConstraint,
+    ObjectType, RoleSpecType,
 };
 
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::catalog::Catalog;
 use crate::ir::column::{Compression, StorageKind};
 use crate::ir::constraint::Constraint;
 use crate::parse::builder::create_stmt;
@@ -59,6 +61,15 @@ pub enum PendingColumnAttrKind {
     Compression(Option<Compression>),
 }
 
+/// An ownership assignment pending merge into the catalog.
+#[derive(Debug, Clone)]
+pub struct PendingOwner {
+    /// Relation whose owner should be updated.
+    pub target: QualifiedName,
+    /// New owner role name.
+    pub new_owner: Identifier,
+}
+
 /// The combined output of processing one `ALTER TABLE` statement.
 #[derive(Debug, Default)]
 pub struct AlterTableOutput {
@@ -66,6 +77,8 @@ pub struct AlterTableOutput {
     pub pending_fks: Vec<PendingFk>,
     /// Per-column attribute updates to apply after all tables are parsed.
     pub pending_column_attrs: Vec<PendingColumnAttr>,
+    /// Ownership assignments for relation-family objects.
+    pub pending_owners: Vec<PendingOwner>,
 }
 
 /// Process an `ALTER TABLE` statement.
@@ -117,6 +130,10 @@ fn process_cmd(
         AlterTableType::AtSetCompression => {
             let pending = process_set_compression_cmd(cmd, target, location)?;
             out.pending_column_attrs.push(pending);
+        }
+        AlterTableType::AtChangeOwner => {
+            let pending = process_change_owner_cmd(cmd, target, location)?;
+            out.pending_owners.push(pending);
         }
         _ => return Err(unsupported_alter(location)),
     }
@@ -211,6 +228,65 @@ fn process_set_compression_cmd(
         column,
         kind: PendingColumnAttrKind::Compression(compression),
     })
+}
+
+/// Decode an `AT_ChangeOwner` sub-command into a [`PendingOwner`].
+///
+/// `pg_query` encodes the new owner as a `RoleSpec` in `cmd.def`.
+fn process_change_owner_cmd(
+    cmd: &AlterTableCmd,
+    target: &QualifiedName,
+    location: &SourceLocation,
+) -> Result<PendingOwner, ParseError> {
+    let node = cmd
+        .def
+        .as_ref()
+        .and_then(|d| d.node.as_ref())
+        .ok_or_else(|| ParseError::Structural {
+            location: location.clone(),
+            message: "ALTER TABLE OWNER TO missing role specification".into(),
+        })?;
+    let NodeEnum::RoleSpec(rs) = node else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "expected RoleSpec in ALTER TABLE OWNER TO, got {:?}",
+                std::mem::discriminant(node)
+            ),
+        });
+    };
+    let roletype = RoleSpecType::try_from(rs.roletype).unwrap_or(RoleSpecType::Undefined);
+    if roletype == RoleSpecType::RolespecPublic {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: "ALTER TABLE OWNER TO PUBLIC is not valid — PUBLIC is not a role name".into(),
+        });
+    }
+    let new_owner = shared::ident(&rs.rolename, location)?;
+    Ok(PendingOwner {
+        target: target.clone(),
+        new_owner,
+    })
+}
+
+/// Apply a list of ownership assignments to the catalog.
+///
+/// Called from `parse/mod.rs` after all relation-family objects are built.
+pub fn apply_pending_owners(
+    catalog: &mut Catalog,
+    pending: Vec<PendingOwner>,
+    location: &SourceLocation,
+) -> Result<(), ParseError> {
+    for po in pending {
+        super::owner_stmt::set_owner_for_relation(
+            catalog,
+            &po.target,
+            ObjectType::ObjectTable, // hint: try all relation types
+            po.new_owner,
+            location,
+        )?;
+    }
+    Ok(())
 }
 
 /// Extract the String node from `cmd.def` and return its `sval`.
