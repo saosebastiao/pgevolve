@@ -7,6 +7,7 @@
 pub mod ast_canon;
 mod ast_resolution;
 pub mod builder;
+pub mod cluster;
 pub mod directives;
 pub mod error;
 pub mod normalize_body;
