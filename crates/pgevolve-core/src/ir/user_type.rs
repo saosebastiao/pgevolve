@@ -110,6 +110,11 @@ impl Diff for UserType {
             ));
         }
         out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out.extend(diff_field(
             "owner",
             &format!("{:?}", self.owner),
             &format!("{:?}", other.owner),
@@ -292,5 +297,20 @@ mod tests {
             columns: None,
         });
         assert!(sample_enum().diff(&b).iter().any(|x| x.path == "grants"));
+    }
+
+    #[test]
+    fn comment_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = sample_enum();
+        b.comment = Some("A helpful comment".into());
+        // Regression guard: Stage 2 rewrote Diff for UserType and accidentally
+        // dropped comment from the diff; this test ensures a comment-only change
+        // still produces a Difference entry with path "comment".
+        assert!(
+            sample_enum().diff(&b).iter().any(|x| x.path == "comment"),
+            "expected a comment difference; got: {:?}",
+            sample_enum().diff(&b),
+        );
     }
 }
