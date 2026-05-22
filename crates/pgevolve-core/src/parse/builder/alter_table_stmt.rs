@@ -70,6 +70,16 @@ pub struct PendingOwner {
     pub new_owner: Identifier,
 }
 
+/// An RLS mode toggle (`ENABLE / DISABLE / FORCE / NO FORCE ROW LEVEL SECURITY`)
+/// pending application to its target table.
+#[derive(Debug, Clone)]
+pub struct PendingRlsToggle {
+    /// Table to update.
+    pub target: QualifiedName,
+    /// The exact subcommand type — one of the four RLS `AlterTableType` variants.
+    pub subtype: AlterTableType,
+}
+
 /// The combined output of processing one `ALTER TABLE` statement.
 #[derive(Debug, Default)]
 pub struct AlterTableOutput {
@@ -79,6 +89,8 @@ pub struct AlterTableOutput {
     pub pending_column_attrs: Vec<PendingColumnAttr>,
     /// Ownership assignments for relation-family objects.
     pub pending_owners: Vec<PendingOwner>,
+    /// RLS mode toggles (ENABLE/DISABLE/FORCE/NO FORCE ROW LEVEL SECURITY).
+    pub pending_rls_toggles: Vec<PendingRlsToggle>,
 }
 
 /// Process an `ALTER TABLE` statement.
@@ -134,6 +146,15 @@ fn process_cmd(
         AlterTableType::AtChangeOwner => {
             let pending = process_change_owner_cmd(cmd, target, location)?;
             out.pending_owners.push(pending);
+        }
+        AlterTableType::AtEnableRowSecurity
+        | AlterTableType::AtDisableRowSecurity
+        | AlterTableType::AtForceRowSecurity
+        | AlterTableType::AtNoForceRowSecurity => {
+            out.pending_rls_toggles.push(PendingRlsToggle {
+                target: target.clone(),
+                subtype,
+            });
         }
         _ => return Err(unsupported_alter(location)),
     }
@@ -276,6 +297,50 @@ pub fn apply_pending_owners(
             po.new_owner,
             location,
         )?;
+    }
+    Ok(())
+}
+
+/// Apply accumulated RLS mode toggles to the catalog.
+///
+/// Called from `parse/mod.rs` after all tables are built.
+pub fn apply_pending_rls_toggles(
+    catalog: &mut Catalog,
+    pending: Vec<PendingRlsToggle>,
+    location: &SourceLocation,
+) -> Result<(), ParseError> {
+    for toggle in pending {
+        let table = catalog
+            .tables
+            .iter_mut()
+            .find(|t| t.qname == toggle.target)
+            .ok_or_else(|| ParseError::Structural {
+                location: location.clone(),
+                message: format!(
+                    "ALTER TABLE … ROW LEVEL SECURITY referenced unknown table {}",
+                    toggle.target
+                ),
+            })?;
+        match toggle.subtype {
+            AlterTableType::AtEnableRowSecurity => {
+                table.rls_enabled = true;
+            }
+            AlterTableType::AtDisableRowSecurity => {
+                table.rls_enabled = false;
+            }
+            AlterTableType::AtForceRowSecurity => {
+                table.rls_forced = true;
+            }
+            AlterTableType::AtNoForceRowSecurity => {
+                table.rls_forced = false;
+            }
+            _ => {
+                return Err(ParseError::Structural {
+                    location: location.clone(),
+                    message: "unexpected subtype in PendingRlsToggle".into(),
+                });
+            }
+        }
     }
     Ok(())
 }
@@ -513,5 +578,40 @@ mod tests {
         let po = &out.pending_owners[0];
         assert_eq!(po.target.to_string(), "app.t");
         assert_eq!(po.new_owner.as_str(), "app_owner");
+    }
+
+    // ── RLS toggle tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn enable_row_security_produces_toggle() {
+        let out = build("ALTER TABLE app.docs ENABLE ROW LEVEL SECURITY;").expect("builds");
+        assert_eq!(out.pending_rls_toggles.len(), 1);
+        let t = &out.pending_rls_toggles[0];
+        assert_eq!(t.target.to_string(), "app.docs");
+        assert!(matches!(t.subtype, AlterTableType::AtEnableRowSecurity));
+    }
+
+    #[test]
+    fn disable_row_security_produces_toggle() {
+        let out = build("ALTER TABLE app.docs DISABLE ROW LEVEL SECURITY;").expect("builds");
+        assert_eq!(out.pending_rls_toggles.len(), 1);
+        let t = &out.pending_rls_toggles[0];
+        assert!(matches!(t.subtype, AlterTableType::AtDisableRowSecurity));
+    }
+
+    #[test]
+    fn force_row_security_produces_toggle() {
+        let out = build("ALTER TABLE app.docs FORCE ROW LEVEL SECURITY;").expect("builds");
+        assert_eq!(out.pending_rls_toggles.len(), 1);
+        let t = &out.pending_rls_toggles[0];
+        assert!(matches!(t.subtype, AlterTableType::AtForceRowSecurity));
+    }
+
+    #[test]
+    fn no_force_row_security_produces_toggle() {
+        let out = build("ALTER TABLE app.docs NO FORCE ROW LEVEL SECURITY;").expect("builds");
+        assert_eq!(out.pending_rls_toggles.len(), 1);
+        let t = &out.pending_rls_toggles[0];
+        assert!(matches!(t.subtype, AlterTableType::AtNoForceRowSecurity));
     }
 }

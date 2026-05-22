@@ -51,6 +51,8 @@ pub enum Statement {
     AlterOwner(protobuf::AlterOwnerStmt),
     /// `ALTER DEFAULT PRIVILEGES ... GRANT ...`.
     AlterDefaultPrivileges(protobuf::AlterDefaultPrivilegesStmt),
+    /// `CREATE POLICY name ON table ...`.
+    CreatePolicy(protobuf::CreatePolicyStmt),
 }
 
 impl Statement {
@@ -86,6 +88,25 @@ impl Statement {
             NodeEnum::GrantStmt(s) => Ok(Self::Grant(s)),
             NodeEnum::AlterOwnerStmt(s) => Ok(Self::AlterOwner(*s)),
             NodeEnum::AlterDefaultPrivilegesStmt(s) => Ok(Self::AlterDefaultPrivileges(s)),
+            NodeEnum::CreatePolicyStmt(s) => Ok(Self::CreatePolicy(*s)),
+            NodeEnum::AlterPolicyStmt(_) => Err(ParseError::Structural {
+                location,
+                message: "ALTER POLICY in source is not supported — policy modifications \
+                          happen via diff; use CREATE POLICY in source"
+                    .into(),
+            }),
+            NodeEnum::DropStmt(s) => {
+                let kind = ObjectType::try_from(s.remove_type).unwrap_or(ObjectType::Undefined);
+                if matches!(kind, ObjectType::ObjectPolicy) {
+                    return Err(ParseError::Structural {
+                        location,
+                        message: "DROP POLICY in source is not supported — drops happen \
+                                  via diff"
+                            .into(),
+                    });
+                }
+                Err(unsupported(location, "DROP"))
+            }
             NodeEnum::AlterExtensionStmt(_) => Err(ParseError::Structural {
                 location,
                 message: "ALTER EXTENSION is not supported in source files — \
@@ -134,7 +155,7 @@ const fn friendly_kind(node: &NodeEnum) -> &'static str {
         NodeEnum::CreateTrigStmt(_) => "CREATE TRIGGER", // never reached — routed above
         NodeEnum::CreateRangeStmt(_) => "CREATE TYPE ... AS RANGE",
         NodeEnum::CreateExtensionStmt(_) => "CREATE EXTENSION", // never reached — routed above
-        NodeEnum::CreatePolicyStmt(_) => "CREATE POLICY",
+        NodeEnum::CreatePolicyStmt(_) => "CREATE POLICY",       // never reached — routed above
         NodeEnum::CreateForeignTableStmt(_) => "CREATE FOREIGN TABLE",
         NodeEnum::CreateFdwStmt(_) => "CREATE FOREIGN DATA WRAPPER",
         NodeEnum::CreateForeignServerStmt(_) => "CREATE FOREIGN SERVER",
