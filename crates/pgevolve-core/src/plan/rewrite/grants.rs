@@ -339,6 +339,80 @@ mod tests {
         assert_eq!(sql, "REVOKE SELECT (email) ON TABLE app.users FROM reader;");
     }
 
+    // ---- grant/revoke with function signature ----
+
+    #[test]
+    fn grant_execute_function_with_signature() {
+        let g = Grant {
+            grantee: GrantTarget::Role(id("app_user")),
+            privilege: Privilege::Execute,
+            with_grant_option: false,
+            columns: None,
+        };
+        let sql = grant_object_privilege(
+            OwnerObjectKind::Function,
+            &qn("app", "foo"),
+            "(integer, text)",
+            &g,
+        );
+        assert_eq!(
+            sql,
+            "GRANT EXECUTE ON FUNCTION app.foo(integer, text) TO app_user;"
+        );
+    }
+
+    #[test]
+    fn revoke_execute_function_with_signature() {
+        let g = Grant {
+            grantee: GrantTarget::Role(id("app_user")),
+            privilege: Privilege::Execute,
+            with_grant_option: false,
+            columns: None,
+        };
+        let sql = revoke_object_privilege(
+            OwnerObjectKind::Function,
+            &qn("app", "foo"),
+            "(integer, text)",
+            &g,
+        );
+        assert_eq!(
+            sql,
+            "REVOKE EXECUTE ON FUNCTION app.foo(integer, text) FROM app_user;"
+        );
+    }
+
+    #[test]
+    fn grant_execute_procedure_with_signature() {
+        let g = Grant {
+            grantee: GrantTarget::Role(id("app_user")),
+            privilege: Privilege::Execute,
+            with_grant_option: false,
+            columns: None,
+        };
+        let sql = grant_object_privilege(
+            OwnerObjectKind::Procedure,
+            &qn("app", "do_work"),
+            "(integer)",
+            &g,
+        );
+        assert_eq!(
+            sql,
+            "GRANT EXECUTE ON PROCEDURE app.do_work(integer) TO app_user;"
+        );
+    }
+
+    #[test]
+    fn grant_execute_function_no_args() {
+        let g = Grant {
+            grantee: GrantTarget::Role(id("app_user")),
+            privilege: Privilege::Execute,
+            with_grant_option: false,
+            columns: None,
+        };
+        let sql = grant_object_privilege(OwnerObjectKind::Function, &qn("app", "foo"), "()", &g);
+        assert_eq!(sql, "GRANT EXECUTE ON FUNCTION app.foo() TO app_user;");
+    }
+
     // ---- alter_default_privileges ----
 
     #[test]

@@ -144,6 +144,7 @@ pub fn diff_tables(
                                 Change::GrantObjectPrivilege {
                                     qname: (*qname).clone(),
                                     kind: OwnerObjectKind::Table,
+                                    signature: String::new(),
                                     grant: g,
                                 },
                                 Destructiveness::Safe,
@@ -173,6 +174,7 @@ pub fn diff_tables(
                                 Change::RevokeObjectPrivilege {
                                     qname: (*qname).clone(),
                                     kind: OwnerObjectKind::Table,
+                                    signature: String::new(),
                                     grant: g,
                                 },
                                 Destructiveness::Safe,

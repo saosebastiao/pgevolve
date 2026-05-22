@@ -195,7 +195,12 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::GrantObjectPrivilege { kind, qname, grant } => {
+        Change::GrantObjectPrivilege {
+            kind,
+            qname,
+            signature,
+            grant,
+        } => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::GrantObjectPrivilege,
@@ -203,11 +208,16 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 destructive_reason: None,
                 intent_id: None,
                 targets: vec![qname.clone()],
-                sql: grants::grant_object_privilege(kind, &qname, "", &grant),
+                sql: grants::grant_object_privilege(kind, &qname, &signature, &grant),
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::RevokeObjectPrivilege { kind, qname, grant } => {
+        Change::RevokeObjectPrivilege {
+            kind,
+            qname,
+            signature,
+            grant,
+        } => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::RevokeObjectPrivilege,
@@ -215,7 +225,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 destructive_reason: None,
                 intent_id: None,
                 targets: vec![qname.clone()],
-                sql: grants::revoke_object_privilege(kind, &qname, "", &grant),
+                sql: grants::revoke_object_privilege(kind, &qname, &signature, &grant),
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }

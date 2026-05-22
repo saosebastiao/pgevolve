@@ -341,17 +341,27 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
-            pgevolve_core::diff::change::Change::GrantObjectPrivilege { qname, kind, grant } => {
+            pgevolve_core::diff::change::Change::GrantObjectPrivilege {
+                qname,
+                kind,
+                signature,
+                grant,
+            } => {
                 println!(
-                    "      grant {} on {:?} {qname} to {:?}",
+                    "      grant {} on {:?} {qname}{signature} to {:?}",
                     grant.privilege.sql_keyword(),
                     kind,
                     grant.grantee
                 );
             }
-            pgevolve_core::diff::change::Change::RevokeObjectPrivilege { qname, kind, grant } => {
+            pgevolve_core::diff::change::Change::RevokeObjectPrivilege {
+                qname,
+                kind,
+                signature,
+                grant,
+            } => {
                 println!(
-                    "      revoke {} on {:?} {qname} from {:?}",
+                    "      revoke {} on {:?} {qname}{signature} from {:?}",
                     grant.privilege.sql_keyword(),
                     kind,
                     grant.grantee

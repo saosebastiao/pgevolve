@@ -123,6 +123,7 @@ fn diff_function_owner_grants(
             Change::GrantObjectPrivilege {
                 qname: source.qname.clone(),
                 kind: OwnerObjectKind::Function,
+                signature: signature.clone(),
                 grant: g,
             },
             Destructiveness::Safe,
@@ -141,6 +142,7 @@ fn diff_function_owner_grants(
             Change::RevokeObjectPrivilege {
                 qname: source.qname.clone(),
                 kind: OwnerObjectKind::Function,
+                signature: signature.clone(),
                 grant: g,
             },
             Destructiveness::Safe,
@@ -318,6 +320,16 @@ fn diff_procedure_owner_grants(
     out: &mut ChangeSet,
     managed_roles: &BTreeSet<Identifier>,
 ) {
+    // Build the argument signature for SQL rendering (procedures use the same
+    // IN/INOUT/VARIADIC identity subset as functions).
+    let args_label = NormalizedArgTypes::from_args(&source.args)
+        .types
+        .iter()
+        .map(crate::ir::column_type::ColumnType::render_sql)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let signature = format!("({args_label})");
+
     // Owner diff.
     if let Some(source_owner) = &source.owner
         && catalog.owner.as_ref() != Some(source_owner)
@@ -329,7 +341,7 @@ fn diff_procedure_owner_grants(
             Change::AlterObjectOwner(AlterObjectOwner {
                 kind: OwnerObjectKind::Procedure,
                 qname: source.qname.clone(),
-                signature: String::new(),
+                signature: signature.clone(),
                 from,
                 to: source_owner.clone(),
             }),
@@ -338,7 +350,7 @@ fn diff_procedure_owner_grants(
     }
 
     // Grant diff.
-    let object_label = format!("procedure {}", source.qname);
+    let object_label = format!("procedure {}{signature}", source.qname);
     let (to_add, to_revoke, unmanaged) =
         diff_grants(&catalog.grants, &source.grants, managed_roles);
     for g in to_add {
@@ -346,6 +358,7 @@ fn diff_procedure_owner_grants(
             Change::GrantObjectPrivilege {
                 qname: source.qname.clone(),
                 kind: OwnerObjectKind::Procedure,
+                signature: signature.clone(),
                 grant: g,
             },
             Destructiveness::Safe,
@@ -364,6 +377,7 @@ fn diff_procedure_owner_grants(
             Change::RevokeObjectPrivilege {
                 qname: source.qname.clone(),
                 kind: OwnerObjectKind::Procedure,
+                signature: signature.clone(),
                 grant: g,
             },
             Destructiveness::Safe,
@@ -786,5 +800,158 @@ mod tests {
             &BTreeSet::new(),
         );
         assert!(cs.is_empty());
+    }
+
+    // ── Grant signature tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn function_grant_change_carries_signature() {
+        use crate::ir::grant::{Grant, GrantTarget, Privilege};
+
+        // Function with one IN arg: signature should be "(integer)".
+        let f_cat = make_func_with_arg(qn("app", "foo"), ColumnType::Integer, ColumnType::Integer);
+        let mut f_src = f_cat.clone();
+
+        // Add a grant only in source → differ must emit GrantObjectPrivilege.
+        let managed_role = ident("app_user");
+        f_src.grants = vec![Grant {
+            grantee: GrantTarget::Role(managed_role.clone()),
+            privilege: Privilege::Execute,
+            with_grant_option: false,
+            columns: None,
+        }];
+
+        let mut managed = BTreeSet::new();
+        managed.insert(managed_role);
+
+        let mut cs = ChangeSet::new();
+        diff_functions(
+            std::slice::from_ref(&f_cat),
+            std::slice::from_ref(&f_src),
+            &mut cs,
+            &managed,
+        );
+
+        // Expect exactly one GrantObjectPrivilege change.
+        let grant_entry = cs
+            .entries
+            .iter()
+            .find(|e| matches!(&e.change, Change::GrantObjectPrivilege { .. }));
+        assert!(
+            grant_entry.is_some(),
+            "expected GrantObjectPrivilege change"
+        );
+
+        if let Change::GrantObjectPrivilege {
+            signature, kind, ..
+        } = &grant_entry.unwrap().change
+        {
+            assert_eq!(
+                signature, "(integer)",
+                "signature must carry the IN arg type"
+            );
+            assert!(matches!(
+                kind,
+                crate::diff::owner_op::OwnerObjectKind::Function
+            ));
+        }
+    }
+
+    #[test]
+    fn function_grant_change_no_args_has_empty_parens_signature() {
+        use crate::ir::grant::{Grant, GrantTarget, Privilege};
+
+        let f_cat = make_func_no_args(qn("app", "bar"), "SELECT 1");
+        let mut f_src = f_cat.clone();
+
+        let managed_role = ident("app_user");
+        f_src.grants = vec![Grant {
+            grantee: GrantTarget::Role(managed_role.clone()),
+            privilege: Privilege::Execute,
+            with_grant_option: false,
+            columns: None,
+        }];
+
+        let mut managed = BTreeSet::new();
+        managed.insert(managed_role);
+
+        let mut cs = ChangeSet::new();
+        diff_functions(
+            std::slice::from_ref(&f_cat),
+            std::slice::from_ref(&f_src),
+            &mut cs,
+            &managed,
+        );
+
+        let grant_entry = cs
+            .entries
+            .iter()
+            .find(|e| matches!(&e.change, Change::GrantObjectPrivilege { .. }));
+        assert!(
+            grant_entry.is_some(),
+            "expected GrantObjectPrivilege change"
+        );
+
+        if let Change::GrantObjectPrivilege { signature, .. } = &grant_entry.unwrap().change {
+            assert_eq!(signature, "()", "no-arg function signature must be ()");
+        }
+    }
+
+    #[test]
+    fn procedure_grant_change_carries_signature() {
+        use crate::ir::function::{ArgMode, FunctionArg};
+        use crate::ir::grant::{Grant, GrantTarget, Privilege};
+
+        // Procedure with one IN arg of type integer.
+        let mut p_cat = make_procedure(qn("app", "do_work"), "BEGIN NULL; END");
+        p_cat.args = vec![FunctionArg {
+            name: Some(ident("n")),
+            mode: ArgMode::In,
+            ty: ColumnType::Integer,
+            default: None,
+        }];
+        let mut p_src = p_cat.clone();
+
+        let managed_role = ident("app_user");
+        p_src.grants = vec![Grant {
+            grantee: GrantTarget::Role(managed_role.clone()),
+            privilege: Privilege::Execute,
+            with_grant_option: false,
+            columns: None,
+        }];
+
+        let mut managed = BTreeSet::new();
+        managed.insert(managed_role);
+
+        let mut cs = ChangeSet::new();
+        diff_procedures(
+            std::slice::from_ref(&p_cat),
+            std::slice::from_ref(&p_src),
+            &mut cs,
+            &managed,
+        );
+
+        let grant_entry = cs
+            .entries
+            .iter()
+            .find(|e| matches!(&e.change, Change::GrantObjectPrivilege { .. }));
+        assert!(
+            grant_entry.is_some(),
+            "expected GrantObjectPrivilege change"
+        );
+
+        if let Change::GrantObjectPrivilege {
+            signature, kind, ..
+        } = &grant_entry.unwrap().change
+        {
+            assert_eq!(
+                signature, "(integer)",
+                "procedure signature must carry the IN arg type"
+            );
+            assert!(matches!(
+                kind,
+                crate::diff::owner_op::OwnerObjectKind::Procedure
+            ));
+        }
     }
 }

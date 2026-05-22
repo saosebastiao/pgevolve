@@ -183,6 +183,7 @@ pub fn diff_views(
                         Change::GrantObjectPrivilege {
                             qname: (*qname).clone(),
                             kind: OwnerObjectKind::View,
+                            signature: String::new(),
                             grant: g,
                         },
                         Destructiveness::Safe,
@@ -212,6 +213,7 @@ pub fn diff_views(
                         Change::RevokeObjectPrivilege {
                             qname: (*qname).clone(),
                             kind: OwnerObjectKind::View,
+                            signature: String::new(),
                             grant: g,
                         },
                         Destructiveness::Safe,
@@ -344,6 +346,7 @@ pub fn diff_materialized_views(
                         Change::GrantObjectPrivilege {
                             qname: (*qname).clone(),
                             kind: OwnerObjectKind::MaterializedView,
+                            signature: String::new(),
                             grant: g,
                         },
                         Destructiveness::Safe,
@@ -373,6 +376,7 @@ pub fn diff_materialized_views(
                         Change::RevokeObjectPrivilege {
                             qname: (*qname).clone(),
                             kind: OwnerObjectKind::MaterializedView,
+                            signature: String::new(),
                             grant: g,
                         },
                         Destructiveness::Safe,

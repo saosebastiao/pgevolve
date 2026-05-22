@@ -87,6 +87,7 @@ fn diff_type_owner_grants(
             Change::GrantObjectPrivilege {
                 qname: source.qname.clone(),
                 kind: OwnerObjectKind::UserType,
+                signature: String::new(),
                 grant: g,
             },
             Destructiveness::Safe,
@@ -105,6 +106,7 @@ fn diff_type_owner_grants(
             Change::RevokeObjectPrivilege {
                 qname: source.qname.clone(),
                 kind: OwnerObjectKind::UserType,
+                signature: String::new(),
                 grant: g,
             },
             Destructiveness::Safe,

@@ -148,6 +148,10 @@ pub enum Change {
         qname: QualifiedName,
         /// Which kind of object this is (drives the SQL keyword in the renderer).
         kind: OwnerObjectKind,
+        /// Argument signature for routines (e.g., `"(int, text)"`).
+        /// Empty string for non-routine object kinds.
+        #[serde(default)]
+        signature: String,
         /// The full grant to apply.
         grant: Grant,
     },
@@ -159,6 +163,10 @@ pub enum Change {
         qname: QualifiedName,
         /// Which kind of object this is.
         kind: OwnerObjectKind,
+        /// Argument signature for routines (e.g., `"(int, text)"`).
+        /// Empty string for non-routine object kinds.
+        #[serde(default)]
+        signature: String,
         /// The full grant to revoke.
         grant: Grant,
     },

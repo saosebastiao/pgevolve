@@ -123,6 +123,7 @@ pub fn diff_sequences(
                             Change::GrantObjectPrivilege {
                                 qname: (*qname).clone(),
                                 kind: OwnerObjectKind::Sequence,
+                                signature: String::new(),
                                 grant: g,
                             },
                             Destructiveness::Safe,
@@ -141,6 +142,7 @@ pub fn diff_sequences(
                             Change::RevokeObjectPrivilege {
                                 qname: (*qname).clone(),
                                 kind: OwnerObjectKind::Sequence,
+                                signature: String::new(),
                                 grant: g,
                             },
                             Destructiveness::Safe,
