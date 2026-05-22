@@ -18,9 +18,12 @@ SELECT
   c.relkind::text                      AS relkind,
   pg_get_viewdef(c.oid, true)          AS body_text,
   coalesce(c.reloptions, '{}'::text[]) AS reloptions,
+  owner_role.rolname                   AS owner,
+  coalesce(c.relacl::text[], '{}'::text[]) AS acl,
   obj_description(c.oid, 'pg_class')   AS comment
 FROM pg_class c
 JOIN pg_namespace n ON c.relnamespace = n.oid
+JOIN pg_authid owner_role ON owner_role.oid = c.relowner
 WHERE c.relkind IN ('v','m')
   AND n.nspname = ANY($1::text[])
   AND NOT EXISTS (
@@ -46,7 +49,8 @@ SELECT
   a.attnum                                      AS attnum,
   a.attname                                     AS column_name,
   format_type(a.atttypid, a.atttypmod)          AS column_type,
-  d.description                                 AS column_comment
+  d.description                                 AS column_comment,
+  coalesce(a.attacl::text[], '{}'::text[])      AS attacl
 FROM pg_class c
 JOIN pg_namespace n  ON c.relnamespace = n.oid
 JOIN pg_attribute a  ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped

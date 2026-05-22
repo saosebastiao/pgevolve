@@ -79,16 +79,27 @@ pub(super) fn build_schemas(
 ) -> Result<Vec<Schema>, CatalogError> {
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
-        let name = Identifier::from_unquoted(&r.get_text(CatalogQuery::Schemas, "name")?)
+        let q = CatalogQuery::Schemas;
+        let name = Identifier::from_unquoted(&r.get_text(q, "name")?)
             .map_err(|e| CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(e.to_string())))?;
         if !filter.includes_schema(&name) {
             continue;
         }
+        let owner_str = r.get_text(q, "owner")?;
+        let owner = Some(Identifier::from_unquoted(&owner_str).map_err(|e| {
+            CatalogError::BadColumnType {
+                query: q,
+                column: "owner".to_string(),
+                message: format!("invalid owner {owner_str:?}: {e}"),
+            }
+        })?);
+        let acl_strings = r.get_text_array(q, "acl")?;
+        let grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
         out.push(Schema {
             name,
-            comment: r.get_opt_text(CatalogQuery::Schemas, "comment")?,
-            owner: None,
-            grants: vec![],
+            comment: r.get_opt_text(q, "comment")?,
+            owner,
+            grants,
         });
     }
     Ok(out)
@@ -102,12 +113,23 @@ pub(super) fn build_tables(
     let mut tables: HashMap<i64, Table> = HashMap::with_capacity(table_rows.len());
 
     for r in table_rows {
-        let oid = r.get_int(CatalogQuery::Tables, "oid")?;
-        let qname = qname_from(&r, CatalogQuery::Tables, "schema", "name")?;
+        let q = CatalogQuery::Tables;
+        let oid = r.get_int(q, "oid")?;
+        let qname = qname_from(&r, q, "schema", "name")?;
         if !filter.allows(&qname) {
             continue;
         }
-        let comment = r.get_opt_text(CatalogQuery::Tables, "comment")?;
+        let comment = r.get_opt_text(q, "comment")?;
+        let owner_str = r.get_text(q, "owner")?;
+        let owner = Some(Identifier::from_unquoted(&owner_str).map_err(|e| {
+            CatalogError::BadColumnType {
+                query: q,
+                column: "owner".to_string(),
+                message: format!("invalid owner {owner_str:?}: {e}"),
+            }
+        })?);
+        let acl_strings = r.get_text_array(q, "acl")?;
+        let grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
         tables.insert(
             oid,
             Table {
@@ -117,20 +139,31 @@ pub(super) fn build_tables(
                 partition_by: None,
                 partition_of: None,
                 comment,
-                owner: None,
-                grants: vec![],
+                owner,
+                grants,
             },
         );
     }
 
     // Attach columns by oid, in attnum order. Column rows are already ordered
     // by (schema, table, attnum) in the SQL.
+    // Also collect column-level ACLs from attacl and append them to the table's
+    // grants list with the column name set.
     for cr in column_rows {
         let table_oid = cr.get_int(CatalogQuery::Columns, "table_oid")?;
         let Some(table) = tables.get_mut(&table_oid) else {
             continue;
         };
         let column = build_column(cr)?;
+        // Decode column-level ACL entries and attach the column name.
+        let col_acl_strings = cr.get_text_array(CatalogQuery::Columns, "attacl")?;
+        if !col_acl_strings.is_empty() {
+            let col_grants = crate::catalog::grants::decode_aclitem_array(&col_acl_strings)?;
+            for mut g in col_grants {
+                g.columns = Some(vec![column.name.clone()]);
+                table.grants.push(g);
+            }
+        }
         table.columns.push(column);
     }
 
@@ -483,6 +516,18 @@ pub(super) fn build_sequence(
     let cycle = r.get_bool(q, "cycle")?;
     let comment = r.get_opt_text(q, "comment")?;
 
+    let owner_str = r.get_text(q, "owner")?;
+    let owner =
+        Some(
+            Identifier::from_unquoted(&owner_str).map_err(|e| CatalogError::BadColumnType {
+                query: q,
+                column: "owner".to_string(),
+                message: format!("invalid owner {owner_str:?}: {e}"),
+            })?,
+        );
+    let acl_strings = r.get_text_array(q, "acl")?;
+    let grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+
     // PG stores explicit `min_value`/`max_value` even when the source
     // didn't specify them. The catalog reader returns those raw values;
     // `ir::canon::filter_pg_defaults` normalizes the type-default
@@ -501,8 +546,8 @@ pub(super) fn build_sequence(
         cycle,
         owned_by: None,
         comment,
-        owner: None,
-        grants: vec![],
+        owner,
+        grants,
     }))
 }
 

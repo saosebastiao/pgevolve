@@ -16,9 +16,12 @@ SELECT \
     n.nspname  AS schema_name, \
     t.typname  AS name, \
     t.typtype::text  AS kind, \
+    owner_role.rolname AS owner, \
+    coalesce(t.typacl::text[], '{}'::text[]) AS acl, \
     obj_description(t.oid, 'pg_type') AS comment \
 FROM pg_type t \
 JOIN pg_namespace n ON t.typnamespace = n.oid \
+JOIN pg_authid owner_role ON owner_role.oid = t.typowner \
 WHERE t.typtype IN ('e','d','c') \
   AND n.nspname = ANY($1::text[]) \
   AND NOT (t.typtype = 'c' AND EXISTS ( \

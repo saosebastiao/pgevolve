@@ -23,6 +23,7 @@ pub use rows::{Row, Value};
 pub use version::PgVersion;
 
 mod assemble;
+pub(crate) mod grants;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;

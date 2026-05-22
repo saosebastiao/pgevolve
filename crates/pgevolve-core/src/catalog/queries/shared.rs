@@ -14,8 +14,11 @@ pub const SCHEMAS_QUERY: &str = r"
 SELECT
   n.oid::bigint AS oid,
   n.nspname     AS name,
+  owner_role.rolname AS owner,
+  coalesce(n.nspacl::text[], '{}'::text[]) AS acl,
   d.description AS comment
 FROM pg_catalog.pg_namespace n
+JOIN pg_catalog.pg_authid owner_role ON owner_role.oid = n.nspowner
 LEFT JOIN pg_catalog.pg_description d
   ON d.objoid = n.oid
  AND d.classoid = 'pg_catalog.pg_namespace'::regclass
@@ -35,9 +38,12 @@ SELECT
   c.oid::bigint AS oid,
   n.nspname     AS schema,
   c.relname     AS name,
+  owner_role.rolname AS owner,
+  coalesce(c.relacl::text[], '{}'::text[]) AS acl,
   d.description AS comment
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_catalog.pg_authid owner_role ON owner_role.oid = c.relowner
 LEFT JOIN pg_catalog.pg_description d
   ON d.objoid = c.oid
  AND d.classoid = 'pg_catalog.pg_class'::regclass
@@ -82,7 +88,8 @@ SELECT
   coll.collname                                     AS collation_name,
   d.description                                     AS comment,
   a.attstorage::text                                AS attstorage,
-  a.attcompression::text                            AS attcompression
+  a.attcompression::text                            AS attcompression,
+  coalesce(a.attacl::text[], '{}'::text[])          AS attacl
 FROM pg_catalog.pg_attribute a
 JOIN pg_catalog.pg_class     c  ON c.oid = a.attrelid
 JOIN pg_catalog.pg_namespace n  ON n.oid = c.relnamespace
@@ -204,6 +211,8 @@ SELECT
   c.oid::bigint     AS oid,
   c.relname         AS name,
   n.nspname         AS schema,
+  owner_role.rolname AS owner,
+  coalesce(c.relacl::text[], '{}'::text[]) AS acl,
   pg_catalog.format_type(s.seqtypid, NULL) AS data_type_string,
   s.seqstart::bigint     AS start,
   s.seqincrement::bigint AS increment,
@@ -214,6 +223,7 @@ SELECT
   d.description     AS comment
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_catalog.pg_authid owner_role ON owner_role.oid = c.relowner
 JOIN pg_catalog.pg_sequence  s ON s.seqrelid = c.oid
 LEFT JOIN pg_catalog.pg_description d
   ON d.objoid = c.oid

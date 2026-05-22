@@ -41,13 +41,18 @@ fn build_body(body_text: &str, qname: &QualifiedName) -> Result<NormalizedBody, 
 /// Build all views and materialized views from catalog rows.
 ///
 /// Returns `(views, materialized_views)`.
+#[allow(clippy::too_many_lines)]
 pub(super) fn build_views_and_mvs(
     view_rows: &[Row],
     column_rows: &[Row],
     filter: &CatalogFilter,
 ) -> Result<(Vec<View>, Vec<MaterializedView>), CatalogError> {
     // Group view-column rows by (schema_name, view_name) preserving attnum order.
+    // Also collect per-column ACL grants keyed by the same key.
     let mut columns_by_key: HashMap<(String, String), Vec<ViewColumn>> = HashMap::new();
+    // col_grants_by_key accumulates Grant entries derived from attacl per column.
+    let mut col_grants_by_key: HashMap<(String, String), Vec<crate::ir::grant::Grant>> =
+        HashMap::new();
     for cr in column_rows {
         let q = CatalogQuery::ViewColumns;
         let schema = cr.get_text(q, "schema_name")?;
@@ -61,6 +66,18 @@ pub(super) fn build_views_and_mvs(
                 "view column {col_name_str} type {col_type_str:?}: {e}"
             )))
         })?;
+        // Decode column-level ACL entries.
+        let col_acl_strings = cr.get_text_array(q, "attacl")?;
+        if !col_acl_strings.is_empty() {
+            let col_grants = crate::catalog::grants::decode_aclitem_array(&col_acl_strings)?;
+            let entry = col_grants_by_key
+                .entry((schema.clone(), view_name.clone()))
+                .or_default();
+            for mut g in col_grants {
+                g.columns = Some(vec![name.clone()]);
+                entry.push(g);
+            }
+        }
         columns_by_key
             .entry((schema, view_name))
             .or_default()
@@ -85,6 +102,17 @@ pub(super) fn build_views_and_mvs(
         let reloptions = r.get_text_array(q, "reloptions").unwrap_or_default();
         let comment = r.get_opt_text(q, "comment")?;
 
+        let owner_str = r.get_text(q, "owner")?;
+        let owner = Some(Identifier::from_unquoted(&owner_str).map_err(|e| {
+            CatalogError::BadColumnType {
+                query: q,
+                column: "owner".to_string(),
+                message: format!("invalid owner {owner_str:?}: {e}"),
+            }
+        })?);
+        let acl_strings = r.get_text_array(q, "acl")?;
+        let mut grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+
         let body_canonical = build_body(&body_text, &qname)?;
 
         let col_key = (
@@ -92,6 +120,11 @@ pub(super) fn build_views_and_mvs(
             qname.name.as_str().to_string(),
         );
         let columns = columns_by_key.remove(&col_key).unwrap_or_default();
+
+        // Append column-level ACL grants collected above.
+        if let Some(col_grants) = col_grants_by_key.remove(&col_key) {
+            grants.extend(col_grants);
+        }
 
         // Extract dependencies by walking the body AST. On the catalog side we
         // don't need to resolve against a KnownObjects set — the DB is the ground
@@ -112,8 +145,8 @@ pub(super) fn build_views_and_mvs(
                     security_invoker,
                     comment: comment.clone(),
                     raw_body: String::new(),
-                    owner: None,
-                    grants: vec![],
+                    owner,
+                    grants,
                 });
             }
             "m" => {
@@ -124,8 +157,8 @@ pub(super) fn build_views_and_mvs(
                     body_dependencies,
                     comment: comment.clone(),
                     raw_body: String::new(),
-                    owner: None,
-                    grants: vec![],
+                    owner,
+                    grants,
                 });
             }
             other => {

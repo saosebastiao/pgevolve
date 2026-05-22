@@ -96,6 +96,20 @@ pub(super) fn build_functions_and_procedures(
                 )))
             })?;
 
+        // Owner and grants are shared between functions and procedures.
+        let owner_str = r.get_text(Q::Functions, "owner")?;
+        let owner = Some(
+            crate::identifier::Identifier::from_unquoted(&owner_str).map_err(|e| {
+                CatalogError::BadColumnType {
+                    query: Q::Functions,
+                    column: "owner".to_string(),
+                    message: format!("invalid owner {owner_str:?}: {e}"),
+                }
+            })?,
+        );
+        let acl_strings = r.get_text_array(Q::Functions, "acl")?;
+        let grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+
         match kind.as_str() {
             "f" => {
                 // Function-only columns.
@@ -141,8 +155,8 @@ pub(super) fn build_functions_and_procedures(
                     cost,
                     rows,
                     comment,
-                    owner: None,
-                    grants: vec![],
+                    owner,
+                    grants,
                 });
             }
             "p" => {
@@ -155,8 +169,8 @@ pub(super) fn build_functions_and_procedures(
                     security,
                     commits_in_body,
                     comment,
-                    owner: None,
-                    grants: vec![],
+                    owner,
+                    grants,
                 });
             }
             other => {

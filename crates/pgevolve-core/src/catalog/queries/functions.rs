@@ -23,10 +23,13 @@ SELECT \
     p.procost::text                             AS cost, \
     p.prorows::text                             AS rows, \
     pg_get_functiondef(p.oid)                   AS full_def, \
+    owner_role.rolname                          AS owner, \
+    coalesce(p.proacl::text[], '{}'::text[])    AS acl, \
     obj_description(p.oid, 'pg_proc')           AS comment \
 FROM pg_proc p \
 JOIN pg_namespace n ON p.pronamespace = n.oid \
 JOIN pg_language l ON p.prolang = l.oid \
+JOIN pg_authid owner_role ON owner_role.oid = p.proowner \
 WHERE n.nspname = ANY($1::text[]) \
   AND p.prokind IN ('f', 'p') \
   AND NOT EXISTS ( \
