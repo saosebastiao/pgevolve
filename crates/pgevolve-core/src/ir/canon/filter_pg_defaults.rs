@@ -96,7 +96,11 @@ fn normalize_column_collation(col: &mut crate::ir::column::Column) {
 /// Derived from `pg_type.typstorage`. The mapping is stable across all
 /// supported PG versions for built-in types. Adding a new `ColumnType`
 /// variant requires extending this match — the compiler will catch it.
-pub(crate) const fn type_default_storage(ty: &ColumnType) -> StorageKind {
+///
+/// Exposed as `pub` so that `pgevolve-testkit`'s arbitrary generators can
+/// make type-aware decisions (e.g. only offer TOAST storage variants for
+/// toastable types).
+pub const fn type_default_storage(ty: &ColumnType) -> StorageKind {
     use crate::ir::column_type::NetAddressKind;
     match ty {
         // Fixed-width by-value types: typstorage = 'p' (PLAIN).

@@ -22,8 +22,9 @@ use proptest::prelude::*;
 use proptest::sample::SizeRange;
 
 use pgevolve_core::identifier::{Identifier, QualifiedName};
+use pgevolve_core::ir::canon::filter_pg_defaults::type_default_storage;
 use pgevolve_core::ir::catalog::Catalog;
-use pgevolve_core::ir::column::Column;
+use pgevolve_core::ir::column::{Column, Compression, StorageKind};
 use pgevolve_core::ir::column_type::ColumnType;
 use pgevolve_core::ir::constraint::{Constraint, ConstraintKind, Deferrable};
 use pgevolve_core::ir::index::{
@@ -239,18 +240,54 @@ fn arbitrary_non_pk_column() -> impl Strategy<Value = Column> {
         arbitrary_column_type(),
         any::<bool>(),
     )
-        .prop_map(|(name, ty, nullable)| Column {
-            name,
-            ty,
-            nullable,
-            default: None,
-            identity: None,
-            generated: None,
-            collation: None,
-            storage: None,
-            compression: None,
-            comment: None,
+        .prop_flat_map(|(name, ty, nullable)| {
+            (arb_storage(&ty), arb_compression()).prop_map(move |(storage, compression)| Column {
+                name: name.clone(),
+                ty: ty.clone(),
+                nullable,
+                default: None,
+                identity: None,
+                generated: None,
+                collation: None,
+                storage,
+                compression,
+                comment: None,
+            })
         })
+}
+
+/// Generate a random `STORAGE` strategy that is type-aware.
+///
+/// Toastable types (those whose PG default is not `PLAIN`) may be assigned
+/// any of the four storage variants. Fixed-width types (default `PLAIN`) only
+/// yield `None` or `Some(PLAIN)` — the others are illegal for those types.
+fn arb_storage(ty: &ColumnType) -> BoxedStrategy<Option<StorageKind>> {
+    let is_toastable = !matches!(type_default_storage(ty), StorageKind::Plain);
+    if is_toastable {
+        prop_oneof![
+            Just(None),
+            Just(Some(StorageKind::Plain)),
+            Just(Some(StorageKind::External)),
+            Just(Some(StorageKind::Extended)),
+            Just(Some(StorageKind::Main)),
+        ]
+        .boxed()
+    } else {
+        prop_oneof![Just(None), Just(Some(StorageKind::Plain))].boxed()
+    }
+}
+
+/// Generate a random `COMPRESSION` strategy (type-independent).
+///
+/// Picks uniformly from `{None, Pglz, Lz4}`. The caller is responsible for
+/// only applying compression to columns that support it (toastable types);
+/// for fixed-width columns this value is ignored by the differ and planner.
+fn arb_compression() -> impl Strategy<Value = Option<Compression>> {
+    prop_oneof![
+        Just(None),
+        Just(Some(Compression::Pglz)),
+        Just(Some(Compression::Lz4)),
+    ]
 }
 
 fn column_name_strategy() -> impl Strategy<Value = Identifier> {
