@@ -11,6 +11,11 @@
 //! ordering (each role's `member_of` references are drawn from earlier roles
 //! only, guaranteeing an acyclic graph).
 //!
+//! v0.3.1 additions: `arb_owner`, `arb_grants`, `arbitrary_default_privileges`
+//! — optional owner and grants on all 8 grantable IR types (Schema, Sequence,
+//! Table, View, `MaterializedView`, Function, Procedure, `UserType`), plus
+//! top-level default-privilege rules on the Catalog.
+//!
 //! Richer coverage (CHECK constraints, multi-column UNIQUE, generated
 //! columns, identity sequences, partial indexes, the full `ColumnType`
 //! matrix) is deferred to v0.1.x.
@@ -21,6 +26,12 @@
 #![allow(clippy::needless_pass_by_value)]
 #![allow(clippy::assigning_clones)]
 #![allow(clippy::format_push_string)]
+// Single-char binding names in slice-pattern arms are intentional for
+// conciseness in `arb_grant_from`'s privilege-slice dispatch.
+#![allow(clippy::many_single_char_names)]
+// `arbitrary_view_catalog` is long by design — the dep-graph + owner/grant
+// generation logic cannot be split without losing the captured state.
+#![allow(clippy::too_many_lines)]
 
 use proptest::collection::vec as proptest_vec;
 use proptest::prelude::*;
@@ -34,6 +45,8 @@ use pgevolve_core::ir::cluster::role::{Role, RoleAttributes};
 use pgevolve_core::ir::column::{Column, Compression, StorageKind};
 use pgevolve_core::ir::column_type::ColumnType;
 use pgevolve_core::ir::constraint::{Constraint, ConstraintKind, Deferrable};
+use pgevolve_core::ir::default_privileges::{DefaultPrivObjectType, DefaultPrivilegeRule};
+use pgevolve_core::ir::grant::{Grant, GrantTarget, Privilege};
 use pgevolve_core::ir::index::{
     Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
 };
@@ -106,32 +119,67 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
                 .map(|t| arbitrary_indexes_for_table(t, table_pks.len()))
                 .collect();
 
-            index_strategies.prop_map(move |idx_per_table| {
-                let indexes: Vec<Index> = idx_per_table.into_iter().flatten().collect();
-                let mut catalog = Catalog::empty();
-                catalog.schemas = schemas.clone();
-                catalog.tables = tables.clone();
-                catalog.indexes = indexes;
-                // Sprinkle in sequences for variety (one per schema, no owner).
-                for s in &catalog.schemas {
-                    catalog.sequences.push(stand_alone_sequence(&s.name));
-                }
-                catalog
-                    .canonicalize()
-                    .expect("generator produced invalid catalog")
-            })
+            // Sequence owner + grants per schema (one sequence per schema).
+            let seq_owner_grant_strategies: Vec<_> = schemas
+                .iter()
+                .map(|_| (arb_owner(), arb_object_grants(SEQUENCE_PRIVS)))
+                .collect();
+
+            // Default-privilege rules for the catalog.
+            let default_privs_strategy = arbitrary_default_privileges();
+
+            (
+                index_strategies,
+                seq_owner_grant_strategies,
+                default_privs_strategy,
+            )
+                .prop_map(
+                    move |(idx_per_table, seq_owner_grants, default_privileges)| {
+                        let indexes: Vec<Index> = idx_per_table.into_iter().flatten().collect();
+                        let mut catalog = Catalog::empty();
+                        catalog.schemas = schemas.clone();
+                        catalog.tables = tables.clone();
+                        catalog.indexes = indexes;
+                        // Sprinkle in sequences for variety (one per schema, with
+                        // random owner + grants).
+                        for (s, (seq_owner, seq_grants)) in
+                            catalog.schemas.iter().zip(seq_owner_grants)
+                        {
+                            let mut seq = stand_alone_sequence(&s.name);
+                            seq.owner = seq_owner;
+                            seq.grants = seq_grants;
+                            catalog.sequences.push(seq);
+                        }
+                        // Attach default-privilege rules (dedup by key before canon).
+                        catalog.default_privileges = default_privileges;
+                        catalog
+                            .canonicalize()
+                            .expect("generator produced invalid catalog")
+                    },
+                )
         })
 }
 
 fn arbitrary_schemas(cfg: &IRGeneratorConfig) -> impl Strategy<Value = Vec<Schema>> + use<> {
     let count = SizeRange::from(cfg.schema_count_range.0..=cfg.schema_count_range.1);
-    proptest_vec(schema_name_strategy(), count).prop_map(|names| {
+    proptest_vec(
+        (
+            schema_name_strategy(),
+            arb_owner(),
+            arb_object_grants(SCHEMA_PRIVS),
+        ),
+        count,
+    )
+    .prop_map(|triples| {
         // Deduplicate while preserving order: HashSet would lose ordering.
         let mut seen = std::collections::BTreeSet::new();
         let mut out = Vec::new();
-        for n in names {
-            if seen.insert(n.clone()) {
-                out.push(Schema::new(n));
+        for (name, owner, grants) in triples {
+            if seen.insert(name.clone()) {
+                let mut schema = Schema::new(name);
+                schema.owner = owner;
+                schema.grants = grants;
+                out.push(schema);
             }
         }
         out
@@ -194,53 +242,58 @@ fn arbitrary_table(
 ) -> impl Strategy<Value = Table> + use<> {
     let cfg = cfg.clone();
     let col_count = SizeRange::from(cfg.columns_per_table_range.0..=cfg.columns_per_table_range.1);
-    proptest_vec(arbitrary_non_pk_column(), col_count).prop_map(move |non_pk_cols| {
-        let qname = QualifiedName::new(schema.clone(), name.clone());
-        // Always include an `id bigint NOT NULL` PK column first.
-        let id_col = Column {
-            name: Identifier::from_unquoted("id").unwrap(),
-            ty: ColumnType::BigInt,
-            nullable: false,
-            default: None,
-            identity: None,
-            generated: None,
-            collation: None,
-            storage: None,
-            compression: None,
-            comment: None,
-        };
-        // Avoid name collisions with id.
-        let mut seen = std::collections::BTreeSet::new();
-        seen.insert("id".to_string());
-        let mut cols = vec![id_col];
-        for c in non_pk_cols {
-            if seen.insert(c.name.as_str().to_string()) {
-                cols.push(c);
+    (
+        proptest_vec(arbitrary_non_pk_column(), col_count),
+        arb_owner(),
+        arb_table_grants(TABLE_PRIVS),
+    )
+        .prop_map(move |(non_pk_cols, owner, grants)| {
+            let qname = QualifiedName::new(schema.clone(), name.clone());
+            // Always include an `id bigint NOT NULL` PK column first.
+            let id_col = Column {
+                name: Identifier::from_unquoted("id").unwrap(),
+                ty: ColumnType::BigInt,
+                nullable: false,
+                default: None,
+                identity: None,
+                generated: None,
+                collation: None,
+                storage: None,
+                compression: None,
+                comment: None,
+            };
+            // Avoid name collisions with id.
+            let mut seen = std::collections::BTreeSet::new();
+            seen.insert("id".to_string());
+            let mut cols = vec![id_col];
+            for c in non_pk_cols {
+                if seen.insert(c.name.as_str().to_string()) {
+                    cols.push(c);
+                }
             }
-        }
-        let pk = Constraint {
-            qname: QualifiedName::new(
-                schema.clone(),
-                Identifier::from_unquoted(&format!("{name}_pkey")).unwrap(),
-            ),
-            kind: ConstraintKind::PrimaryKey {
-                columns: vec![Identifier::from_unquoted("id").unwrap()],
-                include: vec![],
-            },
-            deferrable: Deferrable::NotDeferrable,
-            comment: None,
-        };
-        Table {
-            qname,
-            columns: cols,
-            constraints: vec![pk],
-            partition_by: None,
-            partition_of: None,
-            comment: None,
-            owner: None,
-            grants: vec![],
-        }
-    })
+            let pk = Constraint {
+                qname: QualifiedName::new(
+                    schema.clone(),
+                    Identifier::from_unquoted(&format!("{name}_pkey")).unwrap(),
+                ),
+                kind: ConstraintKind::PrimaryKey {
+                    columns: vec![Identifier::from_unquoted("id").unwrap()],
+                    include: vec![],
+                },
+                deferrable: Deferrable::NotDeferrable,
+                comment: None,
+            };
+            Table {
+                qname,
+                columns: cols,
+                constraints: vec![pk],
+                partition_by: None,
+                partition_of: None,
+                comment: None,
+                owner,
+                grants,
+            }
+        })
 }
 
 fn arbitrary_non_pk_column() -> impl Strategy<Value = Column> {
@@ -296,6 +349,230 @@ fn arb_compression() -> impl Strategy<Value = Option<Compression>> {
         Just(None),
         Just(Some(Compression::Pglz)),
         Just(Some(Compression::Lz4)),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// v0.3.1: owner + grants helpers
+// ---------------------------------------------------------------------------
+
+/// Small fixed pool of role names used for generating owners and grantees.
+/// Overlaps with `ROLE_NAMES` so cluster-link lint tests can cross-reference.
+const GRANTEE_ROLE_NAMES: &[&str] = &["app_owner", "readers", "writers", "app", "ops", "auditor"];
+
+/// Generate an optional owner — `None` (unmanaged) or `Some(role)` from a
+/// small pool.
+fn arb_owner() -> impl Strategy<Value = Option<Identifier>> {
+    prop_oneof![
+        Just(None),
+        prop_oneof![
+            Just("app_owner"),
+            Just("readers"),
+            Just("writers"),
+            Just("app"),
+            Just("ops"),
+        ]
+        .prop_map(|s| Some(Identifier::from_unquoted(s).unwrap())),
+    ]
+}
+
+/// Generate a single [`Grant`] for an object-level privilege.
+///
+/// `privileges` must be the slice of privileges valid for the target object
+/// kind. `with_columns` controls whether column restrictions may appear.
+fn arb_grant_from(privileges: &'static [Privilege], with_columns: bool) -> BoxedStrategy<Grant> {
+    let grantee_strategy = prop_oneof![
+        Just(GrantTarget::Public),
+        prop_oneof![
+            Just(GRANTEE_ROLE_NAMES[0]),
+            Just(GRANTEE_ROLE_NAMES[1]),
+            Just(GRANTEE_ROLE_NAMES[2]),
+            Just(GRANTEE_ROLE_NAMES[3]),
+            Just(GRANTEE_ROLE_NAMES[4]),
+            Just(GRANTEE_ROLE_NAMES[5]),
+        ]
+        .prop_map(|s| GrantTarget::Role(Identifier::from_unquoted(s).unwrap())),
+    ];
+
+    let priv_strategy: BoxedStrategy<Privilege> = {
+        // Build a prop_oneof from the slice by cycling through it.
+        // `privileges` is &'static so we can capture it safely.
+        match privileges {
+            [a] => Just(*a).boxed(),
+            [a, b] => prop_oneof![Just(*a), Just(*b)].boxed(),
+            [a, b, c] => prop_oneof![Just(*a), Just(*b), Just(*c)].boxed(),
+            [a, b, c, d] => prop_oneof![Just(*a), Just(*b), Just(*c), Just(*d)].boxed(),
+            [a, b, c, d, e] => {
+                prop_oneof![Just(*a), Just(*b), Just(*c), Just(*d), Just(*e)].boxed()
+            }
+            [a, b, c, d, e, f] => {
+                prop_oneof![Just(*a), Just(*b), Just(*c), Just(*d), Just(*e), Just(*f)].boxed()
+            }
+            [a, b, c, d, e, f, g] => prop_oneof![
+                Just(*a),
+                Just(*b),
+                Just(*c),
+                Just(*d),
+                Just(*e),
+                Just(*f),
+                Just(*g),
+            ]
+            .boxed(),
+            _ => Just(privileges[0]).boxed(),
+        }
+    };
+
+    // Optional column restriction (only meaningful for table/view/mv).
+    let col_strategy: BoxedStrategy<Option<Vec<Identifier>>> = if with_columns {
+        prop_oneof![
+            Just(None),
+            prop_oneof![
+                Just(vec!["id"]),
+                Just(vec!["name"]),
+                Just(vec!["email"]),
+                Just(vec!["id", "name"]),
+            ]
+            .prop_map(|cols| {
+                Some(
+                    cols.into_iter()
+                        .map(|c| Identifier::from_unquoted(c).unwrap())
+                        .collect(),
+                )
+            }),
+        ]
+        .boxed()
+    } else {
+        Just(None).boxed()
+    };
+
+    (grantee_strategy, priv_strategy, any::<bool>(), col_strategy)
+        .prop_map(|(grantee, privilege, with_grant_option, columns)| Grant {
+            grantee,
+            privilege,
+            with_grant_option,
+            columns,
+        })
+        .boxed()
+}
+
+/// Generate a `Vec<Grant>` of 0–3 grants for a non-column-level object.
+fn arb_object_grants(privileges: &'static [Privilege]) -> impl Strategy<Value = Vec<Grant>> {
+    prop_oneof![
+        Just(vec![]),
+        arb_grant_from(privileges, false).prop_map(|g| vec![g]),
+        (
+            arb_grant_from(privileges, false),
+            arb_grant_from(privileges, false)
+        )
+            .prop_map(|(a, b)| vec![a, b]),
+        (
+            arb_grant_from(privileges, false),
+            arb_grant_from(privileges, false),
+            arb_grant_from(privileges, false)
+        )
+            .prop_map(|(a, b, c)| vec![a, b, c]),
+    ]
+}
+
+/// Generate a `Vec<Grant>` of 0–3 grants for table/view/mv (may include
+/// column restrictions).
+fn arb_table_grants(privileges: &'static [Privilege]) -> impl Strategy<Value = Vec<Grant>> {
+    prop_oneof![
+        Just(vec![]),
+        arb_grant_from(privileges, true).prop_map(|g| vec![g]),
+        (
+            arb_grant_from(privileges, true),
+            arb_grant_from(privileges, true)
+        )
+            .prop_map(|(a, b)| vec![a, b]),
+        (
+            arb_grant_from(privileges, true),
+            arb_grant_from(privileges, true),
+            arb_grant_from(privileges, true)
+        )
+            .prop_map(|(a, b, c)| vec![a, b, c]),
+    ]
+}
+
+/// Table privileges (SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER).
+const TABLE_PRIVS: &[Privilege] = &[
+    Privilege::Select,
+    Privilege::Insert,
+    Privilege::Update,
+    Privilege::Delete,
+    Privilege::Truncate,
+    Privilege::References,
+    Privilege::Trigger,
+];
+
+/// Schema privileges (USAGE, CREATE).
+const SCHEMA_PRIVS: &[Privilege] = &[Privilege::Usage, Privilege::Create];
+
+/// Sequence privileges (USAGE, SELECT, UPDATE).
+const SEQUENCE_PRIVS: &[Privilege] = &[Privilege::Usage, Privilege::Select, Privilege::Update];
+
+/// Function/procedure privileges (EXECUTE only).
+/// Prepared for future function/procedure generators; unused until those ship.
+#[allow(dead_code)]
+const FUNCTION_PRIVS: &[Privilege] = &[Privilege::Execute];
+
+/// Type privileges (USAGE only).
+/// Prepared for future user-type generators; unused until those ship.
+#[allow(dead_code)]
+const TYPE_PRIVS: &[Privilege] = &[Privilege::Usage];
+
+/// Generate 0–3 [`DefaultPrivilegeRule`]s for arbitrary catalog-level rules.
+pub fn arbitrary_default_privileges() -> impl Strategy<Value = Vec<DefaultPrivilegeRule>> {
+    let rule_strategy = (
+        // target_role
+        prop_oneof![Just("app_owner"), Just("app"), Just("ops"),]
+            .prop_map(|s| Identifier::from_unquoted(s).unwrap()),
+        // schema (None = all schemas)
+        prop_oneof![Just(None), Just(Some("app")), Just(Some("billing")),]
+            .prop_map(|s| s.map(|n| Identifier::from_unquoted(n).unwrap())),
+        // object_type
+        prop_oneof![
+            Just(DefaultPrivObjectType::Tables),
+            Just(DefaultPrivObjectType::Sequences),
+            Just(DefaultPrivObjectType::Functions),
+            Just(DefaultPrivObjectType::Types),
+            Just(DefaultPrivObjectType::Schemas),
+        ],
+        // grants within the rule (0–2)
+        prop_oneof![
+            Just(vec![]),
+            prop_oneof![
+                Just(GrantTarget::Public),
+                Just(GrantTarget::Role(
+                    Identifier::from_unquoted("readers").unwrap()
+                )),
+                Just(GrantTarget::Role(
+                    Identifier::from_unquoted("writers").unwrap()
+                )),
+            ]
+            .prop_map(|grantee| vec![Grant {
+                grantee,
+                privilege: Privilege::Select,
+                with_grant_option: false,
+                columns: None,
+            }]),
+        ],
+    )
+        .prop_map(
+            |(target_role, schema, object_type, grants)| DefaultPrivilegeRule {
+                target_role,
+                schema,
+                object_type,
+                grants,
+            },
+        );
+
+    prop_oneof![
+        Just(vec![]),
+        rule_strategy.clone().prop_map(|r| vec![r]),
+        (rule_strategy.clone(), rule_strategy.clone()).prop_map(|(a, b)| vec![a, b]),
+        (rule_strategy.clone(), rule_strategy.clone(), rule_strategy)
+            .prop_map(|(a, b, c)| vec![a, b, c]),
     ]
 }
 
@@ -481,84 +758,100 @@ pub fn arbitrary_view_catalog() -> impl Strategy<Value = Catalog> {
             // Strategy: generate `total_views` bitmasks (u32), each mask
             // determines which prior refs the view depends on (from the pool
             // of tables + prior views within the same schema).
-            proptest_vec(any::<u32>(), total_views..=(total_views.max(1))).prop_map(move |masks| {
-                let mut views: Vec<View> = Vec::new();
-                let mut mask_idx = 0;
+            proptest_vec(any::<u32>(), total_views..=(total_views.max(1)))
+                .prop_map(move |masks| {
+                    let mut views: Vec<View> = Vec::new();
+                    let mut mask_idx = 0;
 
-                // Per-schema: we track the views generated so far for
-                // that schema so later views can reference earlier ones.
-                for (schema_idx, &view_count) in view_counts_per_schema.iter().enumerate() {
-                    let schema_name = &schema_names[schema_idx];
-                    let schema_tbls = &schema_tables[schema_idx];
+                    // Per-schema: we track the views generated so far for
+                    // that schema so later views can reference earlier ones.
+                    for (schema_idx, &view_count) in view_counts_per_schema.iter().enumerate() {
+                        let schema_name = &schema_names[schema_idx];
+                        let schema_tbls = &schema_tables[schema_idx];
 
-                    // views in this schema generated so far (by index in `views`).
-                    let schema_view_start = views.len();
+                        // views in this schema generated so far (by index in `views`).
+                        let schema_view_start = views.len();
 
-                    for view_i in 0..view_count {
-                        let mask = masks.get(mask_idx).copied().unwrap_or(0);
-                        mask_idx += 1;
+                        for view_i in 0..view_count {
+                            let mask = masks.get(mask_idx).copied().unwrap_or(0);
+                            mask_idx += 1;
 
-                        // Pool of eligible deps:
-                        //   - schema tables
-                        //   - views[schema_view_start .. schema_view_start + view_i]
-                        let all_refs: Vec<NodeId> = schema_tbls
-                            .iter()
-                            .map(|q| NodeId::Table(q.clone()))
-                            .chain(
-                                (schema_view_start..schema_view_start + view_i)
-                                    .map(|idx| NodeId::View(views[idx].qname.clone())),
-                            )
-                            .collect();
+                            // Pool of eligible deps:
+                            //   - schema tables
+                            //   - views[schema_view_start .. schema_view_start + view_i]
+                            let all_refs: Vec<NodeId> = schema_tbls
+                                .iter()
+                                .map(|q| NodeId::Table(q.clone()))
+                                .chain(
+                                    (schema_view_start..schema_view_start + view_i)
+                                        .map(|idx| NodeId::View(views[idx].qname.clone())),
+                                )
+                                .collect();
 
-                        // Name: view_<schema>_<i>
-                        let view_name = Identifier::from_unquoted(&format!(
-                            "view_{}_{}",
-                            schema_name.as_str(),
-                            view_i
-                        ))
-                        .unwrap();
-                        let qname = QualifiedName::new(schema_name.clone(), view_name);
+                            // Name: view_<schema>_<i>
+                            let view_name = Identifier::from_unquoted(&format!(
+                                "view_{}_{}",
+                                schema_name.as_str(),
+                                view_i
+                            ))
+                            .unwrap();
+                            let qname = QualifiedName::new(schema_name.clone(), view_name);
 
-                        // Pick deps from all_refs based on bitmask.
-                        // Always pick at least one if pool is non-empty.
-                        let deps: Vec<DepEdge> = if all_refs.is_empty() {
-                            vec![]
-                        } else {
-                            let mut chosen = Vec::new();
-                            for (bit, target_node) in all_refs.iter().enumerate() {
-                                if bit == 0 || (mask >> bit) & 1 == 1 {
-                                    // bit 0 is always chosen (guarantees at least one dep).
-                                    chosen.push(DepEdge {
-                                        from: NodeId::View(qname.clone()),
-                                        to: target_node.clone(),
-                                        source: DepSource::AstExtracted,
-                                    });
+                            // Pick deps from all_refs based on bitmask.
+                            // Always pick at least one if pool is non-empty.
+                            let deps: Vec<DepEdge> = if all_refs.is_empty() {
+                                vec![]
+                            } else {
+                                let mut chosen = Vec::new();
+                                for (bit, target_node) in all_refs.iter().enumerate() {
+                                    if bit == 0 || (mask >> bit) & 1 == 1 {
+                                        // bit 0 is always chosen (guarantees at least one dep).
+                                        chosen.push(DepEdge {
+                                            from: NodeId::View(qname.clone()),
+                                            to: target_node.clone(),
+                                            source: DepSource::AstExtracted,
+                                        });
+                                    }
                                 }
-                            }
-                            chosen
-                        };
+                                chosen
+                            };
 
-                        views.push(View {
-                            qname,
-                            columns: vec![],
-                            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
-                            body_dependencies: deps,
-                            security_barrier: None,
-                            security_invoker: None,
-                            comment: None,
-                            raw_body: String::new(),
-                            owner: None,
-                            grants: vec![],
-                        });
+                            views.push(View {
+                                qname,
+                                columns: vec![],
+                                body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+                                body_dependencies: deps,
+                                security_barrier: None,
+                                security_invoker: None,
+                                comment: None,
+                                raw_body: String::new(),
+                                owner: None,
+                                grants: vec![],
+                            });
+                        }
                     }
-                }
 
-                let mut cat = catalog.clone();
-                cat.views = views;
-                // canonicalize sorts views and checks for duplicates.
-                cat.canonicalize()
-                    .expect("view generator produced invalid catalog")
-            })
+                    (catalog.clone(), views)
+                })
+                .prop_flat_map(|(catalog, views)| {
+                    // Sprinkle random owner + grants onto each view.
+                    let n = views.len();
+                    let owner_strategies: Vec<_> = (0..n).map(|_| arb_owner()).collect();
+                    let grant_strategies: Vec<_> =
+                        (0..n).map(|_| arb_table_grants(TABLE_PRIVS)).collect();
+                    (owner_strategies, grant_strategies).prop_map(move |(owners, grant_vecs)| {
+                        let mut views_with_grants: Vec<View> = views.clone();
+                        for (i, v) in views_with_grants.iter_mut().enumerate() {
+                            v.owner = owners[i].clone();
+                            v.grants = grant_vecs[i].clone();
+                        }
+                        let mut cat = catalog.clone();
+                        cat.views = views_with_grants;
+                        // canonicalize sorts views and checks for duplicates.
+                        cat.canonicalize()
+                            .expect("view generator produced invalid catalog")
+                    })
+                })
         })
     })
 }
