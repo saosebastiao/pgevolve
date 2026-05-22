@@ -120,10 +120,12 @@ pub(crate) const fn type_default_storage(ty: &ColumnType) -> StorageKind {
         // inet/cidr: variable up to ~32 bytes, typstorage = 'm'.
         ColumnType::Numeric { .. }
         | ColumnType::NetAddress(NetAddressKind::Inet | NetAddressKind::Cidr) => StorageKind::Main,
+        // bit/bit varying: typstorage = 'e' (EXTERNAL) — out-of-line allowed,
+        // compression forbidden. Distinct from 'x' (EXTENDED) which allows both.
+        ColumnType::Bit { .. } => StorageKind::External,
         // Variable-width/toastable types: typstorage = 'x' (EXTENDED).
         // text/varchar/char: character varying data.
         // bytea: binary data.
-        // bit/bit varying: typstorage = 'e' in pg_type (same as EXTENDED).
         // json/jsonb: JSON data.
         // arrays: always variable-length toastable.
         // User-defined and unknown types: conservatively EXTENDED; enums are
@@ -132,7 +134,6 @@ pub(crate) const fn type_default_storage(ty: &ColumnType) -> StorageKind {
         | ColumnType::Varchar { .. }
         | ColumnType::Char { .. }
         | ColumnType::Bytea
-        | ColumnType::Bit { .. }
         | ColumnType::Json
         | ColumnType::Jsonb
         | ColumnType::Array { .. }
@@ -371,6 +372,14 @@ mod tests {
         c.storage = Some(StorageKind::Plain);
         normalize_column_storage(&mut c);
         assert_eq!(c.storage, None);
+    }
+
+    #[test]
+    fn type_default_for_bit_is_external() {
+        let mut c = col("flags", ColumnType::Bit { len: 8, varying: false });
+        c.storage = Some(StorageKind::External);
+        normalize_column_storage(&mut c);
+        assert_eq!(c.storage, None, "External on bit should normalize to None (bit's typstorage is 'e' = External)");
     }
 
     #[test]
