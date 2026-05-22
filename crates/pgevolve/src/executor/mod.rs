@@ -3,14 +3,21 @@
 //! Takes a serialized `Plan` and applies it to a live Postgres database with
 //! bootstrap, advisory locking, drift recheck, intent enforcement, per-step
 //! audit logging, and rollback handling. Public entry point: [`apply`].
+//!
+//! Cluster apply: [`cluster_apply::apply_cluster_steps`] and
+//! [`cluster_apply::apply_cluster_plan_dir`] run cluster DDL steps against
+//! the superuser DSN from a [`crate::cluster_config::ClusterConfig`].
 
 pub mod audit;
 pub mod bootstrap;
+pub mod cluster_apply;
 pub mod error;
 pub mod execute;
 pub mod lock;
 pub mod preflight;
 pub mod status;
+
+pub use cluster_apply::{ClusterApplyError, apply_cluster_plan_dir, apply_cluster_steps};
 
 use std::path::Path;
 

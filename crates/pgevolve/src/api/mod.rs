@@ -1,15 +1,22 @@
 //! Library entry points for embedding pgevolve in other tools and tests.
 //!
-//! Today this module contains a single function, [`build_plan`], that runs
-//! the full parse → introspect → diff → order → rewrite → group → assemble
-//! pipeline and returns a [`Plan`] value. The CLI command
-//! `pgevolve plan` is now a thin wrapper over this entry point plus
-//! CLI-only UX (stdout, interactive waiver prompts, shadow validation).
+//! Per-DB entry point: [`build_plan`] runs the full parse → introspect → diff
+//! → order → rewrite → group → assemble pipeline and returns a [`Plan`].
 //!
-//! Conformance tests and test harnesses use this entry point directly to
+//! Cluster entry point: [`cluster::build_cluster_plan`] runs the full
+//! parse → catalog read → diff → lint → emit pipeline for cluster-level role
+//! management and returns a [`cluster::ClusterPlan`].
+//!
+//! The CLI commands `pgevolve plan` and `pgevolve cluster plan` are thin
+//! wrappers over these entry points plus CLI-only UX.
+//!
+//! Conformance tests and test harnesses use these entry points directly to
 //! avoid the cost of spawning the CLI binary per fixture.
 //!
 //! See `docs/superpowers/specs/2026-05-19-in-process-apply-runner-design.md`.
+
+pub mod cluster;
+pub use cluster::{ClusterPlan, ClusterPlanError, build_cluster_plan};
 
 use std::path::Path;
 
