@@ -41,6 +41,7 @@ use super::ManagedConfig;
 use super::finding::Finding;
 use super::rules;
 use super::source_tree::SourceTree;
+use crate::diff::changeset::ChangeSet;
 use crate::ir::catalog::Catalog;
 
 /// All rule IDs that carry [`crate::lint::Severity::LintAtPlan`].
@@ -88,6 +89,18 @@ pub fn check_universal(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Findin
 pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
     let mut out = Vec::new();
     rules::column_position_drift::check(source, target, &mut out);
+    out
+}
+
+/// Run all changeset-level lint rules against `cs`.
+///
+/// These rules inspect the diff produced by the differ — they fire on
+/// structural changes (e.g., `SetColumnStorage`, `SetColumnCompression`) rather
+/// than on the source catalog directly.
+pub fn check_changeset(cs: &ChangeSet) -> Vec<Finding> {
+    let mut out = Vec::new();
+    out.extend(rules::storage_downgrade_not_retroactive::check(cs));
+    out.extend(rules::compression_change_not_retroactive::check(cs));
     out
 }
 

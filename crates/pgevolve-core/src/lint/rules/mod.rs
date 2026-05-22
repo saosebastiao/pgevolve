@@ -8,6 +8,7 @@
 pub mod closed_world_references;
 pub mod column_position_drift;
 pub mod composite_attribute_collision;
+pub mod compression_change_not_retroactive;
 pub mod domain_check_references_unmanaged_type;
 pub mod enum_value_collision;
 pub mod extension_references_unmanaged_schema;
@@ -19,6 +20,7 @@ pub mod no_duplicate_qnames;
 pub mod partition_references_unmanaged_parent;
 pub mod pl_pgsql_dynamic_sql;
 pub mod procedure_contains_commit;
+pub mod storage_downgrade_not_retroactive;
 pub mod trigger_references_unmanaged_function;
 pub mod trigger_references_unmanaged_table;
 pub mod type_shadows_table;
