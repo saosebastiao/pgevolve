@@ -8,6 +8,7 @@
 
 pub mod api;
 pub mod cli;
+pub mod cluster_config;
 pub mod commands;
 pub mod config;
 pub mod connection;
