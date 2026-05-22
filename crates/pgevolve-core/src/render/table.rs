@@ -356,6 +356,7 @@ mod tests {
         };
         let sql = render_table(&t);
         assert!(sql.contains("STORAGE EXTERNAL"), "got: {sql}");
+        assert_pg_parseable(&sql);
     }
 
     #[test]
@@ -373,6 +374,7 @@ mod tests {
         };
         let sql = render_table(&t);
         assert!(sql.contains("COMPRESSION lz4"), "got: {sql}");
+        assert_pg_parseable(&sql);
     }
 
     #[test]
@@ -389,5 +391,6 @@ mod tests {
         let sql = render_table(&t);
         assert!(!sql.contains("STORAGE"), "got: {sql}");
         assert!(!sql.contains("COMPRESSION"), "got: {sql}");
+        assert_pg_parseable(&sql);
     }
 }

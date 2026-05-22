@@ -526,6 +526,30 @@ pub fn column_def(c: &Column) -> String {
         s.push_str(" COLLATE ");
         s.push_str(&coll.render_sql());
     }
+    // STORAGE and COMPRESSION must appear before column constraints (including
+    // NOT NULL) — that is the order the Postgres grammar requires and the order
+    // the pg_query deparser produces.  Inline STORAGE is a PG 16+ feature; on
+    // older targets the shadow apply will surface a clear PG error, which is
+    // the correct semantics — the user wrote unsupported syntax for their
+    // target.
+    if let Some(storage) = c.storage {
+        let kw = match storage {
+            StorageKind::Plain => "PLAIN",
+            StorageKind::External => "EXTERNAL",
+            StorageKind::Extended => "EXTENDED",
+            StorageKind::Main => "MAIN",
+        };
+        s.push_str(" STORAGE ");
+        s.push_str(kw);
+    }
+    if let Some(compression) = c.compression {
+        let kw = match compression {
+            Compression::Pglz => "pglz",
+            Compression::Lz4 => "lz4",
+        };
+        s.push_str(" COMPRESSION ");
+        s.push_str(kw);
+    }
     if !c.nullable {
         s.push_str(" NOT NULL");
     }
@@ -544,27 +568,6 @@ pub fn column_def(c: &Column) -> String {
         s.push_str(&g.expression.canonical_text);
         s.push_str(") ");
         s.push_str(generated_kind(g.kind));
-    }
-    // Inline STORAGE is PG 16+ syntax; on older targets the shadow apply will
-    // surface a clear PG error, which is the correct semantics — the user wrote
-    // unsupported syntax for their target.
-    if let Some(storage) = c.storage {
-        let kw = match storage {
-            StorageKind::Plain => "PLAIN",
-            StorageKind::External => "EXTERNAL",
-            StorageKind::Extended => "EXTENDED",
-            StorageKind::Main => "MAIN",
-        };
-        s.push_str(" STORAGE ");
-        s.push_str(kw);
-    }
-    if let Some(compression) = c.compression {
-        let kw = match compression {
-            Compression::Pglz => "pglz",
-            Compression::Lz4 => "lz4",
-        };
-        s.push_str(" COMPRESSION ");
-        s.push_str(kw);
     }
     s
 }
