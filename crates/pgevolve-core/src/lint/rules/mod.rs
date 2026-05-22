@@ -20,6 +20,8 @@ pub mod no_duplicate_qnames;
 pub mod partition_references_unmanaged_parent;
 pub mod pl_pgsql_dynamic_sql;
 pub mod procedure_contains_commit;
+pub mod role_loses_superuser;
+pub mod role_membership_cycle;
 pub mod storage_downgrade_not_retroactive;
 pub mod trigger_references_unmanaged_function;
 pub mod trigger_references_unmanaged_table;

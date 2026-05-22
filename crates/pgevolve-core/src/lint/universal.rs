@@ -46,6 +46,16 @@
 //! - **`compression-change-not-retroactive`** — fires on any `SET COMPRESSION`
 //!   change. Existing `TOASTed` values keep their original codec until rewritten
 //!   by UPDATE or VACUUM FULL.
+//!
+//! Cluster changeset-level rules (run via [`check_cluster_changeset`]):
+//!
+//! - **`role-loses-superuser`** — fires when `AlterRoleAttributes` flips
+//!   `SUPERUSER` from `true` to `false`. Losing superuser is rarely routine;
+//!   surfacing it lets operators catch unintended downgrades.
+//! - **`role-membership-cycle`** — builds the post-apply membership graph from
+//!   source IR + pending grants/revokes and checks that no pending grant creates
+//!   a cycle. Postgres rejects cycles at apply time; pre-plan detection gives a
+//!   better error.
 
 use super::ManagedConfig;
 use super::finding::Finding;
@@ -111,6 +121,19 @@ pub fn check_changeset(cs: &ChangeSet) -> Vec<Finding> {
     let mut out = Vec::new();
     out.extend(rules::storage_downgrade_not_retroactive::check(cs));
     out.extend(rules::compression_change_not_retroactive::check(cs));
+    out
+}
+
+/// Run all cluster changeset-level lint rules. Mirrors [`check_changeset`]
+/// for per-DB lints. Takes both `source` (for membership graph context) and
+/// `cs` (the pending cluster changeset).
+pub fn check_cluster_changeset(
+    source: &crate::ir::cluster::catalog::ClusterCatalog,
+    cs: &crate::diff::cluster::ClusterChangeSet,
+) -> Vec<Finding> {
+    let mut out = Vec::new();
+    out.extend(rules::role_loses_superuser::check(cs));
+    out.extend(rules::role_membership_cycle::check(source, cs));
     out
 }
 
