@@ -245,7 +245,7 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 
 | Object | Status | Notes |
 |---|---|---|
-| `ROLE` (`CREATE ROLE / USER`) | 📋 Planned, v0.3 | Membership and inheritance modeled. `LOGIN` attribute kept. Passwords are *not* stored in source — set out-of-band. |
+| `ROLE` (`CREATE ROLE / USER`) | ✅ Supported | Cluster-level surface (`pgevolve cluster …`). Full attribute matrix + role membership. Passwords intentionally not modeled — set out-of-band. change_kinds: [create, alter, drop, grant, revoke, comment] |
 | `GRANT` / `REVOKE` (object permissions) | 📋 Planned, v0.3 | Per-object grant lists in IR; diff produces minimal GRANT/REVOKE sequences. Default privileges (`ALTER DEFAULT PRIVILEGES`) included. |
 | Row-level security policies (`POLICY`) | 📋 Planned, v0.3 | Including `ENABLE ROW LEVEL SECURITY` toggle on tables. |
 | Security barriers / leakproof flags | 🔮 Future | Less commonly used; lands alongside fine-grained policy review. |

@@ -7,6 +7,29 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-22
+
+### Added
+
+- **Cluster-level surface** — new project type (`pgevolve-cluster.toml + roles/`), new command family (`pgevolve cluster init/diff/plan/apply/status`), new executor running against a superuser DSN. Per Decision 23 of the v0.2 architecture review.
+- **`ROLE` / `CREATE USER` fully managed** — `ClusterCatalog.roles` with full PG attribute matrix (superuser, createdb, createrole, inherit, login, replication, bypass_rls, connection_limit, valid_until), plus role membership via inline `IN ROLE` or `GRANT role TO target`. Passwords intentionally not modeled.
+- **Two new universal lint rules**:
+  - `role-loses-superuser` (warning) — fires on `ALTER ROLE … NOSUPERUSER` when the role had superuser.
+  - `role-membership-cycle` (error) — detects cycles in the projected post-apply membership graph; pre-empts PG's apply-time rejection.
+- **Conformance harness** — new `authoring = "cluster"` mode + seven fixtures under `cases/cluster/roles/`.
+- **Property tests** — `arbitrary_role_attributes`, `arbitrary_cluster_catalog` generators with cycle-free membership; diff round-trip invariant: `diff_cluster(A, B)` applied to `A` yields `B` modulo canonicalization.
+
+### Catalog reader
+
+- New `read_cluster_catalog(querier, bootstrap_roles)` querying `pg_authid` + `pg_auth_members`. Filters `pg_*` predefined roles and caller-supplied bootstrap roles.
+
+### Known v0.3.0 gaps (closing in 0.3.x)
+
+- Cluster apply: reads `plan.sql` and runs each statement in a transaction. `intent.toml` destructive-step gates and apply-log tracking are deferred.
+- No advisory lock during cluster apply; concurrent applies are not protected.
+- Object-level GRANT/REVOKE (per-DB) lands in v0.3.1.
+- RLS policies (per-DB) land in v0.3.2.
+
 ## [0.2.1] — 2026-05-21
 
 ### Added

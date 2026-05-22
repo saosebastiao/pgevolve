@@ -590,13 +590,13 @@ const ROLE_NAMES: &[&str] = &[
 /// optional `connection_limit` / `valid_until`.
 pub fn arbitrary_role_attributes() -> impl Strategy<Value = RoleAttributes> {
     (
-        any::<bool>(), // superuser
-        any::<bool>(), // createdb
-        any::<bool>(), // createrole
-        any::<bool>(), // inherit
-        any::<bool>(), // login
-        any::<bool>(), // replication
-        any::<bool>(), // bypass_rls
+        any::<bool>(),                                               // superuser
+        any::<bool>(),                                               // createdb
+        any::<bool>(),                                               // createrole
+        any::<bool>(),                                               // inherit
+        any::<bool>(),                                               // login
+        any::<bool>(),                                               // replication
+        any::<bool>(),                                               // bypass_rls
         prop_oneof![Just(None), (1i64..=10_000i64).prop_map(Some),], // connection_limit
         prop_oneof![
             Just(None),
@@ -605,7 +605,17 @@ pub fn arbitrary_role_attributes() -> impl Strategy<Value = RoleAttributes> {
         ], // valid_until
     )
         .prop_map(
-            |(superuser, createdb, createrole, inherit, login, replication, bypass_rls, connection_limit, valid_until)| {
+            |(
+                superuser,
+                createdb,
+                createrole,
+                inherit,
+                login,
+                replication,
+                bypass_rls,
+                connection_limit,
+                valid_until,
+            )| {
                 RoleAttributes {
                     superuser,
                     createdb,
@@ -640,7 +650,10 @@ fn arbitrary_role_inner(
         // `member_of` edges.  Using a u16 caps at 16 peers which is well
         // above the pool size (8 roles max).
         any::<u16>(),
-        prop_oneof![Just(None), ".*".prop_map(|s| if s.is_empty() { None } else { Some(s) }),],
+        prop_oneof![
+            Just(None),
+            ".*".prop_map(|s| if s.is_empty() { None } else { Some(s) }),
+        ],
     )
         .prop_map(move |(attributes, peer_mask, comment)| {
             let member_of: Vec<Identifier> = peer_name_indices
