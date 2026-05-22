@@ -6,6 +6,7 @@
 
 pub mod canon;
 pub mod catalog;
+pub mod cluster;
 pub mod column;
 pub mod column_type;
 pub mod constraint;
