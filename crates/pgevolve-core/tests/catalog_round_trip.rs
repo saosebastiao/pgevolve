@@ -284,12 +284,15 @@ async fn catalog_reads_attstorage_and_attcompression() {
         CREATE TABLE app.phy_test (
             id     bigint   NOT NULL,
             note   text,
-            blob   bytea
+            blob   bytea,
+            note2  text
         );
         -- Override storage on the text column to EXTERNAL (non-default for text).
         ALTER TABLE app.phy_test ALTER COLUMN note SET STORAGE EXTERNAL;
         -- Set compression on the bytea column to lz4.
         ALTER TABLE app.phy_test ALTER COLUMN blob SET COMPRESSION lz4;
+        -- Explicitly set compression on note2 to pglz (the other codec arm).
+        ALTER TABLE app.phy_test ALTER COLUMN note2 SET COMPRESSION pglz;
     ";
     let catalog = read_catalog_from_sql(sql).await.expect("catalog read");
 
@@ -345,5 +348,17 @@ async fn catalog_reads_attstorage_and_attcompression() {
         blob_col.compression,
         Some(Compression::Lz4),
         "lz4 compression must be read from catalog"
+    );
+
+    // note2 (text) — explicit SET COMPRESSION pglz; must survive canon pass.
+    let pglz_col = table
+        .columns
+        .iter()
+        .find(|c| c.name.as_str() == "note2")
+        .expect("column note2");
+    assert_eq!(
+        pglz_col.compression,
+        Some(Compression::Pglz),
+        "explicit SET COMPRESSION pglz must read back as Some(Pglz), not None"
     );
 }

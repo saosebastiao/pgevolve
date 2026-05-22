@@ -33,16 +33,19 @@ use super::{
     parse_referential_action, qname_from,
 };
 
-/// Decode `pg_attribute.attstorage` single-char text into [`StorageKind`].
+/// Decode `pg_attribute.attstorage` single-char text into
+/// [`Option<StorageKind>`].
 ///
-/// Postgres stores `'p'`, `'e'`, `'x'`, or `'m'`. Any other value is a
-/// catalog error and is surfaced as [`CatalogError::BadColumnType`].
-fn decode_attstorage(raw: &str) -> Result<StorageKind, CatalogError> {
+/// Postgres stores `'p'`, `'e'`, `'x'`, or `'m'`. The decoder wraps each
+/// known value in `Some(…)` so that the call site receives the `Option`
+/// directly without a redundant `Some(…)` wrap. Any other value is a catalog
+/// error surfaced as [`CatalogError::BadColumnType`].
+fn decode_attstorage(raw: &str) -> Result<Option<StorageKind>, CatalogError> {
     match raw {
-        "p" => Ok(StorageKind::Plain),
-        "e" => Ok(StorageKind::External),
-        "x" => Ok(StorageKind::Extended),
-        "m" => Ok(StorageKind::Main),
+        "p" => Ok(Some(StorageKind::Plain)),
+        "e" => Ok(Some(StorageKind::External)),
+        "x" => Ok(Some(StorageKind::Extended)),
+        "m" => Ok(Some(StorageKind::Main)),
         other => Err(CatalogError::BadColumnType {
             query: CatalogQuery::Columns,
             column: "attstorage".to_string(),
@@ -199,7 +202,7 @@ fn build_column(r: &Row) -> Result<Column, CatalogError> {
     let comment = r.get_opt_text(q, "comment")?;
 
     let attstorage = r.get_text(q, "attstorage")?;
-    let storage = Some(decode_attstorage(&attstorage)?);
+    let storage = decode_attstorage(&attstorage)?;
 
     let attcompression = r.get_text(q, "attcompression")?;
     let compression = decode_attcompression(&attcompression);
