@@ -174,6 +174,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let rendered = render_catalog(&cat);
         let schema_pos = rendered.find("CREATE SCHEMA").unwrap();
@@ -214,6 +217,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         cat.tables.push(Table {
             qname: qn("app", "users"),
@@ -272,6 +278,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let rendered = render_catalog(&cat);
@@ -320,6 +329,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -383,6 +395,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let rendered = render_catalog(&cat);
@@ -437,6 +452,9 @@ mod tests {
             comment: Some("user accounts".into()),
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),

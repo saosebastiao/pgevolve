@@ -256,6 +256,9 @@ fn add_table(c: &mut Catalog, seed: usize) {
         comment: None,
         owner: None,
         grants: vec![],
+        rls_enabled: false,
+        rls_forced: false,
+        policies: vec![],
     });
 }
 
@@ -495,6 +498,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let mut catalog = Catalog {
             schemas: vec![Schema {

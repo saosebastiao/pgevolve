@@ -42,6 +42,9 @@ pub fn render_table(t: &Table) -> String {
         comment: t.comment.clone(),
         owner: None,
         grants: vec![],
+        rls_enabled: false,
+        rls_forced: false,
+        policies: vec![],
     };
 
     out.push_str(&rewrite_sql::create_table(&table_without_fks));
@@ -173,6 +176,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let sql = render_table(&t);
         assert!(sql.contains("CREATE TABLE app.users"));
@@ -219,6 +225,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let sql = render_table(&t);
         assert!(
@@ -261,6 +270,9 @@ mod tests {
             comment: Some("organization records".into()),
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let sql = render_table(&t);
         assert!(sql.contains("COMMENT ON TABLE app.orgs IS 'organization records';"));
@@ -280,6 +292,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let sql = render_table(&t);
         assert!(sql.contains("COMMENT ON COLUMN app.users.email IS 'email address';"));
@@ -300,6 +315,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let sql = render_table(&t);
         assert!(sql.contains("DEFAULT true"));
@@ -319,6 +337,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let sql = render_table(&t);
         // nullable columns must not have NOT NULL.
@@ -347,6 +368,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let sql = render_table(&t);
         assert!(sql.contains("CHECK"), "expected CHECK in CREATE TABLE");
@@ -371,6 +395,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let sql = render_table(&t);
         assert!(sql.contains("STORAGE EXTERNAL"), "got: {sql}");
@@ -391,6 +418,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let sql = render_table(&t);
         assert!(sql.contains("COMPRESSION lz4"), "got: {sql}");
@@ -409,6 +439,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         let sql = render_table(&t);
         assert!(!sql.contains("STORAGE"), "got: {sql}");

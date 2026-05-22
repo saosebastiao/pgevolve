@@ -135,6 +135,9 @@ pub fn build_table(
         comment: None,
         owner: None,
         grants: vec![],
+        rls_enabled: false,
+        rls_forced: false,
+        policies: vec![],
     })
 }
 

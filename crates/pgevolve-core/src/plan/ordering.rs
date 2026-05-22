@@ -686,6 +686,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         source
             .indexes
@@ -736,6 +739,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
@@ -752,6 +758,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -807,6 +816,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         source.tables.push(Table {
             qname: qn("app", "b"),
@@ -823,6 +835,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -878,6 +893,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         target
             .indexes
@@ -927,6 +945,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -958,6 +979,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
@@ -968,6 +992,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let mk_cs = |reversed: bool| {
@@ -1007,6 +1034,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         source
             .indexes
@@ -1075,6 +1105,9 @@ mod tests {
                 comment: None,
                 owner: None,
                 grants: vec![],
+                rls_enabled: false,
+                rls_forced: false,
+                policies: vec![],
             });
         }
         // Add FKs forming a cycle: a -> b, b -> c, c -> a.
@@ -1122,6 +1155,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         target.tables.push(Table {
             qname: QualifiedName::new(id("b"), id("t2")),
@@ -1132,6 +1168,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -1206,6 +1245,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         target.indexes.push(Index {
             qname: qn("app", "users_deleted_at_idx"),
@@ -1237,6 +1279,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -1293,6 +1338,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         // Index on `email`, but the column being dropped is `unused`.
         target.indexes.push(Index {
@@ -1328,6 +1376,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         // Source still has the email index, but it's being dropped from the
         // source for an unrelated reason (simulate user removing it).
@@ -1385,6 +1436,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         target.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -1419,6 +1473,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -1594,6 +1651,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let mut cs = ChangeSet::new();

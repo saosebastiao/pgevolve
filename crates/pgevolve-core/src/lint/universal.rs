@@ -267,6 +267,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let tree = empty_tree(c);
         let findings = check_universal(
@@ -300,6 +303,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         // View with the same qname as the table.
         c.views.push(View {
@@ -352,6 +358,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         // MV with the same qname as the table.
         c.materialized_views.push(MaterializedView {
@@ -397,6 +406,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.views.push(View {
             qname: qn("app", "active_users"),
@@ -560,6 +572,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let tree = empty_tree(c);
         let findings = check_universal(&tree, &ManagedConfig::default());
@@ -759,6 +774,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         // An enum type that collides with the table.
         c.types.push(UserType {
@@ -805,6 +823,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.types.push(UserType {
             qname: qn("app", "user_status"),
@@ -1629,6 +1650,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.functions.push(make_function_bare("app", "audit_fn"));
         c.triggers.push(make_trigger(
@@ -1725,6 +1749,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.triggers.push(make_trigger(
             "app",
@@ -1862,6 +1889,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         // Child partition referencing the parent.
@@ -1877,6 +1907,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let tree = empty_tree(c);
@@ -1911,6 +1944,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let tree = empty_tree(c);
@@ -1948,6 +1984,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
 
         let tree = empty_tree(c);

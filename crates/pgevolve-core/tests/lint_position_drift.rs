@@ -46,6 +46,9 @@ fn catalog_with_columns(order: &[&str]) -> Catalog {
         comment: None,
         owner: None,
         grants: vec![],
+        rls_enabled: false,
+        rls_forced: false,
+        policies: vec![],
     });
     c
 }

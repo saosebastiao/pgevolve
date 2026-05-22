@@ -30,6 +30,12 @@ pub struct Table {
     pub owner: Option<Identifier>,
     /// Grants on this object. Empty = no grants. Canonicalized.
     pub grants: Vec<crate::ir::grant::Grant>,
+    /// `ROW LEVEL SECURITY` enabled flag. PG default: false.
+    pub rls_enabled: bool,
+    /// `FORCE ROW LEVEL SECURITY` flag (applies even to owner). PG default: false.
+    pub rls_forced: bool,
+    /// Policies attached to this table. Canonicalized in `ir::canon::policies`.
+    pub policies: Vec<crate::ir::policy::Policy>,
 }
 
 impl Diff for Table {
@@ -60,6 +66,21 @@ impl Diff for Table {
             "grants",
             &format!("{:?}", self.grants),
             &format!("{:?}", other.grants),
+        ));
+        out.extend(diff_field(
+            "rls_enabled",
+            &format!("{:?}", self.rls_enabled),
+            &format!("{:?}", other.rls_enabled),
+        ));
+        out.extend(diff_field(
+            "rls_forced",
+            &format!("{:?}", self.rls_forced),
+            &format!("{:?}", other.rls_forced),
+        ));
+        out.extend(diff_field(
+            "policies",
+            &format!("{:?}", self.policies),
+            &format!("{:?}", other.policies),
         ));
 
         // Column diff: pair by name, then check positions.
@@ -182,6 +203,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         }
     }
 
@@ -247,5 +271,35 @@ mod tests {
             columns: None,
         });
         assert!(base().diff(&b).iter().any(|x| x.path == "grants"));
+    }
+
+    #[test]
+    fn rls_enabled_change_diffs() {
+        let mut b = base();
+        b.rls_enabled = true;
+        assert!(base().diff(&b).iter().any(|x| x.path == "rls_enabled"));
+    }
+
+    #[test]
+    fn rls_forced_change_diffs() {
+        let mut b = base();
+        b.rls_forced = true;
+        assert!(base().diff(&b).iter().any(|x| x.path == "rls_forced"));
+    }
+
+    #[test]
+    fn policies_change_diffs() {
+        use crate::ir::grant::GrantTarget;
+        use crate::ir::policy::{Policy, PolicyCommand};
+        let mut b = base();
+        b.policies.push(Policy {
+            name: id("p1"),
+            permissive: true,
+            command: PolicyCommand::All,
+            roles: vec![GrantTarget::Public],
+            using: None,
+            with_check: None,
+        });
+        assert!(base().diff(&b).iter().any(|x| x.path == "policies"));
     }
 }

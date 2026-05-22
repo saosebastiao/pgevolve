@@ -494,6 +494,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -546,6 +549,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -567,6 +573,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -606,6 +615,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -630,6 +642,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let g = build_create_graph(&c);
         let fk_node = NodeId::Constraint {
@@ -679,6 +694,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -700,6 +718,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.sequences.push(Sequence {
             qname: qn("app", "users_id_seq"),
@@ -738,6 +759,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let g = build_create_graph(&c);
         let pk_node = NodeId::Constraint {
@@ -760,6 +784,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         // Same edges; equality is structural via topological output.
         let cg = build_create_graph(&c);
@@ -795,6 +822,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.tables.push(Table {
             qname: qn("app", "b"),
@@ -819,6 +849,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let g = build_create_graph(&c);
         let err = g.topological_sort().unwrap_err();
@@ -857,6 +890,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let g = build_create_graph(&c);
         assert!(g.topological_sort().is_ok());
@@ -910,6 +946,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         c.tables.push(parent);
 
@@ -951,6 +990,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         };
         c.tables.push(child);
 
@@ -1050,6 +1092,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let g = build_create_graph(&c);
         assert!(

@@ -63,6 +63,21 @@ pub struct NormalizedExpr {
     pub ast_hash: [u8; 32],
 }
 
+impl PartialOrd for NormalizedExpr {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NormalizedExpr {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Ordering by canonical_text is stable and deterministic: two
+        // NormalizedExprs with the same canonical_text are equal by
+        // construction (ast_hash is derived from it).
+        self.canonical_text.cmp(&other.canonical_text)
+    }
+}
+
 impl NormalizedExpr {
     /// Construct from already-canonical text. The hash is computed from the text.
     ///

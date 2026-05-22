@@ -551,6 +551,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.indexes.push(IrIndex {
             qname: qn("users_email_idx"),

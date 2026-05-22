@@ -69,6 +69,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let mut locs = HashMap::new();
         locs.insert(
@@ -91,6 +94,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         let mut locs = HashMap::new();
         locs.insert(

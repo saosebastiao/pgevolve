@@ -115,6 +115,9 @@ async fn aborted_mid_apply_recovers_after_replan() {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
     }
     let canonical = catalog.canonicalize().unwrap();

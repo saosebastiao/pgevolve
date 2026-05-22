@@ -292,6 +292,9 @@ fn arbitrary_table(
                 comment: None,
                 owner,
                 grants,
+                rls_enabled: false,
+                rls_forced: false,
+                policies: vec![],
             }
         })
 }

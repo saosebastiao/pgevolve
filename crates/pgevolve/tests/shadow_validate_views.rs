@@ -105,6 +105,9 @@ fn small_catalog_with_view() -> Catalog {
         comment: None,
         owner: None,
         grants: vec![],
+        rls_enabled: false,
+        rls_forced: false,
+        policies: vec![],
     });
 
     // A view that selects from app.users.
@@ -216,6 +219,9 @@ async fn shadow_validate_strict_fails_on_missing_ast_edge() {
         comment: None,
         owner: None,
         grants: vec![],
+        rls_enabled: false,
+        rls_forced: false,
+        policies: vec![],
     });
     // View body references app.users but body_dependencies claims a
     // non-existent table — this produces extra_ast_edges.

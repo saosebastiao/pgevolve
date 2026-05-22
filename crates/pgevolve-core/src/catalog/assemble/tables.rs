@@ -143,6 +143,9 @@ pub(super) fn build_tables(
                 comment,
                 owner,
                 grants,
+                rls_enabled: false,
+                rls_forced: false,
+                policies: vec![],
             },
         );
     }

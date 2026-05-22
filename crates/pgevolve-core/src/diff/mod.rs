@@ -197,6 +197,9 @@ mod tests {
             comment: Some("user accounts".into()),
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c
     }
@@ -221,6 +224,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -258,6 +264,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.indexes.push(Index {
             qname: qn("app", "users_email_idx"),

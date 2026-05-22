@@ -19,6 +19,7 @@ pub mod function;
 pub mod grant;
 pub mod index;
 pub mod partition;
+pub mod policy;
 pub mod schema;
 pub mod sequence;
 pub mod table;

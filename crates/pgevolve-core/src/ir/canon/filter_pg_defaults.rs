@@ -231,6 +231,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, None);
@@ -260,6 +263,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, Some(explicit));

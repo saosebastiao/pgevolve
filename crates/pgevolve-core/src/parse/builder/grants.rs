@@ -605,6 +605,9 @@ mod tests {
             comment: None,
             owner: None,
             grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
         });
         c.sequences.push(Sequence {
             qname: qn("app", "seq1"),
