@@ -21,6 +21,7 @@
 //!
 //! See `docs/superpowers/specs/2026-05-19-canon-consolidation-design.md`.
 
+pub mod cluster;
 pub mod filter_pg_defaults;
 pub mod renumber_enum_sort_orders;
 pub mod sentinel_view_columns;
@@ -28,18 +29,6 @@ pub mod sort_and_dedupe;
 
 use crate::ir::IrError;
 use crate::ir::catalog::Catalog;
-
-/// Cluster-IR canon rules. Implemented in Stage 2.
-pub mod cluster {
-    use crate::ir::cluster::catalog::ClusterCatalog;
-
-    /// Stage 2 fills this in. For now, sort roles by name so Stage 1's
-    /// IR test passes.
-    pub fn run(cat: &mut ClusterCatalog) {
-        cat.roles
-            .sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
-    }
-}
 
 /// Run every canonicalization pass on `cat` in order.
 ///
