@@ -347,7 +347,10 @@ fn apply_constraints(
         if let Some(c) = cons {
             tables
                 .get_mut(&oid)
-                .expect("present above")
+                .ok_or_else(|| CatalogError::DanglingReference {
+                    kind: "constraint table oid",
+                    what: oid.to_string(),
+                })?
                 .constraints
                 .push(c);
         }
@@ -459,7 +462,12 @@ fn resolve_attnums(
 
 fn placeholder_idents(n: usize) -> Vec<Identifier> {
     (0..n)
-        .map(|i| Identifier::from_unquoted(&format!("col{i}")).expect("valid"))
+        .map(|i| {
+            // `col` followed by a decimal integer produces only ASCII alphanumeric
+            // characters, which always satisfies `Identifier::from_unquoted`.
+            Identifier::from_unquoted(&format!("col{i}"))
+                .unwrap_or_else(|e| unreachable!("'col{{i}}' is always a valid identifier: {e}"))
+        })
         .collect()
 }
 

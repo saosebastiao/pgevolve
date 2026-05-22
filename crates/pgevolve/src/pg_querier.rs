@@ -56,11 +56,15 @@ impl PgCatalogQuerier {
 
     /// Detect the major version once and cache it.
     pub fn version(&self) -> Result<PgVersion, CatalogError> {
+        // SAFETY: mutex poison is unrecoverable — it means another thread holding
+        // this lock panicked.  The idiomatic Rust response is to propagate the
+        // panic by calling `expect`; there is no meaningful recovery path here.
         let cached = *self.version.lock().expect("poisoned");
         if let Some(v) = cached {
             return Ok(v);
         }
         let v = PgVersion::detect(self)?;
+        // SAFETY: same as above — mutex poison is unrecoverable.
         *self.version.lock().expect("poisoned") = Some(v);
         Ok(v)
     }

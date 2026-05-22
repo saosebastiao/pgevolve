@@ -168,9 +168,15 @@ pub fn format_status_human(record: &ApplyRecord, steps: &[StepRecord]) -> String
     s
 }
 
-/// JSON-encoded summary; never errors because [`ApplyRecord`] and
-/// [`StepRecord`] are infallibly serializable.
-pub fn format_status_json(record: &ApplyRecord, steps: &[StepRecord]) -> String {
+/// JSON-encoded summary of the given apply record and its steps.
+///
+/// Returns a `serde_json::Error` if serialization fails (in practice this
+/// cannot happen because both `ApplyRecord` and `StepRecord` contain only
+/// primitive `Serialize`-able fields, but we propagate rather than panic).
+pub fn format_status_json(
+    record: &ApplyRecord,
+    steps: &[StepRecord],
+) -> Result<String, serde_json::Error> {
     #[derive(Serialize)]
     struct Wrapper<'a> {
         apply: &'a ApplyRecord,
@@ -180,7 +186,6 @@ pub fn format_status_json(record: &ApplyRecord, steps: &[StepRecord]) -> String 
         apply: record,
         steps,
     })
-    .expect("serializable")
 }
 
 fn format_ts(t: OffsetDateTime) -> String {

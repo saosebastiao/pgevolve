@@ -96,14 +96,17 @@ fn render_type_name(type_name: &protobuf::TypeName) -> Option<String> {
 /// hard-coding it.
 fn deparse_expr(node: &NodeEnum) -> Result<String, pg_query::Error> {
     let mut scaffold = pg_query::parse("SELECT 1")?.protobuf;
-    let raw = scaffold.stmts.get_mut(0).expect("scaffold has one stmt");
+    let raw = scaffold
+        .stmts
+        .get_mut(0)
+        .ok_or_else(|| pg_query::Error::Parse("scaffold has no stmts".into()))?;
     let select_node = raw
         .stmt
         .as_mut()
-        .expect("scaffold has stmt")
+        .ok_or_else(|| pg_query::Error::Parse("scaffold stmt is None".into()))?
         .node
         .as_mut()
-        .expect("scaffold has node");
+        .ok_or_else(|| pg_query::Error::Parse("scaffold node is None".into()))?;
     let NodeEnum::SelectStmt(select) = select_node else {
         return Err(pg_query::Error::Parse(
             "scaffold parse did not yield SelectStmt".into(),
@@ -148,7 +151,10 @@ fn lowercase_keywords(s: &str) -> String {
                 out.push(n);
                 if n == '\'' {
                     if chars.peek() == Some(&'\'') {
-                        out.push(chars.next().unwrap());
+                        // SAFETY: peek() returned Some, so next() yields the same char.
+                        if let Some(escaped) = chars.next() {
+                            out.push(escaped);
+                        }
                         continue;
                     }
                     break;

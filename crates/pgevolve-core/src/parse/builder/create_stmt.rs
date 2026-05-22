@@ -744,8 +744,13 @@ fn qualified_name_from_node_list(
             ("public".to_string(), parts.remove(0))
         }
         2 => {
-            let n = parts.pop().unwrap();
-            let s = parts.pop().unwrap();
+            // SAFETY: parts.len() == 2, so both pops yield Some.
+            let n = parts
+                .pop()
+                .unwrap_or_else(|| unreachable!("len==2, first pop"));
+            let s = parts
+                .pop()
+                .unwrap_or_else(|| unreachable!("len==2, second pop"));
             (s, n)
         }
         _ => {

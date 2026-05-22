@@ -1,9 +1,20 @@
 //! Dispatcher for `Change::Extension(ExtensionChange)`.
 
+use std::sync::LazyLock;
+
 use crate::diff::change::ExtensionChange;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 use crate::plan::rewrite::extensions as sql;
+
+/// Synthetic schema component for extension targets.
+///
+/// Extensions live outside per-schema scope; this literal is a valid ASCII
+/// identifier and is constructed exactly once at first use.
+static PG_EXTENSION_SCHEMA: LazyLock<Identifier> = LazyLock::new(|| {
+    Identifier::from_unquoted("pg_extension")
+        .expect("'pg_extension' is a valid ASCII identifier — this is a compile-time constant")
+});
 
 pub fn emit(
     ec: ExtensionChange,
@@ -105,8 +116,5 @@ pub fn emit(
 /// uses for schemas (where the schema's name appears as its own
 /// "schema").
 fn extension_target(name: &Identifier) -> QualifiedName {
-    QualifiedName::new(
-        Identifier::from_unquoted("pg_extension").unwrap(),
-        name.clone(),
-    )
+    QualifiedName::new(PG_EXTENSION_SCHEMA.clone(), name.clone())
 }

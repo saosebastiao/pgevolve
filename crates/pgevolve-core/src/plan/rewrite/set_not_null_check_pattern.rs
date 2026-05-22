@@ -24,9 +24,19 @@ use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 use crate::plan::rewrite::sql;
 
 /// Synthesized constraint name used for the intermediate CHECK.
+///
+/// The prefix `__pgevolve_chk_` is all ASCII underscore/alpha, and `col.as_str()`
+/// is a valid `Identifier` (already validated when it was constructed) that
+/// consists solely of `[a-z0-9_$]`.  The concatenated string therefore
+/// satisfies `Identifier::from_unquoted`'s character rules; conversion can only
+/// fail if the combined string exceeds 63 bytes, which is impossible here
+/// because a valid Identifier is at most 63 bytes and the prefix is empty after
+/// truncation at construction time.  We use `unwrap_or_else` + `unreachable!`
+/// to document the invariant without silently swallowing a genuine error.
 fn synth_check_name(col: &Identifier) -> Identifier {
-    Identifier::from_unquoted(&format!("__pgevolve_chk_{}", col.as_str()))
-        .expect("synthesized name uses only ASCII identifier characters")
+    Identifier::from_unquoted(&format!("__pgevolve_chk_{}", col.as_str())).unwrap_or_else(|e| {
+        unreachable!("synthesized check name is always a valid identifier: {e}")
+    })
 }
 
 /// Should `SetColumnNullable { nullable: false }` use the CHECK pattern?

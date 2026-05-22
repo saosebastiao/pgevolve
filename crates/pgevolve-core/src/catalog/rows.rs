@@ -136,7 +136,12 @@ impl Row {
     pub fn get_char(&self, query: CatalogQuery, key: &str) -> Result<char, CatalogError> {
         match self.get_value(query, key)? {
             Value::Char(c) => Ok(*c),
-            Value::Text(s) if s.chars().count() == 1 => Ok(s.chars().next().unwrap()),
+            Value::Text(s) if s.chars().count() == 1 => {
+                // SAFETY: count() == 1 guarantees next() yields Some.
+                Ok(s.chars()
+                    .next()
+                    .unwrap_or_else(|| unreachable!("count==1 has one char")))
+            }
             other => Err(CatalogError::BadColumnType {
                 query,
                 column: key.to_string(),

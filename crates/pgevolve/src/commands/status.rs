@@ -36,7 +36,7 @@ pub async fn run(args: StatusArgs, cfg: &PgevolveConfig, format: OutputFormat) -
             OutputFormat::Human | OutputFormat::Sql => {
                 println!("{}", format_status_human(rec, &steps));
             }
-            OutputFormat::Json => println!("{}", format_status_json(rec, &steps)),
+            OutputFormat::Json => println!("{}", format_status_json(rec, &steps)?),
         }
         return Ok(0);
     }

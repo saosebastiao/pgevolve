@@ -46,7 +46,10 @@ impl Identifier {
             return Err(IdentifierError::TooLong(s.len()));
         }
         let mut chars = s.chars();
-        let first = chars.next().expect("non-empty checked above");
+        // SAFETY: s is non-empty — the empty check above ensures chars.next() yields Some.
+        let Some(first) = chars.next() else {
+            unreachable!("non-empty string has at least one char")
+        };
         if !(first.is_ascii_alphabetic() || first == '_') {
             return Err(IdentifierError::InvalidUnquotedChars(s.to_string()));
         }
@@ -92,7 +95,10 @@ fn needs_quoting(s: &str) -> bool {
         return true;
     }
     let mut chars = s.chars();
-    let first = chars.next().expect("non-empty checked above");
+    // SAFETY: s is non-empty — the `is_empty()` guard above returns early.
+    let Some(first) = chars.next() else {
+        unreachable!("non-empty string has at least one char")
+    };
     if !(first.is_ascii_lowercase() || first == '_') {
         return true;
     }

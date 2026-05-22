@@ -432,7 +432,7 @@ async fn status_queries_return_recent_apply_with_steps() {
     assert!(human.contains("create_schema"));
     assert!(human.contains("create_table"));
 
-    let json = pgevolve::executor::status::format_status_json(&recent[0], &steps);
+    let json = pgevolve::executor::status::format_status_json(&recent[0], &steps).unwrap();
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(v["apply"]["status"], "succeeded");
     assert_eq!(v["steps"].as_array().unwrap().len(), 2);
