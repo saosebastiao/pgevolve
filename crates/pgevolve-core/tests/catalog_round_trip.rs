@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use pgevolve_core::catalog::{CatalogFilter, PgVersion, read_catalog};
 use pgevolve_core::identifier::Identifier;
+use pgevolve_core::ir::column::{Compression, StorageKind};
 use pgevolve_core::ir::index::IndexParent;
 use pgevolve_core::parse::normalize_body::NormalizedBody;
 use pgevolve_testkit::catalog_snapshotter;
@@ -260,5 +261,89 @@ async fn catalog_body_canonical_matches_source_canonical() {
         source_canonical.canonical_text(),
         source_roundtrip.canonical_text(),
         "source body_canonical must be idempotent"
+    );
+}
+
+/// Verify that `attstorage` and `attcompression` are read from `pg_attribute`
+/// and surfaced on the IR `Column` after the canon pass.
+///
+/// - A `text` column with `ALTER COLUMN … SET STORAGE EXTERNAL` must surface
+///   `storage: Some(StorageKind::External)` (non-default, so canon leaves it).
+/// - A `bytea` column with `ALTER COLUMN … SET COMPRESSION lz4` must surface
+///   `compression: Some(Compression::Lz4)`.
+/// - A plain `bigint` column must surface `storage: None` and
+///   `compression: None` after the canon pass strips the PG type defaults.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn catalog_reads_attstorage_and_attcompression() {
+    if !docker_available() {
+        eprintln!("skipping catalog_reads_attstorage_and_attcompression: Docker not available");
+        return;
+    }
+    let sql = r"
+        CREATE SCHEMA app;
+        CREATE TABLE app.phy_test (
+            id     bigint   NOT NULL,
+            note   text,
+            blob   bytea
+        );
+        -- Override storage on the text column to EXTERNAL (non-default for text).
+        ALTER TABLE app.phy_test ALTER COLUMN note SET STORAGE EXTERNAL;
+        -- Set compression on the bytea column to lz4.
+        ALTER TABLE app.phy_test ALTER COLUMN blob SET COMPRESSION lz4;
+    ";
+    let catalog = read_catalog_from_sql(sql).await.expect("catalog read");
+
+    let table = catalog
+        .tables
+        .iter()
+        .find(|t| t.qname.to_string() == "app.phy_test")
+        .expect("table app.phy_test must exist");
+
+    // id (bigint) — PLAIN storage by type; canon strips it to None.
+    let id_col = table
+        .columns
+        .iter()
+        .find(|c| c.name.as_str() == "id")
+        .expect("column id");
+    assert_eq!(
+        id_col.storage, None,
+        "bigint default-PLAIN storage must be stripped to None by canon"
+    );
+    assert_eq!(
+        id_col.compression, None,
+        "bigint has no explicit compression"
+    );
+
+    // note (text) — overridden to EXTERNAL; canon must NOT strip it.
+    let note_col = table
+        .columns
+        .iter()
+        .find(|c| c.name.as_str() == "note")
+        .expect("column note");
+    assert_eq!(
+        note_col.storage,
+        Some(StorageKind::External),
+        "text EXTERNAL storage must survive the canon pass"
+    );
+    assert_eq!(
+        note_col.compression, None,
+        "no explicit compression on note"
+    );
+
+    // blob (bytea) — default storage (EXTENDED for bytea, stripped by canon);
+    // explicit lz4 compression must survive.
+    let blob_col = table
+        .columns
+        .iter()
+        .find(|c| c.name.as_str() == "blob")
+        .expect("column blob");
+    assert_eq!(
+        blob_col.storage, None,
+        "bytea default-EXTENDED storage must be stripped to None by canon"
+    );
+    assert_eq!(
+        blob_col.compression,
+        Some(Compression::Lz4),
+        "lz4 compression must be read from catalog"
     );
 }

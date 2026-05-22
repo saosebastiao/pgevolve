@@ -80,7 +80,9 @@ SELECT
   coalesce(s.seqcycle, false)                       AS identity_cycle,
   coll_n.nspname                                    AS collation_schema,
   coll.collname                                     AS collation_name,
-  d.description                                     AS comment
+  d.description                                     AS comment,
+  a.attstorage::text                                AS attstorage,
+  a.attcompression::text                            AS attcompression
 FROM pg_catalog.pg_attribute a
 JOIN pg_catalog.pg_class     c  ON c.oid = a.attrelid
 JOIN pg_catalog.pg_namespace n  ON n.oid = c.relnamespace

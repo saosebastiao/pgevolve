@@ -15,7 +15,8 @@ use crate::catalog::filter::CatalogFilter;
 use crate::catalog::rows::Row;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column::{
-    Column, Generated, GeneratedKind, Identity, IdentityKind, SequenceOptions,
+    Column, Compression, Generated, GeneratedKind, Identity, IdentityKind, SequenceOptions,
+    StorageKind,
 };
 use crate::ir::column_type::ColumnType;
 use crate::ir::constraint::{Constraint, ConstraintKind, Deferrable, ForeignKey};
@@ -31,6 +32,43 @@ use super::{
     ident_required, parse_check_expression, parse_fk_referenced_columns, parse_match_type,
     parse_referential_action, qname_from,
 };
+
+/// Decode `pg_attribute.attstorage` single-char text into [`StorageKind`].
+///
+/// Postgres stores `'p'`, `'e'`, `'x'`, or `'m'`. Any other value is a
+/// catalog error and is surfaced as [`CatalogError::BadColumnType`].
+fn decode_attstorage(raw: &str) -> Result<StorageKind, CatalogError> {
+    match raw {
+        "p" => Ok(StorageKind::Plain),
+        "e" => Ok(StorageKind::External),
+        "x" => Ok(StorageKind::Extended),
+        "m" => Ok(StorageKind::Main),
+        other => Err(CatalogError::BadColumnType {
+            query: CatalogQuery::Columns,
+            column: "attstorage".to_string(),
+            message: format!("unexpected attstorage value {other:?} (expected p/e/x/m)"),
+        }),
+    }
+}
+
+/// Decode `pg_attribute.attcompression` single-char text into
+/// [`Option<Compression>`].
+///
+/// `'\0'` (empty string after the `::text` cast) or any unrecognised char
+/// means "use the cluster default" → [`None`]. `'p'` = pglz, `'l'` = lz4.
+/// The empty-string case covers the null-char that Postgres stores when no
+/// explicit codec has been set. Unknown chars are treated as `None` so the
+/// reader remains forward-compatible with future PG codecs.
+fn decode_attcompression(raw: &str) -> Option<Compression> {
+    match raw {
+        "p" => Some(Compression::Pglz),
+        "l" => Some(Compression::Lz4),
+        // Empty string is how '\0' appears after ::text cast (cluster default).
+        // Any other unrecognised char is also treated as cluster default so
+        // we stay forward-compatible with future codecs.
+        _ => None,
+    }
+}
 
 pub(super) fn build_schemas(
     rows: &[Row],
@@ -160,6 +198,12 @@ fn build_column(r: &Row) -> Result<Column, CatalogError> {
 
     let comment = r.get_opt_text(q, "comment")?;
 
+    let attstorage = r.get_text(q, "attstorage")?;
+    let storage = Some(decode_attstorage(&attstorage)?);
+
+    let attcompression = r.get_text(q, "attcompression")?;
+    let compression = decode_attcompression(&attcompression);
+
     Ok(Column {
         name,
         ty,
@@ -168,8 +212,8 @@ fn build_column(r: &Row) -> Result<Column, CatalogError> {
         identity,
         generated,
         collation,
-        storage: None,
-        compression: None,
+        storage,
+        compression,
         comment,
     })
 }
