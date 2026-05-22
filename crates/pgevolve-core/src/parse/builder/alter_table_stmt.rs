@@ -388,6 +388,51 @@ mod tests {
         }
     }
 
+    /// Verify that `SET STORAGE BOGUS` always surfaces as an error, regardless
+    /// of whether `pg_query` catches it at parse time or our decoder catches it.
+    ///
+    /// The error path under test is `process_set_storage_cmd` line 176-181
+    /// (`unknown STORAGE attribute '…'`). If `pg_query` happens to accept the
+    /// keyword and pass it down, that arm is exercised. If `pg_query` rejects it
+    /// first, we confirm via a parse-level error — either way the contract holds.
+    #[test]
+    fn alter_column_set_storage_unknown_errors() {
+        let sql = "ALTER TABLE app.t ALTER COLUMN doc SET STORAGE BOGUS;";
+        // pg_query may reject this SQL outright (returning Err), or it may
+        // accept it and pass the unknown keyword to our decoder.
+        match pg_query::parse(sql) {
+            Err(_pg_err) => {
+                // pg_query rejected BOGUS before our decoder was reached.
+                // The contract is satisfied: malformed SQL fails at parse time.
+            }
+            Ok(parsed) => {
+                // pg_query accepted the keyword — our decoder must reject it.
+                let stmt = parsed
+                    .protobuf
+                    .stmts
+                    .into_iter()
+                    .next()
+                    .and_then(|raw| raw.stmt)
+                    .and_then(|n| n.node)
+                    .expect("stmt");
+                let NodeEnum::AlterTableStmt(s) = stmt else {
+                    panic!("expected AlterTableStmt");
+                };
+                let err = build_alter_table(&s, None, &loc())
+                    .expect_err("BOGUS storage keyword must be rejected by our decoder");
+                match err {
+                    ParseError::Structural { ref message, .. } => {
+                        assert!(
+                            message.contains("STORAGE"),
+                            "expected error to mention STORAGE, got: {message}"
+                        );
+                    }
+                    other => panic!("expected Structural error, got {other:?}"),
+                }
+            }
+        }
+    }
+
     #[test]
     fn rejects_add_check_via_alter() {
         let err = build("ALTER TABLE app.t ADD CONSTRAINT c1 CHECK (n > 0);").unwrap_err();
