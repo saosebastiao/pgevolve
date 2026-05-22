@@ -1,0 +1,17 @@
+[meta]
+title     = "CREATE TABLE with inline STORAGE EXTERNAL COMPRESSION lz4 — PG 16+ inline form, round-trips"
+authoring = "objects"
+spec_refs = ["objects.column.storage", "objects.column.compression"]
+
+[pg]
+# Inline STORAGE in CREATE TABLE is a PG 16+ grammar feature.
+min = 16
+max = 17
+
+[expect.diff]
+contains = [
+  "app.docs",
+]
+
+[expect.plan]
+steps = 1

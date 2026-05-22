@@ -1,0 +1,16 @@
+[meta]
+title     = "STORAGE EXTENDED on text — canon strips type-default, produces zero diff"
+authoring = "objects"
+spec_refs = ["objects.column.storage"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+steps = 0
+# No golden needed — empty plan
+golden = false

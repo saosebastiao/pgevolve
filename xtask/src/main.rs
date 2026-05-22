@@ -226,7 +226,7 @@ fn bless_conformance() -> Result<()> {
                     _ => Strategy::Online,
                 });
 
-            let (_plan, rendered_sql) =
+            let (_plan, rendered_sql, _advisory) =
                 render_plan(&fixture.before_sql, &fixture.after_sql, strategy)
                     .with_context(|| format!("render plan for {}", dir.display()))?;
             let normalized = normalize(&rendered_sql);

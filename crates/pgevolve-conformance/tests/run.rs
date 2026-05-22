@@ -206,6 +206,26 @@ async fn run_objects(fixture: &Fixture, pg_major: u32) -> FixtureResult {
         failures.push(("touches_only".into(), e.to_string()));
     }
 
+    // Advisory findings assertion: every rule_id listed in
+    // [expect.advisory].rule_ids must appear in the changeset findings.
+    {
+        let actual_rule_ids: Vec<&str> = plan_outcome
+            .advisory_findings
+            .iter()
+            .map(|f| f.rule)
+            .collect();
+        for expected_rule in &fixture.expect.advisory.rule_ids {
+            if !actual_rule_ids.contains(&expected_rule.as_str()) {
+                failures.push((
+                    "advisory".into(),
+                    format!(
+                        "expected advisory rule `{expected_rule}` not found in findings {actual_rule_ids:?}"
+                    ),
+                ));
+            }
+        }
+    }
+
     // Layer 3.
     match plan::check_golden(fixture, &plan_outcome.rendered_sql, pg_major) {
         Ok(out) if out.is_ok() => {}

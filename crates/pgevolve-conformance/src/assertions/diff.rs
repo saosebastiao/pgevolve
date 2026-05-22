@@ -60,8 +60,8 @@ fn render(diffs: &[Difference]) -> String {
 mod tests {
     use super::*;
     use crate::fixture::{
-        ExpectApply, ExpectDiff, ExpectPlan, FixtureBudget, FixtureExpect, FixtureMeta,
-        FixturePassthrough, FixturePg,
+        ExpectAdvisory, ExpectApply, ExpectDiff, ExpectPlan, FixtureBudget, FixtureExpect,
+        FixtureMeta, FixturePassthrough, FixturePg,
     };
     use std::path::PathBuf;
 
@@ -88,6 +88,7 @@ mod tests {
                 dep_graph: crate::fixture::ExpectDepGraph::default(),
                 intent: Vec::new(),
                 failure: None,
+                advisory: ExpectAdvisory::default(),
             },
         }
     }

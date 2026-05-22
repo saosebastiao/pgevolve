@@ -158,6 +158,19 @@ pub struct ExpectIntentRow {
     pub reason_contains: Vec<String>,
 }
 
+/// `[expect.advisory]` — assertions on changeset-level advisory lint findings.
+///
+/// These correspond to `Warning`-severity rules fired by
+/// `pgevolve_core::lint::universal::check_changeset`, such as
+/// `storage-downgrade-not-retroactive` and `compression-change-not-retroactive`.
+/// They do not block plan generation.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExpectAdvisory {
+    /// Every rule ID listed here must appear in the advisory findings.
+    #[serde(default)]
+    pub rule_ids: Vec<String>,
+}
+
 /// `[expect]` block.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct FixtureExpect {
@@ -184,6 +197,12 @@ pub struct FixtureExpect {
     /// `[expect.failure]` — failure-fixture contract declaration.
     #[serde(default)]
     pub failure: Option<ExpectFailure>,
+    /// `[expect.advisory]` — advisory findings assertions.
+    ///
+    /// When non-empty, every `rule_id` listed must appear in the advisory
+    /// findings produced by `check_changeset` for this fixture's diff.
+    #[serde(default)]
+    pub advisory: ExpectAdvisory,
 }
 
 /// `[expect.dep_graph]` — L8 dep-graph golden.

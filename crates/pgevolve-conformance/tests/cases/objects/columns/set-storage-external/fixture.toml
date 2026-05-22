@@ -1,0 +1,16 @@
+[meta]
+title     = "ALTER COLUMN SET STORAGE EXTERNAL — text body forced out-of-line, no compression"
+authoring = "objects"
+spec_refs = ["objects.column.storage"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.docs.columns.body",
+]
+
+[expect.plan]
+steps = 1

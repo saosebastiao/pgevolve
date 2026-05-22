@@ -10,6 +10,8 @@
 use pgevolve_core::catalog::DriftReport;
 use pgevolve_core::diff::{ChangeSet, diff};
 use pgevolve_core::ir::catalog::Catalog;
+use pgevolve_core::lint::Finding;
+use pgevolve_core::lint::universal::check_changeset;
 use pgevolve_core::parse::{ParseError, parse_directory};
 use pgevolve_core::plan::{
     Plan, PlanError, PlanIoError, PlannerPolicy, Strategy, group_steps, order, rewrite_with_source,
@@ -65,15 +67,16 @@ pub fn compute_changes(
     Ok((target, source, changes))
 }
 
-/// Run the full pipeline. Returns the resulting `Plan` plus the
-/// rendered `plan.sql` for downstream assertions (step count, rewrites,
-/// golden compare).
+/// Run the full pipeline. Returns the resulting `Plan`, the rendered
+/// `plan.sql` for downstream assertions (step count, rewrites, golden
+/// compare), and any advisory findings from `check_changeset`.
 pub fn render_plan(
     before_sql: &str,
     after_sql: &str,
     strategy: Strategy,
-) -> Result<(Plan, String), PipelineError> {
+) -> Result<(Plan, String, Vec<Finding>), PipelineError> {
     let (target, source, changes) = compute_changes(before_sql, after_sql)?;
+    let advisory_findings = check_changeset(&changes);
     let policy = PlannerPolicy {
         strategy,
         ..PlannerPolicy::default()
@@ -93,7 +96,7 @@ pub fn render_plan(
     let mut buf = Vec::new();
     write_plan_sql(&plan, &mut buf)?;
     let sql = String::from_utf8(buf).expect("plan.sql is utf-8");
-    Ok((plan, sql))
+    Ok((plan, sql, advisory_findings))
 }
 
 #[cfg(test)]
@@ -103,17 +106,18 @@ mod tests {
     #[test]
     fn empty_diff_produces_empty_plan() {
         let sql = "-- @pgevolve schema=app\nCREATE SCHEMA app;\n";
-        let (plan, rendered) = render_plan(sql, sql, Strategy::Online).unwrap();
+        let (plan, rendered, advisory) = render_plan(sql, sql, Strategy::Online).unwrap();
         let step_count: usize = plan.groups.iter().map(|g| g.steps.len()).sum();
         assert_eq!(step_count, 0, "no diff → no steps");
         assert!(rendered.len() < 4096, "header-only plan should be short");
+        assert!(advisory.is_empty(), "no-op → no advisory findings");
     }
 
     #[test]
     fn add_column_produces_at_least_one_step() {
         let before = "-- @pgevolve schema=app\nCREATE SCHEMA app;\nCREATE TABLE app.t (id bigint NOT NULL);\n";
         let after = "-- @pgevolve schema=app\nCREATE SCHEMA app;\nCREATE TABLE app.t (id bigint NOT NULL, name text);\n";
-        let (plan, rendered) = render_plan(before, after, Strategy::Online).unwrap();
+        let (plan, rendered, _advisory) = render_plan(before, after, Strategy::Online).unwrap();
         let step_count: usize = plan.groups.iter().map(|g| g.steps.len()).sum();
         assert!(
             step_count >= 1,

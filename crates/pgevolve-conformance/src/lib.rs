@@ -15,4 +15,4 @@ pub mod normalize;
 pub mod planning;
 pub mod walk;
 
-pub use fixture::{Fixture, FixtureError, FixtureExpect, FixtureMeta};
+pub use fixture::{ExpectAdvisory, Fixture, FixtureError, FixtureExpect, FixtureMeta};

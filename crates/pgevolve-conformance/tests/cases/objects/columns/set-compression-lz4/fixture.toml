@@ -1,0 +1,19 @@
+[meta]
+title     = "SET COMPRESSION lz4 — codec change fires compression-change-not-retroactive advisory warning"
+authoring = "objects"
+spec_refs = ["objects.column.compression"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.docs.columns.body",
+]
+
+[expect.plan]
+steps = 1
+
+[expect.advisory]
+rule_ids = ["compression-change-not-retroactive"]

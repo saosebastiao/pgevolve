@@ -2,6 +2,7 @@
 //! used. Layer 3 (golden plan.sql compare) lives alongside in this
 //! file and is added in a follow-up task.
 
+use pgevolve_core::lint::Finding;
 use pgevolve_core::plan::{Plan, Strategy};
 
 use crate::fixture::Fixture;
@@ -20,6 +21,8 @@ pub struct PlanInvariantOutcome {
     pub step_mismatch: Option<usize>,
     /// Rewrites named in fixture.expect that did not appear in the plan.
     pub missing_rewrites: Vec<String>,
+    /// Advisory findings from `check_changeset`, for Layer advisory assertions.
+    pub advisory_findings: Vec<Finding>,
 }
 
 impl PlanInvariantOutcome {
@@ -32,7 +35,8 @@ impl PlanInvariantOutcome {
 /// Run Layer 2.
 pub fn check(fixture: &Fixture) -> Result<PlanInvariantOutcome, PipelineError> {
     let strategy = parse_strategy(fixture).unwrap_or(Strategy::Online);
-    let (plan, rendered_sql) = render_plan(&fixture.before_sql, &fixture.after_sql, strategy)?;
+    let (plan, rendered_sql, advisory_findings) =
+        render_plan(&fixture.before_sql, &fixture.after_sql, strategy)?;
 
     let actual_steps: usize = plan.groups.iter().map(|g| g.steps.len()).sum();
     let step_mismatch = match fixture.expect.plan.steps {
@@ -59,6 +63,7 @@ pub fn check(fixture: &Fixture) -> Result<PlanInvariantOutcome, PipelineError> {
         actual_steps,
         step_mismatch,
         missing_rewrites,
+        advisory_findings,
     })
 }
 
@@ -164,8 +169,8 @@ pub fn check_golden(
 mod tests {
     use super::*;
     use crate::fixture::{
-        ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureBudget, FixtureExpect,
-        FixtureMeta, FixturePassthrough, FixturePg,
+        ExpectAdvisory, ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureBudget,
+        FixtureExpect, FixtureMeta, FixturePassthrough, FixturePg,
     };
     use std::path::PathBuf;
 
@@ -190,6 +195,7 @@ mod tests {
                 dep_graph: ExpectDepGraph::default(),
                 intent: Vec::new(),
                 failure: None,
+                advisory: ExpectAdvisory::default(),
             },
         }
     }
@@ -243,8 +249,8 @@ mod tests {
 mod golden_tests {
     use super::*;
     use crate::fixture::{
-        ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureBudget, FixtureExpect,
-        FixtureMeta, FixturePassthrough, FixturePg,
+        ExpectAdvisory, ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureBudget,
+        FixtureExpect, FixtureMeta, FixturePassthrough, FixturePg,
     };
     use std::path::PathBuf;
 
@@ -279,6 +285,7 @@ mod golden_tests {
                 dep_graph: ExpectDepGraph::default(),
                 intent: Vec::new(),
                 failure: None,
+                advisory: ExpectAdvisory::default(),
             },
         }
     }
