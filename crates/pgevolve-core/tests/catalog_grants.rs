@@ -10,6 +10,7 @@
 use anyhow::{Context, Result, anyhow};
 use pgevolve_core::catalog::{CatalogFilter, PgVersion, read_catalog};
 use pgevolve_core::identifier::Identifier;
+use pgevolve_core::ir::default_privileges::DefaultPrivObjectType;
 use pgevolve_core::ir::grant::{GrantTarget, Privilege};
 use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
 use pgevolve_testkit::pg_querier::PgCatalogQuerier;
@@ -239,4 +240,76 @@ async fn reads_function_grants_and_owner() {
             && matches!(&g.grantee, GrantTarget::Role(r) if r.as_str() == "callers")),
         "must have callers EXECUTE grant on function"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Test 5: reads_default_privileges
+// ---------------------------------------------------------------------------
+
+/// Verify that `catalog.default_privileges` is populated from `pg_default_acl`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reads_default_privileges() {
+    if !docker_available() {
+        eprintln!("skipping reads_default_privileges: Docker not available");
+        return;
+    }
+
+    let cat = read_catalog_from_sql(
+        r"
+        CREATE SCHEMA app;
+        CREATE ROLE app_owner;
+        CREATE ROLE readers;
+        ALTER DEFAULT PRIVILEGES FOR ROLE app_owner IN SCHEMA app
+            GRANT SELECT ON TABLES TO readers;
+        ",
+    )
+    .await
+    .expect("read catalog");
+
+    let dp = &cat.default_privileges;
+    assert_eq!(
+        dp.len(),
+        1,
+        "expected exactly one default-privilege rule; got: {dp:#?}"
+    );
+    assert_eq!(dp[0].target_role.as_str(), "app_owner");
+    assert_eq!(dp[0].schema.as_ref().map(Identifier::as_str), Some("app"));
+    assert_eq!(dp[0].object_type, DefaultPrivObjectType::Tables);
+    assert_eq!(
+        dp[0].grants.len(),
+        1,
+        "expected exactly one grant in rule; got: {:#?}",
+        dp[0].grants
+    );
+    assert_eq!(dp[0].grants[0].privilege, Privilege::Select);
+    assert!(
+        matches!(&dp[0].grants[0].grantee, GrantTarget::Role(r) if r.as_str() == "readers"),
+        "grantee must be 'readers'; got: {:?}",
+        dp[0].grants[0].grantee
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 6: default_privileges_filters_pg_predefined_roles
+// ---------------------------------------------------------------------------
+
+/// Verify that predefined `pg_*` roles are excluded from `default_privileges`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn default_privileges_filters_pg_predefined_roles() {
+    if !docker_available() {
+        eprintln!("skipping default_privileges_filters_pg_predefined_roles: Docker not available");
+        return;
+    }
+
+    let cat = read_catalog_from_sql("CREATE SCHEMA app;")
+        .await
+        .expect("read catalog");
+
+    for rule in &cat.default_privileges {
+        assert!(
+            !rule.target_role.as_str().starts_with("pg_"),
+            "predefined pg_* role must not appear in default_privileges: {:?}",
+            rule.target_role
+        );
+    }
 }

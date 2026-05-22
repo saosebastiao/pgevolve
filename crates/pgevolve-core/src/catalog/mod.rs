@@ -114,6 +114,12 @@ pub enum CatalogQuery {
     ///
     /// Same `$1::text[]` bootstrap-role filter as [`Self::ClusterRoles`].
     ClusterMembers,
+    /// `pg_default_acl` rows joined to `pg_authid` and `pg_namespace`.
+    ///
+    /// Returns one row per (`target_role`, schema, `object_type`) tuple. Rows for
+    /// predefined `pg_*` roles are filtered out. Takes **no** `$1::text[]`
+    /// parameter; `takes_text_array_param` returns `false` for this variant.
+    DefaultPrivileges,
 }
 
 impl CatalogQuery {
@@ -128,7 +134,10 @@ impl CatalogQuery {
     /// this method returns `false` for those.
     #[must_use]
     pub const fn takes_text_array_param(self) -> bool {
-        !matches!(self, Self::PgVersion | Self::Extensions)
+        !matches!(
+            self,
+            Self::PgVersion | Self::Extensions | Self::DefaultPrivileges
+        )
     }
 }
 
@@ -183,6 +192,7 @@ pub fn read_catalog(
     let triggers_rows = querier.fetch(CatalogQuery::Triggers, &managed)?;
     let partitioned_tables_rows = querier.fetch(CatalogQuery::PartitionedTables, &managed)?;
     let partitions_rows = querier.fetch(CatalogQuery::Partitions, &managed)?;
+    let default_privileges_rows = querier.fetch(CatalogQuery::DefaultPrivileges, &[])?;
 
     let raw = assemble::RawRows {
         version,
@@ -205,6 +215,7 @@ pub fn read_catalog(
         triggers: triggers_rows,
         partitioned_tables: partitioned_tables_rows,
         partitions: partitions_rows,
+        default_privileges: default_privileges_rows,
     };
     let (catalog, drift) = assemble::assemble(raw, filter)?;
     Ok((catalog.canonicalize()?, drift))

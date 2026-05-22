@@ -5,6 +5,7 @@
 //! per-version submodules; [`query_for`] dispatches.
 
 pub mod cluster;
+pub mod default_privileges;
 pub mod extensions;
 pub mod functions;
 pub mod partitioned_tables;
@@ -49,6 +50,7 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::Partitions) => partitions::SELECT_PARTITIONS,
         (_, CatalogQuery::ClusterRoles) => cluster::CLUSTER_ROLES_QUERY,
         (_, CatalogQuery::ClusterMembers) => cluster::CLUSTER_MEMBERS_QUERY,
+        (_, CatalogQuery::DefaultPrivileges) => default_privileges::DEFAULT_PRIVILEGES_QUERY,
     }
 }
 

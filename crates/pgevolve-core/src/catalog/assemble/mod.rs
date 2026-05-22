@@ -16,6 +16,7 @@
 //!   `Sequence.owned_by` and the column-side `Identity`/`Default::Sequence`
 //!   linkage so source-IR and catalog-IR converge on the same shape.
 
+pub(super) mod default_privileges;
 mod functions;
 mod partitions;
 mod tables;
@@ -62,6 +63,7 @@ pub struct RawRows {
     pub triggers: Vec<Row>,
     pub partitioned_tables: Vec<Row>,
     pub partitions: Vec<Row>,
+    pub default_privileges: Vec<Row>,
 }
 
 /// Convert raw rows into a [`Catalog`] and a [`DriftReport`]. Caller is
@@ -91,6 +93,7 @@ pub fn assemble(
         triggers,
         partitioned_tables,
         partitions,
+        default_privileges,
     } = raw;
 
     let mut catalog = Catalog::empty();
@@ -150,6 +153,9 @@ pub fn assemble(
 
     // Merge partition metadata: re-parse pg_get_partkeydef / pg_get_expr(relpartbound).
     partitions::merge_partition_metadata(&mut catalog, &partitioned_tables, &partitions)?;
+
+    // Build ALTER DEFAULT PRIVILEGES rules from pg_default_acl.
+    catalog.default_privileges = default_privileges::build_default_privileges(&default_privileges)?;
 
     Ok((catalog, drift))
 }
