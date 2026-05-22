@@ -46,6 +46,13 @@
 //! - **`compression-change-not-retroactive`** — fires on any `SET COMPRESSION`
 //!   change. Existing `TOASTed` values keep their original codec until rewritten
 //!   by UPDATE or VACUUM FULL.
+//! - **`grants-to-unmanaged-role`** — fires (Warning) when the catalog has
+//!   grants to roles not declared in source. The differ already filtered these
+//!   out of REVOKE (lenient drift policy); the lint surfaces them so operators
+//!   can decide whether to manage them or accept the drift.
+//! - **`revoke-from-owner`** — fires (Error) when a REVOKE step targets the
+//!   object's owner. PG silently rejects (owner has implicit privileges); we
+//!   pre-empt with a clear plan-time error.
 //!
 //! Cluster changeset-level rules (run via [`check_cluster_changeset`]):
 //!
@@ -128,6 +135,8 @@ pub fn check_changeset(cs: &ChangeSet) -> Vec<Finding> {
     let mut out = Vec::new();
     out.extend(rules::storage_downgrade_not_retroactive::check(cs));
     out.extend(rules::compression_change_not_retroactive::check(cs));
+    out.extend(rules::grants_to_unmanaged_role::check(cs));
+    out.extend(rules::revoke_from_owner::check(cs));
     out
 }
 
