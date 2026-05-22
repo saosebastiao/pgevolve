@@ -103,15 +103,16 @@ pub(super) fn build_views_and_mvs(
         let comment = r.get_opt_text(q, "comment")?;
 
         let owner_str = r.get_text(q, "owner")?;
-        let owner = Some(Identifier::from_unquoted(&owner_str).map_err(|e| {
-            CatalogError::BadColumnType {
+        let owner_ident =
+            Identifier::from_unquoted(&owner_str).map_err(|e| CatalogError::BadColumnType {
                 query: q,
                 column: "owner".to_string(),
                 message: format!("invalid owner {owner_str:?}: {e}"),
-            }
-        })?);
+            })?;
         let acl_strings = r.get_text_array(q, "acl")?;
-        let mut grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+        let raw_grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+        let mut grants = crate::catalog::grants::strip_owner_self_grants(raw_grants, &owner_ident);
+        let owner = Some(owner_ident);
 
         let body_canonical = build_body(&body_text, &qname)?;
 
@@ -122,8 +123,13 @@ pub(super) fn build_views_and_mvs(
         let columns = columns_by_key.remove(&col_key).unwrap_or_default();
 
         // Append column-level ACL grants collected above.
+        // Strip owner self-grants from attacl for the same reason as relacl.
         if let Some(col_grants) = col_grants_by_key.remove(&col_key) {
-            grants.extend(col_grants);
+            let filtered = crate::catalog::grants::strip_owner_self_grants(
+                col_grants,
+                owner.as_ref().expect("owner was just set above"),
+            );
+            grants.extend(filtered);
         }
 
         // Extract dependencies by walking the body AST. On the catalog side we

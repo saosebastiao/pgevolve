@@ -73,9 +73,14 @@ async fn reads_table_grants_and_owner() {
         "table owner must be app_owner"
     );
 
-    // readers should have an object-level SELECT grant and a column-level INSERT(name) grant.
-    // The total grant count includes the owner's explicit ACL entries in relacl, so we
-    // assert on presence rather than exact count.
+    // After stripping owner self-grants, exactly 2 grants remain:
+    // an object-level SELECT and a column-level INSERT(name), both to `readers`.
+    assert_eq!(
+        t.grants.len(),
+        2,
+        "expected SELECT object-level + INSERT(name) column-level only; owner self-grants filtered; grants: {:#?}",
+        t.grants
+    );
     assert!(
         t.grants.iter().any(|g| g.privilege == Privilege::Select
             && g.columns.is_none()

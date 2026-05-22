@@ -188,17 +188,18 @@ pub(super) fn build_user_types(
         };
 
         let owner_str = r.get_text(Q::UserTypes, "owner")?;
-        let owner = Some(
+        let owner_ident =
             crate::identifier::Identifier::from_unquoted(&owner_str).map_err(|e| {
                 CatalogError::BadColumnType {
                     query: Q::UserTypes,
                     column: "owner".to_string(),
                     message: format!("invalid owner {owner_str:?}: {e}"),
                 }
-            })?,
-        );
+            })?;
         let acl_strings = r.get_text_array(Q::UserTypes, "acl")?;
-        let grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+        let raw_grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+        let grants = crate::catalog::grants::strip_owner_self_grants(raw_grants, &owner_ident);
+        let owner = Some(owner_ident);
 
         out.push(UserType {
             qname,

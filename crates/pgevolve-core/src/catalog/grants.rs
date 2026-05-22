@@ -10,6 +10,27 @@ use crate::catalog::error::CatalogError;
 use crate::identifier::Identifier;
 use crate::ir::grant::{Grant, GrantTarget, Privilege};
 
+/// Strip grants whose grantee equals the object owner.
+///
+/// PG's `relacl` materializes owner self-grants (e.g. `app_owner=arwdDxt/app_owner`)
+/// whenever any explicit GRANT exists on an object. These are redundant with the
+/// owner relationship and would cause spurious diffs if carried in our IR: source
+/// authors who write only `ALTER TABLE t OWNER TO app_owner;` (no explicit grants)
+/// would see the plan demand `REVOKE` against the owner, and the `revoke-from-owner`
+/// lint (Stage 11) would then error the plan.
+///
+/// `PUBLIC` grants are never considered owner self-grants and are always kept.
+#[must_use]
+pub fn strip_owner_self_grants(grants: Vec<Grant>, owner: &Identifier) -> Vec<Grant> {
+    grants
+        .into_iter()
+        .filter(|g| match &g.grantee {
+            GrantTarget::Role(name) => name != owner,
+            GrantTarget::Public => true,
+        })
+        .collect()
+}
+
 /// Decode an array of aclitem strings into `Grant` entries.
 ///
 /// `columns: None` for object-level; caller is responsible for marking
@@ -146,6 +167,41 @@ mod tests {
         let arr = vec!["alice=r/o".to_string(), "=a/o".to_string()];
         let g = decode_aclitem_array(&arr).unwrap();
         assert_eq!(g.len(), 2);
+    }
+
+    #[test]
+    fn strip_owner_self_grants_removes_owner_entries() {
+        let owner = Identifier::from_unquoted("app_owner").unwrap();
+        let grants = vec![
+            Grant {
+                grantee: GrantTarget::Role(Identifier::from_unquoted("app_owner").unwrap()),
+                privilege: Privilege::Select,
+                with_grant_option: false,
+                columns: None,
+            },
+            Grant {
+                grantee: GrantTarget::Role(Identifier::from_unquoted("readers").unwrap()),
+                privilege: Privilege::Select,
+                with_grant_option: false,
+                columns: None,
+            },
+        ];
+        let filtered = strip_owner_self_grants(grants, &owner);
+        assert_eq!(filtered.len(), 1);
+        assert!(matches!(&filtered[0].grantee, GrantTarget::Role(r) if r.as_str() == "readers"));
+    }
+
+    #[test]
+    fn strip_owner_self_grants_keeps_public() {
+        let owner = Identifier::from_unquoted("app_owner").unwrap();
+        let grants = vec![Grant {
+            grantee: GrantTarget::Public,
+            privilege: Privilege::Select,
+            with_grant_option: false,
+            columns: None,
+        }];
+        let filtered = strip_owner_self_grants(grants, &owner);
+        assert_eq!(filtered.len(), 1, "PUBLIC grants are not owner self-grants");
     }
 
     #[test]

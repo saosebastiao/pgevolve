@@ -86,15 +86,16 @@ pub(super) fn build_schemas(
             continue;
         }
         let owner_str = r.get_text(q, "owner")?;
-        let owner = Some(Identifier::from_unquoted(&owner_str).map_err(|e| {
-            CatalogError::BadColumnType {
+        let owner_ident =
+            Identifier::from_unquoted(&owner_str).map_err(|e| CatalogError::BadColumnType {
                 query: q,
                 column: "owner".to_string(),
                 message: format!("invalid owner {owner_str:?}: {e}"),
-            }
-        })?);
+            })?;
         let acl_strings = r.get_text_array(q, "acl")?;
-        let grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+        let raw_grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+        let grants = crate::catalog::grants::strip_owner_self_grants(raw_grants, &owner_ident);
+        let owner = Some(owner_ident);
         out.push(Schema {
             name,
             comment: r.get_opt_text(q, "comment")?,
@@ -121,15 +122,16 @@ pub(super) fn build_tables(
         }
         let comment = r.get_opt_text(q, "comment")?;
         let owner_str = r.get_text(q, "owner")?;
-        let owner = Some(Identifier::from_unquoted(&owner_str).map_err(|e| {
-            CatalogError::BadColumnType {
+        let owner_ident =
+            Identifier::from_unquoted(&owner_str).map_err(|e| CatalogError::BadColumnType {
                 query: q,
                 column: "owner".to_string(),
                 message: format!("invalid owner {owner_str:?}: {e}"),
-            }
-        })?);
+            })?;
         let acl_strings = r.get_text_array(q, "acl")?;
-        let grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+        let raw_grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+        let grants = crate::catalog::grants::strip_owner_self_grants(raw_grants, &owner_ident);
+        let owner = Some(owner_ident);
         tables.insert(
             oid,
             Table {
@@ -156,9 +158,15 @@ pub(super) fn build_tables(
         };
         let column = build_column(cr)?;
         // Decode column-level ACL entries and attach the column name.
+        // Strip owner self-grants from attacl for the same reason as relacl.
         let col_acl_strings = cr.get_text_array(CatalogQuery::Columns, "attacl")?;
         if !col_acl_strings.is_empty() {
-            let col_grants = crate::catalog::grants::decode_aclitem_array(&col_acl_strings)?;
+            let raw_col_grants = crate::catalog::grants::decode_aclitem_array(&col_acl_strings)?;
+            let col_grants = if let Some(owner) = table.owner.as_ref() {
+                crate::catalog::grants::strip_owner_self_grants(raw_col_grants, owner)
+            } else {
+                raw_col_grants
+            };
             for mut g in col_grants {
                 g.columns = Some(vec![column.name.clone()]);
                 table.grants.push(g);
@@ -517,16 +525,16 @@ pub(super) fn build_sequence(
     let comment = r.get_opt_text(q, "comment")?;
 
     let owner_str = r.get_text(q, "owner")?;
-    let owner =
-        Some(
-            Identifier::from_unquoted(&owner_str).map_err(|e| CatalogError::BadColumnType {
-                query: q,
-                column: "owner".to_string(),
-                message: format!("invalid owner {owner_str:?}: {e}"),
-            })?,
-        );
+    let owner_ident =
+        Identifier::from_unquoted(&owner_str).map_err(|e| CatalogError::BadColumnType {
+            query: q,
+            column: "owner".to_string(),
+            message: format!("invalid owner {owner_str:?}: {e}"),
+        })?;
     let acl_strings = r.get_text_array(q, "acl")?;
-    let grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+    let raw_grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+    let grants = crate::catalog::grants::strip_owner_self_grants(raw_grants, &owner_ident);
+    let owner = Some(owner_ident);
 
     // PG stores explicit `min_value`/`max_value` even when the source
     // didn't specify them. The catalog reader returns those raw values;
