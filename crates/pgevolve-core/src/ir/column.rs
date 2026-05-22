@@ -80,8 +80,8 @@ pub enum GeneratedKind {
 ///
 /// Mirrors Postgres `pg_attribute.attstorage` (`p|e|x|m`). The semantic
 /// effective value depends on the column's data type; see
-/// [`crate::ir::canon::filter_pg_defaults`] for how `None` is preserved
-/// when the requested storage matches the type default.
+/// [`crate::ir::canon::filter_pg_defaults`] for how an explicit
+/// `Some(default)` is stripped to `None` so source and catalog round-trip equally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StorageKind {
@@ -97,9 +97,7 @@ pub enum StorageKind {
 
 /// Per-column TOAST compression codec.
 ///
-/// Mirrors Postgres `pg_attribute.attcompression`. `None` (i.e. field
-/// value `None` on `Column`) means "use the cluster
-/// `default_toast_compression` GUC."
+/// Mirrors the codec character stored in Postgres `pg_attribute.attcompression`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Compression {

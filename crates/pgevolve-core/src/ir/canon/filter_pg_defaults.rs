@@ -383,6 +383,14 @@ mod tests {
     }
 
     #[test]
+    fn type_default_for_numeric_is_main() {
+        let mut c = col("amount", ColumnType::Numeric { precision: None, scale: None });
+        c.storage = Some(StorageKind::Main);
+        normalize_column_storage(&mut c);
+        assert_eq!(c.storage, None, "Main on numeric should normalize to None (numeric's typstorage is 'm' = Main)");
+    }
+
+    #[test]
     fn compression_is_not_stripped_by_canon() {
         let mut c = col("body", ColumnType::Text);
         c.compression = Some(Compression::Pglz);
