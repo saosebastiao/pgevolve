@@ -28,15 +28,21 @@ pub fn parse_cluster_directory(roles_dir: &Path) -> Result<ClusterCatalog, Parse
 }
 
 fn collect_sql_files(dir: &Path) -> Result<Vec<std::path::PathBuf>, ParseError> {
-    let mut out: Vec<_> = std::fs::read_dir(dir)
-        .map_err(|e| ParseError::Io {
+    let entries = std::fs::read_dir(dir).map_err(|e| ParseError::Io {
+        path: dir.to_path_buf(),
+        source: e,
+    })?;
+    let mut out = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| ParseError::Io {
             path: dir.to_path_buf(),
             source: e,
-        })?
-        .filter_map(Result::ok)
-        .map(|d| d.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "sql"))
-        .collect();
+        })?;
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "sql") {
+            out.push(path);
+        }
+    }
     out.sort();
     Ok(out)
 }

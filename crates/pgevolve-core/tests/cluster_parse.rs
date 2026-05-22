@@ -175,3 +175,19 @@ fn unknown_statement_kind_errors() {
     let err = parse_cluster_directory(&dir).unwrap_err();
     assert!(err.to_string().contains("not supported"), "got: {err}");
 }
+
+#[test]
+fn alter_role_unknown_role_errors() {
+    let td = TempDir::new().unwrap();
+    let dir = write_roles(&td, &[("a.sql", "ALTER ROLE nonexistent WITH LOGIN;")]);
+    let err = parse_cluster_directory(&dir).unwrap_err();
+    assert!(err.to_string().contains("unknown role"), "got: {err}");
+}
+
+#[test]
+fn revoke_role_in_source_errors() {
+    let td = TempDir::new().unwrap();
+    let dir = write_roles(&td, &[("a.sql", "REVOKE readers FROM app_user;")]);
+    let err = parse_cluster_directory(&dir).unwrap_err();
+    assert!(err.to_string().contains("REVOKE"), "got: {err}");
+}

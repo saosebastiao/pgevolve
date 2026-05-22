@@ -22,6 +22,7 @@ pub(super) fn apply_options(
     Ok(())
 }
 
+// apply_one is a flat match over PG's fixed option-name set; splitting it adds no clarity.
 #[allow(clippy::cognitive_complexity)]
 fn apply_one(
     def: &pg_query::protobuf::DefElem,
@@ -108,22 +109,9 @@ fn extract_string(
     };
     match arg {
         pg_query::NodeEnum::String(s) => Ok(s.sval.clone()),
-        pg_query::NodeEnum::TypeName(tn) => {
-            // pg_query encodes VALID UNTIL 'timestamp' as a TypeName node
-            // when the value looks like a type name.
-            if let Some(name) = tn.names.first().and_then(|n| n.node.as_ref())
-                && let pg_query::NodeEnum::String(s) = name
-            {
-                return Ok(s.sval.clone());
-            }
-            Err(ParseError::Structural {
-                location: loc.clone(),
-                message: format!(
-                    "option '{}' expected string, got TypeName {tn:?}",
-                    def.defname
-                ),
-            })
-        }
+        // TypeName arm removed: libpg_query (gram.c:32595) always encodes
+        // VALID UNTIL via makeString(), so the String arm above is the only
+        // reachable case. Confirmed by running the full test suite without it.
         other => Err(ParseError::Structural {
             location: loc.clone(),
             message: format!("option '{}' expected string, got {other:?}", def.defname),
