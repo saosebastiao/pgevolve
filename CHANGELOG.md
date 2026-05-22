@@ -7,6 +7,24 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-05-21
+
+### Added
+
+- **Per-column TOAST storage** — `STORAGE { PLAIN | EXTERNAL | EXTENDED | MAIN }` is now a managed `Column` attribute. Source parser accepts both inline (`col text STORAGE EXTERNAL`, PG 16+ syntax) and `ALTER COLUMN SET STORAGE` forms. Differ emits non-destructive `SET STORAGE` steps; canon strips type-default values so explicit and implicit defaults are equivalent.
+- **Per-column TOAST compression** — `COMPRESSION { pglz | lz4 }` is now a managed attribute. `None` preserves the cluster `default_toast_compression` GUC; explicit `pglz` or `lz4` overrides it. `SET COMPRESSION DEFAULT` round-trips through the parser as `None`.
+- **Two new lint rules** (surfaced as `Plan.advisory_findings` and printed by `pgevolve plan` to stderr):
+  - `storage-downgrade-not-retroactive` — warns when a SET STORAGE change reduces toastability (e.g. `EXTERNAL → MAIN`), since existing TOASTed values aren't rewritten until UPDATE or VACUUM FULL.
+  - `compression-change-not-retroactive` — warns on any compression change for the same reason.
+
+### Catalog reader
+
+- `COLUMNS_QUERY` now selects `attstorage` and `attcompression` from `pg_attribute`. No per-version split; both columns are present in PG 14+ (the project MSRV).
+
+### Conformance
+
+- Five new fixtures under `objects/columns/`: `set-storage-external`, `set-storage-plain-warning`, `set-compression-lz4`, `create-table-with-storage`, `set-storage-type-default-noop`.
+
 ## [0.2.0] — 2026-05-21
 
 Extends the v0.1 surface with **views, materialized views, user-defined types, functions/procedures, extensions, triggers, and declarative partitioning** as fully-managed objects. The differ, planner, linter, conformance suite, and property tests all cover the new object kinds. Ships alongside a project constitution (`docs/CONSTITUTION.md`), `cargo-deny`-enforced license + advisory policy (`deny.toml`), `CLAUDE.md` agent guidance, and shadow validation for view bodies (T13).

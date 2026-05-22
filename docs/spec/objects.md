@@ -267,7 +267,8 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 | `TABLESPACE` | 🔮 Future | The IR carries the `tablespace` attribute on tables and indexes, but pgevolve does not create / drop tablespaces — they're cluster-level admin objects outside the schema-management remit. |
 | `TABLE ... USING <access method>` | 🔮 Future | Custom table access methods (zheap, columnar, etc.). |
 | `WITH (storage_parameter = ...)` (table reloptions) | 🟡 Partial | The IR doesn't yet model `fillfactor`, autovacuum overrides, etc. Planned for v0.2. change_kinds: [alter] |
-| Toast options (`STORAGE EXTERNAL` / `EXTENDED` / `PLAIN` / `MAIN`) | 📋 Planned, v0.2 | Per-column toast strategy lands with extended `[storage]` modeling. |
+| Toast options (`STORAGE EXTERNAL` / `EXTENDED` / `PLAIN` / `MAIN`) | ✅ Supported | Per-column TOAST storage; canon strips type-default. change_kinds: [alter] |
+| TOAST compression (`COMPRESSION pglz` / `lz4`) | ✅ Supported | Per-column codec; canon preserves `None` (cluster `default_toast_compression` GUC). change_kinds: [alter] |
 
 ## Operators, casts, collations, text search
 

@@ -222,8 +222,8 @@ pub struct Plan {
     /// **not** persisted to disk. Callers (CLI, conformance tests) can inspect
     /// this field and print or assert on them as needed.
     ///
-    /// Currently populated by [`pgevolve::api::build_plan`] from
-    /// [`pgevolve_core::lint::check_changeset`] (changeset-level rules such as
+    /// Currently populated by the `pgevolve::api::build_plan` shim from
+    /// [`crate::lint::check_changeset`] (changeset-level rules such as
     /// `storage-downgrade-not-retroactive` and
     /// `compression-change-not-retroactive`).
     pub advisory_findings: Vec<RecordedFinding>,
