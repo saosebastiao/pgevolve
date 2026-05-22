@@ -675,4 +675,74 @@ proptest! {
             }
         }
     }
+
+    /// v0.3 invariant: `diff_cluster(A, B)` applied in-memory to `A` yields `B`
+    /// (after canonicalization of both sides).
+    ///
+    /// This proves that the differ is *complete* — it never misses a change —
+    /// and *sound* — applying its output actually converges the catalog.
+    /// Pure; no Docker.
+    #[ignore = "property test — run via property-tests workflow or `cargo test -- --ignored`"]
+    #[test]
+    fn cluster_diff_then_apply_in_memory_yields_target(
+        a in pgevolve_testkit::arbitrary_cluster_catalog(),
+        b in pgevolve_testkit::arbitrary_cluster_catalog(),
+    ) {
+        use pgevolve_core::diff::diff_cluster;
+
+        let changes = diff_cluster(&a, &b);
+        let mut applied = a.clone();
+        apply_cluster_changes_in_memory(&mut applied, &changes);
+        applied.canonicalize();
+        let mut expected = b.clone();
+        expected.canonicalize();
+        prop_assert_eq!(
+            applied,
+            expected,
+            "diff_cluster(A, B) applied to A did not yield B — A: {:?}, B: {:?}, changes: {:?}",
+            a,
+            b,
+            changes,
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for the cluster round-trip property test
+// ---------------------------------------------------------------------------
+
+fn apply_cluster_changes_in_memory(
+    cat: &mut pgevolve_core::ir::cluster::catalog::ClusterCatalog,
+    cs: &pgevolve_core::diff::ClusterChangeSet,
+) {
+    use pgevolve_core::diff::ClusterChange;
+
+    for entry in &cs.entries {
+        match &entry.change {
+            ClusterChange::CreateRole(r) => cat.roles.push(r.clone()),
+            ClusterChange::DropRole { name } => cat.roles.retain(|r| &r.name != name),
+            ClusterChange::AlterRoleAttributes { name, to, .. } => {
+                if let Some(r) = cat.roles.iter_mut().find(|r| &r.name == name) {
+                    r.attributes = to.clone();
+                }
+            }
+            ClusterChange::GrantRoleMembership { member, role } => {
+                if let Some(r) = cat.roles.iter_mut().find(|r| &r.name == member)
+                    && !r.member_of.contains(role)
+                {
+                    r.member_of.push(role.clone());
+                }
+            }
+            ClusterChange::RevokeRoleMembership { member, role } => {
+                if let Some(r) = cat.roles.iter_mut().find(|r| &r.name == member) {
+                    r.member_of.retain(|m| m != role);
+                }
+            }
+            ClusterChange::CommentOnRole { name, comment } => {
+                if let Some(r) = cat.roles.iter_mut().find(|r| &r.name == name) {
+                    r.comment.clone_from(comment);
+                }
+            }
+        }
+    }
 }
