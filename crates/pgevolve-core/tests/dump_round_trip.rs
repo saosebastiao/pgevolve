@@ -63,6 +63,7 @@ mod tests {
     /// - Column defaults (literal value).
     /// - A standalone sequence owned by a column.
     /// - A standalone index (partial + covering).
+    // Test-only catalog builder; decomposing it would reduce legibility without benefit.
     #[allow(clippy::too_many_lines)]
     fn build_test_catalog() -> Catalog {
         let mut cat = Catalog::empty();
