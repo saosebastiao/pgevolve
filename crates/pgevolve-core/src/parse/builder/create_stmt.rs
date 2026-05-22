@@ -277,6 +277,8 @@ fn build_column(
             identity,
             generated,
             collation,
+            storage: None,
+            compression: None,
             comment,
         },
         produced_constraints,

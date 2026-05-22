@@ -168,6 +168,8 @@ fn build_column(r: &Row) -> Result<Column, CatalogError> {
         identity,
         generated,
         collation,
+        storage: None,
+        compression: None,
         comment,
     })
 }

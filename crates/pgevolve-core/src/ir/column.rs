@@ -29,6 +29,12 @@ pub struct Column {
     /// Optional collation.
     #[diff(via_debug)]
     pub collation: Option<QualifiedName>,
+    /// Per-column TOAST storage strategy. `None` means "PG type default".
+    #[diff(via_debug)]
+    pub storage: Option<StorageKind>,
+    /// Per-column TOAST compression codec. `None` means "cluster default".
+    #[diff(via_debug)]
+    pub compression: Option<Compression>,
     /// Optional comment.
     #[diff(via_debug)]
     pub comment: Option<String>,
@@ -70,6 +76,40 @@ pub enum GeneratedKind {
     Stored,
 }
 
+/// Per-column TOAST storage strategy.
+///
+/// Mirrors Postgres `pg_attribute.attstorage` (`p|e|x|m`). The semantic
+/// effective value depends on the column's data type; see
+/// [`crate::ir::canon::filter_pg_defaults`] for how `None` is preserved
+/// when the requested storage matches the type default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageKind {
+    /// `PLAIN` — inline only, never `TOASTed` or compressed.
+    Plain,
+    /// `EXTERNAL` — out-of-line allowed, compression forbidden.
+    External,
+    /// `EXTENDED` — out-of-line and compression allowed (default for most variable-width types).
+    Extended,
+    /// `MAIN` — compression allowed inline, out-of-line only as a last resort.
+    Main,
+}
+
+/// Per-column TOAST compression codec.
+///
+/// Mirrors Postgres `pg_attribute.attcompression`. `None` (i.e. field
+/// value `None` on `Column`) means "use the cluster
+/// `default_toast_compression` GUC."
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Compression {
+    /// PGLZ — Postgres's historical lz-family codec; the default for clusters
+    /// shipped with `default_toast_compression = 'pglz'`.
+    Pglz,
+    /// LZ4 — added in PG 14; faster compression/decompression at lower ratio.
+    Lz4,
+}
+
 /// Sequence options that back an identity column.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SequenceOptions {
@@ -105,6 +145,8 @@ mod tests {
             identity: None,
             generated: None,
             collation: None,
+            storage: None,
+            compression: None,
             comment: None,
         }
     }
@@ -143,5 +185,19 @@ mod tests {
             },
         });
         assert!(base().diff(&b).iter().any(|x| x.path == "identity"));
+    }
+
+    #[test]
+    fn storage_change_diffs() {
+        let mut b = base();
+        b.storage = Some(StorageKind::External);
+        assert!(base().diff(&b).iter().any(|x| x.path == "storage"));
+    }
+
+    #[test]
+    fn compression_change_diffs() {
+        let mut b = base();
+        b.compression = Some(Compression::Lz4);
+        assert!(base().diff(&b).iter().any(|x| x.path == "compression"));
     }
 }

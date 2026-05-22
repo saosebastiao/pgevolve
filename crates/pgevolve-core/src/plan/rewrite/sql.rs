@@ -784,6 +784,8 @@ mod tests {
             default: None,
             identity: None,
             generated: None,
+            storage: None,
+            compression: None,
             comment: None,
         }
     }

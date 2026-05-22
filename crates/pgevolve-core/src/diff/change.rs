@@ -517,6 +517,8 @@ mod tests {
                 identity: None,
                 generated: None,
                 collation: None,
+                storage: None,
+                compression: None,
                 comment: None,
             }],
             constraints: vec![],

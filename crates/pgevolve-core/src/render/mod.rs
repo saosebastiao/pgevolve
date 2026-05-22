@@ -164,6 +164,8 @@ mod tests {
                 identity: None,
                 generated: None,
                 collation: None,
+                storage: None,
+                compression: None,
                 comment: None,
             }],
             constraints: vec![],
@@ -178,6 +180,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // exhaustive catalog fixture — structural, not logic complexity
     fn fk_rendered_after_table() {
         let mut cat = Catalog::empty();
         cat.schemas.push(Schema::new(id("app")));
@@ -191,6 +194,8 @@ mod tests {
                 identity: None,
                 generated: None,
                 collation: None,
+                storage: None,
+                compression: None,
                 comment: None,
             }],
             constraints: vec![Constraint {
@@ -217,6 +222,8 @@ mod tests {
                     identity: None,
                     generated: None,
                     collation: None,
+                    storage: None,
+                    compression: None,
                     comment: None,
                 },
                 Column {
@@ -227,6 +234,8 @@ mod tests {
                     identity: None,
                     generated: None,
                     collation: None,
+                    storage: None,
+                    compression: None,
                     comment: None,
                 },
             ],
@@ -295,6 +304,8 @@ mod tests {
                 identity: None,
                 generated: None,
                 collation: None,
+                storage: None,
+                compression: None,
                 comment: None,
             }],
             constraints: vec![],
@@ -352,6 +363,8 @@ mod tests {
                 identity: None,
                 generated: None,
                 collation: None,
+                storage: None,
+                compression: None,
                 comment: None,
             }],
             constraints: vec![],
@@ -381,6 +394,8 @@ mod tests {
                     identity: None,
                     generated: None,
                     collation: None,
+                    storage: None,
+                    compression: None,
                     comment: None,
                 },
                 Column {
@@ -391,6 +406,8 @@ mod tests {
                     identity: None,
                     generated: None,
                     collation: None,
+                    storage: None,
+                    compression: None,
                     comment: None,
                 },
             ],

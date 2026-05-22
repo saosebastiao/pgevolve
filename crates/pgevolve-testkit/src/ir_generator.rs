@@ -197,6 +197,8 @@ fn arbitrary_table(
             identity: None,
             generated: None,
             collation: None,
+            storage: None,
+            compression: None,
             comment: None,
         };
         // Avoid name collisions with id.
@@ -245,6 +247,8 @@ fn arbitrary_non_pk_column() -> impl Strategy<Value = Column> {
             identity: None,
             generated: None,
             collation: None,
+            storage: None,
+            compression: None,
             comment: None,
         })
 }

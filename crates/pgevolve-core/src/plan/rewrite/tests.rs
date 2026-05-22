@@ -41,6 +41,8 @@ fn col(name: &str, ty: ColumnType, nullable: bool) -> Column {
         identity: None,
         generated: None,
         collation: None,
+        storage: None,
+        compression: None,
         comment: None,
     }
 }

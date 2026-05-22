@@ -103,6 +103,8 @@ fn add_column(
         identity: None,
         generated: None,
         collation: None,
+        storage: None,
+        compression: None,
         comment: None,
     });
 }
@@ -229,6 +231,8 @@ fn add_table(c: &mut Catalog, seed: usize) {
         identity: None,
         generated: None,
         collation: None,
+        storage: None,
+        compression: None,
         comment: None,
     };
     let pk = pgevolve_core::ir::constraint::Constraint {
@@ -458,6 +462,8 @@ mod tests {
                     identity: None,
                     generated: None,
                     collation: None,
+                    storage: None,
+                    compression: None,
                     comment: None,
                 },
                 Column {
@@ -468,6 +474,8 @@ mod tests {
                     identity: None,
                     generated: None,
                     collation: None,
+                    storage: None,
+                    compression: None,
                     comment: None,
                 },
             ],

@@ -97,6 +97,8 @@ async fn aborted_mid_apply_recovers_after_replan() {
                 identity: None,
                 generated: None,
                 collation: None,
+                storage: None,
+                compression: None,
                 comment: None,
             }],
             constraints: vec![Constraint {
