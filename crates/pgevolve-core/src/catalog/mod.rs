@@ -106,7 +106,7 @@ pub enum CatalogQuery {
     /// `pg_authid` rows for cluster roles (with `pg_shdescription` for comments).
     ///
     /// Uses `$1::text[]` as the bootstrap-role filter (names to exclude), not a
-    /// managed-schema list. `needs_schema_param` returns `true` so the adapter
+    /// managed-schema list. `takes_text_array_param` returns `true` so the adapter
     /// passes the parameter; the cluster reader supplies bootstrap role names.
     ClusterRoles,
     /// `pg_auth_members` edges joined to `pg_authid` for role names.
@@ -116,13 +116,17 @@ pub enum CatalogQuery {
 }
 
 impl CatalogQuery {
-    /// Whether this query uses the `$1::text[]` managed-schemas parameter.
+    /// Whether this query accepts a `$1::text[]` argument.
     ///
-    /// Most queries are schema-scoped and pass the managed-schema list as
-    /// `$1`. A few (currently `PgVersion` and `Extensions`) do not; callers
-    /// should pass an empty parameter list for those.
+    /// The semantic meaning of the array varies by variant: managed-schema
+    /// names for per-DB queries, bootstrap-role names for cluster queries.
+    /// The adapter is responsible for passing the right slice to the right
+    /// variant.
+    ///
+    /// A few variants (`PgVersion`, `Extensions`) take no parameters at all;
+    /// this method returns `false` for those.
     #[must_use]
-    pub const fn needs_schema_param(self) -> bool {
+    pub const fn takes_text_array_param(self) -> bool {
         !matches!(self, Self::PgVersion | Self::Extensions)
     }
 }
@@ -133,12 +137,16 @@ impl CatalogQuery {
 /// queries against a live database. Implementations are expected to be sync —
 /// async drivers can wrap their runtime in [`fetch`](Self::fetch).
 pub trait CatalogQuerier {
-    /// Execute the named query with the supplied schema-list parameter (when
-    /// applicable; the [`CatalogQuery::PgVersion`] query takes no parameters).
+    /// Execute the named query with the supplied `$1::text[]` parameter (when
+    /// applicable; see [`CatalogQuery::takes_text_array_param`]).
+    ///
+    /// The semantic meaning of `text_array_param` varies by variant:
+    /// managed-schema names for per-DB queries, bootstrap-role names for
+    /// cluster queries. Pass an empty slice for queries that take no parameter.
     fn fetch(
         &self,
         query: CatalogQuery,
-        managed_schemas: &[&str],
+        text_array_param: &[&str],
     ) -> Result<Vec<Row>, CatalogError>;
 }
 
@@ -224,7 +232,11 @@ mod tests {
     }
 
     impl CatalogQuerier for MockQuerier {
-        fn fetch(&self, q: CatalogQuery, _: &[&str]) -> Result<Vec<Row>, CatalogError> {
+        fn fetch(
+            &self,
+            q: CatalogQuery,
+            _text_array_param: &[&str],
+        ) -> Result<Vec<Row>, CatalogError> {
             Ok(self.rows.borrow().get(&q).cloned().unwrap_or_default())
         }
     }

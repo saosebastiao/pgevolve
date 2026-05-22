@@ -1,9 +1,15 @@
-//! SQL strings for cluster-wide catalog queries.
+//! SQL constants for cluster-catalog queries.
 //!
-//! These queries target `pg_authid` and `pg_auth_members`, which are stable
-//! across PG 14–17. Both use `$1::text[]` as the bootstrap-role filter (role
-//! names to exclude, e.g. `["postgres"]`), mirroring the schema-list parameter
-//! convention used by per-database queries.
+//! Both queries use `$1::text[]` as their parameter, but the semantics differ
+//! from per-DB queries: here the array is a bootstrap-roles filter list (role
+//! names to exclude), not a managed-schemas list. Both are dispatched through
+//! the same [`CatalogQuery::takes_text_array_param`] mechanism.
+//!
+//! The [`crate::catalog::cluster::read_cluster_catalog`] caller is responsible
+//! for passing the bootstrap-roles slice; per-DB callers pass the
+//! managed-schemas slice; the trait does not police which is which.
+//!
+//! [`CatalogQuery::takes_text_array_param`]: crate::catalog::CatalogQuery::takes_text_array_param
 
 /// Query `pg_authid` (joined to `pg_shdescription` for comments) and return
 /// one row per managed role.

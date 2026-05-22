@@ -74,7 +74,7 @@ impl CatalogQuerier for PgCatalogQuerier {
     fn fetch(
         &self,
         query: CatalogQuery,
-        managed_schemas: &[&str],
+        text_array_param: &[&str],
     ) -> Result<Vec<Row>, CatalogError> {
         let sql = if matches!(query, CatalogQuery::PgVersion) {
             query_for(PgVersion::Pg16, query)
@@ -83,10 +83,10 @@ impl CatalogQuerier for PgCatalogQuerier {
         };
 
         let client = Arc::clone(&self.client);
-        let owned: Vec<String> = managed_schemas.iter().map(ToString::to_string).collect();
+        let owned: Vec<String> = text_array_param.iter().map(ToString::to_string).collect();
         let pg_rows: Vec<PgRow> = tokio::task::block_in_place(|| {
             self.runtime.block_on(async move {
-                if query.needs_schema_param() {
+                if query.takes_text_array_param() {
                     client.query(sql, &[&owned]).await
                 } else {
                     client.query(sql, &[]).await

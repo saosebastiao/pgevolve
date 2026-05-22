@@ -183,7 +183,7 @@ async fn bootstrap_filter_excludes_membership_to_bootstrap() {
         return;
     }
 
-    // Grant the container's `pgevolve` user membership in postgres (requires
+    // Grant the container's `pgevolve` user membership in edge_role (requires
     // superuser; the container user is superuser).
     let sql = r"
         CREATE ROLE edge_role LOGIN;
@@ -192,6 +192,35 @@ async fn bootstrap_filter_excludes_membership_to_bootstrap() {
 
     // Both `postgres` and `pgevolve` are bootstrap roles.
     let bootstrap = vec!["postgres".to_string(), "pgevolve".to_string()];
+
+    // Pre-assertion: confirm the GRANT actually landed in pg_auth_members.
+    // Without this, a container-user-name change would make the GRANT no-op
+    // and the test would pass vacuously.
+    {
+        let pg = EphemeralPostgres::start(default_pg_version())
+            .await
+            .expect("start ephemeral postgres for pre-assertion");
+        pg.exec_sql(sql).await.expect("exec setup SQL");
+        let client = pg.connect().await.expect("connect");
+        let rows = client
+            .query(
+                "SELECT 1 FROM pg_auth_members am \
+                 JOIN pg_authid memb   ON memb.oid   = am.member \
+                 JOIN pg_authid parent ON parent.oid = am.roleid \
+                 WHERE memb.rolname = 'edge_role' \
+                   AND parent.rolname = 'pgevolve'",
+                &[],
+            )
+            .await
+            .expect("pg_auth_members query");
+        assert!(
+            !rows.is_empty(),
+            "test setup failed: GRANT pgevolve TO edge_role did not produce \
+             a pg_auth_members row — the EphemeralPostgres container superuser \
+             name may have changed from 'pgevolve'"
+        );
+    }
+
     let cat = read_catalog_after(default_pg_version(), sql, &bootstrap)
         .await
         .expect("read_cluster_catalog");

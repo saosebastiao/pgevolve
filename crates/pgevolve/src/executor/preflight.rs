@@ -214,7 +214,7 @@ fn read_live_catalog(
         fn fetch(
             &self,
             query: CatalogQuery,
-            managed_schemas: &[&str],
+            text_array_param: &[&str],
         ) -> Result<Vec<Row>, CatalogError> {
             use pgevolve_core::catalog::queries::query_for;
 
@@ -231,13 +231,13 @@ fn read_live_catalog(
 
             let sql = query_for(version, query);
             let client = self.client;
-            let owned: Vec<String> = managed_schemas.iter().map(ToString::to_string).collect();
+            let owned: Vec<String> = text_array_param.iter().map(ToString::to_string).collect();
 
             // `block_in_place` blocks the current thread without requiring
             // `Send` on the closure, so capturing `&Client` is safe here.
             let pg_rows: Vec<tokio_postgres::Row> = tokio::task::block_in_place(|| {
                 self.runtime.block_on(async move {
-                    if query.needs_schema_param() {
+                    if query.takes_text_array_param() {
                         client.query(sql, &[&owned]).await
                     } else {
                         client.query(sql, &[]).await
