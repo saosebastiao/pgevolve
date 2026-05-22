@@ -19,6 +19,7 @@
 pub(super) mod default_privileges;
 mod functions;
 mod partitions;
+pub(super) mod policies;
 mod tables;
 mod triggers;
 mod user_types;
@@ -64,6 +65,7 @@ pub struct RawRows {
     pub partitioned_tables: Vec<Row>,
     pub partitions: Vec<Row>,
     pub default_privileges: Vec<Row>,
+    pub policies: Vec<Row>,
 }
 
 /// Convert raw rows into a [`Catalog`] and a [`DriftReport`]. Caller is
@@ -94,6 +96,7 @@ pub fn assemble(
         partitioned_tables,
         partitions,
         default_privileges,
+        policies,
     } = raw;
 
     let mut catalog = Catalog::empty();
@@ -123,6 +126,9 @@ pub fn assemble(
 
     catalog.tables = tables_mut.into_values().collect();
     catalog.sequences = sequence_by_qname.into_values().collect();
+
+    // Attach RLS policies to their tables. Must run after `catalog.tables` is set.
+    policies::attach_policies(&policies, &mut catalog.tables)?;
 
     // Build views and materialized views.
     let (views, materialized_views) =

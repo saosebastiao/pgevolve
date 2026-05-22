@@ -132,6 +132,8 @@ pub(super) fn build_tables(
         let raw_grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
         let grants = crate::catalog::grants::strip_owner_self_grants(raw_grants, &owner_ident);
         let owner = Some(owner_ident);
+        let rls_enabled = r.get_bool(q, "rls_enabled")?;
+        let rls_forced = r.get_bool(q, "rls_forced")?;
         tables.insert(
             oid,
             Table {
@@ -143,9 +145,9 @@ pub(super) fn build_tables(
                 comment,
                 owner,
                 grants,
-                rls_enabled: false,
-                rls_forced: false,
-                policies: vec![],
+                rls_enabled,
+                rls_forced,
+                policies: vec![], // populated by attach_policies after tables build
             },
         );
     }

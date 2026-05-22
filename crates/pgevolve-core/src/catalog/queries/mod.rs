@@ -14,6 +14,7 @@ pub mod pg14;
 pub mod pg15;
 pub mod pg16;
 pub mod pg17;
+pub mod policies;
 pub mod shared;
 pub mod triggers;
 pub mod types;
@@ -51,6 +52,7 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::ClusterRoles) => cluster::CLUSTER_ROLES_QUERY,
         (_, CatalogQuery::ClusterMembers) => cluster::CLUSTER_MEMBERS_QUERY,
         (_, CatalogQuery::DefaultPrivileges) => default_privileges::DEFAULT_PRIVILEGES_QUERY,
+        (_, CatalogQuery::Policies) => policies::POLICIES_QUERY,
     }
 }
 

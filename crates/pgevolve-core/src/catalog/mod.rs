@@ -120,6 +120,13 @@ pub enum CatalogQuery {
     /// predefined `pg_*` roles are filtered out. Takes **no** `$1::text[]`
     /// parameter; `takes_text_array_param` returns `false` for this variant.
     DefaultPrivileges,
+    /// `pg_policies` rows for managed schemas.
+    ///
+    /// Returns one row per policy, scoped to `schemaname = ANY($1::text[])`.
+    /// Decoded into [`crate::ir::policy::Policy`] and attached to their
+    /// owning `Table` by the assembler. Policies on unmanaged tables are
+    /// silently dropped.
+    Policies,
 }
 
 impl CatalogQuery {
@@ -139,6 +146,9 @@ impl CatalogQuery {
             Self::PgVersion | Self::Extensions | Self::DefaultPrivileges
         )
     }
+
+    // Note: `Policies` takes `$1::text[]` (managed schemas), so it is NOT in
+    // the exclusion list above — `takes_text_array_param` returns `true` for it.
 }
 
 /// Sync, driver-agnostic catalog query interface.
@@ -193,6 +203,7 @@ pub fn read_catalog(
     let partitioned_tables_rows = querier.fetch(CatalogQuery::PartitionedTables, &managed)?;
     let partitions_rows = querier.fetch(CatalogQuery::Partitions, &managed)?;
     let default_privileges_rows = querier.fetch(CatalogQuery::DefaultPrivileges, &[])?;
+    let policies_rows = querier.fetch(CatalogQuery::Policies, &managed)?;
 
     let raw = assemble::RawRows {
         version,
@@ -216,6 +227,7 @@ pub fn read_catalog(
         partitioned_tables: partitioned_tables_rows,
         partitions: partitions_rows,
         default_privileges: default_privileges_rows,
+        policies: policies_rows,
     };
     let (catalog, drift) = assemble::assemble(raw, filter)?;
     Ok((catalog.canonicalize()?, drift))

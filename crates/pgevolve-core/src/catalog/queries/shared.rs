@@ -40,7 +40,9 @@ SELECT
   c.relname     AS name,
   owner_role.rolname AS owner,
   coalesce(c.relacl::text[], '{}'::text[]) AS acl,
-  d.description AS comment
+  d.description AS comment,
+  c.relrowsecurity::bool        AS rls_enabled,
+  c.relforcerowsecurity::bool   AS rls_forced
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_catalog.pg_authid owner_role ON owner_role.oid = c.relowner
