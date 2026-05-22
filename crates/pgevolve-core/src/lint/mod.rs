@@ -10,6 +10,7 @@
 
 pub mod finding;
 pub mod profile;
+pub(crate) mod rules;
 pub mod source_tree;
 pub mod universal;
 
