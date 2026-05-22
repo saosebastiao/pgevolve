@@ -96,6 +96,7 @@ mod tests {
             planner: crate::config::PlannerConfig::default(),
             environments: envs,
             shadow: None,
+            cluster: None,
         }
     }
 

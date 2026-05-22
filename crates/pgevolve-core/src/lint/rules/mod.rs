@@ -14,6 +14,7 @@ pub mod enum_value_collision;
 pub mod extension_references_unmanaged_schema;
 pub mod extension_version_unpinned;
 pub mod function_references_unmanaged_schema;
+pub mod grant_references_unknown_role;
 pub mod managed_schemas_match;
 pub mod mv_no_unique_index;
 pub mod no_duplicate_qnames;

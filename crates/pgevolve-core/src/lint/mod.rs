@@ -21,6 +21,7 @@ pub use profile::{CustomProfile, PathPattern, Profile, check_profile};
 pub use source_tree::{ObjectKey, SourceTree};
 pub use universal::{
     LINT_AT_PLAN_RULES, check_changeset, check_cluster_changeset, check_universal,
+    check_universal_with_cluster,
 };
 
 /// Inputs for [`run`].

@@ -56,6 +56,13 @@
 //!   source IR + pending grants/revokes and checks that no pending grant creates
 //!   a cycle. Postgres rejects cycles at apply time; pre-plan detection gives a
 //!   better error.
+//!
+//! Cluster-aware source-tree rules (run via [`check_universal_with_cluster`]):
+//!
+//! - **`grant-references-unknown-role`** — fires when a grantee role name (on
+//!   any object grant, owner field, or default-privilege grant) is not declared
+//!   in the linked cluster project's roles. Silently no-ops when no
+//!   `[cluster].project` is configured.
 
 use super::ManagedConfig;
 use super::finding::Finding;
@@ -121,6 +128,25 @@ pub fn check_changeset(cs: &ChangeSet) -> Vec<Finding> {
     let mut out = Vec::new();
     out.extend(rules::storage_downgrade_not_retroactive::check(cs));
     out.extend(rules::compression_change_not_retroactive::check(cs));
+    out
+}
+
+/// Like [`check_universal`] but also runs cluster-aware source-tree lints.
+///
+/// `cluster_role_names`: the set of role names declared in the linked cluster
+/// project's roles/*.sql, or `None` if no `[cluster].project` is configured.
+/// When `None`, cluster-aware rules silently no-op so per-DB independence is
+/// preserved.
+pub fn check_universal_with_cluster(
+    tree: &SourceTree,
+    managed: &ManagedConfig,
+    cluster_role_names: Option<&std::collections::BTreeSet<crate::identifier::Identifier>>,
+) -> Vec<Finding> {
+    let mut out = check_universal(tree, managed);
+    out.extend(rules::grant_references_unknown_role::check(
+        &tree.catalog,
+        cluster_role_names,
+    ));
     out
 }
 

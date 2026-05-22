@@ -88,6 +88,21 @@ pub struct PgevolveConfig {
     /// `[shadow]` section. Optional; used by `pgevolve validate --shadow`.
     #[serde(default)]
     pub shadow: Option<ShadowConfig>,
+    /// `[cluster]` section. Optional; links this DB project to a cluster
+    /// project that manages roles. When present, cluster-aware lints
+    /// (e.g. `grant-references-unknown-role`) cross-check grantee role names
+    /// against the linked cluster project's declared roles.
+    #[serde(default)]
+    pub cluster: Option<ClusterLink>,
+}
+
+/// `[cluster]` section — optional link to the cluster project that manages
+/// roles for this database.
+#[derive(Debug, Deserialize)]
+pub struct ClusterLink {
+    /// Path to the cluster project directory this DB belongs to. Relative
+    /// paths resolve against `pgevolve.toml`'s directory.
+    pub project: String,
 }
 
 /// `[project]` section.
@@ -316,5 +331,22 @@ mod tests {
         let env = &cfg.environments["dev"];
         assert!(env.url.is_none() && env.url_env.is_none());
         assert_eq!(env.strategy, Some(ConfigStrategy::Atomic));
+    }
+
+    #[test]
+    fn parses_pgevolve_toml_with_cluster_block() {
+        let f = write_tmp(
+            "[project]\nname=\"x\"\n\
+             [cluster]\nproject = \"../my-cluster\"\n",
+        );
+        let cfg = load(f.path()).unwrap();
+        assert_eq!(cfg.cluster.unwrap().project, "../my-cluster");
+    }
+
+    #[test]
+    fn parses_pgevolve_toml_without_cluster_block() {
+        let f = write_tmp("[project]\nname=\"x\"\n");
+        let cfg = load(f.path()).unwrap();
+        assert!(cfg.cluster.is_none());
     }
 }
