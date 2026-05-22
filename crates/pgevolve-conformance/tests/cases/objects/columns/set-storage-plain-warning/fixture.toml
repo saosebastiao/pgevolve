@@ -1,7 +1,7 @@
 [meta]
 title     = "SET STORAGE PLAIN — downgrade fires storage-downgrade-not-retroactive advisory warning"
 authoring = "objects"
-spec_refs = ["objects.column.storage"]
+spec_refs = ["objects.column.storage", "lint.storage-downgrade"]
 
 [pg]
 min = 14

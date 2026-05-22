@@ -1,7 +1,7 @@
 [meta]
 title     = "SET COMPRESSION lz4 — codec change fires compression-change-not-retroactive advisory warning"
 authoring = "objects"
-spec_refs = ["objects.column.compression"]
+spec_refs = ["objects.column.compression", "lint.compression-change"]
 
 [pg]
 min = 14

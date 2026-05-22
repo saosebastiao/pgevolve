@@ -206,6 +206,8 @@ async fn run_objects(fixture: &Fixture, pg_major: u32) -> FixtureResult {
         failures.push(("touches_only".into(), e.to_string()));
     }
 
+    // Note: advisory assertions are only enforced for Objects authoring.
+    // run_scenarios and run_intent will silently ignore [expect.advisory].
     // Advisory findings assertion: every rule_id listed in
     // [expect.advisory].rule_ids must appear in the changeset findings.
     {
