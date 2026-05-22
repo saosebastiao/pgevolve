@@ -383,6 +383,12 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::CommentOnTrigger => "comment_on_trigger",
         K::AttachPartition => "attach_partition",
         K::DetachPartition => "detach_partition",
+        K::CreateRole => "create_role",
+        K::DropRole => "drop_role",
+        K::AlterRole => "alter_role",
+        K::GrantRoleMembership => "grant_role_membership",
+        K::RevokeRoleMembership => "revoke_role_membership",
+        K::CommentOnRole => "comment_on_role",
     }
 }
 
@@ -453,6 +459,12 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "comment_on_trigger" => K::CommentOnTrigger,
         "attach_partition" => K::AttachPartition,
         "detach_partition" => K::DetachPartition,
+        "create_role" => K::CreateRole,
+        "drop_role" => K::DropRole,
+        "alter_role" => K::AlterRole,
+        "grant_role_membership" => K::GrantRoleMembership,
+        "revoke_role_membership" => K::RevokeRoleMembership,
+        "comment_on_role" => K::CommentOnRole,
         _ => return None,
     })
 }

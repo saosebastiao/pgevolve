@@ -5,6 +5,7 @@
 //!
 //! See spec §6.4 for the design.
 
+pub mod cluster_rewrite;
 pub mod deserialize;
 pub mod edges;
 pub mod error;

@@ -176,6 +176,20 @@ pub enum StepKind {
     AttachPartition,
     /// `ALTER TABLE parent DETACH PARTITION child`.
     DetachPartition,
+
+    // --- v0.3 cluster / role step kinds ---
+    /// `CREATE ROLE`.
+    CreateRole,
+    /// `DROP ROLE`.
+    DropRole,
+    /// `ALTER ROLE … WITH <options>`.
+    AlterRole,
+    /// `GRANT role TO member`.
+    GrantRoleMembership,
+    /// `REVOKE role FROM member`.
+    RevokeRoleMembership,
+    /// `COMMENT ON ROLE`.
+    CommentOnRole,
 }
 
 /// One unit of work the executor will attempt.
@@ -280,6 +294,12 @@ mod tests {
             StepKind::CommentOnTrigger,
             StepKind::AttachPartition,
             StepKind::DetachPartition,
+            StepKind::CreateRole,
+            StepKind::DropRole,
+            StepKind::AlterRole,
+            StepKind::GrantRoleMembership,
+            StepKind::RevokeRoleMembership,
+            StepKind::CommentOnRole,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();
