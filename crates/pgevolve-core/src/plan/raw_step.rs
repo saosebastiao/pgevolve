@@ -190,6 +190,20 @@ pub enum StepKind {
     RevokeRoleMembership,
     /// `COMMENT ON ROLE`.
     CommentOnRole,
+
+    // --- v0.3.1 grant / ownership step kinds ---
+    /// `ALTER <kind> qname OWNER TO new_owner`.
+    AlterObjectOwner,
+    /// `GRANT priv ON <kind> qname TO grantee [WITH GRANT OPTION]`.
+    GrantObjectPrivilege,
+    /// `REVOKE priv ON <kind> qname FROM grantee`.
+    RevokeObjectPrivilege,
+    /// `GRANT priv (col, …) ON TABLE qname TO grantee [WITH GRANT OPTION]`.
+    GrantColumnPrivilege,
+    /// `REVOKE priv (col, …) ON TABLE qname FROM grantee`.
+    RevokeColumnPrivilege,
+    /// `ALTER DEFAULT PRIVILEGES FOR ROLE x [IN SCHEMA y] GRANT/REVOKE priv ON … TO/FROM z`.
+    AlterDefaultPrivileges,
 }
 
 /// One unit of work the executor will attempt.
@@ -300,6 +314,12 @@ mod tests {
             StepKind::GrantRoleMembership,
             StepKind::RevokeRoleMembership,
             StepKind::CommentOnRole,
+            StepKind::AlterObjectOwner,
+            StepKind::GrantObjectPrivilege,
+            StepKind::RevokeObjectPrivilege,
+            StepKind::GrantColumnPrivilege,
+            StepKind::RevokeColumnPrivilege,
+            StepKind::AlterDefaultPrivileges,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

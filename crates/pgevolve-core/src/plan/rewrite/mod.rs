@@ -21,6 +21,7 @@ pub mod emit;
 pub mod extensions;
 pub mod fk_not_valid_validate;
 pub mod functions;
+pub mod grants;
 pub mod partitions;
 pub mod refresh_mv_concurrently;
 pub mod set_not_null_check_pattern;
@@ -182,15 +183,92 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 }
             }
         }
-        // Grant / revoke / owner changes: SQL emission wired up in Stage 9.
-        Change::GrantObjectPrivilege { .. }
-        | Change::RevokeObjectPrivilege { .. }
-        | Change::GrantColumnPrivilege { .. }
-        | Change::RevokeColumnPrivilege { .. }
-        | Change::AlterObjectOwner(_)
-        | Change::AlterDefaultPrivileges { .. } => {
-            // Stage 9 will wire these up. For now emit nothing so existing
-            // tests and plans that don't exercise grants continue to work.
+        Change::AlterObjectOwner(op) => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterObjectOwner,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![op.qname.clone()],
+                sql: grants::alter_object_owner(op.kind, &op.qname, &op.signature, &op.to),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::GrantObjectPrivilege { kind, qname, grant } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::GrantObjectPrivilege,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: grants::grant_object_privilege(kind, &qname, "", &grant),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::RevokeObjectPrivilege { kind, qname, grant } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::RevokeObjectPrivilege,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: grants::revoke_object_privilege(kind, &qname, "", &grant),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::GrantColumnPrivilege { qname, grant } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::GrantColumnPrivilege,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: grants::grant_column_privilege(&qname, &grant),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::RevokeColumnPrivilege { qname, grant } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::RevokeColumnPrivilege,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: grants::revoke_column_privilege(&qname, &grant),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterDefaultPrivileges {
+            target_role,
+            schema,
+            object_type,
+            is_grant,
+            grant,
+        } => {
+            // Default-priv rules are not scoped to a per-object QualifiedName;
+            // targets is left empty (same convention as cluster ops in
+            // plan/cluster_rewrite/emit.rs).
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterDefaultPrivileges,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: grants::alter_default_privileges(
+                    &target_role,
+                    schema.as_ref(),
+                    object_type,
+                    is_grant,
+                    &grant,
+                ),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
         }
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {

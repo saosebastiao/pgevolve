@@ -389,6 +389,12 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::GrantRoleMembership => "grant_role_membership",
         K::RevokeRoleMembership => "revoke_role_membership",
         K::CommentOnRole => "comment_on_role",
+        K::AlterObjectOwner => "alter_object_owner",
+        K::GrantObjectPrivilege => "grant_object_privilege",
+        K::RevokeObjectPrivilege => "revoke_object_privilege",
+        K::GrantColumnPrivilege => "grant_column_privilege",
+        K::RevokeColumnPrivilege => "revoke_column_privilege",
+        K::AlterDefaultPrivileges => "alter_default_privileges",
     }
 }
 
@@ -465,6 +471,12 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "grant_role_membership" => K::GrantRoleMembership,
         "revoke_role_membership" => K::RevokeRoleMembership,
         "comment_on_role" => K::CommentOnRole,
+        "alter_object_owner" => K::AlterObjectOwner,
+        "grant_object_privilege" => K::GrantObjectPrivilege,
+        "revoke_object_privilege" => K::RevokeObjectPrivilege,
+        "grant_column_privilege" => K::GrantColumnPrivilege,
+        "revoke_column_privilege" => K::RevokeColumnPrivilege,
+        "alter_default_privileges" => K::AlterDefaultPrivileges,
         _ => return None,
     })
 }
