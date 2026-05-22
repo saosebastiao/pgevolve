@@ -261,4 +261,21 @@ mod tests {
         let sql = alter_role_attributes(&id("app_user"), &from, &to);
         assert!(sql.contains("VALID UNTIL 'infinity'"), "got: {sql}");
     }
+
+    #[test]
+    fn comment_on_role_none_emits_is_null() {
+        let sql = comment_on_role(&id("app_user"), None);
+        assert_eq!(sql, "COMMENT ON ROLE app_user IS NULL;");
+    }
+
+    #[test]
+    fn alter_role_connection_limit_set() {
+        let from = RoleAttributes::default();
+        let to = RoleAttributes {
+            connection_limit: Some(50),
+            ..RoleAttributes::default()
+        };
+        let sql = alter_role_attributes(&id("app_user"), &from, &to);
+        assert!(sql.contains("CONNECTION LIMIT 50"), "got: {sql}");
+    }
 }
