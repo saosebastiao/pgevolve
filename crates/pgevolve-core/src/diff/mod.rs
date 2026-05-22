@@ -13,6 +13,7 @@
 
 pub mod change;
 pub mod changeset;
+pub mod cluster;
 pub mod columns;
 pub mod constraints;
 pub mod destructiveness;
@@ -33,6 +34,7 @@ pub use change::{
     TriggerChange, UserTypeChange, ViewChange,
 };
 pub use changeset::ChangeSet;
+pub use cluster::{ClusterChange, ClusterChangeEntry, ClusterChangeSet, diff_cluster};
 pub use destructiveness::Destructiveness;
 pub use routines::{diff_functions, diff_procedures};
 pub use sequence_op::{SequenceOp, SequenceOpEntry};
