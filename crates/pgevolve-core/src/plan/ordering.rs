@@ -62,20 +62,22 @@ pub fn order(
         .map_err(|views| PlanError::DependentViewsBlocked { views })?;
     // Re-assemble ChangeSet preserving original destructiveness for original
     // entries, and using Safe for any newly-added recreation entries.
+    let entries: Vec<crate::diff::change::ChangeEntry> = raw_changes
+        .into_iter()
+        .enumerate()
+        .map(|(i, change)| {
+            let destructiveness = original_entries
+                .get(i)
+                .map_or(Destructiveness::Safe, |e| e.destructiveness.clone());
+            crate::diff::change::ChangeEntry {
+                change,
+                destructiveness,
+            }
+        })
+        .collect();
     let changes = ChangeSet {
-        entries: raw_changes
-            .into_iter()
-            .enumerate()
-            .map(|(i, change)| {
-                let destructiveness = original_entries
-                    .get(i)
-                    .map_or(Destructiveness::Safe, |e| e.destructiveness.clone());
-                crate::diff::change::ChangeEntry {
-                    change,
-                    destructiveness,
-                }
-            })
-            .collect(),
+        entries,
+        ..ChangeSet::new()
     };
 
     // 1. Bucket entries by phase. Returns Err if any UnsupportedDiff is present.
@@ -234,7 +236,7 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::DropSequence(_)
             | Change::View(ViewChange::Drop(_))
             | Change::Mv(MvChange::Drop(_)) => drops.push(entry),
-            // Modifies: ALTER / REPLACE / COMMENT / drift-recovery.
+            // Modifies: ALTER / REPLACE / COMMENT / drift-recovery / grant / owner.
             Change::AlterTable { .. }
             | Change::AlterSchema { .. }
             | Change::AlterSequence { .. }
@@ -251,7 +253,14 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                 MvChange::ReplaceBody { .. }
                 | MvChange::SetComment { .. }
                 | MvChange::SetColumnComment { .. },
-            ) => modifies.push(entry),
+            )
+            // Grant / revoke / owner changes: always non-destructive modifications.
+            | Change::GrantObjectPrivilege { .. }
+            | Change::RevokeObjectPrivilege { .. }
+            | Change::GrantColumnPrivilege { .. }
+            | Change::RevokeColumnPrivilege { .. }
+            | Change::AlterObjectOwner(_)
+            | Change::AlterDefaultPrivileges { .. } => modifies.push(entry),
             // UserType changes: bucket by lifecycle phase.
             Change::UserType(utc) => match utc {
                 UserTypeChange::Create(_) => creates.push(entry),
@@ -326,6 +335,7 @@ fn partition(changes: ChangeSet) -> PartitionResult {
 /// `AlterTable` maps to its target table node; per-op constraint changes
 /// inside it are not separately ordered (they ride with the table).
 #[allow(clippy::match_same_arms)] // View and Mv arms share the body shape but not the inner type.
+#[allow(clippy::too_many_lines)]
 fn change_node(change: &Change) -> NodeId {
     match change {
         Change::CreateSchema(s) => NodeId::Schema(s.name.clone()),
@@ -427,6 +437,17 @@ fn change_node(change: &Change) -> NodeId {
         Change::Table(
             TableChange::AttachPartition { child, .. } | TableChange::DetachPartition { child, .. },
         ) => NodeId::Table(child.clone()),
+        // Grant / revoke / owner: map to the object's primary node.
+        Change::GrantObjectPrivilege { qname, .. }
+        | Change::RevokeObjectPrivilege { qname, .. }
+        | Change::GrantColumnPrivilege { qname, .. }
+        | Change::RevokeColumnPrivilege { qname, .. } => NodeId::Table(qname.clone()),
+        Change::AlterObjectOwner(op) => NodeId::Table(op.qname.clone()),
+        Change::AlterDefaultPrivileges { target_role, .. } => {
+            // Default-privilege changes have no natural node; use a Schema node
+            // keyed by the target_role name as a stable ordering anchor.
+            NodeId::Schema(target_role.clone())
+        }
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")

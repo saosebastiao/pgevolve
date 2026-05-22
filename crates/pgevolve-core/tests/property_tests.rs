@@ -455,7 +455,7 @@ proptest! {
         }];
 
         let mut out = pgevolve_core::diff::ChangeSet::new();
-        pgevolve_core::diff::types::diff_user_types(&cat, &src, &mut out);
+        pgevolve_core::diff::types::diff_user_types(&cat, &src, &mut out, &std::collections::BTreeSet::new());
 
         // Expect exactly one EnumAddValue change.
         prop_assert_eq!(out.len(), 1, "expected exactly one change, got: {:?}", out);
@@ -594,6 +594,7 @@ proptest! {
                     destructiveness: pgevolve_core::diff::Destructiveness::Safe,
                 })
                 .collect(),
+            ..pgevolve_core::diff::ChangeSet::new()
         };
 
         // 6. Collect actual view recreations.

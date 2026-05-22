@@ -6,22 +6,30 @@
 //! [`super::constraints::diff_constraints`] and emit a single
 //! [`Change::AlterTable`] containing every per-table operation.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::identifier::QualifiedName;
+use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
+use crate::ir::grant::GrantTarget;
 use crate::ir::table::Table;
 
 use super::change::{Change, TableChange};
-use super::changeset::ChangeSet;
+use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use super::columns::diff_columns;
 use super::constraints::diff_constraints;
 use super::destructiveness::Destructiveness;
+use super::grants::diff_grants;
+use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
 use super::table_op::TableOpEntry;
 
 /// Diff tables in `target` against `source`, appending entries to `out`.
 #[allow(clippy::too_many_lines)]
-pub fn diff_tables(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
+pub fn diff_tables(
+    target: &Catalog,
+    source: &Catalog,
+    out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
+) {
     let target_map: BTreeMap<&QualifiedName, &Table> =
         target.tables.iter().map(|t| (&t.qname, t)).collect();
     let source_map: BTreeMap<&QualifiedName, &Table> =
@@ -95,6 +103,91 @@ pub fn diff_tables(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
                         },
                         Destructiveness::Safe,
                     );
+                }
+
+                // ---- owner diff ----
+                if let Some(source_owner) = &source_table.owner
+                    && target_table.owner.as_ref() != Some(source_owner)
+                {
+                    let from = target_table.owner.clone().unwrap_or_else(|| {
+                        Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
+                    });
+                    out.push(
+                        Change::AlterObjectOwner(AlterObjectOwner {
+                            kind: OwnerObjectKind::Table,
+                            qname: (*qname).clone(),
+                            signature: String::new(),
+                            from,
+                            to: source_owner.clone(),
+                        }),
+                        Destructiveness::Safe,
+                    );
+                }
+
+                // ---- grant diff ----
+                {
+                    let object_label = format!("table {qname}");
+                    let (to_add, to_revoke, unmanaged) =
+                        diff_grants(&target_table.grants, &source_table.grants, managed_roles);
+                    for g in to_add {
+                        let is_column_level = g.columns.is_some();
+                        if is_column_level {
+                            out.push(
+                                Change::GrantColumnPrivilege {
+                                    qname: (*qname).clone(),
+                                    grant: g,
+                                },
+                                Destructiveness::Safe,
+                            );
+                        } else {
+                            out.push(
+                                Change::GrantObjectPrivilege {
+                                    qname: (*qname).clone(),
+                                    kind: OwnerObjectKind::Table,
+                                    grant: g,
+                                },
+                                Destructiveness::Safe,
+                            );
+                        }
+                    }
+                    for g in to_revoke {
+                        if let Some(source_owner) = &source_table.owner {
+                            out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                                object_label: object_label.clone(),
+                                privilege_label: g.privilege.sql_keyword().into(),
+                                grantee: g.grantee.clone(),
+                                owner: source_owner.clone(),
+                            });
+                        }
+                        let is_column_level = g.columns.is_some();
+                        if is_column_level {
+                            out.push(
+                                Change::RevokeColumnPrivilege {
+                                    qname: (*qname).clone(),
+                                    grant: g,
+                                },
+                                Destructiveness::Safe,
+                            );
+                        } else {
+                            out.push(
+                                Change::RevokeObjectPrivilege {
+                                    qname: (*qname).clone(),
+                                    kind: OwnerObjectKind::Table,
+                                    grant: g,
+                                },
+                                Destructiveness::Safe,
+                            );
+                        }
+                    }
+                    for g in unmanaged {
+                        if let GrantTarget::Role(role_name) = &g.grantee {
+                            out.unmanaged_grants.push(UnmanagedGrantObservation {
+                                object_label: object_label.clone(),
+                                privilege_label: g.privilege.sql_keyword().into(),
+                                role_name: role_name.clone(),
+                            });
+                        }
+                    }
                 }
 
                 // ---- partition_by diff (parent partitioning configuration) ----
@@ -208,6 +301,8 @@ pub fn diff_tables(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+
     use crate::identifier::Identifier;
     use crate::ir::column::Column;
     use crate::ir::column_type::ColumnType;
@@ -258,7 +353,7 @@ mod tests {
         let mut source = Catalog::empty();
         source.tables.push(users());
         let mut cs = ChangeSet::new();
-        diff_tables(&target, &source, &mut cs);
+        diff_tables(&target, &source, &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         let entry = &cs.entries[0];
         assert!(matches!(entry.change, Change::CreateTable(_)));
@@ -271,7 +366,7 @@ mod tests {
         target.tables.push(users());
         let source = Catalog::empty();
         let mut cs = ChangeSet::new();
-        diff_tables(&target, &source, &mut cs);
+        diff_tables(&target, &source, &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         let entry = &cs.entries[0];
         match &entry.change {
@@ -301,7 +396,7 @@ mod tests {
         let mut source = Catalog::empty();
         source.tables.push(users());
         let mut cs = ChangeSet::new();
-        diff_tables(&target, &source, &mut cs);
+        diff_tables(&target, &source, &mut cs, &BTreeSet::new());
         assert!(cs.is_empty());
     }
 
@@ -315,7 +410,7 @@ mod tests {
             ..users()
         });
         let mut cs = ChangeSet::new();
-        diff_tables(&target, &source, &mut cs);
+        diff_tables(&target, &source, &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         let entry = &cs.entries[0];
         match &entry.change {
@@ -404,7 +499,7 @@ mod tests {
         let mut tgt_catalog = Catalog::empty();
         tgt_catalog.tables.push(target.clone());
         let mut cs = ChangeSet::new();
-        diff_tables(&tgt_catalog, &src_catalog, &mut cs);
+        diff_tables(&tgt_catalog, &src_catalog, &mut cs, &BTreeSet::new());
         cs.entries.into_iter().map(|e| e.change).collect()
     }
 

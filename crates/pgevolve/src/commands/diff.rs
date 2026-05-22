@@ -341,6 +341,56 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            pgevolve_core::diff::change::Change::GrantObjectPrivilege { qname, kind, grant } => {
+                println!(
+                    "      grant {} on {:?} {qname} to {:?}",
+                    grant.privilege.sql_keyword(),
+                    kind,
+                    grant.grantee
+                );
+            }
+            pgevolve_core::diff::change::Change::RevokeObjectPrivilege { qname, kind, grant } => {
+                println!(
+                    "      revoke {} on {:?} {qname} from {:?}",
+                    grant.privilege.sql_keyword(),
+                    kind,
+                    grant.grantee
+                );
+            }
+            pgevolve_core::diff::change::Change::GrantColumnPrivilege { qname, grant } => {
+                println!(
+                    "      grant column privilege on {qname} to {:?}",
+                    grant.grantee
+                );
+            }
+            pgevolve_core::diff::change::Change::RevokeColumnPrivilege { qname, grant } => {
+                println!(
+                    "      revoke column privilege on {qname} from {:?}",
+                    grant.grantee
+                );
+            }
+            pgevolve_core::diff::change::Change::AlterObjectOwner(op) => {
+                println!(
+                    "      alter owner of {:?} {} from {} to {}",
+                    op.kind, op.qname, op.from, op.to
+                );
+            }
+            pgevolve_core::diff::change::Change::AlterDefaultPrivileges {
+                target_role,
+                schema,
+                object_type,
+                is_grant,
+                grant,
+            } => {
+                let action = if *is_grant { "grant" } else { "revoke" };
+                let in_schema = schema
+                    .as_ref()
+                    .map_or_else(String::new, |s| format!(" in schema {s}"));
+                println!(
+                    "      alter default privileges for role {target_role}{in_schema}: {action} {:?} {:?} to {:?}",
+                    object_type, grant.privilege, grant.grantee
+                );
+            }
             pgevolve_core::diff::change::Change::UnsupportedDiff { reason } => {
                 println!("      unsupported diff: {reason}");
             }
@@ -516,6 +566,12 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Table(pgevolve_core::diff::change::TableChange::DetachPartition { .. }) => {
             "DetachPartition"
         }
+        Change::GrantObjectPrivilege { .. } => "GrantObjectPrivilege",
+        Change::RevokeObjectPrivilege { .. } => "RevokeObjectPrivilege",
+        Change::GrantColumnPrivilege { .. } => "GrantColumnPrivilege",
+        Change::RevokeColumnPrivilege { .. } => "RevokeColumnPrivilege",
+        Change::AlterObjectOwner(_) => "AlterObjectOwner",
+        Change::AlterDefaultPrivileges { .. } => "AlterDefaultPrivileges",
         Change::UnsupportedDiff { .. } => "UnsupportedDiff",
     }
 }

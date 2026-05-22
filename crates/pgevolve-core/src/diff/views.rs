@@ -17,12 +17,17 @@
 //!
 //! `or_replace_compatible` encodes exactly these rules.
 
-use crate::identifier::QualifiedName;
+use std::collections::BTreeSet;
+
+use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::grant::GrantTarget;
 use crate::ir::view::{MaterializedView, View, ViewColumn};
 
 use super::change::{Change, MvChange, ViewChange};
-use super::changeset::ChangeSet;
+use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use super::destructiveness::Destructiveness;
+use super::grants::diff_grants;
+use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
 
 /// Per Postgres's `CREATE OR REPLACE VIEW` rules: the new column list must be
 /// a non-shrinking superset of the existing list, with the same names **and
@@ -53,9 +58,16 @@ pub(crate) fn or_replace_compatible(catalog: &[ViewColumn], source: &[ViewColumn
 ///   differ (independent of body changes).
 /// - [`ViewChange::SetComment`] / [`ViewChange::SetColumnComment`] for metadata
 ///   changes.
+/// - [`Change::AlterObjectOwner`] / grant changes when applicable.
 ///
 /// No change is emitted when target and source are byte-for-byte identical.
-pub fn diff_views(target_views: &[View], source_views: &[View], out: &mut ChangeSet) {
+#[allow(clippy::too_many_lines)]
+pub fn diff_views(
+    target_views: &[View],
+    source_views: &[View],
+    out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
+) {
     use std::collections::BTreeMap;
 
     let target_map: BTreeMap<&QualifiedName, &View> =
@@ -131,6 +143,91 @@ pub fn diff_views(target_views: &[View], source_views: &[View], out: &mut Change
 
         // Column comment changes: compare by name at matching positions.
         diff_view_column_comments(qname, &tgt.columns, &src.columns, out);
+
+        // ---- owner diff ----
+        if let Some(source_owner) = &src.owner
+            && tgt.owner.as_ref() != Some(source_owner)
+        {
+            let from = tgt.owner.clone().unwrap_or_else(|| {
+                Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
+            });
+            out.push(
+                Change::AlterObjectOwner(AlterObjectOwner {
+                    kind: OwnerObjectKind::View,
+                    qname: (*qname).clone(),
+                    signature: String::new(),
+                    from,
+                    to: source_owner.clone(),
+                }),
+                Destructiveness::Safe,
+            );
+        }
+
+        // ---- grant diff ----
+        {
+            let object_label = format!("view {qname}");
+            let (to_add, to_revoke, unmanaged) =
+                diff_grants(&tgt.grants, &src.grants, managed_roles);
+            for g in to_add {
+                let is_column_level = g.columns.is_some();
+                if is_column_level {
+                    out.push(
+                        Change::GrantColumnPrivilege {
+                            qname: (*qname).clone(),
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                } else {
+                    out.push(
+                        Change::GrantObjectPrivilege {
+                            qname: (*qname).clone(),
+                            kind: OwnerObjectKind::View,
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                }
+            }
+            for g in to_revoke {
+                if let Some(source_owner) = &src.owner {
+                    out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                        object_label: object_label.clone(),
+                        privilege_label: g.privilege.sql_keyword().into(),
+                        grantee: g.grantee.clone(),
+                        owner: source_owner.clone(),
+                    });
+                }
+                let is_column_level = g.columns.is_some();
+                if is_column_level {
+                    out.push(
+                        Change::RevokeColumnPrivilege {
+                            qname: (*qname).clone(),
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                } else {
+                    out.push(
+                        Change::RevokeObjectPrivilege {
+                            qname: (*qname).clone(),
+                            kind: OwnerObjectKind::View,
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                }
+            }
+            for g in unmanaged {
+                if let GrantTarget::Role(role_name) = &g.grantee {
+                    out.unmanaged_grants.push(UnmanagedGrantObservation {
+                        object_label: object_label.clone(),
+                        privilege_label: g.privilege.sql_keyword().into(),
+                        role_name: role_name.clone(),
+                    });
+                }
+            }
+        }
     }
 }
 
@@ -142,10 +239,13 @@ pub fn diff_views(target_views: &[View], source_views: &[View], out: &mut Change
 /// - [`MvChange::Drop`] for MVs present only in target (Safe: MVs are derived).
 /// - [`MvChange::ReplaceBody`] when the canonical body hashes differ.
 /// - [`MvChange::SetComment`] / [`MvChange::SetColumnComment`] for metadata.
+/// - [`Change::AlterObjectOwner`] / grant changes when applicable.
+#[allow(clippy::too_many_lines)]
 pub fn diff_materialized_views(
     target_mvs: &[MaterializedView],
     source_mvs: &[MaterializedView],
     out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
 ) {
     use std::collections::BTreeMap;
 
@@ -204,6 +304,91 @@ pub fn diff_materialized_views(
 
         // Column comment changes.
         diff_mv_column_comments(qname, &tgt.columns, &src.columns, out);
+
+        // ---- owner diff ----
+        if let Some(source_owner) = &src.owner
+            && tgt.owner.as_ref() != Some(source_owner)
+        {
+            let from = tgt.owner.clone().unwrap_or_else(|| {
+                Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
+            });
+            out.push(
+                Change::AlterObjectOwner(AlterObjectOwner {
+                    kind: OwnerObjectKind::MaterializedView,
+                    qname: (*qname).clone(),
+                    signature: String::new(),
+                    from,
+                    to: source_owner.clone(),
+                }),
+                Destructiveness::Safe,
+            );
+        }
+
+        // ---- grant diff ----
+        {
+            let object_label = format!("materialized view {qname}");
+            let (to_add, to_revoke, unmanaged) =
+                diff_grants(&tgt.grants, &src.grants, managed_roles);
+            for g in to_add {
+                let is_column_level = g.columns.is_some();
+                if is_column_level {
+                    out.push(
+                        Change::GrantColumnPrivilege {
+                            qname: (*qname).clone(),
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                } else {
+                    out.push(
+                        Change::GrantObjectPrivilege {
+                            qname: (*qname).clone(),
+                            kind: OwnerObjectKind::MaterializedView,
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                }
+            }
+            for g in to_revoke {
+                if let Some(source_owner) = &src.owner {
+                    out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                        object_label: object_label.clone(),
+                        privilege_label: g.privilege.sql_keyword().into(),
+                        grantee: g.grantee.clone(),
+                        owner: source_owner.clone(),
+                    });
+                }
+                let is_column_level = g.columns.is_some();
+                if is_column_level {
+                    out.push(
+                        Change::RevokeColumnPrivilege {
+                            qname: (*qname).clone(),
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                } else {
+                    out.push(
+                        Change::RevokeObjectPrivilege {
+                            qname: (*qname).clone(),
+                            kind: OwnerObjectKind::MaterializedView,
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                }
+            }
+            for g in unmanaged {
+                if let GrantTarget::Role(role_name) = &g.grantee {
+                    out.unmanaged_grants.push(UnmanagedGrantObservation {
+                        object_label: object_label.clone(),
+                        privilege_label: g.privilege.sql_keyword().into(),
+                        role_name: role_name.clone(),
+                    });
+                }
+            }
+        }
     }
 }
 
@@ -268,6 +453,8 @@ fn diff_mv_column_comments(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+
     use crate::identifier::Identifier;
     use crate::ir::column_type::ColumnType;
     use crate::ir::view::{MaterializedView, View, ViewColumn};
@@ -374,7 +561,7 @@ mod tests {
     fn view_only_in_source_is_create() {
         let src = vec![simple_view(qn("app", "v"), "SELECT 1", vec![])];
         let mut out = ChangeSet::new();
-        diff_views(&[], &src, &mut out);
+        diff_views(&[], &src, &mut out, &BTreeSet::new());
         let changes = &out.entries;
         assert_eq!(changes.len(), 1);
         assert!(matches!(
@@ -387,7 +574,7 @@ mod tests {
     fn view_only_in_target_is_drop() {
         let tgt = vec![simple_view(qn("app", "v"), "SELECT 1", vec![])];
         let mut out = ChangeSet::new();
-        diff_views(&tgt, &[], &mut out);
+        diff_views(&tgt, &[], &mut out, &BTreeSet::new());
         let changes = &out.entries;
         assert_eq!(changes.len(), 1);
         assert!(matches!(
@@ -403,7 +590,7 @@ mod tests {
         let tgt = vec![simple_view(qn("app", "v"), "SELECT 1 AS id", cols.clone())];
         let src = vec![simple_view(qn("app", "v"), "SELECT 2 AS id", cols)];
         let mut out = ChangeSet::new();
-        diff_views(&tgt, &src, &mut out);
+        diff_views(&tgt, &src, &mut out, &BTreeSet::new());
         let changes = &out.entries;
         assert_eq!(changes.len(), 1);
         match &changes[0].change {
@@ -425,7 +612,7 @@ mod tests {
             src_cols,
         )];
         let mut out = ChangeSet::new();
-        diff_views(&tgt, &src, &mut out);
+        diff_views(&tgt, &src, &mut out, &BTreeSet::new());
         let changes = &out.entries;
         assert_eq!(changes.len(), 1);
         match &changes[0].change {
@@ -450,7 +637,7 @@ mod tests {
             v
         }];
         let mut out = ChangeSet::new();
-        diff_views(&tgt, &src, &mut out);
+        diff_views(&tgt, &src, &mut out, &BTreeSet::new());
         let changes = &out.entries;
         assert_eq!(changes.len(), 1);
         assert!(matches!(
@@ -463,7 +650,12 @@ mod tests {
     fn identical_views_emit_no_changes() {
         let v = simple_view(qn("app", "v"), "SELECT 1", vec![]);
         let mut out = ChangeSet::new();
-        diff_views(std::slice::from_ref(&v), std::slice::from_ref(&v), &mut out);
+        diff_views(
+            std::slice::from_ref(&v),
+            std::slice::from_ref(&v),
+            &mut out,
+            &BTreeSet::new(),
+        );
         assert!(out.is_empty());
     }
 
@@ -475,7 +667,7 @@ mod tests {
     fn mv_only_in_source_is_create() {
         let src = vec![simple_mv(qn("app", "mv"), "SELECT 1", vec![])];
         let mut out = ChangeSet::new();
-        diff_materialized_views(&[], &src, &mut out);
+        diff_materialized_views(&[], &src, &mut out, &BTreeSet::new());
         let changes = &out.entries;
         assert_eq!(changes.len(), 1);
         assert!(matches!(
@@ -488,7 +680,7 @@ mod tests {
     fn mv_drop_does_not_set_destructive() {
         let tgt = vec![simple_mv(qn("app", "mv"), "SELECT 1", vec![])];
         let mut out = ChangeSet::new();
-        diff_materialized_views(&tgt, &[], &mut out);
+        diff_materialized_views(&tgt, &[], &mut out, &BTreeSet::new());
         let changes = &out.entries;
         assert_eq!(changes.len(), 1);
         assert!(matches!(&changes[0].change, Change::Mv(MvChange::Drop(_))));
@@ -504,6 +696,7 @@ mod tests {
             std::slice::from_ref(&mv),
             std::slice::from_ref(&mv),
             &mut out,
+            &BTreeSet::new(),
         );
         assert!(out.is_empty());
     }

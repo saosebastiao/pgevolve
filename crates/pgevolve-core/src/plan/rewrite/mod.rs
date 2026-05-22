@@ -182,6 +182,16 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 }
             }
         }
+        // Grant / revoke / owner changes: SQL emission wired up in Stage 9.
+        Change::GrantObjectPrivilege { .. }
+        | Change::RevokeObjectPrivilege { .. }
+        | Change::GrantColumnPrivilege { .. }
+        | Change::RevokeColumnPrivilege { .. }
+        | Change::AlterObjectOwner(_)
+        | Change::AlterDefaultPrivileges { .. } => {
+            // Stage 9 will wire these up. For now emit nothing so existing
+            // tests and plans that don't exercise grants continue to work.
+        }
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach the rewrite phase")

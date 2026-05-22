@@ -10,19 +10,28 @@
 //! `RESTART`, which has different semantics). When `start` differs we emit a
 //! drop+create pair so the new starting point is honored.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::identifier::QualifiedName;
+use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
+use crate::ir::grant::GrantTarget;
 use crate::ir::sequence::Sequence;
 
 use super::change::Change;
-use super::changeset::ChangeSet;
+use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use super::destructiveness::Destructiveness;
+use super::grants::diff_grants;
+use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
 use super::sequence_op::{SequenceOp, SequenceOpEntry};
 
 /// Diff sequences in `target` against `source`, appending entries to `out`.
-pub fn diff_sequences(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
+#[allow(clippy::too_many_lines)]
+pub fn diff_sequences(
+    target: &Catalog,
+    source: &Catalog,
+    out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
+) {
     // Skip column-owned sequences — they are driven by their owner column's diff.
     let target_map: BTreeMap<&QualifiedName, &Sequence> = target
         .sequences
@@ -83,6 +92,69 @@ pub fn diff_sequences(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
                         },
                         Destructiveness::Safe,
                     );
+                }
+
+                // ---- owner diff ----
+                if let Some(source_owner) = &source_seq.owner
+                    && target_seq.owner.as_ref() != Some(source_owner)
+                {
+                    let from = target_seq.owner.clone().unwrap_or_else(|| {
+                        Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
+                    });
+                    out.push(
+                        Change::AlterObjectOwner(AlterObjectOwner {
+                            kind: OwnerObjectKind::Sequence,
+                            qname: (*qname).clone(),
+                            signature: String::new(),
+                            from,
+                            to: source_owner.clone(),
+                        }),
+                        Destructiveness::Safe,
+                    );
+                }
+
+                // ---- grant diff ----
+                {
+                    let object_label = format!("sequence {qname}");
+                    let (to_add, to_revoke, unmanaged) =
+                        diff_grants(&target_seq.grants, &source_seq.grants, managed_roles);
+                    for g in to_add {
+                        out.push(
+                            Change::GrantObjectPrivilege {
+                                qname: (*qname).clone(),
+                                kind: OwnerObjectKind::Sequence,
+                                grant: g,
+                            },
+                            Destructiveness::Safe,
+                        );
+                    }
+                    for g in to_revoke {
+                        if let Some(source_owner) = &source_seq.owner {
+                            out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                                object_label: object_label.clone(),
+                                privilege_label: g.privilege.sql_keyword().into(),
+                                grantee: g.grantee.clone(),
+                                owner: source_owner.clone(),
+                            });
+                        }
+                        out.push(
+                            Change::RevokeObjectPrivilege {
+                                qname: (*qname).clone(),
+                                kind: OwnerObjectKind::Sequence,
+                                grant: g,
+                            },
+                            Destructiveness::Safe,
+                        );
+                    }
+                    for g in unmanaged {
+                        if let GrantTarget::Role(role_name) = &g.grantee {
+                            out.unmanaged_grants.push(UnmanagedGrantObservation {
+                                object_label: object_label.clone(),
+                                privilege_label: g.privilege.sql_keyword().into(),
+                                role_name: role_name.clone(),
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -146,6 +218,8 @@ fn diff_sequence_fields(target: &Sequence, source: &Sequence) -> Vec<SequenceOpE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+
     use crate::identifier::Identifier;
     use crate::ir::column_type::ColumnType;
     use crate::ir::sequence::SequenceOwner;
@@ -181,7 +255,7 @@ mod tests {
         let mut source = Catalog::empty();
         source.sequences.push(seq("seq1"));
         let mut cs = ChangeSet::new();
-        diff_sequences(&target, &source, &mut cs);
+        diff_sequences(&target, &source, &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         assert!(matches!(cs.entries[0].change, Change::CreateSequence(_)));
         assert_eq!(cs.entries[0].destructiveness, Destructiveness::Safe);
@@ -193,7 +267,7 @@ mod tests {
         target.sequences.push(seq("seq1"));
         let source = Catalog::empty();
         let mut cs = ChangeSet::new();
-        diff_sequences(&target, &source, &mut cs);
+        diff_sequences(&target, &source, &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         let entry = &cs.entries[0];
         assert!(matches!(entry.change, Change::DropSequence(_)));
@@ -210,7 +284,7 @@ mod tests {
             ..seq("seq1")
         });
         let mut cs = ChangeSet::new();
-        diff_sequences(&target, &source, &mut cs);
+        diff_sequences(&target, &source, &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         let entry = &cs.entries[0];
         match &entry.change {
@@ -234,7 +308,7 @@ mod tests {
             ..seq("seq1")
         });
         let mut cs = ChangeSet::new();
-        diff_sequences(&target, &source, &mut cs);
+        diff_sequences(&target, &source, &mut cs, &BTreeSet::new());
         let entry = &cs.entries[0];
         match &entry.change {
             Change::AlterSequence { ops, .. } => {
@@ -259,7 +333,7 @@ mod tests {
             ..seq("seq1")
         });
         let mut cs = ChangeSet::new();
-        diff_sequences(&target, &source, &mut cs);
+        diff_sequences(&target, &source, &mut cs, &BTreeSet::new());
         match &cs.entries[0].change {
             Change::AlterSequence { ops, .. } => {
                 assert_eq!(ops.len(), 4);
@@ -282,7 +356,7 @@ mod tests {
             ..seq("seq1")
         });
         let mut cs = ChangeSet::new();
-        diff_sequences(&target, &source, &mut cs);
+        diff_sequences(&target, &source, &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 2);
         assert!(matches!(cs.entries[0].change, Change::DropSequence(_)));
         assert!(matches!(cs.entries[1].change, Change::CreateSequence(_)));
@@ -301,7 +375,7 @@ mod tests {
         target.sequences.push(owned);
         let source = Catalog::empty(); // sequence missing in source — would normally drop
         let mut cs = ChangeSet::new();
-        diff_sequences(&target, &source, &mut cs);
+        diff_sequences(&target, &source, &mut cs, &BTreeSet::new());
         assert!(
             cs.is_empty(),
             "owned sequences are driven by their owner column"
@@ -315,7 +389,7 @@ mod tests {
         let mut source = Catalog::empty();
         source.sequences.push(seq("seq1"));
         let mut cs = ChangeSet::new();
-        diff_sequences(&target, &source, &mut cs);
+        diff_sequences(&target, &source, &mut cs, &BTreeSet::new());
         assert!(cs.is_empty());
     }
 }

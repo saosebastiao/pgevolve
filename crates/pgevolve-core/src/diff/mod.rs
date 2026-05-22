@@ -16,9 +16,12 @@ pub mod changeset;
 pub mod cluster;
 pub mod columns;
 pub mod constraints;
+pub mod default_privileges;
 pub mod destructiveness;
 pub mod extensions;
+pub mod grants;
 pub mod indexes;
+pub mod owner_op;
 pub mod routines;
 pub mod schemas;
 pub mod sequence_op;
@@ -33,9 +36,10 @@ pub use change::{
     Change, ChangeEntry, ExtensionChange, FunctionChange, MvChange, ProcedureChange, TableChange,
     TriggerChange, UserTypeChange, ViewChange,
 };
-pub use changeset::ChangeSet;
+pub use changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 pub use cluster::{ClusterChange, ClusterChangeEntry, ClusterChangeSet, diff_cluster};
 pub use destructiveness::Destructiveness;
+pub use owner_op::{AlterObjectOwner, OwnerObjectKind};
 pub use routines::{diff_functions, diff_procedures};
 pub use sequence_op::{SequenceOp, SequenceOpEntry};
 pub use table_op::{TableOp, TableOpEntry};
@@ -54,6 +58,11 @@ use crate::ir::catalog::Catalog;
 /// the planner's responsibility (phase 5).
 pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSet {
     let mut out = ChangeSet::new();
+
+    // Build the managed-roles set once from the source catalog.
+    // This is used throughout all per-family differs for the lenient
+    // drift policy: grants to roles not in this set are never silently revoked.
+    let managed_roles = grants::collect_managed_roles(source);
 
     // Emit recovery changes for any drift in the live database before the
     // structural diff, so the planner can schedule them appropriately.
@@ -75,21 +84,52 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
         );
     }
 
-    schemas::diff_schemas(target, source, &mut out);
+    schemas::diff_schemas(target, source, &mut out, &managed_roles);
     extensions::diff_extensions(&target.extensions, &source.extensions, &mut out);
-    tables::diff_tables(target, source, &mut out);
+    tables::diff_tables(target, source, &mut out, &managed_roles);
     indexes::diff_indexes(target, source, &mut out);
-    sequences::diff_sequences(target, source, &mut out);
-    views::diff_views(&target.views, &source.views, &mut out);
+    sequences::diff_sequences(target, source, &mut out, &managed_roles);
+    views::diff_views(&target.views, &source.views, &mut out, &managed_roles);
     views::diff_materialized_views(
         &target.materialized_views,
         &source.materialized_views,
         &mut out,
+        &managed_roles,
     );
-    types::diff_user_types(&target.types, &source.types, &mut out);
-    routines::diff_functions(&target.functions, &source.functions, &mut out);
-    routines::diff_procedures(&target.procedures, &source.procedures, &mut out);
+    types::diff_user_types(&target.types, &source.types, &mut out, &managed_roles);
+    routines::diff_functions(
+        &target.functions,
+        &source.functions,
+        &mut out,
+        &managed_roles,
+    );
+    routines::diff_procedures(
+        &target.procedures,
+        &source.procedures,
+        &mut out,
+        &managed_roles,
+    );
     triggers::diff_triggers(&target.triggers, &source.triggers, &mut out);
+
+    // ---- default-privileges diff ----
+    let dp_changes = default_privileges::diff_default_privileges(
+        &target.default_privileges,
+        &source.default_privileges,
+        &managed_roles,
+    );
+    for dp in dp_changes {
+        out.push(
+            Change::AlterDefaultPrivileges {
+                target_role: dp.target_role,
+                schema: dp.schema,
+                object_type: dp.object_type,
+                is_grant: dp.is_grant,
+                grant: dp.grant,
+            },
+            Destructiveness::Safe,
+        );
+    }
+
     out
 }
 

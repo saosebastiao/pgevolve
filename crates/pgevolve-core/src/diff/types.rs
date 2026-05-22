@@ -9,15 +9,23 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diff::change::{Change, UserTypeChange};
-use crate::diff::changeset::ChangeSet;
+use crate::diff::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use crate::diff::destructiveness::Destructiveness;
+use crate::diff::grants::diff_grants;
+use crate::diff::owner_op::{AlterObjectOwner, OwnerObjectKind};
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::grant::GrantTarget;
 use crate::ir::user_type::{CompositeAttribute, EnumValue, UserType, UserTypeKind};
 
 /// Compute `UserType`-level changes needed to converge `catalog` toward `source`.
 ///
 /// `catalog` is the live database snapshot; `source` is the desired state.
-pub fn diff_user_types(catalog: &[UserType], source: &[UserType], out: &mut ChangeSet) {
+pub fn diff_user_types(
+    catalog: &[UserType],
+    source: &[UserType],
+    out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
+) {
     let cat: BTreeMap<_, _> = catalog.iter().map(|t| (t.qname.clone(), t)).collect();
     let src: BTreeMap<_, _> = source.iter().map(|t| (t.qname.clone(), t)).collect();
 
@@ -35,8 +43,80 @@ pub fn diff_user_types(catalog: &[UserType], source: &[UserType], out: &mut Chan
                     reason: format!("drops user-defined type {key}"),
                 },
             ),
-            (Some(c), Some(s)) => diff_same_qname(c, s, out),
+            (Some(c), Some(s)) => {
+                diff_same_qname(c, s, out);
+                diff_type_owner_grants(c, s, out, managed_roles);
+            }
             (None, None) => unreachable!(),
+        }
+    }
+}
+
+/// Diff owner and grants for a type pair.
+fn diff_type_owner_grants(
+    catalog: &UserType,
+    source: &UserType,
+    out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
+) {
+    // Owner diff.
+    if let Some(source_owner) = &source.owner
+        && catalog.owner.as_ref() != Some(source_owner)
+    {
+        let from = catalog.owner.clone().unwrap_or_else(|| {
+            Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
+        });
+        out.push(
+            Change::AlterObjectOwner(AlterObjectOwner {
+                kind: OwnerObjectKind::UserType,
+                qname: source.qname.clone(),
+                signature: String::new(),
+                from,
+                to: source_owner.clone(),
+            }),
+            Destructiveness::Safe,
+        );
+    }
+
+    // Grant diff.
+    let object_label = format!("type {}", source.qname);
+    let (to_add, to_revoke, unmanaged) =
+        diff_grants(&catalog.grants, &source.grants, managed_roles);
+    for g in to_add {
+        out.push(
+            Change::GrantObjectPrivilege {
+                qname: source.qname.clone(),
+                kind: OwnerObjectKind::UserType,
+                grant: g,
+            },
+            Destructiveness::Safe,
+        );
+    }
+    for g in to_revoke {
+        if let Some(source_owner) = &source.owner {
+            out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                object_label: object_label.clone(),
+                privilege_label: g.privilege.sql_keyword().into(),
+                grantee: g.grantee.clone(),
+                owner: source_owner.clone(),
+            });
+        }
+        out.push(
+            Change::RevokeObjectPrivilege {
+                qname: source.qname.clone(),
+                kind: OwnerObjectKind::UserType,
+                grant: g,
+            },
+            Destructiveness::Safe,
+        );
+    }
+    for g in unmanaged {
+        if let GrantTarget::Role(role_name) = &g.grantee {
+            out.unmanaged_grants.push(UnmanagedGrantObservation {
+                object_label: object_label.clone(),
+                privilege_label: g.privilege.sql_keyword().into(),
+                role_name: role_name.clone(),
+            });
         }
     }
 }
@@ -580,6 +660,8 @@ fn diff_composite(
 )]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+
     use crate::diff::change::UserTypeChange;
     use crate::ir::column_type::ColumnType;
     use crate::ir::default_expr::NormalizedExpr;
@@ -654,7 +736,7 @@ mod tests {
 
     fn run(catalog: &[UserType], source: &[UserType]) -> Vec<Change> {
         let mut out = ChangeSet::new();
-        diff_user_types(catalog, source, &mut out);
+        diff_user_types(catalog, source, &mut out, &BTreeSet::new());
         out.entries.into_iter().map(|e| e.change).collect()
     }
 
@@ -663,7 +745,7 @@ mod tests {
         source: &[UserType],
     ) -> Vec<(Change, Destructiveness)> {
         let mut out = ChangeSet::new();
-        diff_user_types(catalog, source, &mut out);
+        diff_user_types(catalog, source, &mut out, &BTreeSet::new());
         out.entries
             .into_iter()
             .map(|e| (e.change, e.destructiveness))

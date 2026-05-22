@@ -20,9 +20,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diff::change::{Change, FunctionChange, ProcedureChange};
-use crate::diff::changeset::ChangeSet;
+use crate::diff::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use crate::diff::destructiveness::Destructiveness;
-use crate::ir::function::{ArgMode, Function, ReturnType};
+use crate::diff::grants::diff_grants;
+use crate::diff::owner_op::{AlterObjectOwner, OwnerObjectKind};
+use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::function::{ArgMode, Function, NormalizedArgTypes, ReturnType};
+use crate::ir::grant::GrantTarget;
 use crate::ir::procedure::Procedure;
 
 /// Compute `Function`-level changes needed to converge `catalog` toward `source`.
@@ -30,10 +34,15 @@ use crate::ir::procedure::Procedure;
 /// Functions are paired by `(qname, arg_types_normalized.canonical_hash)` so
 /// that overloads with different input-argument signatures are treated as
 /// independent objects.
-pub fn diff_functions(catalog: &[Function], source: &[Function], out: &mut ChangeSet) {
+pub fn diff_functions(
+    catalog: &[Function],
+    source: &[Function],
+    out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
+) {
     // Key: (qname, arg-type identity hash).  Use a tuple so BTreeMap ordering
     // is deterministic across runs regardless of insertion order.
-    type Key = (crate::identifier::QualifiedName, [u8; 32]);
+    type Key = (QualifiedName, [u8; 32]);
 
     let cat: BTreeMap<Key, &Function> = catalog
         .iter()
@@ -61,8 +70,89 @@ pub fn diff_functions(catalog: &[Function], source: &[Function], out: &mut Chang
                     reason: format!("drops function {}", c.qname),
                 },
             ),
-            (Some(c), Some(s)) => diff_same_function(c, s, out),
+            (Some(c), Some(s)) => {
+                diff_same_function(c, s, out);
+                diff_function_owner_grants(c, s, out, managed_roles);
+            }
             (None, None) => unreachable!(),
+        }
+    }
+}
+
+/// Diff owner and grants for a function pair that shares the same identity key.
+fn diff_function_owner_grants(
+    catalog: &Function,
+    source: &Function,
+    out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
+) {
+    // Build a human-readable label for the routine (for observations).
+    let args_label = NormalizedArgTypes::from_args(&source.args)
+        .types
+        .iter()
+        .map(crate::ir::column_type::ColumnType::render_sql)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let signature = format!("({args_label})");
+
+    // Owner diff.
+    if let Some(source_owner) = &source.owner
+        && catalog.owner.as_ref() != Some(source_owner)
+    {
+        let from = catalog.owner.clone().unwrap_or_else(|| {
+            Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
+        });
+        out.push(
+            Change::AlterObjectOwner(AlterObjectOwner {
+                kind: OwnerObjectKind::Function,
+                qname: source.qname.clone(),
+                signature: signature.clone(),
+                from,
+                to: source_owner.clone(),
+            }),
+            Destructiveness::Safe,
+        );
+    }
+
+    // Grant diff.
+    let object_label = format!("function {}{signature}", source.qname);
+    let (to_add, to_revoke, unmanaged) =
+        diff_grants(&catalog.grants, &source.grants, managed_roles);
+    for g in to_add {
+        out.push(
+            Change::GrantObjectPrivilege {
+                qname: source.qname.clone(),
+                kind: OwnerObjectKind::Function,
+                grant: g,
+            },
+            Destructiveness::Safe,
+        );
+    }
+    for g in to_revoke {
+        if let Some(source_owner) = &source.owner {
+            out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                object_label: object_label.clone(),
+                privilege_label: g.privilege.sql_keyword().into(),
+                grantee: g.grantee.clone(),
+                owner: source_owner.clone(),
+            });
+        }
+        out.push(
+            Change::RevokeObjectPrivilege {
+                qname: source.qname.clone(),
+                kind: OwnerObjectKind::Function,
+                grant: g,
+            },
+            Destructiveness::Safe,
+        );
+    }
+    for g in unmanaged {
+        if let GrantTarget::Role(role_name) = &g.grantee {
+            out.unmanaged_grants.push(UnmanagedGrantObservation {
+                object_label: object_label.clone(),
+                privilege_label: g.privilege.sql_keyword().into(),
+                role_name: role_name.clone(),
+            });
         }
     }
 }
@@ -188,9 +278,12 @@ fn arg_default_removed(catalog: &Function, source: &Function) -> bool {
 ///
 /// Procedures are paired by `qname` only (v0.2 does not support procedure
 /// overloads).
-pub fn diff_procedures(catalog: &[Procedure], source: &[Procedure], out: &mut ChangeSet) {
-    use crate::identifier::QualifiedName;
-
+pub fn diff_procedures(
+    catalog: &[Procedure],
+    source: &[Procedure],
+    out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
+) {
     let cat: BTreeMap<QualifiedName, &Procedure> =
         catalog.iter().map(|p| (p.qname.clone(), p)).collect();
     let src: BTreeMap<QualifiedName, &Procedure> =
@@ -209,8 +302,80 @@ pub fn diff_procedures(catalog: &[Procedure], source: &[Procedure], out: &mut Ch
                     reason: format!("drops procedure {}", c.qname),
                 },
             ),
-            (Some(c), Some(s)) => diff_same_procedure(c, s, out),
+            (Some(c), Some(s)) => {
+                diff_same_procedure(c, s, out);
+                diff_procedure_owner_grants(c, s, out, managed_roles);
+            }
             (None, None) => unreachable!(),
+        }
+    }
+}
+
+/// Diff owner and grants for a procedure pair.
+fn diff_procedure_owner_grants(
+    catalog: &Procedure,
+    source: &Procedure,
+    out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
+) {
+    // Owner diff.
+    if let Some(source_owner) = &source.owner
+        && catalog.owner.as_ref() != Some(source_owner)
+    {
+        let from = catalog.owner.clone().unwrap_or_else(|| {
+            Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
+        });
+        out.push(
+            Change::AlterObjectOwner(AlterObjectOwner {
+                kind: OwnerObjectKind::Procedure,
+                qname: source.qname.clone(),
+                signature: String::new(),
+                from,
+                to: source_owner.clone(),
+            }),
+            Destructiveness::Safe,
+        );
+    }
+
+    // Grant diff.
+    let object_label = format!("procedure {}", source.qname);
+    let (to_add, to_revoke, unmanaged) =
+        diff_grants(&catalog.grants, &source.grants, managed_roles);
+    for g in to_add {
+        out.push(
+            Change::GrantObjectPrivilege {
+                qname: source.qname.clone(),
+                kind: OwnerObjectKind::Procedure,
+                grant: g,
+            },
+            Destructiveness::Safe,
+        );
+    }
+    for g in to_revoke {
+        if let Some(source_owner) = &source.owner {
+            out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                object_label: object_label.clone(),
+                privilege_label: g.privilege.sql_keyword().into(),
+                grantee: g.grantee.clone(),
+                owner: source_owner.clone(),
+            });
+        }
+        out.push(
+            Change::RevokeObjectPrivilege {
+                qname: source.qname.clone(),
+                kind: OwnerObjectKind::Procedure,
+                grant: g,
+            },
+            Destructiveness::Safe,
+        );
+    }
+    for g in unmanaged {
+        if let GrantTarget::Role(role_name) = &g.grantee {
+            out.unmanaged_grants.push(UnmanagedGrantObservation {
+                object_label: object_label.clone(),
+                privilege_label: g.privilege.sql_keyword().into(),
+                role_name: role_name.clone(),
+            });
         }
     }
 }
@@ -246,6 +411,8 @@ fn diff_same_procedure(catalog: &Procedure, source: &Procedure, out: &mut Change
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+
     use crate::diff::change::{Change, FunctionChange, ProcedureChange};
     use crate::diff::changeset::ChangeSet;
     use crate::diff::destructiveness::Destructiveness;
@@ -349,7 +516,7 @@ mod tests {
     fn function_create_emits_create() {
         let f = make_func_no_args(qn("app", "add_one"), "SELECT 1");
         let mut cs = ChangeSet::new();
-        diff_functions(&[], std::slice::from_ref(&f), &mut cs);
+        diff_functions(&[], std::slice::from_ref(&f), &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         assert!(matches!(
             &cs.entries[0].change,
@@ -365,7 +532,7 @@ mod tests {
     fn function_drop_is_data_loss() {
         let f = make_func_no_args(qn("app", "old_fn"), "SELECT 99");
         let mut cs = ChangeSet::new();
-        diff_functions(std::slice::from_ref(&f), &[], &mut cs);
+        diff_functions(std::slice::from_ref(&f), &[], &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         assert!(matches!(
             &cs.entries[0].change,
@@ -386,6 +553,7 @@ mod tests {
             std::slice::from_ref(&f_cat),
             std::slice::from_ref(&f_src),
             &mut cs,
+            &BTreeSet::new(),
         );
         assert_eq!(cs.len(), 1);
         assert!(matches!(
@@ -413,6 +581,7 @@ mod tests {
             std::slice::from_ref(&f_cat),
             std::slice::from_ref(&f_src),
             &mut cs,
+            &BTreeSet::new(),
         );
         assert_eq!(cs.len(), 1);
         assert!(matches!(
@@ -438,7 +607,12 @@ mod tests {
         // catalog has only the int overload; source has both.
         let src = [f_int.clone(), f_txt];
         let mut cs = ChangeSet::new();
-        diff_functions(std::slice::from_ref(&f_int), &src, &mut cs);
+        diff_functions(
+            std::slice::from_ref(&f_int),
+            &src,
+            &mut cs,
+            &BTreeSet::new(),
+        );
 
         // Only the text overload should be emitted as a Create.
         assert_eq!(cs.len(), 1);
@@ -458,6 +632,7 @@ mod tests {
             std::slice::from_ref(&f_cat),
             std::slice::from_ref(&f_src),
             &mut cs,
+            &BTreeSet::new(),
         );
         assert_eq!(cs.len(), 1);
         assert!(matches!(
@@ -518,6 +693,7 @@ mod tests {
             std::slice::from_ref(&f_cat),
             std::slice::from_ref(&f_src),
             &mut cs,
+            &BTreeSet::new(),
         );
         assert_eq!(cs.len(), 1);
         assert!(matches!(
@@ -534,7 +710,12 @@ mod tests {
     fn function_identical_emits_nothing() {
         let f = make_func_no_args(qn("app", "unchanged"), "SELECT 42");
         let mut cs = ChangeSet::new();
-        diff_functions(std::slice::from_ref(&f), std::slice::from_ref(&f), &mut cs);
+        diff_functions(
+            std::slice::from_ref(&f),
+            std::slice::from_ref(&f),
+            &mut cs,
+            &BTreeSet::new(),
+        );
         assert!(cs.is_empty());
     }
 
@@ -544,7 +725,7 @@ mod tests {
     fn procedure_create_emits_create() {
         let p = make_procedure(qn("app", "do_work"), "BEGIN NULL; END");
         let mut cs = ChangeSet::new();
-        diff_procedures(&[], std::slice::from_ref(&p), &mut cs);
+        diff_procedures(&[], std::slice::from_ref(&p), &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         assert!(matches!(
             &cs.entries[0].change,
@@ -560,7 +741,7 @@ mod tests {
     fn procedure_drop_is_data_loss() {
         let p = make_procedure(qn("app", "old_proc"), "BEGIN NULL; END");
         let mut cs = ChangeSet::new();
-        diff_procedures(std::slice::from_ref(&p), &[], &mut cs);
+        diff_procedures(std::slice::from_ref(&p), &[], &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         assert!(matches!(
             &cs.entries[0].change,
@@ -581,6 +762,7 @@ mod tests {
             std::slice::from_ref(&p_cat),
             std::slice::from_ref(&p_src),
             &mut cs,
+            &BTreeSet::new(),
         );
         assert_eq!(cs.len(), 1);
         assert!(matches!(
@@ -597,7 +779,12 @@ mod tests {
     fn procedure_identical_emits_nothing() {
         let p = make_procedure(qn("app", "stable_proc"), "BEGIN NULL; END");
         let mut cs = ChangeSet::new();
-        diff_procedures(std::slice::from_ref(&p), std::slice::from_ref(&p), &mut cs);
+        diff_procedures(
+            std::slice::from_ref(&p),
+            std::slice::from_ref(&p),
+            &mut cs,
+            &BTreeSet::new(),
+        );
         assert!(cs.is_empty());
     }
 }

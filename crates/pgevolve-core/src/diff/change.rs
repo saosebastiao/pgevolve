@@ -13,8 +13,10 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::NormalizedExpr;
+use crate::ir::default_privileges::DefaultPrivObjectType;
 use crate::ir::extension::Extension;
 use crate::ir::function::{Function, NormalizedArgTypes};
+use crate::ir::grant::{Grant, GrantTarget};
 use crate::ir::index::Index;
 use crate::ir::partition::PartitionBounds;
 use crate::ir::procedure::Procedure;
@@ -26,6 +28,7 @@ use crate::ir::user_type::{CompositeAttribute, DomainCheck, UserType};
 use crate::ir::view::{MaterializedView, View};
 
 use super::destructiveness::Destructiveness;
+use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
 use super::sequence_op::SequenceOpEntry;
 use super::table_op::TableOpEntry;
 
@@ -136,6 +139,68 @@ pub enum Change {
     Trigger(TriggerChange),
     /// A partition-membership change (ATTACH / DETACH PARTITION).
     Table(TableChange),
+    /// Grant an object-level privilege on a grantable object (non-column).
+    ///
+    /// Emitted when a grant appears in source but not in the target catalog.
+    GrantObjectPrivilege {
+        /// Qualified name of the grantable object (schema, table, sequence,
+        /// view, function, procedure, or type).
+        qname: QualifiedName,
+        /// Which kind of object this is (drives the SQL keyword in the renderer).
+        kind: OwnerObjectKind,
+        /// The full grant to apply.
+        grant: Grant,
+    },
+    /// Revoke an object-level privilege from a grantable object (non-column).
+    ///
+    /// Only emitted for managed grantees (see [`super::grants::diff_grants`]).
+    RevokeObjectPrivilege {
+        /// Qualified name of the grantable object.
+        qname: QualifiedName,
+        /// Which kind of object this is.
+        kind: OwnerObjectKind,
+        /// The full grant to revoke.
+        grant: Grant,
+    },
+    /// Grant a column-level privilege on a table, view, or materialized view.
+    ///
+    /// Emitted when the grant's `columns` field is `Some(_)`.
+    GrantColumnPrivilege {
+        /// Qualified name of the table / view / materialized view.
+        qname: QualifiedName,
+        /// The full grant (including the `columns` list).
+        grant: Grant,
+    },
+    /// Revoke a column-level privilege from a table, view, or materialized view.
+    ///
+    /// Only emitted for managed grantees.
+    RevokeColumnPrivilege {
+        /// Qualified name of the table / view / materialized view.
+        qname: QualifiedName,
+        /// The full grant (including the `columns` list).
+        grant: Grant,
+    },
+    /// Change the owner of a grantable object.
+    ///
+    /// Emitted when the source declares an owner (`owner: Some(_)`) and the
+    /// target owner differs. When the source has `owner: None`, ownership is
+    /// unmanaged and no change is emitted.
+    AlterObjectOwner(AlterObjectOwner),
+    /// Add or remove a default privilege for a `(FOR ROLE, IN SCHEMA?,
+    /// object-type)` key.
+    AlterDefaultPrivileges {
+        /// `FOR ROLE x` — the grantor role.
+        target_role: Identifier,
+        /// `IN SCHEMA y` — scope. `None` = global.
+        schema: Option<Identifier>,
+        /// Object-type discriminant.
+        object_type: DefaultPrivObjectType,
+        /// `true` = GRANT step, `false` = REVOKE step.
+        is_grant: bool,
+        /// The grantee and privilege being adjusted.
+        grant: Grant,
+    },
+
     /// A change that cannot be performed in-place.
     ///
     /// Emitted by the differ when it detects a structural difference that has
@@ -150,6 +215,14 @@ pub enum Change {
         reason: String,
     },
 }
+
+// Silence the unused-import lint — OwnerObjectKind and GrantTarget are used in
+// the variants above but Rust's lint fires on the `use` line when all uses are
+// inside the enum definition.
+const _: () = {
+    let _ = core::mem::size_of::<OwnerObjectKind>();
+    let _ = core::mem::size_of::<GrantTarget>();
+};
 
 /// A structural change to a single user-defined type.
 #[allow(clippy::large_enum_variant)]

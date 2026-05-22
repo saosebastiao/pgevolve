@@ -3,18 +3,27 @@
 //! Pairs schemas by [`Identifier`] name. The only field that can vary in v0.1
 //! aside from existence is `comment`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identifier::Identifier;
 use crate::ir::catalog::Catalog;
+use crate::ir::grant::GrantTarget;
 use crate::ir::schema::Schema;
 
 use super::change::Change;
-use super::changeset::ChangeSet;
+use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use super::destructiveness::Destructiveness;
+use super::grants::diff_grants;
+use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
 
 /// Diff schemas in `target` against `source`, appending entries to `out`.
-pub fn diff_schemas(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
+#[allow(clippy::too_many_lines)]
+pub fn diff_schemas(
+    target: &Catalog,
+    source: &Catalog,
+    out: &mut ChangeSet,
+    managed_roles: &BTreeSet<Identifier>,
+) {
     let target_map: BTreeMap<&Identifier, &Schema> =
         target.schemas.iter().map(|s| (&s.name, s)).collect();
     let source_map: BTreeMap<&Identifier, &Schema> =
@@ -49,6 +58,76 @@ pub fn diff_schemas(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
                         Destructiveness::Safe,
                     );
                 }
+
+                // Owner diff.
+                if let Some(source_owner) = &source_schema.owner
+                    && target_schema.owner.as_ref() != Some(source_owner)
+                {
+                    let from = target_schema.owner.clone().unwrap_or_else(|| {
+                        Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
+                    });
+                    out.push(
+                        Change::AlterObjectOwner(AlterObjectOwner {
+                            kind: OwnerObjectKind::Schema,
+                            qname: crate::identifier::QualifiedName::new(
+                                (*name).clone(),
+                                (*name).clone(),
+                            ),
+                            signature: String::new(),
+                            from,
+                            to: source_owner.clone(),
+                        }),
+                        Destructiveness::Safe,
+                    );
+                }
+
+                // Grant diff.
+                let object_label = format!("schema {name}");
+                let (to_add, to_revoke, unmanaged) =
+                    diff_grants(&target_schema.grants, &source_schema.grants, managed_roles);
+                for g in to_add {
+                    out.push(
+                        Change::GrantObjectPrivilege {
+                            qname: crate::identifier::QualifiedName::new(
+                                (*name).clone(),
+                                (*name).clone(),
+                            ),
+                            kind: OwnerObjectKind::Schema,
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                }
+                for g in to_revoke {
+                    if let Some(source_owner) = &source_schema.owner {
+                        out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                            object_label: object_label.clone(),
+                            privilege_label: g.privilege.sql_keyword().into(),
+                            grantee: g.grantee.clone(),
+                            owner: source_owner.clone(),
+                        });
+                    }
+                    out.push(
+                        Change::RevokeObjectPrivilege {
+                            qname: crate::identifier::QualifiedName::new(
+                                (*name).clone(),
+                                (*name).clone(),
+                            ),
+                            kind: OwnerObjectKind::Schema,
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                }
+                for g in unmanaged {
+                    if let GrantTarget::Role(role_name) = &g.grantee {
+                        out.unmanaged_grants.push(UnmanagedGrantObservation {
+                            object_label: object_label.clone(),
+                            privilege_label: g.privilege.sql_keyword().into(),
+                            role_name: role_name.clone(),
+                        });
+                    }
+                }
             }
         }
     }
@@ -57,6 +136,7 @@ pub fn diff_schemas(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -77,7 +157,7 @@ mod tests {
         let mut source = Catalog::empty();
         source.schemas.push(sch("app", None));
         let mut cs = ChangeSet::new();
-        diff_schemas(&target, &source, &mut cs);
+        diff_schemas(&target, &source, &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         let entry = cs.iter().next().unwrap();
         assert!(matches!(entry.change, Change::CreateSchema(_)));
@@ -90,7 +170,7 @@ mod tests {
         target.schemas.push(sch("legacy", None));
         let source = Catalog::empty();
         let mut cs = ChangeSet::new();
-        diff_schemas(&target, &source, &mut cs);
+        diff_schemas(&target, &source, &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         let entry = cs.iter().next().unwrap();
         assert!(matches!(entry.change, Change::DropSchema(_)));
@@ -105,7 +185,7 @@ mod tests {
         let mut source = Catalog::empty();
         source.schemas.push(sch("app", Some("v2")));
         let mut cs = ChangeSet::new();
-        diff_schemas(&target, &source, &mut cs);
+        diff_schemas(&target, &source, &mut cs, &BTreeSet::new());
         assert_eq!(cs.len(), 1);
         let entry = &cs.entries[0];
         match &entry.change {
@@ -125,7 +205,7 @@ mod tests {
         let mut source = Catalog::empty();
         source.schemas.push(sch("app", None));
         let mut cs = ChangeSet::new();
-        diff_schemas(&target, &source, &mut cs);
+        diff_schemas(&target, &source, &mut cs, &BTreeSet::new());
         let entry = &cs.entries[0];
         match &entry.change {
             Change::AlterSchema { comment, .. } => assert!(comment.is_none()),
@@ -140,7 +220,7 @@ mod tests {
         let mut source = Catalog::empty();
         source.schemas.push(sch("app", Some("v1")));
         let mut cs = ChangeSet::new();
-        diff_schemas(&target, &source, &mut cs);
+        diff_schemas(&target, &source, &mut cs, &BTreeSet::new());
         assert!(cs.is_empty());
     }
 }
