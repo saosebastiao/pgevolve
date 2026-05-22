@@ -25,6 +25,7 @@ pub mod cluster;
 pub mod default_privileges;
 pub mod filter_pg_defaults;
 pub mod grants;
+pub mod policies;
 pub mod renumber_enum_sort_orders;
 pub mod sentinel_view_columns;
 pub mod sort_and_dedupe;
@@ -65,6 +66,9 @@ pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
         grants::run_on_list(&mut t.grants);
     }
     default_privileges::run(&mut cat.default_privileges);
+    for t in &mut cat.tables {
+        policies::run_on_table(t);
+    }
     sort_and_dedupe::run(cat)?;
     Ok(())
 }
