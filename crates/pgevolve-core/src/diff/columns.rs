@@ -15,6 +15,7 @@
 use std::collections::BTreeMap;
 
 use crate::identifier::Identifier;
+use crate::ir::canon::filter_pg_defaults::type_default_storage;
 use crate::ir::column::Column;
 use crate::ir::column_type::ColumnType;
 use crate::ir::table::Table;
@@ -171,12 +172,12 @@ fn diff_column(target: &Column, source: &Column, out: &mut Vec<TableOpEntry>) {
     // emitted op is always explicit. Carries both `from` and `to` so the
     // lint rule can detect downgrades.
     {
-        let from = target.storage.unwrap_or_else(|| {
-            crate::ir::canon::filter_pg_defaults::type_default_storage(&target.ty)
-        });
-        let to = source.storage.unwrap_or_else(|| {
-            crate::ir::canon::filter_pg_defaults::type_default_storage(&source.ty)
-        });
+        let from = target
+            .storage
+            .unwrap_or_else(|| type_default_storage(&target.ty));
+        let to = source
+            .storage
+            .unwrap_or_else(|| type_default_storage(&source.ty));
         if from != to {
             out.push(TableOpEntry {
                 op: TableOp::SetColumnStorage {
@@ -565,6 +566,7 @@ mod tests {
                 ..
             }
         ));
+        assert_eq!(ops[0].destructiveness, Destructiveness::Safe);
     }
 
     #[test]

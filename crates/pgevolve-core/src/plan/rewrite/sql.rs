@@ -9,7 +9,9 @@
 //! the plan-id hash in spec §6.6.
 
 use crate::identifier::{Identifier, QualifiedName};
-use crate::ir::column::{Column, Compression, GeneratedKind, Identity, IdentityKind, SequenceOptions, StorageKind};
+use crate::ir::column::{
+    Column, Compression, GeneratedKind, Identity, IdentityKind, SequenceOptions, StorageKind,
+};
 use crate::ir::constraint::{
     Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
 };

@@ -292,8 +292,8 @@ mod tests {
 
     #[test]
     fn alter_column_set_storage_external() {
-        let out = build("ALTER TABLE app.t ALTER COLUMN doc SET STORAGE EXTERNAL;")
-            .expect("builds");
+        let out =
+            build("ALTER TABLE app.t ALTER COLUMN doc SET STORAGE EXTERNAL;").expect("builds");
         assert_eq!(out.pending_column_attrs.len(), 1);
         let attr = &out.pending_column_attrs[0];
         assert_eq!(attr.target.to_string(), "app.t");
@@ -306,8 +306,7 @@ mod tests {
 
     #[test]
     fn alter_column_set_storage_plain() {
-        let out =
-            build("ALTER TABLE app.t ALTER COLUMN n SET STORAGE PLAIN;").expect("builds");
+        let out = build("ALTER TABLE app.t ALTER COLUMN n SET STORAGE PLAIN;").expect("builds");
         let attr = &out.pending_column_attrs[0];
         assert!(matches!(
             attr.kind,
@@ -317,8 +316,7 @@ mod tests {
 
     #[test]
     fn alter_column_set_storage_main() {
-        let out =
-            build("ALTER TABLE app.t ALTER COLUMN n SET STORAGE MAIN;").expect("builds");
+        let out = build("ALTER TABLE app.t ALTER COLUMN n SET STORAGE MAIN;").expect("builds");
         let attr = &out.pending_column_attrs[0];
         assert!(matches!(
             attr.kind,
@@ -328,8 +326,7 @@ mod tests {
 
     #[test]
     fn alter_column_set_compression_lz4() {
-        let out =
-            build("ALTER TABLE app.t ALTER COLUMN doc SET COMPRESSION lz4;").expect("builds");
+        let out = build("ALTER TABLE app.t ALTER COLUMN doc SET COMPRESSION lz4;").expect("builds");
         assert_eq!(out.pending_column_attrs.len(), 1);
         let attr = &out.pending_column_attrs[0];
         assert!(matches!(

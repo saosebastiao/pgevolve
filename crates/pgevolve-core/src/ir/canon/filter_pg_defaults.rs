@@ -376,18 +376,36 @@ mod tests {
 
     #[test]
     fn type_default_for_bit_is_external() {
-        let mut c = col("flags", ColumnType::Bit { len: 8, varying: false });
+        let mut c = col(
+            "flags",
+            ColumnType::Bit {
+                len: 8,
+                varying: false,
+            },
+        );
         c.storage = Some(StorageKind::External);
         normalize_column_storage(&mut c);
-        assert_eq!(c.storage, None, "External on bit should normalize to None (bit's typstorage is 'e' = External)");
+        assert_eq!(
+            c.storage, None,
+            "External on bit should normalize to None (bit's typstorage is 'e' = External)"
+        );
     }
 
     #[test]
     fn type_default_for_numeric_is_main() {
-        let mut c = col("amount", ColumnType::Numeric { precision: None, scale: None });
+        let mut c = col(
+            "amount",
+            ColumnType::Numeric {
+                precision: None,
+                scale: None,
+            },
+        );
         c.storage = Some(StorageKind::Main);
         normalize_column_storage(&mut c);
-        assert_eq!(c.storage, None, "Main on numeric should normalize to None (numeric's typstorage is 'm' = Main)");
+        assert_eq!(
+            c.storage, None,
+            "Main on numeric should normalize to None (numeric's typstorage is 'm' = Main)"
+        );
     }
 
     #[test]
