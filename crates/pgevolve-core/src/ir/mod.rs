@@ -11,6 +11,7 @@ pub mod column;
 pub mod column_type;
 pub mod constraint;
 pub mod default_expr;
+pub mod default_privileges;
 pub mod difference;
 pub mod eq;
 pub mod extension;

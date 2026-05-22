@@ -513,6 +513,7 @@ mod tests {
             functions: vec![],
             procedures: vec![],
             triggers: vec![],
+            default_privileges: vec![],
         };
 
         // Try every seed in 0..16 (covering all column-pick positions and

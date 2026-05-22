@@ -43,6 +43,8 @@ pub struct Catalog {
     pub procedures: Vec<Procedure>,
     /// Triggers (`CREATE TRIGGER` / `CREATE CONSTRAINT TRIGGER`).
     pub triggers: Vec<Trigger>,
+    /// `ALTER DEFAULT PRIVILEGES` rules. Canonicalized.
+    pub default_privileges: Vec<crate::ir::default_privileges::DefaultPrivilegeRule>,
 }
 
 impl Catalog {
@@ -61,6 +63,7 @@ impl Catalog {
             functions: Vec::new(),
             procedures: Vec::new(),
             triggers: Vec::new(),
+            default_privileges: Vec::new(),
         }
     }
 
@@ -140,6 +143,17 @@ impl Diff for Catalog {
         out.extend(prefix_diffs(
             "triggers",
             diff_keyed(&self.triggers, &other.triggers, |t| t.qname.to_string()),
+        ));
+        out.extend(prefix_diffs(
+            "default_privileges",
+            diff_keyed(&self.default_privileges, &other.default_privileges, |r| {
+                format!(
+                    "{}.{}.{}",
+                    r.target_role,
+                    r.schema.as_ref().map_or("*", |s| s.as_str()),
+                    r.object_type.sql_keyword(),
+                )
+            }),
         ));
         out
     }
@@ -265,5 +279,23 @@ mod tests {
         c.tables.push(table_users());
         let r = c.canonicalize();
         assert!(matches!(r, Err(IrError::InvalidIdentifier(_))));
+    }
+
+    #[test]
+    fn default_privileges_change_diffs() {
+        use crate::ir::default_privileges::{DefaultPrivObjectType, DefaultPrivilegeRule};
+        let mut b = Catalog::empty();
+        b.default_privileges.push(DefaultPrivilegeRule {
+            target_role: id("app_owner"),
+            schema: None,
+            object_type: DefaultPrivObjectType::Tables,
+            grants: vec![],
+        });
+        assert!(
+            Catalog::empty()
+                .diff(&b)
+                .iter()
+                .any(|x| x.path.starts_with("default_privileges"))
+        );
     }
 }
