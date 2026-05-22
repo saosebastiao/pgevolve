@@ -597,6 +597,8 @@ mod tests {
             body_dependencies: vec![],
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         }
     }
 

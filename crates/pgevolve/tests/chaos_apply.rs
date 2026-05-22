@@ -113,6 +113,8 @@ async fn aborted_mid_apply_recovers_after_replan() {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
     }
     let canonical = catalog.canonicalize().unwrap();

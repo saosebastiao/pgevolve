@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::identifier::QualifiedName;
+use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column::Column;
 use crate::ir::constraint::Constraint;
 use crate::ir::difference::Difference;
@@ -25,6 +25,11 @@ pub struct Table {
     pub partition_of: Option<crate::ir::partition::PartitionOf>,
     /// Optional comment.
     pub comment: Option<String>,
+    /// Object owner. `None` = unmanaged (the differ ignores ownership).
+    /// `Some(role)` = managed: diff emits `ALTER TABLE ... OWNER TO role`.
+    pub owner: Option<Identifier>,
+    /// Grants on this object. Empty = no grants. Canonicalized.
+    pub grants: Vec<crate::ir::grant::Grant>,
 }
 
 impl Diff for Table {
@@ -45,6 +50,16 @@ impl Diff for Table {
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
+        ));
+        out.extend(diff_field(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(diff_field(
+            "grants",
+            &format!("{:?}", self.grants),
+            &format!("{:?}", other.grants),
         ));
 
         // Column diff: pair by name, then check positions.
@@ -165,6 +180,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -211,5 +228,24 @@ mod tests {
         b.columns[1].nullable = true;
         let d = base().diff(&b);
         assert!(d.iter().any(|x| x.path == "columns.email.nullable"));
+    }
+
+    #[test]
+    fn owner_change_diffs() {
+        let mut b = base();
+        b.owner = Some(id("new_owner"));
+        assert!(base().diff(&b).iter().any(|x| x.path == "owner"));
+    }
+
+    #[test]
+    fn grants_change_diffs() {
+        let mut b = base();
+        b.grants.push(crate::ir::grant::Grant {
+            grantee: crate::ir::grant::GrantTarget::Public,
+            privilege: crate::ir::grant::Privilege::Select,
+            with_grant_option: false,
+            columns: None,
+        });
+        assert!(base().diff(&b).iter().any(|x| x.path == "grants"));
     }
 }

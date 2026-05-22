@@ -492,6 +492,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -522,6 +524,8 @@ mod tests {
             cycle: false,
             owned_by: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let g = build_create_graph(&c);
@@ -540,6 +544,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -559,6 +565,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -596,6 +604,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -618,6 +628,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let g = build_create_graph(&c);
         let fk_node = NodeId::Constraint {
@@ -644,6 +656,8 @@ mod tests {
             cycle: false,
             owned_by: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -663,6 +677,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -682,6 +698,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c.sequences.push(Sequence {
             qname: qn("app", "users_id_seq"),
@@ -697,6 +715,8 @@ mod tests {
                 column: id("id"),
             }),
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -716,6 +736,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let g = build_create_graph(&c);
         let pk_node = NodeId::Constraint {
@@ -736,6 +758,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         // Same edges; equality is structural via topological output.
         let cg = build_create_graph(&c);
@@ -769,6 +793,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c.tables.push(Table {
             qname: qn("app", "b"),
@@ -791,6 +817,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let g = build_create_graph(&c);
         let err = g.topological_sort().unwrap_err();
@@ -827,6 +855,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let g = build_create_graph(&c);
         assert!(g.topological_sort().is_ok());
@@ -878,6 +908,8 @@ mod tests {
             }),
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         c.tables.push(parent);
 
@@ -917,6 +949,8 @@ mod tests {
                 bounds: PartitionBounds::List { values: vec![] },
             }),
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         c.tables.push(child);
 
@@ -940,6 +974,8 @@ mod tests {
             qname: qn(schema, name),
             kind: UserTypeKind::Enum { values: vec![] },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -954,6 +990,8 @@ mod tests {
                 }],
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -968,6 +1006,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -1008,6 +1048,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let g = build_create_graph(&c);
         assert!(

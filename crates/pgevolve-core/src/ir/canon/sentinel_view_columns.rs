@@ -59,6 +59,8 @@ mod tests {
             security_invoker: None,
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         });
         run(&mut cat);
         assert!(matches!(

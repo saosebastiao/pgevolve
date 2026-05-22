@@ -155,6 +155,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: Some("user accounts".into()),
+            owner: None,
+            grants: vec![],
         });
         c
     }
@@ -177,6 +179,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -212,6 +216,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -242,6 +248,8 @@ mod tests {
             cycle: false,
             owned_by: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c
     }

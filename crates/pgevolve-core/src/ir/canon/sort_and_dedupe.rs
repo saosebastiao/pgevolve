@@ -160,6 +160,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         cat.tables.push(Table {
             qname: qn("app", "users"),
@@ -168,6 +170,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let err = run(&mut cat).expect_err("duplicate must error");
         assert!(err.to_string().contains("duplicate table"));

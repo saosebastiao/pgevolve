@@ -58,6 +58,8 @@ pub(crate) fn build_enum(
         qname,
         kind: UserTypeKind::Enum { values },
         comment: None,
+        owner: None,
+        grants: vec![],
     })
 }
 

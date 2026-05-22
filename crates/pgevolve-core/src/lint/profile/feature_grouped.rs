@@ -67,6 +67,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let mut locs = HashMap::new();
         locs.insert(
@@ -87,6 +89,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let mut locs = HashMap::new();
         locs.insert(

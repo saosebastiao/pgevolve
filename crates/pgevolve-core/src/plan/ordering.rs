@@ -663,6 +663,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         source
             .indexes
@@ -711,6 +713,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
@@ -725,6 +729,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -778,6 +784,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         source.tables.push(Table {
             qname: qn("app", "b"),
@@ -792,6 +800,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -845,6 +855,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         target
             .indexes
@@ -892,6 +904,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -921,6 +935,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
@@ -929,6 +945,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let mk_cs = |reversed: bool| {
@@ -966,6 +984,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         source
             .indexes
@@ -999,6 +1019,8 @@ mod tests {
             cycle: false,
             owned_by: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -1030,6 +1052,8 @@ mod tests {
                 partition_by: None,
                 partition_of: None,
                 comment: None,
+                owner: None,
+                grants: vec![],
             });
         }
         // Add FKs forming a cycle: a -> b, b -> c, c -> a.
@@ -1075,6 +1099,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         target.tables.push(Table {
             qname: QualifiedName::new(id("b"), id("t2")),
@@ -1083,6 +1109,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -1155,6 +1183,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         target.indexes.push(Index {
             qname: qn("app", "users_deleted_at_idx"),
@@ -1184,6 +1214,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -1238,6 +1270,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         // Index on `email`, but the column being dropped is `unused`.
         target.indexes.push(Index {
@@ -1271,6 +1305,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         // Source still has the email index, but it's being dropped from the
         // source for an unrelated reason (simulate user removing it).
@@ -1326,6 +1362,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         target.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -1358,6 +1396,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let mut cs = ChangeSet::new();
@@ -1403,6 +1443,8 @@ mod tests {
             qname: qn(schema, name),
             kind: UserTypeKind::Enum { values: vec![] },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -1529,6 +1571,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let mut cs = ChangeSet::new();

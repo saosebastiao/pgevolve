@@ -425,6 +425,8 @@ mod tests {
             security_invoker: None,
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -743,6 +745,8 @@ mod tests {
             body_dependencies: deps,
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -844,6 +848,8 @@ mod tests {
             qname: qn(schema, name),
             kind: UserTypeKind::Enum { values: vec![] },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -1025,6 +1031,8 @@ mod tests {
             cost: None,
             rows: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -1038,6 +1046,8 @@ mod tests {
             security: SecurityMode::Invoker,
             commits_in_body: false,
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 

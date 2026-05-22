@@ -46,6 +46,8 @@ mod tests {
         let s = Schema {
             name: id("billing"),
             comment: Some("billing namespace".into()),
+            owner: None,
+            grants: vec![],
         };
         let sql = render_schema(&s);
         assert!(sql.contains("CREATE SCHEMA billing;"));

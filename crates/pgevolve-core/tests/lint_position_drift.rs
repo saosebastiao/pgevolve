@@ -44,6 +44,8 @@ fn catalog_with_columns(order: &[&str]) -> Catalog {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
     c
 }

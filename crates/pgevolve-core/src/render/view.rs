@@ -53,6 +53,8 @@ mod tests {
             security_invoker: None,
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         };
         let sql = render_view(&v);
         assert!(sql.starts_with("CREATE VIEW"), "got: {sql}");
@@ -72,6 +74,8 @@ mod tests {
             security_invoker: None,
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         };
         let sql = render_view(&v);
         assert!(
@@ -93,6 +97,8 @@ mod tests {
             body_dependencies: vec![],
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         };
         let sql = render_materialized_view(&mv);
         assert!(sql.starts_with("CREATE MATERIALIZED VIEW"), "got: {sql}");

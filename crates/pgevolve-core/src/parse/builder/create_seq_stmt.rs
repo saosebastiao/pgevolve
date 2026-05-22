@@ -92,6 +92,8 @@ pub fn build_sequence(
         cycle,
         owned_by,
         comment: None,
+        owner: None,
+        grants: vec![],
     })
 }
 

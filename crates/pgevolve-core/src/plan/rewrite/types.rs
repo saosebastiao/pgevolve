@@ -307,6 +307,8 @@ mod tests {
                 ],
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -321,6 +323,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -342,6 +346,8 @@ mod tests {
                 ],
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -368,6 +374,8 @@ mod tests {
                 }],
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let sql = emit_create_type(&ut);
         assert!(sql.contains("'it''s'"), "got: {sql}");
@@ -379,6 +387,8 @@ mod tests {
             qname: qn("app", "empty_enum"),
             kind: UserTypeKind::Enum { values: vec![] },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let sql = emit_create_type(&ut);
         assert_eq!(sql, "CREATE TYPE app.empty_enum AS ENUM ();");
@@ -409,6 +419,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let sql = emit_create_type(&ut);
         assert!(sql.contains("DEFAULT 1"), "got: {sql}");
@@ -430,6 +442,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let sql = emit_create_type(&ut);
         assert!(sql.contains("NOT NULL"), "got: {sql}");

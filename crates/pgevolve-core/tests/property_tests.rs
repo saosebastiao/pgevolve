@@ -443,11 +443,15 @@ proptest! {
             qname: qname.clone(),
             kind: UserTypeKind::Enum { values: before },
             comment: None,
+            owner: None,
+            grants: vec![],
         }];
         let src = vec![UserType {
             qname,
             kind: UserTypeKind::Enum { values: after },
             comment: None,
+            owner: None,
+            grants: vec![],
         }];
 
         let mut out = pgevolve_core::diff::ChangeSet::new();

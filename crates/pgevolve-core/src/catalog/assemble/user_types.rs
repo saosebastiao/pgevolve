@@ -191,6 +191,8 @@ pub(super) fn build_user_types(
             qname,
             kind,
             comment,
+            owner: None,
+            grants: vec![],
         });
     }
 

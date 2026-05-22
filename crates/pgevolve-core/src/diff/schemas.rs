@@ -66,6 +66,8 @@ mod tests {
         Schema {
             name: id(name),
             comment: comment.map(str::to_string),
+            owner: None,
+            grants: vec![],
         }
     }
 

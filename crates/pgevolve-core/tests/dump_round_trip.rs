@@ -63,6 +63,7 @@ mod tests {
     /// - Column defaults (literal value).
     /// - A standalone sequence owned by a column.
     /// - A standalone index (partial + covering).
+    #[allow(clippy::too_many_lines)]
     fn build_test_catalog() -> Catalog {
         let mut cat = Catalog::empty();
 
@@ -81,6 +82,8 @@ mod tests {
             cycle: false,
             owned_by: None, // We'll omit owned_by to keep the round-trip simple.
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         // orgs table (referenced by FK).
@@ -99,6 +102,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         // users table with various features.
@@ -151,6 +156,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         // Standalone index.

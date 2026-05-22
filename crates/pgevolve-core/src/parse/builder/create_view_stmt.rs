@@ -45,6 +45,8 @@ pub(crate) fn build_view(
         security_invoker,
         comment: None,
         raw_body,
+        owner: None,
+        grants: vec![],
     })
 }
 

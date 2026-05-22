@@ -34,6 +34,13 @@ pub struct Sequence {
     /// Optional comment.
     #[diff(via_debug)]
     pub comment: Option<String>,
+    /// Object owner. `None` = unmanaged (the differ ignores ownership).
+    /// `Some(role)` = managed: diff emits `ALTER SEQUENCE ... OWNER TO role`.
+    #[diff(via_debug)]
+    pub owner: Option<crate::identifier::Identifier>,
+    /// Grants on this object. Empty = no grants. Canonicalized.
+    #[diff(via_debug)]
+    pub grants: Vec<crate::ir::grant::Grant>,
 }
 
 /// Identifies a column that owns this sequence (Postgres `OWNED BY`).
@@ -70,6 +77,8 @@ mod tests {
             cycle: false,
             owned_by: None,
             comment: None,
+            owner: None,
+            grants: Vec::new(),
         }
     }
 
@@ -92,5 +101,24 @@ mod tests {
         other.qname = s("seq2");
         let d = base().diff(&other);
         assert!(d.iter().any(|x| x.path == "qname"));
+    }
+
+    #[test]
+    fn owner_change_diffs() {
+        let mut b = base();
+        b.owner = Some(Identifier::from_unquoted("new_owner").unwrap());
+        assert!(base().diff(&b).iter().any(|x| x.path == "owner"));
+    }
+
+    #[test]
+    fn grants_change_diffs() {
+        let mut b = base();
+        b.grants.push(crate::ir::grant::Grant {
+            grantee: crate::ir::grant::GrantTarget::Public,
+            privilege: crate::ir::grant::Privilege::Usage,
+            with_grant_option: false,
+            columns: None,
+        });
+        assert!(base().diff(&b).iter().any(|x| x.path == "grants"));
     }
 }

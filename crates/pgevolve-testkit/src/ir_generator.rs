@@ -237,6 +237,8 @@ fn arbitrary_table(
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     })
 }
@@ -545,6 +547,8 @@ pub fn arbitrary_view_catalog() -> impl Strategy<Value = Catalog> {
                             security_invoker: None,
                             comment: None,
                             raw_body: String::new(),
+                            owner: None,
+                            grants: vec![],
                         });
                     }
                 }
@@ -574,6 +578,8 @@ fn stand_alone_sequence(schema: &Identifier) -> Sequence {
         cycle: false,
         owned_by: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     }
 }
 

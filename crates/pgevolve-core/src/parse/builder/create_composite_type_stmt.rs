@@ -98,6 +98,8 @@ pub(crate) fn build_composite(
         qname,
         kind: UserTypeKind::Composite { attributes },
         comment: None,
+        owner: None,
+        grants: vec![],
     })
 }
 

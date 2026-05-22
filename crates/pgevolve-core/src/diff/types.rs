@@ -613,6 +613,8 @@ mod tests {
                     .collect(),
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -621,6 +623,8 @@ mod tests {
             qname,
             kind: UserTypeKind::Composite { attributes: attrs },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -643,6 +647,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -882,6 +888,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let check = DomainCheck {
             name: id("positive"),
@@ -897,6 +905,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let changes = run(&[cat], &[src]);
         assert_eq!(changes.len(), 1);
@@ -925,6 +935,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let src = UserType {
             qname: qname.clone(),
@@ -936,6 +948,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let changes = run(&[cat], &[src]);
         assert_eq!(changes.len(), 1);
@@ -968,6 +982,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let src = UserType {
             qname: qname.clone(),
@@ -979,6 +995,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let changes = run(&[cat], &[src]);
         assert_eq!(changes.len(), 2, "expected drop then add, got {changes:?}");
@@ -1015,6 +1033,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let src = UserType {
             qname: qname.clone(),
@@ -1026,6 +1046,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let changes = run(&[cat], &[src]);
         assert_eq!(changes.len(), 1);
@@ -1050,6 +1072,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let src = UserType {
             qname: qname.clone(),
@@ -1061,6 +1085,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let changes = run(&[cat], &[src]);
         assert_eq!(changes.len(), 1);
@@ -1175,6 +1201,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let src = UserType {
             qname: qname.clone(),
@@ -1186,6 +1214,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let pairs = run_with_destructiveness(&[cat], &[src]);
         assert!(!pairs[0].1.requires_approval());

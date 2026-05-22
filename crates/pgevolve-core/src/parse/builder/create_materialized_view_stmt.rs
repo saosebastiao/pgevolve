@@ -51,6 +51,8 @@ pub(crate) fn build_materialized_view(
         body_dependencies: Vec::new(),
         comment: None,
         raw_body,
+        owner: None,
+        grants: vec![],
     })
 }
 

@@ -549,6 +549,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c.indexes.push(IrIndex {
             qname: qn("users_email_idx"),
@@ -579,6 +581,8 @@ mod tests {
             cycle: false,
             owned_by: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c
     }
@@ -682,6 +686,8 @@ mod tests {
             qname: qname.clone(),
             kind: UserTypeKind::Enum { values: vec![] },
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let stmt = parse_first("COMMENT ON TYPE app.mytype IS 'a type';");
         apply_comment(&stmt, &mut c, None, &loc()).unwrap();
@@ -708,6 +714,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let stmt = parse_first("COMMENT ON DOMAIN app.email IS 'email domain';");
         apply_comment(&stmt, &mut c, None, &loc()).unwrap();
@@ -749,6 +757,8 @@ mod tests {
             cost: Some(1.0),
             rows: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let stmt = parse_first("COMMENT ON FUNCTION app.double(integer) IS 'doubles the value';");
         apply_comment(&stmt, &mut c, None, &loc()).unwrap();
@@ -771,6 +781,8 @@ mod tests {
             security: SecurityMode::Invoker,
             commits_in_body: false,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let stmt = parse_first("COMMENT ON PROCEDURE app.greet IS 'greeting procedure';");
         apply_comment(&stmt, &mut c, None, &loc()).unwrap();

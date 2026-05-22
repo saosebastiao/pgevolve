@@ -148,6 +148,8 @@ pub(crate) fn build_domain(
             collation: None, // v0.2 does not model domain collation
         },
         comment: None,
+        owner: None,
+        grants: vec![],
     })
 }
 

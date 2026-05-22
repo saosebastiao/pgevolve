@@ -63,6 +63,8 @@ mod tests {
                 ],
             },
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         run(&mut cat);
         let kind = &cat.types[0].kind;

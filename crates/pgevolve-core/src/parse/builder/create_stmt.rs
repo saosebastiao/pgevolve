@@ -133,6 +133,8 @@ pub fn build_table(
         partition_by,
         partition_of,
         comment: None,
+        owner: None,
+        grants: vec![],
     })
 }
 

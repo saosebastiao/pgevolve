@@ -254,6 +254,8 @@ fn add_table(c: &mut Catalog, seed: usize) {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 }
 
@@ -491,11 +493,15 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let mut catalog = Catalog {
             schemas: vec![Schema {
                 name: schema_name,
                 comment: None,
+                owner: None,
+                grants: vec![],
             }],
             extensions: vec![],
             tables: vec![table],

@@ -201,6 +201,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -247,6 +249,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         c.tables.push(table_users());
         let canonical = c.canonicalize().unwrap();

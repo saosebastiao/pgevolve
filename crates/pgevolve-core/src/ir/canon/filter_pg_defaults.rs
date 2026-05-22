@@ -181,6 +181,8 @@ mod tests {
             cycle: false,
             owned_by: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -227,6 +229,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, None);
@@ -254,6 +258,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, Some(explicit));
@@ -282,6 +288,8 @@ mod tests {
             cost: None,
             rows: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 

@@ -112,6 +112,8 @@ pub(super) fn build_views_and_mvs(
                     security_invoker,
                     comment: comment.clone(),
                     raw_body: String::new(),
+                    owner: None,
+                    grants: vec![],
                 });
             }
             "m" => {
@@ -122,6 +124,8 @@ pub(super) fn build_views_and_mvs(
                     body_dependencies,
                     comment: comment.clone(),
                     raw_body: String::new(),
+                    owner: None,
+                    grants: vec![],
                 });
             }
             other => {

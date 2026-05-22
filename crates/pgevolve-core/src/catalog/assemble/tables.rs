@@ -87,6 +87,8 @@ pub(super) fn build_schemas(
         out.push(Schema {
             name,
             comment: r.get_opt_text(CatalogQuery::Schemas, "comment")?,
+            owner: None,
+            grants: vec![],
         });
     }
     Ok(out)
@@ -115,6 +117,8 @@ pub(super) fn build_tables(
                 partition_by: None,
                 partition_of: None,
                 comment,
+                owner: None,
+                grants: vec![],
             },
         );
     }
@@ -497,6 +501,8 @@ pub(super) fn build_sequence(
         cycle,
         owned_by: None,
         comment,
+        owner: None,
+        grants: vec![],
     }))
 }
 

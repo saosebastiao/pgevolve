@@ -172,6 +172,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         let rendered = render_catalog(&cat);
         let schema_pos = rendered.find("CREATE SCHEMA").unwrap();
@@ -210,6 +212,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         cat.tables.push(Table {
             qname: qn("app", "users"),
@@ -266,6 +270,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let rendered = render_catalog(&cat);
@@ -312,6 +318,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -352,6 +360,8 @@ mod tests {
             cycle: false,
             owned_by: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         cat.tables.push(Table {
             qname: qn("app", "users"),
@@ -371,6 +381,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
 
         let rendered = render_catalog(&cat);
@@ -423,6 +435,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: Some("user accounts".into()),
+            owner: None,
+            grants: vec![],
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -470,6 +484,8 @@ mod tests {
             cycle: false,
             owned_by: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         });
         cat.views.push(View {
             qname: qn("app", "active_users"),
@@ -480,6 +496,8 @@ mod tests {
             security_invoker: None,
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         });
 
         let rendered = render_catalog(&cat);
@@ -501,6 +519,8 @@ mod tests {
             body_dependencies: vec![],
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         });
 
         let rendered = render_catalog(&cat);

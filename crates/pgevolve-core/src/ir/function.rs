@@ -47,6 +47,11 @@ pub struct Function {
     pub rows: Option<f32>,
     /// Optional `COMMENT ON FUNCTION` text.
     pub comment: Option<String>,
+    /// Object owner. `None` = unmanaged (the differ ignores ownership).
+    /// `Some(role)` = managed: diff emits `ALTER FUNCTION ... OWNER TO role`.
+    pub owner: Option<crate::identifier::Identifier>,
+    /// Grants on this object. Empty = no grants. Canonicalized.
+    pub grants: Vec<crate::ir::grant::Grant>,
 }
 
 // f32 fields prevent deriving Eq, PartialEq, and Hash;
@@ -69,6 +74,8 @@ impl PartialEq for Function {
             && self.cost.map(f32::to_bits) == other.cost.map(f32::to_bits)
             && self.rows.map(f32::to_bits) == other.rows.map(f32::to_bits)
             && self.comment == other.comment
+            && self.owner == other.owner
+            && self.grants == other.grants
     }
 }
 
@@ -91,6 +98,8 @@ impl std::hash::Hash for Function {
         self.cost.map(f32::to_bits).hash(state);
         self.rows.map(f32::to_bits).hash(state);
         self.comment.hash(state);
+        self.owner.hash(state);
+        self.grants.hash(state);
     }
 }
 
@@ -203,6 +212,18 @@ impl Diff for Function {
             "args",
             format!("{:?}", self.args),
             format!("{:?}", other.args),
+        );
+        push(
+            &mut out,
+            "owner",
+            format!("{:?}", self.owner),
+            format!("{:?}", other.owner),
+        );
+        push(
+            &mut out,
+            "grants",
+            format!("{:?}", self.grants),
+            format!("{:?}", other.grants),
         );
         // If we still report no differences but the structs aren't equal,
         // fall back to a generic "<unknown field>" entry so the assertion
@@ -411,6 +432,8 @@ mod tests {
             cost: Some(1.0),
             rows: None,
             comment: None,
+            owner: None,
+            grants: Vec::new(),
         }
     }
 
@@ -511,5 +534,36 @@ mod tests {
         c.functions.push(f2);
         let c = c.canonicalize().expect("overloads should be allowed");
         assert_eq!(c.functions.len(), 2);
+    }
+
+    #[test]
+    fn owner_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = sample_function();
+        b.owner = Some(ident("new_owner"));
+        assert!(
+            sample_function()
+                .diff(&b)
+                .iter()
+                .any(|x| x.path.ends_with("owner"))
+        );
+    }
+
+    #[test]
+    fn grants_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = sample_function();
+        b.grants.push(crate::ir::grant::Grant {
+            grantee: crate::ir::grant::GrantTarget::Public,
+            privilege: crate::ir::grant::Privilege::Execute,
+            with_grant_option: false,
+            columns: None,
+        });
+        assert!(
+            sample_function()
+                .diff(&b)
+                .iter()
+                .any(|x| x.path.ends_with("grants"))
+        );
     }
 }

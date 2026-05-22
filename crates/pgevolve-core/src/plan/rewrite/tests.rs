@@ -128,6 +128,8 @@ fn create_schema_with_comment_emits_two_steps() {
     let s = Schema {
         name: id("app"),
         comment: Some("the app".into()),
+        owner: None,
+        grants: vec![],
     };
     let mut cs = ChangeSet::new();
     cs.push(Change::CreateSchema(s), Destructiveness::Safe);
@@ -195,6 +197,8 @@ fn create_table_emits_full_create_with_columns_and_pk() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     };
     let mut cs = ChangeSet::new();
     cs.push(Change::CreateTable(t), Destructiveness::Safe);
@@ -307,6 +311,8 @@ fn create_sequence_emits_full_create() {
         cycle: false,
         owned_by: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     };
     let mut cs = ChangeSet::new();
     cs.push(Change::CreateSequence(s), Destructiveness::Safe);
@@ -634,6 +640,8 @@ fn create_index_on_existing_table_rewrites_to_concurrent() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 
     let idx = make_index("users_idx", qn("app", "users"), false);
@@ -687,6 +695,8 @@ fn unique_create_index_does_not_rewrite_to_concurrent() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 
     let idx = make_index("users_email_idx", qn("app", "users"), true);
@@ -716,6 +726,8 @@ fn atomic_policy_disables_concurrent_index_rewrite() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 
     let idx = make_index("users_idx", qn("app", "users"), false);
@@ -840,6 +852,8 @@ fn add_fk_on_existing_table_emits_two_steps() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
     target.tables.push(Table {
         qname: qn("app", "orgs"),
@@ -848,6 +862,8 @@ fn add_fk_on_existing_table_emits_two_steps() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 
     let mut cs = ChangeSet::new();
@@ -920,6 +936,8 @@ fn add_fk_with_atomic_policy_stays_inline() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 
     let mut cs = ChangeSet::new();
@@ -962,6 +980,8 @@ fn add_unique_constraint_on_existing_table_does_not_trigger_fk_rewrite() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 
     let mut cs = ChangeSet::new();
@@ -1020,6 +1040,8 @@ fn add_check_on_existing_table_emits_two_steps() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 
     let mut cs = ChangeSet::new();
@@ -1083,6 +1105,8 @@ fn add_check_with_atomic_policy_stays_inline() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 
     let mut cs = ChangeSet::new();
@@ -1126,6 +1150,8 @@ fn target_with_users_and_email() -> Catalog {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
     target
 }
@@ -1279,6 +1305,8 @@ fn rewrite_preserves_bucket_order_creates_modifies_drops() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 
     let mut cs = ChangeSet::new();

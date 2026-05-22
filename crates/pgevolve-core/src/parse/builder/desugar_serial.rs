@@ -69,6 +69,8 @@ pub fn desugar_serials_in_table(
                 column: col.name.clone(),
             }),
             comment: None,
+            owner: None,
+            grants: vec![],
         });
     }
     Ok(produced)
@@ -122,6 +124,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -195,6 +199,8 @@ mod tests {
             partition_by: None,
             partition_of: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let seqs = desugar_serials_in_table(&mut t, &loc()).unwrap();
         assert!(seqs.is_empty());

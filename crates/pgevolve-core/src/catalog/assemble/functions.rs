@@ -141,6 +141,8 @@ pub(super) fn build_functions_and_procedures(
                     cost,
                     rows,
                     comment,
+                    owner: None,
+                    grants: vec![],
                 });
             }
             "p" => {
@@ -153,6 +155,8 @@ pub(super) fn build_functions_and_procedures(
                     security,
                     commits_in_body,
                     comment,
+                    owner: None,
+                    grants: vec![],
                 });
             }
             other => {

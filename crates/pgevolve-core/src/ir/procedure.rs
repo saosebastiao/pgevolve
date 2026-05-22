@@ -36,6 +36,13 @@ pub struct Procedure {
     /// Optional `COMMENT ON PROCEDURE` text.
     #[diff(via_debug)]
     pub comment: Option<String>,
+    /// Object owner. `None` = unmanaged (the differ ignores ownership).
+    /// `Some(role)` = managed: diff emits `ALTER PROCEDURE ... OWNER TO role`.
+    #[diff(via_debug)]
+    pub owner: Option<crate::identifier::Identifier>,
+    /// Grants on this object. Empty = no grants. Canonicalized.
+    #[diff(via_debug)]
+    pub grants: Vec<crate::ir::grant::Grant>,
 }
 
 #[cfg(test)]
@@ -62,6 +69,8 @@ mod tests {
             security: SecurityMode::Invoker,
             commits_in_body: false,
             comment: None,
+            owner: None,
+            grants: Vec::new(),
         }
     }
 
@@ -107,5 +116,36 @@ mod tests {
         let r = c.canonicalize();
         assert!(matches!(r, Err(IrError::InvalidIdentifier(_))));
         assert!(r.unwrap_err().to_string().contains("app.do_thing"));
+    }
+
+    #[test]
+    fn owner_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = sample_procedure();
+        b.owner = Some(ident("new_owner"));
+        assert!(
+            sample_procedure()
+                .diff(&b)
+                .iter()
+                .any(|x| x.path == "owner")
+        );
+    }
+
+    #[test]
+    fn grants_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = sample_procedure();
+        b.grants.push(crate::ir::grant::Grant {
+            grantee: crate::ir::grant::GrantTarget::Public,
+            privilege: crate::ir::grant::Privilege::Execute,
+            with_grant_option: false,
+            columns: None,
+        });
+        assert!(
+            sample_procedure()
+                .diff(&b)
+                .iter()
+                .any(|x| x.path == "grants")
+        );
     }
 }

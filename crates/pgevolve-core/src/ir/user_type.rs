@@ -17,6 +17,11 @@ pub struct UserType {
     pub kind: UserTypeKind,
     /// Optional `COMMENT ON TYPE` text.
     pub comment: Option<String>,
+    /// Object owner. `None` = unmanaged (the differ ignores ownership).
+    /// `Some(role)` = managed: diff emits `ALTER TYPE ... OWNER TO role`.
+    pub owner: Option<Identifier>,
+    /// Grants on this object. Empty = no grants. Canonicalized.
+    pub grants: Vec<crate::ir::grant::Grant>,
 }
 
 /// The three user-defined type variants supported by pgevolve.
@@ -95,15 +100,26 @@ impl Diff for UserType {
     // debug/equivalence-rule hook used by `Catalog::diff` for reporting only;
     // a single top-level entry per changed type is intentional here.
     fn diff(&self, other: &Self) -> Vec<Difference> {
-        if self == other {
-            Vec::new()
-        } else {
-            vec![Difference::new(
+        use crate::ir::eq::diff_field;
+        let mut out = Vec::new();
+        if self.kind != other.kind {
+            out.push(Difference::new(
                 "",
                 format!("{:?}", self.kind),
                 format!("{:?}", other.kind),
-            )]
+            ));
         }
+        out.extend(diff_field(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(diff_field(
+            "grants",
+            &format!("{:?}", self.grants),
+            &format!("{:?}", other.grants),
+        ));
+        out
     }
 }
 
@@ -136,6 +152,8 @@ mod tests {
                 ],
             },
             comment: None,
+            owner: None,
+            grants: Vec::new(),
         }
     }
 
@@ -150,6 +168,8 @@ mod tests {
                 collation: None,
             },
             comment: None,
+            owner: None,
+            grants: Vec::new(),
         }
     }
 
@@ -171,6 +191,8 @@ mod tests {
                 ],
             },
             comment: None,
+            owner: None,
+            grants: Vec::new(),
         }
     }
 
@@ -189,6 +211,8 @@ mod tests {
         c.schemas.push(Schema {
             name: ident("app"),
             comment: None,
+            owner: None,
+            grants: Vec::new(),
         });
         // Insert in non-canonical order.
         c.types.push(sample_composite());
@@ -214,6 +238,8 @@ mod tests {
         c.schemas.push(Schema {
             name: ident("app"),
             comment: None,
+            owner: None,
+            grants: Vec::new(),
         });
         c.types.push(sample_enum());
         c.types.push(sample_enum()); // duplicate qname
@@ -245,5 +271,26 @@ mod tests {
         a.hash(&mut ha);
         b.hash(&mut hb);
         assert_eq!(ha.finish(), hb.finish());
+    }
+
+    #[test]
+    fn owner_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = sample_enum();
+        b.owner = Some(ident("new_owner"));
+        assert!(sample_enum().diff(&b).iter().any(|x| x.path == "owner"));
+    }
+
+    #[test]
+    fn grants_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = sample_enum();
+        b.grants.push(crate::ir::grant::Grant {
+            grantee: crate::ir::grant::GrantTarget::Public,
+            privilege: crate::ir::grant::Privilege::Usage,
+            with_grant_option: false,
+            columns: None,
+        });
+        assert!(sample_enum().diff(&b).iter().any(|x| x.path == "grants"));
     }
 }

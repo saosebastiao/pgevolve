@@ -265,6 +265,8 @@ mod tests {
             cost: None,
             rows: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -278,6 +280,8 @@ mod tests {
             security: SecurityMode::Invoker,
             commits_in_body: false,
             comment: None,
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -340,6 +344,8 @@ mod tests {
             cost: Some(100.0),
             rows: None,
             comment: None,
+            owner: None,
+            grants: vec![],
         };
         let sql = emit_create_or_replace_function(&f);
         assert!(sql.contains("LANGUAGE plpgsql"), "got: {sql}");

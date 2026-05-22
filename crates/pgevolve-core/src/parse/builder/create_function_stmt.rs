@@ -345,6 +345,8 @@ pub(crate) fn build_function_or_procedure(
             security,
             commits_in_body,
             comment: None,
+            owner: None,
+            grants: vec![],
         }));
     }
 
@@ -398,6 +400,8 @@ pub(crate) fn build_function_or_procedure(
         cost,
         rows,
         comment: None,
+        owner: None,
+        grants: vec![],
     }))
 }
 

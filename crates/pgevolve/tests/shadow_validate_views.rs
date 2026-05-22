@@ -103,6 +103,8 @@ fn small_catalog_with_view() -> Catalog {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
 
     // A view that selects from app.users.
@@ -124,6 +126,8 @@ fn small_catalog_with_view() -> Catalog {
         security_invoker: None,
         comment: None,
         raw_body: String::new(),
+        owner: None,
+        grants: vec![],
     });
 
     cat
@@ -210,6 +214,8 @@ async fn shadow_validate_strict_fails_on_missing_ast_edge() {
         partition_by: None,
         partition_of: None,
         comment: None,
+        owner: None,
+        grants: vec![],
     });
     // View body references app.users but body_dependencies claims a
     // non-existent table — this produces extra_ast_edges.
@@ -226,6 +232,8 @@ async fn shadow_validate_strict_fails_on_missing_ast_edge() {
         security_invoker: None,
         comment: None,
         raw_body: String::new(),
+        owner: None,
+        grants: vec![],
     });
 
     let result = cross_check(backend.as_ref(), &cat, pg_major(version), true).await;

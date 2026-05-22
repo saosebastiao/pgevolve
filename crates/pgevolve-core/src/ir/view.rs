@@ -76,6 +76,11 @@ pub struct View {
     /// output or JSON (T4 produces the canonical form which IS serialized).
     #[serde(skip, default)]
     pub raw_body: String,
+    /// Object owner. `None` = unmanaged (the differ ignores ownership).
+    /// `Some(role)` = managed: diff emits `ALTER VIEW ... OWNER TO role`.
+    pub owner: Option<Identifier>,
+    /// Grants on this object. Empty = no grants. Canonicalized.
+    pub grants: Vec<crate::ir::grant::Grant>,
 }
 
 /// A Postgres `CREATE MATERIALIZED VIEW`.
@@ -101,6 +106,11 @@ pub struct MaterializedView {
     /// output or JSON (T4 produces the canonical form which IS serialized).
     #[serde(skip, default)]
     pub raw_body: String,
+    /// Object owner. `None` = unmanaged (the differ ignores ownership).
+    /// `Some(role)` = managed: diff emits `ALTER MATERIALIZED VIEW ... OWNER TO role`.
+    pub owner: Option<Identifier>,
+    /// Grants on this object. Empty = no grants. Canonicalized.
+    pub grants: Vec<crate::ir::grant::Grant>,
 }
 
 impl Diff for View {
@@ -126,6 +136,16 @@ impl Diff for View {
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
+        ));
+        out.extend(diff_field(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(diff_field(
+            "grants",
+            &format!("{:?}", self.grants),
+            &format!("{:?}", other.grants),
         ));
 
         // Column diff: pair by name.
@@ -199,6 +219,16 @@ impl Diff for MaterializedView {
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
+        ));
+        out.extend(diff_field(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(diff_field(
+            "grants",
+            &format!("{:?}", self.grants),
+            &format!("{:?}", other.grants),
         ));
 
         // Column diff: pair by name.
@@ -293,6 +323,8 @@ mod tests {
             security_invoker: None,
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -304,6 +336,8 @@ mod tests {
             body_dependencies: vec![],
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         }
     }
 
@@ -323,6 +357,8 @@ mod tests {
             security_invoker: None,
             comment: None,
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         };
         assert_eq!(v1, v2);
     }
@@ -344,6 +380,8 @@ mod tests {
             }],
             comment: Some("materialized summary".to_string()),
             raw_body: String::new(),
+            owner: None,
+            grants: vec![],
         };
         let json = serde_json::to_string(&mv).expect("serialization must succeed");
         let roundtripped: MaterializedView =
@@ -392,6 +430,68 @@ mod tests {
         assert!(
             matches!(result, Err(IrError::InvalidIdentifier(_))),
             "expected duplicate-mv error, got: {result:?}",
+        );
+    }
+
+    #[test]
+    fn view_owner_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = simple_view("app", "active_users");
+        b.owner = Some(id("new_owner"));
+        assert!(
+            simple_view("app", "active_users")
+                .diff(&b)
+                .iter()
+                .any(|x| x.path == "owner")
+        );
+    }
+
+    #[test]
+    fn view_grants_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = simple_view("app", "active_users");
+        b.grants.push(crate::ir::grant::Grant {
+            grantee: crate::ir::grant::GrantTarget::Public,
+            privilege: crate::ir::grant::Privilege::Select,
+            with_grant_option: false,
+            columns: None,
+        });
+        assert!(
+            simple_view("app", "active_users")
+                .diff(&b)
+                .iter()
+                .any(|x| x.path == "grants")
+        );
+    }
+
+    #[test]
+    fn materialized_view_owner_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = simple_mv("app", "my_mv");
+        b.owner = Some(id("new_owner"));
+        assert!(
+            simple_mv("app", "my_mv")
+                .diff(&b)
+                .iter()
+                .any(|x| x.path == "owner")
+        );
+    }
+
+    #[test]
+    fn materialized_view_grants_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = simple_mv("app", "my_mv");
+        b.grants.push(crate::ir::grant::Grant {
+            grantee: crate::ir::grant::GrantTarget::Public,
+            privilege: crate::ir::grant::Privilege::Select,
+            with_grant_option: false,
+            columns: None,
+        });
+        assert!(
+            simple_mv("app", "my_mv")
+                .diff(&b)
+                .iter()
+                .any(|x| x.path == "grants")
         );
     }
 }
