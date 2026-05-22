@@ -1,0 +1,11 @@
+[meta]
+title     = "GRANT INSERT (column) ON TABLE — column-level grant"
+authoring = "objects"
+spec_refs = ["grants.table.column"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

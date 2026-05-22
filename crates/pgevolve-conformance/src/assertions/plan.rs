@@ -179,6 +179,7 @@ mod tests {
             dir: PathBuf::from("/dev/null"),
             before_sql: before.to_string(),
             after_sql: after.to_string(),
+            setup_sql: None,
             meta: FixtureMeta {
                 title: "test".into(),
                 spec_refs: vec![],
@@ -261,6 +262,7 @@ mod golden_tests {
             dir,
             before_sql: String::new(),
             after_sql: String::new(),
+            setup_sql: None,
             meta: FixtureMeta {
                 title: "g".into(),
                 spec_refs: vec![],

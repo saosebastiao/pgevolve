@@ -1,0 +1,11 @@
+[meta]
+title     = "GRANT USAGE ON SEQUENCE"
+authoring = "objects"
+spec_refs = ["grants.sequence.usage"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

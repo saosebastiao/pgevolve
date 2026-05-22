@@ -1,0 +1,3 @@
+-- Pre-create roles referenced by owner assignments and grants in this fixture.
+-- setup.sql is executed before before.sql and is not parsed by pgevolve.
+CREATE ROLE app_owner;

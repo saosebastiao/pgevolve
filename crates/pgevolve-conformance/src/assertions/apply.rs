@@ -90,6 +90,11 @@ pub async fn check_with_options(
 
     let version = pg_version_from_major(pg_major)?;
     let pg = EphemeralPostgres::start(version).await?;
+    // Seed setup.sql first (infrastructure: roles, extensions, etc.) then
+    // before.sql (the pgevolve-managed state to start from).
+    if let Some(setup) = fixture.setup_sql.as_deref() {
+        seed_before(&pg, setup).await?;
+    }
     seed_before(&pg, &fixture.before_sql).await?;
 
     // Write `after.sql` into a tempdir; the parser walks a directory.

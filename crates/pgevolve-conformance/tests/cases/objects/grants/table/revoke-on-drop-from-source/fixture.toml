@@ -1,0 +1,11 @@
+[meta]
+title     = "REVOKE SELECT ON TABLE — removing grant from source emits REVOKE"
+authoring = "objects"
+spec_refs = ["grants.table.revoke"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

@@ -396,6 +396,14 @@ pub struct Fixture {
     pub before_sql: String,
     /// `after.sql` contents.
     pub after_sql: String,
+    /// `setup.sql` contents (optional).
+    ///
+    /// When present, this SQL is executed against the ephemeral Postgres
+    /// instance **before** `before.sql` is seeded. Unlike `before.sql` it is
+    /// never parsed by our source-DDL parser; it is intended for infrastructure
+    /// that must exist in the database but that our parser does not recognise
+    /// (e.g. `CREATE ROLE`, extensions, etc.).
+    pub setup_sql: Option<String>,
     /// `[meta]`.
     pub meta: FixtureMeta,
     /// `[pg]`.
@@ -456,11 +464,13 @@ impl Fixture {
 
         let before_sql = read_required(dir, "before.sql")?;
         let after_sql = read_required(dir, "after.sql")?;
+        let setup_sql = read_optional(dir, "setup.sql")?;
 
         Ok(Self {
             dir: dir.to_path_buf(),
             before_sql,
             after_sql,
+            setup_sql,
             meta: raw.meta,
             pg: raw.pg,
             budget: raw.budget,
@@ -507,6 +517,16 @@ fn read_required(dir: &Path, rel: &str) -> Result<String, FixtureError> {
             FixtureError::Io { path, source }
         }
     })
+}
+
+/// Read an optional fixture file; returns `Ok(None)` when the file is absent.
+fn read_optional(dir: &Path, rel: &str) -> Result<Option<String>, FixtureError> {
+    let path = dir.join(rel);
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(source) => Err(FixtureError::Io { path, source }),
+    }
 }
 
 #[cfg(test)]

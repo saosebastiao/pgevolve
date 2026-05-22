@@ -1,0 +1,11 @@
+[meta]
+title     = "GRANT EXECUTE ON FUNCTION — rendered SQL preserves (int) signature"
+authoring = "objects"
+spec_refs = ["grants.function.execute"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

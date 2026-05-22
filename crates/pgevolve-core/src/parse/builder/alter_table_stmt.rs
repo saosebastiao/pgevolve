@@ -232,29 +232,20 @@ fn process_set_compression_cmd(
 
 /// Decode an `AT_ChangeOwner` sub-command into a [`PendingOwner`].
 ///
-/// `pg_query` encodes the new owner as a `RoleSpec` in `cmd.def`.
+/// `pg_query` encodes the new owner as a `RoleSpec` in `cmd.newowner` (a
+/// dedicated field on [`AlterTableCmd`], not in the generic `cmd.def`).
 fn process_change_owner_cmd(
     cmd: &AlterTableCmd,
     target: &QualifiedName,
     location: &SourceLocation,
 ) -> Result<PendingOwner, ParseError> {
-    let node = cmd
-        .def
+    let rs = cmd
+        .newowner
         .as_ref()
-        .and_then(|d| d.node.as_ref())
         .ok_or_else(|| ParseError::Structural {
             location: location.clone(),
             message: "ALTER TABLE OWNER TO missing role specification".into(),
         })?;
-    let NodeEnum::RoleSpec(rs) = node else {
-        return Err(ParseError::Structural {
-            location: location.clone(),
-            message: format!(
-                "expected RoleSpec in ALTER TABLE OWNER TO, got {:?}",
-                std::mem::discriminant(node)
-            ),
-        });
-    };
     let roletype = RoleSpecType::try_from(rs.roletype).unwrap_or(RoleSpecType::Undefined);
     if roletype == RoleSpecType::RolespecPublic {
         return Err(ParseError::Structural {
@@ -510,5 +501,17 @@ mod tests {
     fn rejects_add_check_via_alter() {
         let err = build("ALTER TABLE app.t ADD CONSTRAINT c1 CHECK (n > 0);").unwrap_err();
         assert!(matches!(err, ParseError::Structural { .. }));
+    }
+
+    /// `pg_query` encodes the new owner in `cmd.newowner` (a dedicated
+    /// [`pg_query::protobuf::RoleSpec`] field), not in `cmd.def`.  This test
+    /// guards that `process_change_owner_cmd` reads from the right field.
+    #[test]
+    fn alter_table_owner_to_role_name() {
+        let out = build("ALTER TABLE app.t OWNER TO app_owner;").expect("builds");
+        assert_eq!(out.pending_owners.len(), 1);
+        let po = &out.pending_owners[0];
+        assert_eq!(po.target.to_string(), "app.t");
+        assert_eq!(po.new_owner.as_str(), "app_owner");
     }
 }

@@ -1,0 +1,19 @@
+[meta]
+title     = "grants-to-unmanaged-role advisory — catalog grant to temp_consultant not in source"
+authoring = "objects"
+spec_refs = ["lint.grants-to-unmanaged-role"]
+
+[pg]
+min = 14
+max = 17
+
+# The differ does not emit a REVOKE (lenient policy); plan is empty.
+# The advisory warning fires because the catalog has a grant to temp_consultant
+# which is not declared in the source.
+[expect.plan]
+steps     = 0
+golden    = false
+minimality = false
+
+[expect.advisory]
+rule_ids = ["grants-to-unmanaged-role"]

@@ -1,0 +1,15 @@
+[meta]
+title     = "No OWNER TO — when source has no owner clause the diff is empty"
+authoring = "objects"
+spec_refs = ["grants.owner.none"]
+
+[pg]
+min = 14
+max = 17
+
+# No owner change in source → no diff → zero steps.
+[expect.plan]
+steps     = 0
+# No golden needed — empty plan.
+golden    = false
+minimality = false

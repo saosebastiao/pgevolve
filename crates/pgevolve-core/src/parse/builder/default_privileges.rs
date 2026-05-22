@@ -104,11 +104,18 @@ pub(crate) fn apply(
     // Grantees.
     let grantees = decode_grantees(&action.grantees, loc)?;
 
-    // Build one rule per (target_role × schema) cross-product.
+    // Build one rule per (target_role × schema) cross-product, merging into
+    // any existing rule with the same key so that multiple
+    // `ALTER DEFAULT PRIVILEGES FOR ROLE x GRANT ... TO ...` statements
+    // accumulate their grants rather than silently overwriting each other.
     for target_role in &target_roles {
-        if schemas.is_empty() {
-            // Global (no IN SCHEMA clause).
-            let grants: Vec<Grant> = grantees
+        let target_schemas: Vec<Option<Identifier>> = if schemas.is_empty() {
+            vec![None]
+        } else {
+            schemas.iter().map(|s| Some(s.clone())).collect()
+        };
+        for schema in target_schemas {
+            let new_grants: Vec<Grant> = grantees
                 .iter()
                 .flat_map(|grantee| {
                     privs.iter().map(move |&pv| Grant {
@@ -119,30 +126,21 @@ pub(crate) fn apply(
                     })
                 })
                 .collect();
-            cat.default_privileges.push(DefaultPrivilegeRule {
-                target_role: target_role.clone(),
-                schema: None,
-                object_type: default_obj_type,
-                grants,
+            // Find an existing rule with the same (target_role, schema,
+            // object_type) and extend it; push a fresh rule if none exists.
+            let existing = cat.default_privileges.iter_mut().find(|r| {
+                r.target_role == *target_role
+                    && r.schema == schema
+                    && r.object_type == default_obj_type
             });
-        } else {
-            for schema in &schemas {
-                let grants: Vec<Grant> = grantees
-                    .iter()
-                    .flat_map(|grantee| {
-                        privs.iter().map(move |&pv| Grant {
-                            grantee: grantee.clone(),
-                            privilege: pv,
-                            with_grant_option: action.grant_option,
-                            columns: None,
-                        })
-                    })
-                    .collect();
+            if let Some(rule) = existing {
+                rule.grants.extend(new_grants);
+            } else {
                 cat.default_privileges.push(DefaultPrivilegeRule {
                     target_role: target_role.clone(),
-                    schema: Some(schema.clone()),
+                    schema,
                     object_type: default_obj_type,
-                    grants,
+                    grants: new_grants,
                 });
             }
         }

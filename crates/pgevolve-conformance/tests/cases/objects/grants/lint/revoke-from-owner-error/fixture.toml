@@ -1,0 +1,17 @@
+[meta]
+title     = "revoke-from-owner error — REVOKE against the owner fires error advisory"
+authoring = "objects"
+spec_refs = ["lint.revoke-from-owner"]
+
+[pg]
+min = 14
+max = 17
+
+# The REVOKE step is suppressed (the rule fires before emit), but the error
+# advisory is surfaced so the operator can fix the source.
+[expect.plan]
+steps     = 1
+golden    = false
+
+[expect.advisory]
+rule_ids = ["revoke-from-owner"]

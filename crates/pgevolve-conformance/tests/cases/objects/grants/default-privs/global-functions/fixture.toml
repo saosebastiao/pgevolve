@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER DEFAULT PRIVILEGES global — GRANT EXECUTE ON FUNCTIONS TO readers"
+authoring = "objects"
+spec_refs = ["grants.default_privs.global"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

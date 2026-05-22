@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER TABLE OWNER TO — setting owner emits one ALTER OWNER step"
+authoring = "objects"
+spec_refs = ["grants.owner.table"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

@@ -1,0 +1,11 @@
+[meta]
+title     = "GRANT USAGE + CREATE ON SCHEMA — two grant steps"
+authoring = "objects"
+spec_refs = ["grants.schema.usage_create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 2

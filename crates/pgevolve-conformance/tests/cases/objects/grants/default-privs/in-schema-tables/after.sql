@@ -1,0 +1,3 @@
+-- @pgevolve schema=app
+CREATE SCHEMA app;
+ALTER DEFAULT PRIVILEGES FOR ROLE app_owner IN SCHEMA app GRANT SELECT ON TABLES TO readers;
