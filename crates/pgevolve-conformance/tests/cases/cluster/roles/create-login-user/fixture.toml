@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE USER sugar implies LOGIN"
+authoring = "cluster"
+spec_refs = ["cluster.role.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

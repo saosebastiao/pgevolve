@@ -99,6 +99,59 @@ pub fn render_plan(
     Ok((plan, sql, advisory_findings))
 }
 
+/// Output of the cluster pipeline for conformance assertions.
+pub struct ClusterPipelineOutput {
+    /// Desired cluster state (parsed from `after_sql`).
+    pub source: pgevolve_core::ir::cluster::ClusterCatalog,
+    /// Current cluster state (parsed from `before_sql`).
+    pub target: pgevolve_core::ir::cluster::ClusterCatalog,
+    /// Diff between target and source.
+    pub changes: pgevolve_core::diff::cluster::ClusterChangeSet,
+    /// Emitted DDL steps.
+    pub steps: Vec<pgevolve_core::plan::RawStep>,
+    /// Advisory lint findings from `check_cluster_changeset`.
+    pub advisory_findings: Vec<pgevolve_core::lint::Finding>,
+}
+
+/// Build a cluster plan from `before.sql` / `after.sql` fixture files.
+///
+/// `before_sql` is parsed as the *target* (current live cluster state);
+/// `after_sql` is parsed as the *source* (desired state). `diff(target,
+/// source)` produces the change list. Lint runs on `(source, changes)`.
+pub fn render_cluster_plan(
+    before_sql: &str,
+    after_sql: &str,
+) -> Result<ClusterPipelineOutput, PipelineError> {
+    let target = parse_one_cluster_source(before_sql)?;
+    let source = parse_one_cluster_source(after_sql)?;
+    let changes = pgevolve_core::diff::cluster::diff_cluster(&target, &source);
+    let advisory_findings =
+        pgevolve_core::lint::universal::check_cluster_changeset(&source, &changes);
+    let steps = pgevolve_core::plan::cluster_rewrite::emit_cluster_changes(&changes);
+    Ok(ClusterPipelineOutput {
+        source,
+        target,
+        changes,
+        steps,
+        advisory_findings,
+    })
+}
+
+fn parse_one_cluster_source(
+    sql: &str,
+) -> Result<pgevolve_core::ir::cluster::ClusterCatalog, PipelineError> {
+    let td = tempfile::tempdir()?;
+    let roles_dir = td.path().join("roles");
+    std::fs::create_dir(&roles_dir)?;
+    std::fs::write(roles_dir.join("a.sql"), sql)?;
+    pgevolve_core::parse::cluster::parse_cluster_directory(&roles_dir).map_err(|source| {
+        PipelineError::Parse {
+            label: "cluster",
+            source,
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

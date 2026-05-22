@@ -1,0 +1,11 @@
+[meta]
+title     = "COMMENT ON ROLE round-trips"
+authoring = "cluster"
+spec_refs = ["cluster.role.comment"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

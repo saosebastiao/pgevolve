@@ -177,12 +177,6 @@ async fn run_one(version: PgVersion, source_sql: &Path) -> Result<String> {
 }
 
 fn bless_conformance() -> Result<()> {
-    use pgevolve_conformance::assertions::dep_graph::render_dot;
-    use pgevolve_conformance::fixture::Fixture;
-    use pgevolve_conformance::normalize::normalize;
-    use pgevolve_conformance::planning::{parse_sql, render_plan};
-    use pgevolve_core::plan::{Strategy, build_create_graph};
-
     let cases = workspace_root()?.join("crates/pgevolve-conformance/tests/cases");
     if !cases.exists() {
         return Err(anyhow!(
@@ -204,70 +198,119 @@ fn bless_conformance() -> Result<()> {
             .parent()
             .ok_or_else(|| anyhow!("fixture.toml has no parent"))?
             .to_path_buf();
-        let fixture =
-            Fixture::load(&dir).with_context(|| format!("load fixture {}", dir.display()))?;
+        let fixture = pgevolve_conformance::fixture::Fixture::load(&dir)
+            .with_context(|| format!("load fixture {}", dir.display()))?;
 
-        // Failure fixtures expect the pipeline to error — skip them entirely.
         if fixture.meta.authoring == "failure" {
             skipped += 1;
             tracing::info!(fixture = %dir.display(), "skipping failure fixture");
             continue;
         }
-
-        // --- plan.sql golden ---
-        if let Some(rel) = fixture.expect.plan.golden.as_ref() {
-            let strategy = fixture
-                .passthrough
-                .planner
-                .get("strategy")
-                .and_then(|v| v.as_str())
-                .map_or(Strategy::Online, |s| match s {
-                    "atomic" => Strategy::Atomic,
-                    _ => Strategy::Online,
-                });
-
-            let (_plan, rendered_sql, _advisory) =
-                render_plan(&fixture.before_sql, &fixture.after_sql, strategy)
-                    .with_context(|| format!("render plan for {}", dir.display()))?;
-            let normalized = normalize(&rendered_sql);
-
-            let golden_path = dir.join(rel);
-            if let Some(parent) = golden_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&golden_path, normalized)
-                .with_context(|| format!("write {}", golden_path.display()))?;
-            blessed += 1;
-            tracing::info!(fixture = %dir.display(), "blessed plan.sql");
-        } else {
-            skipped += 1;
-            tracing::info!(
-                fixture = %dir.display(),
-                "skipping plan.sql: goldening opted out"
-            );
+        if fixture.meta.authoring == "cluster" {
+            bless_cluster_fixture(&dir, &fixture, &mut blessed, &mut skipped)?;
+            continue;
         }
-
-        // --- dep-graph.dot golden ---
-        if fixture.expect.dep_graph.enabled {
-            let source_catalog = parse_sql(&fixture.after_sql, "after")
-                .with_context(|| format!("parse after.sql for dep-graph in {}", dir.display()))?;
-            let graph = build_create_graph(&source_catalog);
-            let edges: Vec<_> = graph.dep_edges().collect();
-            let dot = render_dot(&edges);
-
-            let dot_path = dir.join(&fixture.expect.dep_graph.golden);
-            if let Some(parent) = dot_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&dot_path, &dot)
-                .with_context(|| format!("write {}", dot_path.display()))?;
-            blessed += 1;
-            tracing::info!(fixture = %dir.display(), "blessed dep-graph.dot");
-        }
+        bless_objects_fixture(&dir, &fixture, &mut blessed, &mut skipped)?;
     }
 
     eprintln!("conformance: blessed {blessed} golden(s); skipped {skipped}");
     Ok(())
+}
+
+/// Bless a cluster fixture: write `expected/plan.sql` from the cluster pipeline.
+fn bless_cluster_fixture(
+    dir: &Path,
+    fixture: &pgevolve_conformance::fixture::Fixture,
+    blessed: &mut usize,
+    skipped: &mut usize,
+) -> Result<()> {
+    use pgevolve_conformance::normalize::normalize;
+    use pgevolve_conformance::planning::render_cluster_plan;
+
+    if let Some(rel) = fixture.expect.plan.golden.as_ref() {
+        let out = render_cluster_plan(&fixture.before_sql, &fixture.after_sql)
+            .with_context(|| format!("render cluster plan for {}", dir.display()))?;
+        let normalized = normalize(&bless_render_cluster_steps(&out.steps));
+        bless_write(dir, rel, &normalized)?;
+        *blessed += 1;
+        tracing::info!(fixture = %dir.display(), "blessed cluster plan.sql");
+    } else {
+        *skipped += 1;
+        tracing::info!(fixture = %dir.display(), "skipping cluster plan.sql: goldening opted out");
+    }
+    Ok(())
+}
+
+/// Bless an objects/scenarios/intent fixture: write `expected/plan.sql` and
+/// `expected/dep-graph.dot`.
+fn bless_objects_fixture(
+    dir: &Path,
+    fixture: &pgevolve_conformance::fixture::Fixture,
+    blessed: &mut usize,
+    skipped: &mut usize,
+) -> Result<()> {
+    use pgevolve_conformance::assertions::dep_graph::render_dot;
+    use pgevolve_conformance::normalize::normalize;
+    use pgevolve_conformance::planning::{parse_sql, render_plan};
+    use pgevolve_core::plan::{Strategy, build_create_graph};
+
+    if let Some(rel) = fixture.expect.plan.golden.as_ref() {
+        let strategy = fixture
+            .passthrough
+            .planner
+            .get("strategy")
+            .and_then(|v| v.as_str())
+            .map_or(Strategy::Online, |s| match s {
+                "atomic" => Strategy::Atomic,
+                _ => Strategy::Online,
+            });
+        let (_plan, rendered_sql, _advisory) =
+            render_plan(&fixture.before_sql, &fixture.after_sql, strategy)
+                .with_context(|| format!("render plan for {}", dir.display()))?;
+        bless_write(dir, rel, &normalize(&rendered_sql))?;
+        *blessed += 1;
+        tracing::info!(fixture = %dir.display(), "blessed plan.sql");
+    } else {
+        *skipped += 1;
+        tracing::info!(fixture = %dir.display(), "skipping plan.sql: goldening opted out");
+    }
+
+    if fixture.expect.dep_graph.enabled {
+        let source_catalog = parse_sql(&fixture.after_sql, "after")
+            .with_context(|| format!("parse after.sql for dep-graph in {}", dir.display()))?;
+        let graph = build_create_graph(&source_catalog);
+        let edges: Vec<_> = graph.dep_edges().collect();
+        let dot = render_dot(&edges);
+        bless_write(dir, &fixture.expect.dep_graph.golden, &dot)?;
+        *blessed += 1;
+        tracing::info!(fixture = %dir.display(), "blessed dep-graph.dot");
+    }
+    Ok(())
+}
+
+/// Write `content` to `dir/rel`, creating parent directories as needed.
+fn bless_write(dir: &Path, rel: &str, content: &str) -> Result<()> {
+    let path = dir.join(rel);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, content).with_context(|| format!("write {}", path.display()))
+}
+
+/// Render cluster `RawStep`s to a plain SQL string for golden comparison.
+///
+/// Each step is rendered on its own line. Mirrors the logic in
+/// `tests/run.rs:render_cluster_steps_sql` — keep the two in sync.
+fn bless_render_cluster_steps(steps: &[pgevolve_core::plan::RawStep]) -> String {
+    if steps.is_empty() {
+        return String::new();
+    }
+    steps
+        .iter()
+        .map(|s| s.sql.trim_end_matches(';').to_string() + ";")
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
 }
 
 fn workspace_root() -> Result<PathBuf> {

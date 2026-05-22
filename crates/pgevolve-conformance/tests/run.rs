@@ -19,7 +19,8 @@ use pgevolve_conformance::assertions::{
     apply, dep_graph, diff, intent_shape, minimality, plan, topological_order, touches_only,
 };
 use pgevolve_conformance::fixture::{ExpectPlan, Fixture};
-use pgevolve_conformance::planning::parse_sql;
+use pgevolve_conformance::normalize::normalize;
+use pgevolve_conformance::planning::{parse_sql, render_cluster_plan};
 use pgevolve_conformance::walk::{self, Authoring};
 
 fn cases_root() -> PathBuf {
@@ -98,6 +99,111 @@ impl Report {
             detail.as_ref()
         ));
     }
+}
+
+/// Render a cluster `Vec<RawStep>` to a plain SQL string for golden comparison.
+///
+/// Each step is rendered on its own line. The result is normalized the same
+/// way as `plan.sql` goldens (timestamp stripping) so bless and compare are
+/// symmetric. Cluster steps never contain `-- @pgevolve plan` headers, so
+/// normalization is a no-op today — but it keeps the two paths consistent.
+fn render_cluster_steps_sql(steps: &[pgevolve_core::plan::RawStep]) -> String {
+    if steps.is_empty() {
+        return String::new();
+    }
+    steps
+        .iter()
+        .map(|s| s.sql.trim_end_matches(';').to_string() + ";")
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
+}
+
+/// Run one fixture through assertion layers for `Cluster` authoring.
+///
+/// Mirrors `run_objects` for the cluster pipeline: parse before.sql as
+/// target, after.sql as source, diff → lint → emit, then assert step count,
+/// advisory findings, and the plan.sql golden.
+fn run_cluster(fixture: &Fixture, pg_major: u32) -> FixtureResult {
+    if !fixture.applies_to(pg_major) {
+        return FixtureResult::Skipped;
+    }
+    match pg_expect_for_major(fixture, pg_major) {
+        PgExpect::Skip => return FixtureResult::Skipped,
+        PgExpect::ExpectFailure | PgExpect::Success => {}
+    }
+
+    let mut failures: Vec<(String, String)> = Vec::new();
+
+    let cluster_output = match render_cluster_plan(&fixture.before_sql, &fixture.after_sql) {
+        Ok(r) => r,
+        Err(e) => {
+            failures.push(("cluster_plan".into(), e.to_string()));
+            return FixtureResult::Ran { failures };
+        }
+    };
+    let steps = cluster_output.steps;
+    let advisory_findings = cluster_output.advisory_findings;
+
+    let actual_steps = steps.len();
+    if let Some(expected) = fixture.expect.plan.steps
+        && expected != actual_steps
+    {
+        failures.push((
+            "plan".into(),
+            format!("expected {expected} step(s), got {actual_steps}"),
+        ));
+    }
+
+    // Advisory findings assertion — same pattern as run_objects.
+    {
+        let actual_rule_ids: Vec<&str> = advisory_findings.iter().map(|f| f.rule).collect();
+        for expected_rule in &fixture.expect.advisory.rule_ids {
+            if !actual_rule_ids.contains(&expected_rule.as_str()) {
+                failures.push((
+                    "advisory".into(),
+                    format!(
+                        "expected advisory rule `{expected_rule}` not found in findings {actual_rule_ids:?}"
+                    ),
+                ));
+            }
+        }
+    }
+
+    // Golden plan.sql comparison.
+    let rendered_sql = render_cluster_steps_sql(&steps);
+    let actual_normalized = normalize(&rendered_sql);
+
+    if let Some(rel) = fixture.expect.plan.golden.as_ref() {
+        let golden_path = fixture.dir.join(rel);
+        if golden_path.exists() {
+            match std::fs::read_to_string(&golden_path) {
+                Err(e) => failures.push(("golden".into(), e.to_string())),
+                Ok(raw) => {
+                    let expected_normalized = normalize(&raw);
+                    if actual_normalized != expected_normalized {
+                        let gp = golden_path.display();
+                        failures.push((
+                            "golden".into(),
+                            format!(
+                                "plan.sql mismatch vs {gp}. Run `cargo xtask bless --conformance` if intentional.\n--- expected (normalized) ---\n{expected_normalized}\n--- actual (normalized) ---\n{actual_normalized}"
+                            ),
+                        ));
+                    }
+                }
+            }
+        } else {
+            let gp = golden_path.display();
+            failures.push((
+                "golden".into(),
+                format!(
+                    "golden file {gp} does not exist; run `cargo xtask bless --conformance` to create it"
+                ),
+            ));
+        }
+    }
+
+    FixtureResult::Ran { failures }
 }
 
 /// Append one timing row to `target/conformance-timings.tsv`.
@@ -531,6 +637,7 @@ async fn conformance_suite() {
                 Authoring::Objects => run_objects(fixture, pg_major).await,
                 Authoring::Scenarios => run_scenarios(fixture, pg_major),
                 Authoring::Intent => run_intent(fixture, pg_major).await,
+                Authoring::Cluster => run_cluster(fixture, pg_major),
                 Authoring::Failure => {
                     let failures = pgevolve_conformance::failure::run_failure_fixture(fixture)
                         .err()

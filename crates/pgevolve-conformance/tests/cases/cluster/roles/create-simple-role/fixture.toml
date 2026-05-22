@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE ROLE app_user with defaults"
+authoring = "cluster"
+spec_refs = ["cluster.role.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

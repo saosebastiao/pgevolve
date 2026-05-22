@@ -1,0 +1,11 @@
+[meta]
+title     = "DROP ROLE is intent-gated"
+authoring = "cluster"
+spec_refs = ["cluster.role.drop"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

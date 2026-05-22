@@ -29,6 +29,8 @@ pub enum Authoring {
     Failure,
     /// One-off captures from property-test failures.
     Regressions,
+    /// Cluster-level fixtures (roles, memberships). Runs cluster pipeline.
+    Cluster,
 }
 
 impl Authoring {
@@ -40,6 +42,7 @@ impl Authoring {
             "intent" => Self::Intent,
             "failure" => Self::Failure,
             "regressions" => Self::Regressions,
+            "cluster" => Self::Cluster,
             other => anyhow::bail!("unknown authoring key: {other}"),
         })
     }

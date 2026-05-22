@@ -1,0 +1,14 @@
+[meta]
+title     = "ALTER ROLE losing SUPERUSER fires advisory lint"
+authoring = "cluster"
+spec_refs = ["cluster.role.alter", "lint.role-loses-superuser"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1
+
+[expect.advisory]
+rule_ids = ["role-loses-superuser"]
