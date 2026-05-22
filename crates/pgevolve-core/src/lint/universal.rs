@@ -36,6 +36,16 @@
 //!   table is not declared in source as a table, view, or materialized view.
 //! - **`trigger-references-unmanaged-function`** — fires when a trigger's
 //!   execute function is not declared in source.
+//!
+//! Changeset-level rules (inspecting the diff, run via [`check_changeset`]):
+//!
+//! - **`storage-downgrade-not-retroactive`** — fires when a `SET STORAGE`
+//!   change reduces toastability (e.g., EXTERNAL → PLAIN). Existing `TOASTed`
+//!   values keep their current placement until rewritten by UPDATE or VACUUM
+//!   FULL.
+//! - **`compression-change-not-retroactive`** — fires on any `SET COMPRESSION`
+//!   change. Existing `TOASTed` values keep their original codec until rewritten
+//!   by UPDATE or VACUUM FULL.
 
 use super::ManagedConfig;
 use super::finding::Finding;

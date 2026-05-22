@@ -372,6 +372,7 @@ mod tests {
                 created_at: OffsetDateTime::now_utc(),
                 lint_at_plan_findings: findings,
             },
+            advisory_findings: vec![],
         }
     }
 
@@ -392,6 +393,7 @@ mod tests {
                 created_at: OffsetDateTime::now_utc(),
                 lint_at_plan_findings: vec![],
             },
+            advisory_findings: vec![],
         }
     }
 

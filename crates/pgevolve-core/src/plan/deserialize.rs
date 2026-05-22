@@ -558,6 +558,7 @@ pub fn read_plan_dir(dir: &Path) -> Result<Plan, PlanIoError> {
         lint_waivers: intent.lint_waivers,
         step_overrides: intent.step_overrides,
         metadata,
+        advisory_findings: Vec::new(),
     })
 }
 

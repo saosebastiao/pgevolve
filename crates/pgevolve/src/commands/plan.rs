@@ -60,6 +60,12 @@ pub async fn run(args: PlanArgs, cfg: &PgevolveConfig) -> Result<i32> {
         plan.intents.len(),
     );
 
+    // Print advisory (Warning-severity) changeset findings so the user is
+    // aware of potentially surprising behaviour even though the plan proceeds.
+    for f in &plan.advisory_findings {
+        eprintln!("pgevolve plan: advisory [{}]: {}", f.rule, f.message);
+    }
+
     if args.shadow_validate {
         let source = pgevolve_core::parse::parse_directory(&cfg.project.schema_dir, &[])
             .map_err(|e| anyhow::anyhow!("parse error: {e}"))?;

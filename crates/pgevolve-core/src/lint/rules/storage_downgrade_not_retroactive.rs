@@ -137,10 +137,9 @@ mod tests {
     }
 
     #[test]
-    fn extended_to_external_fires() {
+    fn extended_to_external_does_not_fire() {
         // EXTENDED (rank 2) → EXTERNAL (rank 3): external has higher rank,
         // so this is actually an upgrade. Should NOT fire.
-        // Wait — External=3 > Extended=2, so EXTENDED→EXTERNAL is upgrade.
         let cs = changeset_with_storage_change(StorageKind::Extended, StorageKind::External);
         let findings = check(&cs);
         assert!(

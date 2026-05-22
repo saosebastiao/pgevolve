@@ -216,6 +216,17 @@ pub struct Plan {
     pub step_overrides: Vec<StepOverride>,
     /// Plan metadata.
     pub metadata: PlanMetadata,
+    /// Advisory (Warning-severity) lint findings produced at plan time.
+    ///
+    /// These are informational — they never block plan construction — and are
+    /// **not** persisted to disk. Callers (CLI, conformance tests) can inspect
+    /// this field and print or assert on them as needed.
+    ///
+    /// Currently populated by [`pgevolve::api::build_plan`] from
+    /// [`pgevolve_core::lint::check_changeset`] (changeset-level rules such as
+    /// `storage-downgrade-not-retroactive` and
+    /// `compression-change-not-retroactive`).
+    pub advisory_findings: Vec<RecordedFinding>,
 }
 
 impl Plan {
@@ -286,6 +297,7 @@ impl Plan {
             lint_waivers: Vec::new(),
             step_overrides: Vec::new(),
             metadata,
+            advisory_findings: Vec::new(),
         })
     }
 
@@ -858,6 +870,7 @@ reason = "rewrite-table applied; PR #234"
                 created_at: OffsetDateTime::UNIX_EPOCH,
                 lint_at_plan_findings: Vec::new(),
             },
+            advisory_findings: Vec::new(),
         }
     }
 }

@@ -19,7 +19,7 @@ use pgevolve_core::catalog::{CatalogFilter, read_catalog};
 use pgevolve_core::diff::diff;
 use pgevolve_core::identifier::Identifier;
 use pgevolve_core::lint::Severity;
-use pgevolve_core::lint::universal::run_drift_lints;
+use pgevolve_core::lint::universal::{check_changeset, run_drift_lints};
 use pgevolve_core::plan::{
     LintWaiver, Plan, PlannerPolicy, RecordedFinding, Strategy, group_steps, order,
     rewrite_with_source,
@@ -122,6 +122,10 @@ pub async fn build_plan(
         .map_err(|e| BuildPlanError::CatalogRead(e.to_string()))?;
 
     let changes = diff(&target, &source, &drift);
+
+    // --- Changeset-level lint (advisory; always runs before order consumes changes) ---
+    let changeset_findings = check_changeset(&changes);
+
     let policy = PlannerPolicy {
         strategy: opts.strategy,
         online: PlannerPolicy::default().online,
@@ -141,6 +145,20 @@ pub async fn build_plan(
         opts.planner_ruleset_version,
     )
     .map_err(|e| BuildPlanError::Planner(e.to_string()))?;
+
+    // Surface changeset advisory findings through the Plan so callers can
+    // inspect and/or print them.
+    plan.advisory_findings = changeset_findings
+        .into_iter()
+        .map(|f| {
+            let target_str = f.message.split(':').next().unwrap_or("").trim().to_string();
+            RecordedFinding {
+                rule: f.rule.to_string(),
+                target: target_str,
+                message: f.message,
+            }
+        })
+        .collect();
 
     // --- Drift-lint gate (mirrors commands::plan::run) ---
     let drift_findings = run_drift_lints(&source, &target);
