@@ -15,7 +15,9 @@
 //!    `view_column` sentinel.
 //! 3. [`renumber_enum_sort_orders`] — every enum's `sort_order` values
 //!    are re-indexed to `1.0, 2.0, 3.0, …` in current order.
-//! 4. [`sort_and_dedupe`] — every collection is sorted by its canonical
+//! 4. [`reloptions`] — canonicalize reloption fields (currently a no-op;
+//!    `extra` is `BTreeMap` so keys are already ordered).
+//! 5. [`sort_and_dedupe`] — every collection is sorted by its canonical
 //!    key and duplicates raise [`IrError`]. Runs last so duplicate
 //!    detection sees post-normalization values.
 //!
@@ -26,6 +28,7 @@ pub mod default_privileges;
 pub mod filter_pg_defaults;
 pub mod grants;
 pub mod policies;
+pub mod reloptions;
 pub mod renumber_enum_sort_orders;
 pub mod sentinel_view_columns;
 pub mod sort_and_dedupe;
@@ -69,6 +72,7 @@ pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
     for t in &mut cat.tables {
         policies::run_on_table(t);
     }
+    reloptions::run(cat);
     sort_and_dedupe::run(cat)?;
     Ok(())
 }
