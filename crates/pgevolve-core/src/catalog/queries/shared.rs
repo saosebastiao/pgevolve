@@ -42,7 +42,8 @@ SELECT
   coalesce(c.relacl::text[], '{}'::text[]) AS acl,
   d.description AS comment,
   c.relrowsecurity::bool        AS rls_enabled,
-  c.relforcerowsecurity::bool   AS rls_forced
+  c.relforcerowsecurity::bool   AS rls_forced,
+  coalesce(c.reloptions, '{}'::text[]) AS reloptions
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_catalog.pg_authid owner_role ON owner_role.oid = c.relowner
@@ -180,6 +181,7 @@ SELECT
   i.indnatts::bigint         AS total_columns,
   i.indnkeyatts::bigint      AS key_columns,
   pg_catalog.pg_get_indexdef(c.oid, 0, true) AS indexdef,
+  coalesce(c.reloptions, '{}'::text[])       AS reloptions,
   d.description              AS comment
 FROM pg_catalog.pg_index i
 JOIN pg_catalog.pg_class     c  ON c.oid  = i.indexrelid

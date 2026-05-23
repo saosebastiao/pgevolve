@@ -134,6 +134,8 @@ pub(super) fn build_tables(
         let owner = Some(owner_ident);
         let rls_enabled = r.get_bool(q, "rls_enabled")?;
         let rls_forced = r.get_bool(q, "rls_forced")?;
+        let reloptions = r.get_text_array(q, "reloptions")?;
+        let storage = crate::catalog::reloptions::decode_table_reloptions(&reloptions, q)?;
         tables.insert(
             oid,
             Table {
@@ -148,7 +150,7 @@ pub(super) fn build_tables(
                 rls_enabled,
                 rls_forced,
                 policies: vec![], // populated by attach_policies after tables build
-                storage: crate::ir::reloptions::TableStorageOptions::default(),
+                storage,
             },
         );
     }
@@ -473,6 +475,8 @@ pub(super) fn build_indexes(
         };
         idx.comment = r.get_opt_text(q, "comment")?;
         idx.nulls_not_distinct = r.get_bool(q, "nulls_not_distinct").unwrap_or(false);
+        let reloptions = r.get_text_array(q, "reloptions")?;
+        idx.storage = crate::catalog::reloptions::decode_index_reloptions(&reloptions, q)?;
         out.push(idx);
     }
     Ok(out)

@@ -24,6 +24,7 @@ pub use version::PgVersion;
 
 mod assemble;
 pub(crate) mod grants;
+pub(crate) mod reloptions;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;

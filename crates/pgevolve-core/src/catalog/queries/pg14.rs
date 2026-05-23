@@ -22,6 +22,7 @@ SELECT
   i.indnatts::bigint         AS total_columns,
   i.indnkeyatts::bigint      AS key_columns,
   pg_catalog.pg_get_indexdef(c.oid, 0, true) AS indexdef,
+  coalesce(c.reloptions, '{}'::text[])       AS reloptions,
   d.description              AS comment
 FROM pg_catalog.pg_index i
 JOIN pg_catalog.pg_class     c  ON c.oid  = i.indexrelid

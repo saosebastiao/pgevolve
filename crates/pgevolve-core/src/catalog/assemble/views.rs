@@ -156,6 +156,8 @@ pub(super) fn build_views_and_mvs(
                 });
             }
             "m" => {
+                let mv_storage =
+                    crate::catalog::reloptions::decode_table_reloptions(&reloptions, q)?;
                 materialized_views.push(MaterializedView {
                     qname,
                     columns,
@@ -165,7 +167,7 @@ pub(super) fn build_views_and_mvs(
                     raw_body: String::new(),
                     owner,
                     grants,
-                    storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
+                    storage: mv_storage,
                 });
             }
             other => {
