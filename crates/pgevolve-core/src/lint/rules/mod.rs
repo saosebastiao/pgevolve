@@ -13,6 +13,7 @@ pub mod domain_check_references_unmanaged_type;
 pub mod enum_value_collision;
 pub mod extension_references_unmanaged_schema;
 pub mod extension_version_unpinned;
+pub mod force_rls_without_policies;
 pub mod function_references_unmanaged_schema;
 pub mod grant_references_unknown_role;
 pub mod grants_to_unmanaged_role;

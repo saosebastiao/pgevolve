@@ -36,6 +36,9 @@
 //!   table is not declared in source as a table, view, or materialized view.
 //! - **`trigger-references-unmanaged-function`** — fires when a trigger's
 //!   execute function is not declared in source.
+//! - **`force-rls-without-policies`** — fires (Warning) when a table has
+//!   `FORCE ROW LEVEL SECURITY` enabled but no policies defined. PG denies
+//!   every row in that state — almost always a configuration mistake.
 //!
 //! Changeset-level rules (inspecting the diff, run via [`check_changeset`]):
 //!
@@ -112,6 +115,7 @@ pub fn check_universal(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Findin
     out.extend(rules::trigger_references_unmanaged_table::check(tree));
     out.extend(rules::trigger_references_unmanaged_function::check(tree));
     out.extend(rules::partition_references_unmanaged_parent::check(tree));
+    out.extend(rules::force_rls_without_policies::check(&tree.catalog));
     out
 }
 

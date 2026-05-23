@@ -21,6 +21,7 @@ pub const RULE_ID: &str = "grant-references-unknown-role";
 /// in the linked cluster project's roles/*.sql. When the user hasn't set
 /// `[cluster].project`, the caller passes `None`, and this rule emits
 /// nothing.
+#[allow(clippy::too_many_lines)] // each object family needs its own block; extracting further would hurt readability
 pub fn check(cat: &Catalog, cluster_role_names: Option<&BTreeSet<Identifier>>) -> Vec<Finding> {
     let Some(cluster_roles) = cluster_role_names else {
         return Vec::new();
@@ -102,6 +103,26 @@ pub fn check(cat: &Catalog, cluster_role_names: Option<&BTreeSet<Identifier>>) -
         let label = format!("type {}", t.qname);
         check_grants(&label, &t.grants, &mut findings);
         check_owner(&label, t.owner.as_ref(), &mut findings);
+    }
+    // Policies on tables — TO clause references.
+    for t in &cat.tables {
+        for p in &t.policies {
+            for role_target in &p.roles {
+                if let crate::ir::grant::GrantTarget::Role(name) = role_target
+                    && !cluster_roles.contains(name)
+                {
+                    findings.push(Finding {
+                        rule: RULE_ID,
+                        severity: Severity::Error,
+                        message: format!(
+                            "policy {} on table {}: TO clause references role {} which is not declared in the linked cluster project",
+                            p.name, t.qname, name,
+                        ),
+                        location: None,
+                    });
+                }
+            }
+        }
     }
     // Default privileges: check the target_role and each grantee.
     for r in &cat.default_privileges {
@@ -202,5 +223,46 @@ mod tests {
         assert_eq!(f.len(), 1);
         assert!(f[0].message.contains("OWNER"));
         assert!(f[0].message.contains("unknown_owner"));
+    }
+
+    #[test]
+    fn policy_to_clause_with_unknown_role_fires() {
+        use crate::identifier::QualifiedName;
+        use crate::ir::policy::{Policy, PolicyCommand};
+        use crate::ir::table::Table;
+
+        fn qn(schema: &str, name: &str) -> QualifiedName {
+            QualifiedName::new(id(schema), id(name))
+        }
+
+        let mut cat = Catalog::empty();
+        let t = Table {
+            qname: qn("app", "orders"),
+            columns: vec![],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: None,
+            grants: vec![],
+            rls_enabled: true,
+            rls_forced: false,
+            policies: vec![Policy {
+                name: id("p1"),
+                permissive: true,
+                command: PolicyCommand::All,
+                roles: vec![GrantTarget::Role(id("unknown_role"))],
+                using: None,
+                with_check: None,
+            }],
+        };
+        cat.tables.push(t);
+        let cluster_roles = cluster_with(&["readers"]);
+        let f = check(&cat, Some(&cluster_roles));
+        assert!(
+            f.iter()
+                .any(|f| f.message.contains("policy p1") && f.message.contains("unknown_role")),
+            "expected policy-level lint finding"
+        );
     }
 }
