@@ -25,6 +25,7 @@ pub mod grants;
 pub mod partitions;
 pub mod policies;
 pub mod refresh_mv_concurrently;
+pub mod reloptions;
 pub mod set_not_null_check_pattern;
 pub mod sql;
 pub mod triggers;
@@ -342,11 +343,41 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
-        // Stage 7 wires these into real SQL.
-        Change::SetTableStorage { .. }
-        | Change::SetIndexStorage { .. }
-        | Change::SetMaterializedViewStorage { .. } => {
-            // no-op for Stage 6; Stage 7 emits ALTER ... SET (...) statements
+        Change::SetTableStorage { qname, options } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::SetTableStorage,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: reloptions::alter_table_set_storage(&qname, &options),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::SetIndexStorage { qname, options } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::SetIndexStorage,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: reloptions::alter_index_set_storage(&qname, &options),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::SetMaterializedViewStorage { qname, options } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::SetMaterializedViewStorage,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: reloptions::alter_mv_set_storage(&qname, &options),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
         }
 
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.

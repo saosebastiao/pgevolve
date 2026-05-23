@@ -216,6 +216,14 @@ pub enum StepKind {
     SetTableRowSecurity,
     /// `ALTER TABLE qname { FORCE | NO FORCE } ROW LEVEL SECURITY`.
     SetTableForceRowSecurity,
+
+    // --- v0.3.3 reloption step kinds ---
+    /// `ALTER TABLE qname SET (fillfactor = …, …)`.
+    SetTableStorage,
+    /// `ALTER INDEX qname SET (fillfactor = …, …)`.
+    SetIndexStorage,
+    /// `ALTER MATERIALIZED VIEW qname SET (fillfactor = …, …)`.
+    SetMaterializedViewStorage,
 }
 
 /// One unit of work the executor will attempt.
@@ -337,6 +345,9 @@ mod tests {
             StepKind::AlterPolicy,
             StepKind::SetTableRowSecurity,
             StepKind::SetTableForceRowSecurity,
+            StepKind::SetTableStorage,
+            StepKind::SetIndexStorage,
+            StepKind::SetMaterializedViewStorage,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

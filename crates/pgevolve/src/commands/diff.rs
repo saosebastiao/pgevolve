@@ -419,15 +419,14 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                 let verb = if *force { "force" } else { "no force" };
                 println!("      {verb} row level security on {qname}");
             }
-            // Stage 7 wires these into real display.
             pgevolve_core::diff::change::Change::SetTableStorage { qname, .. } => {
-                println!("      set table storage reloptions {qname}");
+                println!("      ~ ALTER TABLE {qname} SET (...)");
             }
             pgevolve_core::diff::change::Change::SetIndexStorage { qname, .. } => {
-                println!("      set index storage reloptions {qname}");
+                println!("      ~ ALTER INDEX {qname} SET (...)");
             }
             pgevolve_core::diff::change::Change::SetMaterializedViewStorage { qname, .. } => {
-                println!("      set materialized view storage reloptions {qname}");
+                println!("      ~ ALTER MATERIALIZED VIEW {qname} SET (...)");
             }
             pgevolve_core::diff::change::Change::UnsupportedDiff { reason } => {
                 println!("      unsupported diff: {reason}");

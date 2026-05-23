@@ -400,6 +400,9 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::AlterPolicy => "alter_policy",
         K::SetTableRowSecurity => "set_table_row_security",
         K::SetTableForceRowSecurity => "set_table_force_row_security",
+        K::SetTableStorage => "set_table_storage",
+        K::SetIndexStorage => "set_index_storage",
+        K::SetMaterializedViewStorage => "set_materialized_view_storage",
     }
 }
 
@@ -487,6 +490,9 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "alter_policy" => K::AlterPolicy,
         "set_table_row_security" => K::SetTableRowSecurity,
         "set_table_force_row_security" => K::SetTableForceRowSecurity,
+        "set_table_storage" => K::SetTableStorage,
+        "set_index_storage" => K::SetIndexStorage,
+        "set_materialized_view_storage" => K::SetMaterializedViewStorage,
         _ => return None,
     })
 }
