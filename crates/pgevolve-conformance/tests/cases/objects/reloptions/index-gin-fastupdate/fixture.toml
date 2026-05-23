@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER INDEX SET (fastupdate = false) — existing GIN index disables fast update"
+authoring = "objects"
+spec_refs = ["objects.reloptions.index"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

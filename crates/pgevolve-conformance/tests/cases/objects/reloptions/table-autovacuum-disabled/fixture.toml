@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE TABLE WITH (autovacuum_enabled = false)"
+authoring = "objects"
+spec_refs = ["objects.reloptions.table"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

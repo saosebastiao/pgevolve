@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER INDEX SET (pages_per_range = 32) — existing BRIN index gains storage option"
+authoring = "objects"
+spec_refs = ["objects.reloptions.index"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

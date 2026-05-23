@@ -1,0 +1,11 @@
+[meta]
+title     = "Partition WITH (fillfactor) — child partition gains fillfactor via SET"
+authoring = "objects"
+spec_refs = ["objects.reloptions.table"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

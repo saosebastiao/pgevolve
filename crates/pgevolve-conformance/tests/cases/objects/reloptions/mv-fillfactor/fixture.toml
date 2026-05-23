@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER MATERIALIZED VIEW SET (fillfactor = 90) — existing MV gains fillfactor"
+authoring = "objects"
+spec_refs = ["objects.reloptions.materialized_view"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

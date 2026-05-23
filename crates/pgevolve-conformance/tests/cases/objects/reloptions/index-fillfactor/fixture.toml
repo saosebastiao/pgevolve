@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER INDEX SET (fillfactor = 70) — existing index gains fillfactor"
+authoring = "objects"
+spec_refs = ["objects.reloptions.index"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

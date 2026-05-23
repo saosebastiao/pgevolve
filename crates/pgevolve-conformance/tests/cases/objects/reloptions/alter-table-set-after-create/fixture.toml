@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER TABLE SET (fillfactor) in source — emits single SET step"
+authoring = "objects"
+spec_refs = ["objects.reloptions.table"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

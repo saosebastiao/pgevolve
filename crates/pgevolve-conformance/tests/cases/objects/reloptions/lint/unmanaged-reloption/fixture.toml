@@ -1,0 +1,18 @@
+[meta]
+title     = "Lenient drift: catalog has fillfactor not declared in source — 0 plan steps"
+authoring = "objects"
+spec_refs = ["lint.unmanaged-reloption"]
+
+[pg]
+min = 14
+max = 17
+
+# The differ uses a lenient policy: catalog reloptions absent from source are
+# NOT reset. This fixture verifies that removing fillfactor from source does
+# not produce a RESET step. The unmanaged-reloption advisory fires via
+# run_drift_lints (real-catalog path) rather than the in-process pipeline, so
+# it is not asserted here; unit tests in lint/rules/unmanaged_reloption cover it.
+[expect.plan]
+steps      = 0
+minimality = false
+golden     = false
