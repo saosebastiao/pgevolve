@@ -144,6 +144,20 @@ pub fn check_changeset(cs: &ChangeSet) -> Vec<Finding> {
     out
 }
 
+/// Run catalog-level lint rules that fire at plan time.
+///
+/// This is a subset of [`check_universal`] — rules that inspect the source
+/// catalog (desired state) and do not require the full `SourceTree` context
+/// (managed config, file locations, etc.). Intended for callers such as the
+/// conformance pipeline that have a `Catalog` but not a full `SourceTree`.
+///
+/// Currently includes:
+/// - **`force-rls-without-policies`** — fires when a table has FORCE ROW LEVEL
+///   SECURITY but no policies defined.
+pub fn check_plan_time_catalog(source: &Catalog) -> Vec<Finding> {
+    rules::force_rls_without_policies::check(source)
+}
+
 /// Like [`check_universal`] but also runs cluster-aware source-tree lints.
 ///
 /// `cluster_role_names`: the set of role names declared in the linked cluster

@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE POLICY — FOR INSERT WITH CHECK clause only"
+authoring = "objects"
+spec_refs = ["objects.policy.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

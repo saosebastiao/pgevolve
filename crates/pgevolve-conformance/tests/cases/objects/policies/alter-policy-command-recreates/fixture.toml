@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER POLICY — command-kind change requires DROP + CREATE"
+authoring = "objects"
+spec_refs = ["objects.policy.alter"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 2

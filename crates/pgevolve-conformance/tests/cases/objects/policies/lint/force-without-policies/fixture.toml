@@ -1,0 +1,14 @@
+[meta]
+title     = "FORCE RLS without policies fires force-rls-without-policies warning"
+authoring = "objects"
+spec_refs = ["lint.force-rls-without-policies"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 2
+
+[expect.advisory]
+rule_ids = ["force-rls-without-policies"]

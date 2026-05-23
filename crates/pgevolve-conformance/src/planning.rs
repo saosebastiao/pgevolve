@@ -11,7 +11,7 @@ use pgevolve_core::catalog::DriftReport;
 use pgevolve_core::diff::{ChangeSet, diff};
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::lint::Finding;
-use pgevolve_core::lint::universal::check_changeset;
+use pgevolve_core::lint::universal::{check_changeset, check_plan_time_catalog};
 use pgevolve_core::parse::{ParseError, parse_directory};
 use pgevolve_core::plan::{
     Plan, PlanError, PlanIoError, PlannerPolicy, Strategy, group_steps, order, rewrite_with_source,
@@ -67,16 +67,19 @@ pub fn compute_changes(
     Ok((target, source, changes))
 }
 
-/// Run the full pipeline. Returns the resulting `Plan`, the rendered
-/// `plan.sql` for downstream assertions (step count, rewrites, golden
-/// compare), and any advisory findings from `check_changeset`.
+/// Run the full pipeline: diff → lint → rewrite → plan → SQL.
+///
+/// Returns the resulting `Plan`, the rendered `plan.sql` for downstream
+/// assertions (step count, rewrites, golden compare), and any advisory
+/// findings from `check_changeset` and `check_plan_time_catalog`.
 pub fn render_plan(
     before_sql: &str,
     after_sql: &str,
     strategy: Strategy,
 ) -> Result<(Plan, String, Vec<Finding>), PipelineError> {
     let (target, source, changes) = compute_changes(before_sql, after_sql)?;
-    let advisory_findings = check_changeset(&changes);
+    let mut advisory_findings = check_changeset(&changes);
+    advisory_findings.extend(check_plan_time_catalog(&source));
     let policy = PlannerPolicy {
         strategy,
         ..PlannerPolicy::default()

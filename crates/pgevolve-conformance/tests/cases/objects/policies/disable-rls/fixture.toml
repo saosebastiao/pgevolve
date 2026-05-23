@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER TABLE DISABLE ROW LEVEL SECURITY"
+authoring = "objects"
+spec_refs = ["objects.policy.rls"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

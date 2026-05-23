@@ -1,0 +1,11 @@
+[meta]
+title     = "DROP POLICY — removed from source triggers DROP POLICY step"
+authoring = "objects"
+spec_refs = ["objects.policy.drop"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1
