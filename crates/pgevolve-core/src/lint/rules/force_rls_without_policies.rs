@@ -52,6 +52,7 @@ mod tests {
             rls_enabled: rls_forced, // in real PG, FORCE without ENABLE is permitted; the lint checks the FORCE flag independently
             rls_forced,
             policies,
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         }
     }
 

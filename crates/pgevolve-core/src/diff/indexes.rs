@@ -105,6 +105,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         }
     }
 

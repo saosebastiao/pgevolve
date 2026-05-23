@@ -288,6 +288,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let tree = empty_tree(c);
         let findings = check_universal(
@@ -324,6 +325,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         // View with the same qname as the table.
         c.views.push(View {
@@ -379,6 +381,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         // MV with the same qname as the table.
         c.materialized_views.push(MaterializedView {
@@ -390,6 +393,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         });
         let tree = empty_tree(c);
         let findings = check_universal(
@@ -427,6 +431,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.views.push(View {
             qname: qn("app", "active_users"),
@@ -449,6 +454,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         });
         let tree = empty_tree(c);
         let findings = check_universal(
@@ -488,6 +494,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         });
         // Non-unique index on the MV — should still trigger the warning.
         c.indexes.push(Index {
@@ -507,6 +514,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         });
         let tree = empty_tree(c);
         let findings = check_universal(&tree, &ManagedConfig::default());
@@ -544,6 +552,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         });
         // Unique index on the MV — rule must NOT fire.
         c.indexes.push(Index {
@@ -563,6 +572,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         });
         let tree = empty_tree(c);
         let findings = check_universal(&tree, &ManagedConfig::default());
@@ -593,6 +603,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let tree = empty_tree(c);
         let findings = check_universal(&tree, &ManagedConfig::default());
@@ -795,6 +806,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         // An enum type that collides with the table.
         c.types.push(UserType {
@@ -844,6 +856,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.types.push(UserType {
             qname: qn("app", "user_status"),
@@ -1671,6 +1684,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.functions.push(make_function_bare("app", "audit_fn"));
         c.triggers.push(make_trigger(
@@ -1703,6 +1717,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         });
         let tree = empty_tree(c);
         let findings = check_universal(&tree, &ManagedConfig::default());
@@ -1770,6 +1785,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.triggers.push(make_trigger(
             "app",
@@ -1856,6 +1872,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         });
         c.functions.push(make_function_bare("app", "audit_fn"));
         c.triggers.push(make_trigger(
@@ -1910,6 +1927,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         // Child partition referencing the parent.
@@ -1928,6 +1946,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let tree = empty_tree(c);
@@ -1965,6 +1984,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let tree = empty_tree(c);
@@ -2005,6 +2025,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let tree = empty_tree(c);

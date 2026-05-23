@@ -255,6 +255,7 @@ mod tests {
                 using: None,
                 with_check: None,
             }],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         };
         cat.tables.push(t);
         let cluster_roles = cluster_with(&["readers"]);

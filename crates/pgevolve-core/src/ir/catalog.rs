@@ -220,6 +220,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         }
     }
 
@@ -271,6 +272,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.tables.push(table_users());
         let canonical = c.canonicalize().unwrap();

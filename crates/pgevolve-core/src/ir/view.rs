@@ -111,6 +111,8 @@ pub struct MaterializedView {
     pub owner: Option<Identifier>,
     /// Grants on this object. Empty = no grants. Canonicalized.
     pub grants: Vec<crate::ir::grant::Grant>,
+    /// Storage parameters. Same key set as Table.
+    pub storage: crate::ir::reloptions::MaterializedViewStorageOptions,
 }
 
 impl Diff for View {
@@ -230,6 +232,11 @@ impl Diff for MaterializedView {
             &format!("{:?}", self.grants),
             &format!("{:?}", other.grants),
         ));
+        out.extend(diff_field(
+            "storage",
+            &format!("{:?}", self.storage),
+            &format!("{:?}", other.storage),
+        ));
 
         // Column diff: pair by name.
         let lhs: BTreeMap<_, _> = self.columns.iter().map(|c| (c.name.as_str(), c)).collect();
@@ -338,6 +345,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         }
     }
 
@@ -382,6 +390,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         };
         let json = serde_json::to_string(&mv).expect("serialization must succeed");
         let roundtripped: MaterializedView =
@@ -492,6 +501,22 @@ mod tests {
                 .diff(&b)
                 .iter()
                 .any(|x| x.path == "grants")
+        );
+    }
+
+    #[test]
+    fn materialized_view_storage_change_diffs() {
+        use crate::ir::eq::Diff;
+        let mut b = simple_mv("app", "my_mv");
+        b.storage = crate::ir::reloptions::MaterializedViewStorageOptions {
+            fillfactor: Some(80),
+            ..Default::default()
+        };
+        assert!(
+            simple_mv("app", "my_mv")
+                .diff(&b)
+                .iter()
+                .any(|x| x.path == "storage")
         );
     }
 }

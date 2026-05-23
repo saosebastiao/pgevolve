@@ -177,6 +177,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let rendered = render_catalog(&cat);
         let schema_pos = rendered.find("CREATE SCHEMA").unwrap();
@@ -220,6 +221,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         cat.tables.push(Table {
             qname: qn("app", "users"),
@@ -281,6 +283,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let rendered = render_catalog(&cat);
@@ -332,6 +335,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -350,6 +354,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         });
 
         let rendered = render_catalog(&cat);
@@ -398,6 +403,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let rendered = render_catalog(&cat);
@@ -455,6 +461,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -473,6 +480,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         });
 
         let rendered = render_catalog(&cat);
@@ -539,6 +547,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         });
 
         let rendered = render_catalog(&cat);

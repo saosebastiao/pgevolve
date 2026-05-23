@@ -747,6 +747,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         }
     }
 

@@ -201,6 +201,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c
     }
@@ -228,6 +229,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -268,6 +270,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -286,6 +289,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         });
         c.sequences.push(Sequence {
             qname: qn("app", "global_counter"),

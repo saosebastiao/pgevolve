@@ -302,6 +302,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.sequences.push(Sequence {
             qname: qn("app", "seq1"),

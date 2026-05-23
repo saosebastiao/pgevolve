@@ -36,6 +36,9 @@ pub struct Table {
     pub rls_forced: bool,
     /// Policies attached to this table. Canonicalized in `ir::canon::policies`.
     pub policies: Vec<crate::ir::policy::Policy>,
+    /// Storage parameters (`WITH (fillfactor = …, autovacuum_* = …, …)`).
+    /// Default is the empty/no-overrides state.
+    pub storage: crate::ir::reloptions::TableStorageOptions,
 }
 
 impl Diff for Table {
@@ -82,70 +85,88 @@ impl Diff for Table {
             &format!("{:?}", self.policies),
             &format!("{:?}", other.policies),
         ));
-
-        // Column diff: pair by name, then check positions.
-        let lhs: BTreeMap<_, _> = self.columns.iter().map(|c| (c.name.as_str(), c)).collect();
-        let rhs: BTreeMap<_, _> = other.columns.iter().map(|c| (c.name.as_str(), c)).collect();
-        for (name, l) in &lhs {
-            match rhs.get(name) {
-                None => out.push(Difference::new(
-                    format!("columns.{name}"),
-                    "present",
-                    "removed",
-                )),
-                Some(r) => {
-                    out.extend(prefix_diffs(&format!("columns.{name}"), l.diff(r)));
-                }
-            }
-        }
-        for name in rhs.keys() {
-            if !lhs.contains_key(name) {
-                out.push(Difference::new(
-                    format!("columns.{name}"),
-                    "missing",
-                    "added",
-                ));
-            }
-        }
-
-        // Position drift: same set of names, different ordering.
-        let lhs_order: Vec<&str> = self.columns.iter().map(|c| c.name.as_str()).collect();
-        let rhs_order: Vec<&str> = other.columns.iter().map(|c| c.name.as_str()).collect();
-        if lhs_order != rhs_order {
-            out.push(Difference::new(
-                "columns.<order>",
-                lhs_order.join(","),
-                rhs_order.join(","),
-            ));
-        }
-
-        // Constraint diff: pair by qname.
-        let lhs_cs: BTreeMap<_, _> = self.constraints.iter().map(|c| (&c.qname, c)).collect();
-        let rhs_cs: BTreeMap<_, _> = other.constraints.iter().map(|c| (&c.qname, c)).collect();
-        for (qn, l) in &lhs_cs {
-            match rhs_cs.get(qn) {
-                None => out.push(Difference::new(
-                    format!("constraints.{qn}"),
-                    "present",
-                    "removed",
-                )),
-                Some(r) => {
-                    out.extend(prefix_diffs(&format!("constraints.{qn}"), l.diff(r)));
-                }
-            }
-        }
-        for qn in rhs_cs.keys() {
-            if !lhs_cs.contains_key(qn) {
-                out.push(Difference::new(
-                    format!("constraints.{qn}"),
-                    "missing",
-                    "added",
-                ));
-            }
-        }
-
+        out.extend(diff_field(
+            "storage",
+            &format!("{:?}", self.storage),
+            &format!("{:?}", other.storage),
+        ));
+        out.extend(diff_columns(&self.columns, &other.columns));
+        out.extend(diff_constraints(&self.constraints, &other.constraints));
         out
     }
+}
+
+/// Diff two column slices: add/remove/change by name, then order drift.
+fn diff_columns(
+    lhs_cols: &[crate::ir::column::Column],
+    rhs_cols: &[crate::ir::column::Column],
+) -> Vec<Difference> {
+    let mut out = Vec::new();
+    let lhs: BTreeMap<_, _> = lhs_cols.iter().map(|c| (c.name.as_str(), c)).collect();
+    let rhs: BTreeMap<_, _> = rhs_cols.iter().map(|c| (c.name.as_str(), c)).collect();
+    for (name, l) in &lhs {
+        match rhs.get(name) {
+            None => out.push(Difference::new(
+                format!("columns.{name}"),
+                "present",
+                "removed",
+            )),
+            Some(r) => {
+                out.extend(prefix_diffs(&format!("columns.{name}"), l.diff(r)));
+            }
+        }
+    }
+    for name in rhs.keys() {
+        if !lhs.contains_key(name) {
+            out.push(Difference::new(
+                format!("columns.{name}"),
+                "missing",
+                "added",
+            ));
+        }
+    }
+    let lhs_order: Vec<&str> = lhs_cols.iter().map(|c| c.name.as_str()).collect();
+    let rhs_order: Vec<&str> = rhs_cols.iter().map(|c| c.name.as_str()).collect();
+    if lhs_order != rhs_order {
+        out.push(Difference::new(
+            "columns.<order>",
+            lhs_order.join(","),
+            rhs_order.join(","),
+        ));
+    }
+    out
+}
+
+/// Diff two constraint slices: add/remove/change by qname.
+fn diff_constraints(
+    lhs_cs_slice: &[crate::ir::constraint::Constraint],
+    rhs_cs_slice: &[crate::ir::constraint::Constraint],
+) -> Vec<Difference> {
+    let mut out = Vec::new();
+    let lhs_cs: BTreeMap<_, _> = lhs_cs_slice.iter().map(|c| (&c.qname, c)).collect();
+    let rhs_cs: BTreeMap<_, _> = rhs_cs_slice.iter().map(|c| (&c.qname, c)).collect();
+    for (qn, l) in &lhs_cs {
+        match rhs_cs.get(qn) {
+            None => out.push(Difference::new(
+                format!("constraints.{qn}"),
+                "present",
+                "removed",
+            )),
+            Some(r) => {
+                out.extend(prefix_diffs(&format!("constraints.{qn}"), l.diff(r)));
+            }
+        }
+    }
+    for qn in rhs_cs.keys() {
+        if !lhs_cs.contains_key(qn) {
+            out.push(Difference::new(
+                format!("constraints.{qn}"),
+                "missing",
+                "added",
+            ));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -206,6 +227,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         }
     }
 
@@ -301,5 +323,15 @@ mod tests {
             with_check: None,
         });
         assert!(base().diff(&b).iter().any(|x| x.path == "policies"));
+    }
+
+    #[test]
+    fn storage_change_diffs() {
+        let mut b = base();
+        b.storage = crate::ir::reloptions::TableStorageOptions {
+            fillfactor: Some(80),
+            ..Default::default()
+        };
+        assert!(base().diff(&b).iter().any(|x| x.path == "storage"));
     }
 }

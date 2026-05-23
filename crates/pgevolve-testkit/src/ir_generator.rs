@@ -311,6 +311,7 @@ fn arbitrary_table(
                     rls_enabled,
                     rls_forced,
                     policies,
+                    storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
                 }
             },
         )
@@ -800,6 +801,7 @@ fn arbitrary_indexes_for_table(
                 predicate: None,
                 tablespace: None,
                 comment: None,
+                storage: pgevolve_core::ir::reloptions::IndexStorageOptions::default(),
             });
         }
         out

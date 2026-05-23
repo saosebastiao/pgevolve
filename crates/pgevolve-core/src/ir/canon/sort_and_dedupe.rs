@@ -165,6 +165,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         cat.tables.push(Table {
             qname: qn("app", "users"),
@@ -178,6 +179,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let err = run(&mut cat).expect_err("duplicate must error");
         assert!(err.to_string().contains("duplicate table"));

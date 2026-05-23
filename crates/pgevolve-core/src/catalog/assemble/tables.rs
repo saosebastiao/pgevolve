@@ -148,6 +148,7 @@ pub(super) fn build_tables(
                 rls_enabled,
                 rls_forced,
                 policies: vec![], // populated by attach_policies after tables build
+                storage: crate::ir::reloptions::TableStorageOptions::default(),
             },
         );
     }

@@ -53,6 +53,7 @@ pub(crate) fn build_materialized_view(
         raw_body,
         owner: None,
         grants: vec![],
+        storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
     })
 }
 

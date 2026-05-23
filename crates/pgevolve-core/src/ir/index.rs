@@ -62,6 +62,10 @@ pub struct Index {
     /// Optional comment.
     #[diff(via_debug)]
     pub comment: Option<String>,
+    /// Storage parameters (`WITH (fillfactor = …, fastupdate = …, …)`).
+    /// Valid keys depend on `method`; parser enforces per-AM ranges.
+    #[diff(via_debug)]
+    pub storage: crate::ir::reloptions::IndexStorageOptions,
 }
 
 /// One indexed column or expression.
@@ -162,6 +166,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         }
     }
 
@@ -212,6 +217,16 @@ mod tests {
     }
 
     #[test]
+    fn storage_change_diffs() {
+        let mut b = base();
+        b.storage = crate::ir::reloptions::IndexStorageOptions {
+            fillfactor: Some(70),
+            ..Default::default()
+        };
+        assert!(base().diff(&b).iter().any(|x| x.path == "storage"));
+    }
+
+    #[test]
     fn index_can_target_a_materialized_view() {
         let mv_idx = Index {
             qname: qn("app", "mv_email_idx"),
@@ -224,6 +239,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         };
         assert!(mv_idx.on.is_mv());
         assert_eq!(mv_idx.on.qname().to_string(), "app.users_mv");

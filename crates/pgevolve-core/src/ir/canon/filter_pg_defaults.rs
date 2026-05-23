@@ -234,6 +234,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, None);
@@ -266,6 +267,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, Some(explicit));

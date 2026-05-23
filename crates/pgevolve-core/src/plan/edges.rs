@@ -443,6 +443,21 @@ mod tests {
         }
     }
 
+    fn col_text_notnull(name: &str) -> Column {
+        Column {
+            name: id(name),
+            ty: ColumnType::Text,
+            nullable: false,
+            default: None,
+            identity: None,
+            generated: None,
+            collation: None,
+            storage: None,
+            compression: None,
+            comment: None,
+        }
+    }
+
     fn pk(name: &str, cols: &[&str]) -> Constraint {
         Constraint {
             qname: qn("app", name),
@@ -497,6 +512,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -515,6 +531,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         });
         c.sequences.push(Sequence {
             qname: qn("app", "seq1"),
@@ -552,6 +569,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -576,6 +594,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -594,6 +613,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -618,6 +638,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -645,6 +666,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let g = build_create_graph(&c);
         let fk_node = NodeId::Constraint {
@@ -697,6 +719,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -721,6 +744,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.sequences.push(Sequence {
             qname: qn("app", "users_id_seq"),
@@ -762,6 +786,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let g = build_create_graph(&c);
         let pk_node = NodeId::Constraint {
@@ -787,6 +812,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         // Same edges; equality is structural via topological output.
         let cg = build_create_graph(&c);
@@ -825,6 +851,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         c.tables.push(Table {
             qname: qn("app", "b"),
@@ -852,6 +879,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let g = build_create_graph(&c);
         let err = g.topological_sort().unwrap_err();
@@ -893,6 +921,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let g = build_create_graph(&c);
         assert!(g.topological_sort().is_ok());
@@ -907,32 +936,7 @@ mod tests {
         // Parent table with PARTITION BY LIST.
         let parent = Table {
             qname: qn("app", "parent"),
-            columns: vec![
-                Column {
-                    name: id("id"),
-                    ty: ColumnType::BigInt,
-                    nullable: false,
-                    default: None,
-                    identity: None,
-                    generated: None,
-                    collation: None,
-                    storage: None,
-                    compression: None,
-                    comment: None,
-                },
-                Column {
-                    name: id("status"),
-                    ty: ColumnType::Text,
-                    nullable: false,
-                    default: None,
-                    identity: None,
-                    generated: None,
-                    collation: None,
-                    storage: None,
-                    compression: None,
-                    comment: None,
-                },
-            ],
+            columns: vec![col_id_bigint(), col_text_notnull("status")],
             constraints: vec![pk("parent_pkey", &["id"])],
             partition_by: Some(PartitionBy {
                 strategy: crate::ir::partition::PartitionStrategy::List,
@@ -949,38 +953,14 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         };
         c.tables.push(parent);
 
         // Child partition table.
         let child = Table {
             qname: qn("app", "child"),
-            columns: vec![
-                Column {
-                    name: id("id"),
-                    ty: ColumnType::BigInt,
-                    nullable: false,
-                    default: None,
-                    identity: None,
-                    generated: None,
-                    collation: None,
-                    storage: None,
-                    compression: None,
-                    comment: None,
-                },
-                Column {
-                    name: id("status"),
-                    ty: ColumnType::Text,
-                    nullable: false,
-                    default: None,
-                    identity: None,
-                    generated: None,
-                    collation: None,
-                    storage: None,
-                    compression: None,
-                    comment: None,
-                },
-            ],
+            columns: vec![col_id_bigint(), col_text_notnull("status")],
             constraints: vec![],
             partition_by: None,
             partition_of: Some(PartitionOf {
@@ -993,6 +973,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         };
         c.tables.push(child);
 
@@ -1095,6 +1076,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let g = build_create_graph(&c);
         assert!(

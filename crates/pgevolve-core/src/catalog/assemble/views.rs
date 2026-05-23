@@ -165,6 +165,7 @@ pub(super) fn build_views_and_mvs(
                     raw_body: String::new(),
                     owner,
                     grants,
+                    storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
                 });
             }
             other => {

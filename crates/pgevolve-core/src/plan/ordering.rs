@@ -645,6 +645,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         }
     }
 
@@ -703,6 +704,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         source
             .indexes
@@ -756,6 +758,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
@@ -775,6 +778,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let mut cs = ChangeSet::new();
@@ -833,6 +837,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         source.tables.push(Table {
             qname: qn("app", "b"),
@@ -852,6 +857,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let mut cs = ChangeSet::new();
@@ -910,6 +916,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         target
             .indexes
@@ -962,6 +969,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let mut cs = ChangeSet::new();
@@ -996,6 +1004,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
@@ -1009,6 +1018,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let mk_cs = |reversed: bool| {
@@ -1051,6 +1061,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         source
             .indexes
@@ -1122,6 +1133,7 @@ mod tests {
                 rls_enabled: false,
                 rls_forced: false,
                 policies: vec![],
+                storage: crate::ir::reloptions::TableStorageOptions::default(),
             });
         }
         // Add FKs forming a cycle: a -> b, b -> c, c -> a.
@@ -1172,6 +1184,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         target.tables.push(Table {
             qname: QualifiedName::new(id("b"), id("t2")),
@@ -1185,6 +1198,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let mut cs = ChangeSet::new();
@@ -1262,6 +1276,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         target.indexes.push(Index {
             qname: qn("app", "users_deleted_at_idx"),
@@ -1280,6 +1295,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         });
 
         let mut source = Catalog::empty();
@@ -1296,6 +1312,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let mut cs = ChangeSet::new();
@@ -1355,6 +1372,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         // Index on `email`, but the column being dropped is `unused`.
         target.indexes.push(Index {
@@ -1374,6 +1392,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         });
 
         let mut source = Catalog::empty();
@@ -1393,6 +1412,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         // Source still has the email index, but it's being dropped from the
         // source for an unrelated reason (simulate user removing it).
@@ -1453,6 +1473,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         target.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -1471,6 +1492,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         });
 
         let mut source = Catalog::empty();
@@ -1490,6 +1512,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let mut cs = ChangeSet::new();
@@ -1668,6 +1691,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
 
         let mut cs = ChangeSet::new();

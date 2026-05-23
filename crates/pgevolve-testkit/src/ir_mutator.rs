@@ -205,6 +205,7 @@ fn add_index(c: &mut Catalog, seed: usize) {
         predicate: None,
         tablespace: None,
         comment: None,
+        storage: pgevolve_core::ir::reloptions::IndexStorageOptions::default(),
     });
 }
 
@@ -259,6 +260,7 @@ fn add_table(c: &mut Catalog, seed: usize) {
         rls_enabled: false,
         rls_forced: false,
         policies: vec![],
+        storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
     });
 }
 
@@ -501,6 +503,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
         };
         let mut catalog = Catalog {
             schemas: vec![Schema {

@@ -72,6 +72,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let mut locs = HashMap::new();
         locs.insert(
@@ -97,6 +98,7 @@ mod tests {
             rls_enabled: false,
             rls_forced: false,
             policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
         });
         let mut locs = HashMap::new();
         locs.insert(

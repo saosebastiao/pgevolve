@@ -586,6 +586,7 @@ mod tests {
             predicate: None,
             tablespace: None,
             comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
         }
     }
 
@@ -599,6 +600,7 @@ mod tests {
             raw_body: String::new(),
             owner: None,
             grants: vec![],
+            storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
         }
     }
 

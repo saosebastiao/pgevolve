@@ -82,6 +82,7 @@ pub fn build_index(
         predicate,
         tablespace,
         comment: None,
+        storage: crate::ir::reloptions::IndexStorageOptions::default(),
     })
 }
 
