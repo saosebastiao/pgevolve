@@ -75,6 +75,7 @@ pub fn parse_directory_with_locations(
     let mut pending_column_attrs: Vec<builder::alter_table_stmt::PendingColumnAttr> = Vec::new();
     let mut pending_owners: Vec<builder::alter_table_stmt::PendingOwner> = Vec::new();
     let mut pending_rls_toggles: Vec<builder::alter_table_stmt::PendingRlsToggle> = Vec::new();
+    let mut pending_rel_options: Vec<builder::alter_table_stmt::PendingRelOptions> = Vec::new();
     let mut deferred_comments: Vec<(
         pg_query::protobuf::CommentStmt,
         SourceLocation,
@@ -95,6 +96,7 @@ pub fn parse_directory_with_locations(
             &mut pending_column_attrs,
             &mut pending_owners,
             &mut pending_rls_toggles,
+            &mut pending_rel_options,
             &mut deferred_comments,
         )?;
     }
@@ -115,6 +117,7 @@ pub fn parse_directory_with_locations(
     apply_pending_column_attrs(&mut catalog, pending_column_attrs)?;
     apply_pending_owners(&mut catalog, pending_owners)?;
     apply_pending_rls_toggles(&mut catalog, pending_rls_toggles)?;
+    apply_pending_rel_options(&mut catalog, pending_rel_options)?;
 
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
@@ -200,6 +203,18 @@ fn apply_pending_column_attrs(
     Ok(())
 }
 
+/// Apply accumulated `ALTER TABLE/MATERIALIZED VIEW ... SET (...)` reloption
+/// updates to the catalog.
+///
+/// Called after all tables and materialized views are built.
+fn apply_pending_rel_options(
+    catalog: &mut Catalog,
+    pending: Vec<builder::alter_table_stmt::PendingRelOptions>,
+) -> Result<(), ParseError> {
+    let loc = SourceLocation::new(PathBuf::new(), 0, 0);
+    builder::alter_table_stmt::apply_pending_rel_options(catalog, pending, &loc)
+}
+
 /// Apply accumulated RLS mode toggles from ALTER TABLE statements.
 ///
 /// Called after all tables are built so that the tables exist in the catalog.
@@ -235,6 +250,7 @@ fn process_file(
     pending_column_attrs: &mut Vec<builder::alter_table_stmt::PendingColumnAttr>,
     pending_owners: &mut Vec<builder::alter_table_stmt::PendingOwner>,
     pending_rls_toggles: &mut Vec<builder::alter_table_stmt::PendingRlsToggle>,
+    pending_rel_options: &mut Vec<builder::alter_table_stmt::PendingRelOptions>,
     deferred_comments: &mut Vec<(
         pg_query::protobuf::CommentStmt,
         SourceLocation,
@@ -333,6 +349,7 @@ fn process_file(
                 pending_column_attrs.extend(alter_out.pending_column_attrs);
                 pending_owners.extend(alter_out.pending_owners);
                 pending_rls_toggles.extend(alter_out.pending_rls_toggles);
+                pending_rel_options.extend(alter_out.pending_rel_options);
             }
             Statement::Comment(s) => {
                 deferred_comments.push((s, location, directives.schema.clone()));

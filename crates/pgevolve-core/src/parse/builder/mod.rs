@@ -25,6 +25,7 @@ pub mod index_stmt;
 pub mod owner_stmt;
 pub mod plpgsql;
 pub mod policy_stmt;
+pub mod reloptions;
 pub mod shared;
 
 use std::collections::HashMap;

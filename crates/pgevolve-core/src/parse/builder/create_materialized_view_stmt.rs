@@ -44,6 +44,9 @@ pub(crate) fn build_materialized_view(
     // body_canonical and body_dependencies.
     let raw_body = extract_query_body(stmt.query.as_deref(), location)?;
 
+    // MVs share the same reloption key set as tables.
+    let storage = crate::parse::builder::reloptions::decode_table_options(&into.options, location)?;
+
     Ok(MaterializedView {
         qname,
         columns,
@@ -53,7 +56,7 @@ pub(crate) fn build_materialized_view(
         raw_body,
         owner: None,
         grants: vec![],
-        storage: crate::ir::reloptions::MaterializedViewStorageOptions::default(),
+        storage,
     })
 }
 

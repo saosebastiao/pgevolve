@@ -71,6 +71,12 @@ pub fn build_index(
         Some(shared::ident(&stmt.table_space, location)?)
     };
 
+    let storage = crate::parse::builder::reloptions::decode_index_options(
+        &stmt.options,
+        &stmt.access_method,
+        location,
+    )?;
+
     Ok(Index {
         qname,
         on: IndexParent::Table(table),
@@ -82,7 +88,7 @@ pub fn build_index(
         predicate,
         tablespace,
         comment: None,
-        storage: crate::ir::reloptions::IndexStorageOptions::default(),
+        storage,
     })
 }
 

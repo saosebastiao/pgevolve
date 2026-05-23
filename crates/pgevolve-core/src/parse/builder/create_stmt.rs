@@ -27,6 +27,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 use crate::parse::normalize_expr;
 
 /// Build a [`Table`] from a `CREATE TABLE` AST.
+#[allow(clippy::too_many_lines)]
 pub fn build_table(
     create: &CreateStmt,
     default_schema: Option<&Identifier>,
@@ -126,6 +127,9 @@ pub fn build_table(
         })
         .transpose()?;
 
+    let storage =
+        crate::parse::builder::reloptions::decode_table_options(&create.options, location)?;
+
     Ok(Table {
         qname,
         columns,
@@ -138,7 +142,7 @@ pub fn build_table(
         rls_enabled: false,
         rls_forced: false,
         policies: vec![],
-        storage: crate::ir::reloptions::TableStorageOptions::default(),
+        storage,
     })
 }
 

@@ -25,6 +25,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::ir::column::{Compression, StorageKind};
 use crate::ir::constraint::Constraint;
+use crate::ir::reloptions::TableStorageOptions;
 use crate::parse::builder::create_stmt;
 use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
@@ -80,6 +81,16 @@ pub struct PendingRlsToggle {
     pub subtype: AlterTableType,
 }
 
+/// A `SET (...)` reloptions update from `ALTER TABLE / MATERIALIZED VIEW ... SET
+/// (key = value, ...)`, pending merge into the target relation's `storage` field.
+#[derive(Debug, Clone)]
+pub struct PendingRelOptions {
+    /// Relation whose storage options should be updated.
+    pub target: QualifiedName,
+    /// The decoded options to merge.
+    pub options: TableStorageOptions,
+}
+
 /// The combined output of processing one `ALTER TABLE` statement.
 #[derive(Debug, Default)]
 pub struct AlterTableOutput {
@@ -91,6 +102,8 @@ pub struct AlterTableOutput {
     pub pending_owners: Vec<PendingOwner>,
     /// RLS mode toggles (ENABLE/DISABLE/FORCE/NO FORCE ROW LEVEL SECURITY).
     pub pending_rls_toggles: Vec<PendingRlsToggle>,
+    /// Reloption SET (...) updates to apply after all tables/MVs are parsed.
+    pub pending_rel_options: Vec<PendingRelOptions>,
 }
 
 /// Process an `ALTER TABLE` statement.
@@ -154,6 +167,18 @@ fn process_cmd(
             out.pending_rls_toggles.push(PendingRlsToggle {
                 target: target.clone(),
                 subtype,
+            });
+        }
+        AlterTableType::AtSetRelOptions => {
+            let pending = process_set_rel_options_cmd(cmd, target, location)?;
+            out.pending_rel_options.push(pending);
+        }
+        AlterTableType::AtResetRelOptions | AlterTableType::AtReplaceRelOptions => {
+            return Err(ParseError::Structural {
+                location: location.clone(),
+                message: "ALTER TABLE ... RESET (...) in source is not supported — \
+                          clear options out-of-band, then remove from source"
+                    .into(),
             });
         }
         _ => return Err(unsupported_alter(location)),
@@ -281,6 +306,135 @@ fn process_change_owner_cmd(
     })
 }
 
+fn process_set_rel_options_cmd(
+    cmd: &AlterTableCmd,
+    target: &QualifiedName,
+    location: &SourceLocation,
+) -> Result<PendingRelOptions, ParseError> {
+    let items = crate::parse::builder::reloptions::extract_def_list(cmd.def.as_deref(), location)?;
+    let options = crate::parse::builder::reloptions::decode_table_options(&items, location)?;
+    Ok(PendingRelOptions {
+        target: target.clone(),
+        options,
+    })
+}
+
+/// Apply accumulated `ALTER TABLE ... SET (...)` reloption updates to the
+/// catalog. Tables and materialized views are both searched.
+///
+/// Called from `parse/mod.rs` after all relations are built.
+pub fn apply_pending_rel_options(
+    catalog: &mut Catalog,
+    pending: Vec<PendingRelOptions>,
+    location: &SourceLocation,
+) -> Result<(), ParseError> {
+    for p in pending {
+        // Search tables first.
+        if let Some(table) = catalog.tables.iter_mut().find(|t| t.qname == p.target) {
+            merge_table_options(&mut table.storage, p.options);
+            continue;
+        }
+        // Then materialized views.
+        if let Some(mv) = catalog
+            .materialized_views
+            .iter_mut()
+            .find(|m| m.qname == p.target)
+        {
+            merge_table_options(&mut mv.storage, p.options);
+            continue;
+        }
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "ALTER ... SET (...) referenced unknown relation {}",
+                p.target
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Merge `src` options into `dst`, overwriting only the fields that are `Some`
+/// in `src`. Fields that are `None` in `src` are left unchanged in `dst`.
+fn merge_table_options(
+    dst: &mut crate::ir::reloptions::TableStorageOptions,
+    src: crate::ir::reloptions::TableStorageOptions,
+) {
+    if src.fillfactor.is_some() {
+        dst.fillfactor = src.fillfactor;
+    }
+    if src.parallel_workers.is_some() {
+        dst.parallel_workers = src.parallel_workers;
+    }
+    if src.toast_tuple_target.is_some() {
+        dst.toast_tuple_target = src.toast_tuple_target;
+    }
+    if src.user_catalog_table.is_some() {
+        dst.user_catalog_table = src.user_catalog_table;
+    }
+    if src.vacuum_truncate.is_some() {
+        dst.vacuum_truncate = src.vacuum_truncate;
+    }
+    merge_autovacuum(&mut dst.autovacuum, &src.autovacuum);
+    for (k, v) in src.extra {
+        dst.extra.insert(k, v);
+    }
+}
+
+const fn merge_autovacuum(
+    dst: &mut crate::ir::reloptions::AutovacuumOptions,
+    src: &crate::ir::reloptions::AutovacuumOptions,
+) {
+    if src.enabled.is_some() {
+        dst.enabled = src.enabled;
+    }
+    if src.vacuum_threshold.is_some() {
+        dst.vacuum_threshold = src.vacuum_threshold;
+    }
+    if src.vacuum_scale_factor.is_some() {
+        dst.vacuum_scale_factor = src.vacuum_scale_factor;
+    }
+    if src.vacuum_cost_delay.is_some() {
+        dst.vacuum_cost_delay = src.vacuum_cost_delay;
+    }
+    if src.vacuum_cost_limit.is_some() {
+        dst.vacuum_cost_limit = src.vacuum_cost_limit;
+    }
+    if src.analyze_threshold.is_some() {
+        dst.analyze_threshold = src.analyze_threshold;
+    }
+    if src.analyze_scale_factor.is_some() {
+        dst.analyze_scale_factor = src.analyze_scale_factor;
+    }
+    if src.freeze_max_age.is_some() {
+        dst.freeze_max_age = src.freeze_max_age;
+    }
+    if src.freeze_min_age.is_some() {
+        dst.freeze_min_age = src.freeze_min_age;
+    }
+    if src.freeze_table_age.is_some() {
+        dst.freeze_table_age = src.freeze_table_age;
+    }
+    if src.multixact_freeze_max_age.is_some() {
+        dst.multixact_freeze_max_age = src.multixact_freeze_max_age;
+    }
+    if src.multixact_freeze_min_age.is_some() {
+        dst.multixact_freeze_min_age = src.multixact_freeze_min_age;
+    }
+    if src.multixact_freeze_table_age.is_some() {
+        dst.multixact_freeze_table_age = src.multixact_freeze_table_age;
+    }
+    if src.vacuum_insert_threshold.is_some() {
+        dst.vacuum_insert_threshold = src.vacuum_insert_threshold;
+    }
+    if src.vacuum_insert_scale_factor.is_some() {
+        dst.vacuum_insert_scale_factor = src.vacuum_insert_scale_factor;
+    }
+    if src.log_min_duration.is_some() {
+        dst.log_min_duration = src.log_min_duration;
+    }
+}
+
 /// Apply a list of ownership assignments to the catalog.
 ///
 /// Called from `parse/mod.rs` after all relation-family objects are built.
@@ -376,9 +530,10 @@ fn build_fk_constraint(
 fn unsupported_alter(location: &SourceLocation) -> ParseError {
     ParseError::Structural {
         location: location.clone(),
-        message: "ALTER TABLE in source DDL is restricted to ADD CONSTRAINT FOREIGN KEY \
-                 and ALTER COLUMN SET STORAGE/COMPRESSION; pgevolve treats source SQL as \
-                 declarative — express the desired schema state via CREATE statements"
+        message: "ALTER TABLE in source DDL is restricted to ADD CONSTRAINT FOREIGN KEY, \
+                 ALTER COLUMN SET STORAGE/COMPRESSION, and SET (reloptions); \
+                 pgevolve treats source SQL as declarative — express the desired schema \
+                 state via CREATE statements"
             .into(),
     }
 }
@@ -613,5 +768,52 @@ mod tests {
         assert_eq!(out.pending_rls_toggles.len(), 1);
         let t = &out.pending_rls_toggles[0];
         assert!(matches!(t.subtype, AlterTableType::AtNoForceRowSecurity));
+    }
+
+    // ── SET / RESET reloption tests ───────────────────────────────────────────
+
+    #[test]
+    fn alter_table_set_reloption_fillfactor() {
+        let out = build("ALTER TABLE app.t SET (fillfactor = 80);").expect("builds");
+        assert_eq!(out.pending_rel_options.len(), 1);
+        let p = &out.pending_rel_options[0];
+        assert_eq!(p.target.to_string(), "app.t");
+        assert_eq!(p.options.fillfactor, Some(80));
+    }
+
+    #[test]
+    fn alter_table_set_reloption_autovacuum_enabled() {
+        let out = build("ALTER TABLE app.t SET (autovacuum_enabled = false);").expect("builds");
+        assert_eq!(out.pending_rel_options.len(), 1);
+        let p = &out.pending_rel_options[0];
+        assert_eq!(p.options.autovacuum.enabled, Some(false));
+    }
+
+    #[test]
+    fn alter_table_set_reloption_multiple_options() {
+        let out = build("ALTER TABLE app.t SET (fillfactor = 70, parallel_workers = 2);")
+            .expect("builds");
+        let p = &out.pending_rel_options[0];
+        assert_eq!(p.options.fillfactor, Some(70));
+        assert_eq!(p.options.parallel_workers, Some(2));
+    }
+
+    #[test]
+    fn alter_table_reset_reloption_errors() {
+        let err = build("ALTER TABLE app.t RESET (fillfactor);").unwrap_err();
+        assert!(
+            matches!(err, ParseError::Structural { ref message, .. }
+                if message.contains("RESET") || message.contains("not supported")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn alter_table_set_fillfactor_out_of_range_errors() {
+        let err = build("ALTER TABLE app.t SET (fillfactor = 5);").unwrap_err();
+        assert!(
+            matches!(err, ParseError::Structural { ref message, .. } if message.contains("out of range")),
+            "unexpected error: {err:?}"
+        );
     }
 }
