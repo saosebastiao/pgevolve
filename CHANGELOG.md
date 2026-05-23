@@ -7,6 +7,23 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-05-22
+
+### Added
+
+- **Row-level security policies** — `Table` gains `rls_enabled`, `rls_forced`, and `policies: Vec<Policy>`. Policies carry `permissive`, `command`, `roles`, `using`, `with_check`. USING / WITH CHECK reuse `NormalizedExpr` canonicalization shared with check constraints.
+- **Source parser:** `CREATE POLICY` + four `ALTER TABLE ... { ENABLE | DISABLE | FORCE | NO FORCE } ROW LEVEL SECURITY` subcommands. `ALTER POLICY` and `DROP POLICY` rejected in source (diff-driven).
+- **Differ:** 5 new Change variants (`CreatePolicy`, `DropPolicy`, `AlterPolicy`, `SetTableRowSecurity`, `SetTableForceRowSecurity`). Command-kind changes recreate (DROP + CREATE) because PG doesn't allow `ALTER POLICY` to change the command.
+- **Catalog reader:** new `pg_policies` query + `relrowsecurity` / `relforcerowsecurity` on the tables query.
+- **Two lint additions:**
+  - `grant-references-unknown-role` (existing) now also walks policy `TO` clauses.
+  - `force-rls-without-policies` (new, Warning) — fires when a table has FORCE RLS enabled but no policies defined (PG would deny all rows).
+- **Conformance:** 11 new fixtures under `objects/policies/`.
+
+### Closes
+
+v0.3 security/permissions trilogy: roles (v0.3.0) → grants (v0.3.1) → policies (v0.3.2).
+
 ## [0.3.1] — 2026-05-22
 
 ### Added

@@ -247,7 +247,7 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 |---|---|---|
 | `ROLE` (`CREATE ROLE / USER`) | ✅ Supported | Cluster-level surface (`pgevolve cluster …`). Full attribute matrix + role membership. Passwords intentionally not modeled — set out-of-band. change_kinds: [create, alter, drop, grant, revoke, comment] |
 | `GRANT` / `REVOKE` (object permissions) | ✅ Supported | Per-object `grants: Vec<Grant>` on all 8 grantable IR types (Schema, Sequence, Table, View, MV, Function, Procedure, UserType). Column-level grants on tables/views/MVs. Lenient drift policy: catalog grants to roles outside source surface as `grants-to-unmanaged-role` warning, never silently revoked. change_kinds: [grant, revoke, alter_owner, alter_default_privileges] |
-| Row-level security policies (`POLICY`) | 📋 Planned, v0.3 | Including `ENABLE ROW LEVEL SECURITY` toggle on tables. |
+| Row-level security policies (`POLICY`) | ✅ Supported | Per-table `rls_enabled` + `rls_forced` flags + embedded `policies: Vec<Policy>`. USING / WITH CHECK use NormalizedExpr canon (shared with check constraints). Command-kind changes go through DROP + CREATE. change_kinds: [create, alter, drop, set_table_row_security, set_table_force_row_security] |
 | Security barriers / leakproof flags | 🔮 Future | Less commonly used; lands alongside fine-grained policy review. |
 | `SECURITY LABEL` | ⛔ Not planned | Used primarily by SE-Linux integration; out of scope. |
 
