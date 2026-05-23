@@ -342,6 +342,13 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
+        // Stage 7 wires these into real SQL.
+        Change::SetTableStorage { .. }
+        | Change::SetIndexStorage { .. }
+        | Change::SetMaterializedViewStorage { .. } => {
+            // no-op for Stage 6; Stage 7 emits ALTER ... SET (...) statements
+        }
+
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach the rewrite phase")

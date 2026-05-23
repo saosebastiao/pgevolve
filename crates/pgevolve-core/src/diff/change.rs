@@ -248,6 +248,35 @@ pub enum Change {
         force: bool,
     },
 
+    /// Set table storage reloptions. `options` carries the sparse delta — only
+    /// the fields whose source value differs from the catalog.
+    ///
+    /// No `Reset*` variant: the lenient policy treats source `None` as "skip".
+    SetTableStorage {
+        /// Qualified name of the table.
+        qname: QualifiedName,
+        /// Sparse delta of options to apply.
+        options: crate::ir::reloptions::TableStorageOptions,
+    },
+    /// Set index storage reloptions. Sparse delta.
+    ///
+    /// No `Reset*` variant: the lenient policy treats source `None` as "skip".
+    SetIndexStorage {
+        /// Qualified name of the index.
+        qname: QualifiedName,
+        /// Sparse delta of options to apply.
+        options: crate::ir::reloptions::IndexStorageOptions,
+    },
+    /// Set materialized view storage reloptions. Sparse delta.
+    ///
+    /// No `Reset*` variant: the lenient policy treats source `None` as "skip".
+    SetMaterializedViewStorage {
+        /// Qualified name of the materialized view.
+        qname: QualifiedName,
+        /// Sparse delta of options to apply.
+        options: crate::ir::reloptions::TableStorageOptions,
+    },
+
     /// A change that cannot be performed in-place.
     ///
     /// Emitted by the differ when it detects a structural difference that has

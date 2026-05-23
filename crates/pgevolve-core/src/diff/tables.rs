@@ -302,6 +302,21 @@ pub fn diff_tables(
                 for c in policy_changes {
                     out.push(c, Destructiveness::Safe);
                 }
+
+                // ---- storage reloptions diff ----
+                let delta = crate::diff::reloptions::table_delta(
+                    &target_table.storage,
+                    &source_table.storage,
+                );
+                if !delta.is_empty() {
+                    out.push(
+                        Change::SetTableStorage {
+                            qname: (*qname).clone(),
+                            options: delta,
+                        },
+                        Destructiveness::Safe,
+                    );
+                }
             }
         }
     }

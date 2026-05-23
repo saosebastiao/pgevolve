@@ -307,6 +307,18 @@ pub fn diff_materialized_views(
         // Column comment changes.
         diff_mv_column_comments(qname, &tgt.columns, &src.columns, out);
 
+        // ---- storage reloptions diff ----
+        let delta = crate::diff::reloptions::table_delta(&tgt.storage, &src.storage);
+        if !delta.is_empty() {
+            out.push(
+                Change::SetMaterializedViewStorage {
+                    qname: (*qname).clone(),
+                    options: delta,
+                },
+                Destructiveness::Safe,
+            );
+        }
+
         // ---- owner diff ----
         if let Some(source_owner) = &src.owner
             && tgt.owner.as_ref() != Some(source_owner)

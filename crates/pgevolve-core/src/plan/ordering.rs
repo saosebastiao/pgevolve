@@ -318,6 +318,7 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             // Partition changes: alter partition membership, not the table's existence.
             // Policy + RLS changes: metadata-only, always non-destructive modifications.
             // Stage 6 will emit real SQL for the policy variants; for now they land in modifies.
+            // Storage reloption changes: ALTER TABLE/INDEX/MV SET (...) — always modifies.
             Change::Table(
                 TableChange::AttachPartition { .. } | TableChange::DetachPartition { .. },
             )
@@ -325,7 +326,10 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::DropPolicy { .. }
             | Change::AlterPolicy { .. }
             | Change::SetTableRowSecurity { .. }
-            | Change::SetTableForceRowSecurity { .. } => {
+            | Change::SetTableForceRowSecurity { .. }
+            | Change::SetTableStorage { .. }
+            | Change::SetIndexStorage { .. }
+            | Change::SetMaterializedViewStorage { .. } => {
                 modifies.push(entry);
             }
             // UnsupportedDiff: abort the plan immediately.
@@ -462,6 +466,10 @@ fn change_node(change: &Change) -> NodeId {
         | Change::AlterPolicy { table, .. } => NodeId::Table(table.clone()),
         Change::SetTableRowSecurity { qname, .. }
         | Change::SetTableForceRowSecurity { qname, .. } => NodeId::Table(qname.clone()),
+        // Storage reloption changes: scoped to the named object.
+        Change::SetTableStorage { qname, .. } => NodeId::Table(qname.clone()),
+        Change::SetIndexStorage { qname, .. } => NodeId::Index(qname.clone()),
+        Change::SetMaterializedViewStorage { qname, .. } => NodeId::Mv(qname.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")

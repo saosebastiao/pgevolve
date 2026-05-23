@@ -419,6 +419,16 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                 let verb = if *force { "force" } else { "no force" };
                 println!("      {verb} row level security on {qname}");
             }
+            // Stage 7 wires these into real display.
+            pgevolve_core::diff::change::Change::SetTableStorage { qname, .. } => {
+                println!("      set table storage reloptions {qname}");
+            }
+            pgevolve_core::diff::change::Change::SetIndexStorage { qname, .. } => {
+                println!("      set index storage reloptions {qname}");
+            }
+            pgevolve_core::diff::change::Change::SetMaterializedViewStorage { qname, .. } => {
+                println!("      set materialized view storage reloptions {qname}");
+            }
             pgevolve_core::diff::change::Change::UnsupportedDiff { reason } => {
                 println!("      unsupported diff: {reason}");
             }
@@ -605,6 +615,9 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::AlterPolicy { .. } => "AlterPolicy",
         Change::SetTableRowSecurity { .. } => "SetTableRowSecurity",
         Change::SetTableForceRowSecurity { .. } => "SetTableForceRowSecurity",
+        Change::SetTableStorage { .. } => "SetTableStorage",
+        Change::SetIndexStorage { .. } => "SetIndexStorage",
+        Change::SetMaterializedViewStorage { .. } => "SetMaterializedViewStorage",
         Change::UnsupportedDiff { .. } => "UnsupportedDiff",
     }
 }

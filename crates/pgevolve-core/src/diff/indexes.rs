@@ -49,7 +49,22 @@ pub fn diff_indexes(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
                 );
             }
             Some(source_index) => {
-                if target_index != source_index {
+                if target_index == source_index {
+                    // Indexes are structurally identical; check storage reloptions separately.
+                    let delta = crate::diff::reloptions::index_delta(
+                        &target_index.storage,
+                        &source_index.storage,
+                    );
+                    if !delta.is_empty() {
+                        out.push(
+                            Change::SetIndexStorage {
+                                qname: (*qname).clone(),
+                                options: delta,
+                            },
+                            Destructiveness::Safe,
+                        );
+                    }
+                } else {
                     out.push(
                         Change::ReplaceIndex {
                             from: (*target_index).clone(),
