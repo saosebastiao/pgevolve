@@ -209,6 +209,45 @@ pub enum Change {
         grant: Grant,
     },
 
+    /// Create a new policy on the named table.
+    CreatePolicy {
+        /// Table the policy belongs to.
+        table: QualifiedName,
+        /// The policy to create.
+        policy: crate::ir::policy::Policy,
+    },
+    /// Drop a policy from the named table.
+    DropPolicy {
+        /// Table the policy belongs to.
+        table: QualifiedName,
+        /// Name of the policy to drop.
+        name: Identifier,
+    },
+    /// Alter a policy's roles / USING / WITH CHECK.
+    ///
+    /// Note: PG rejects `ALTER POLICY` when the command kind changes — the
+    /// differ emits `DropPolicy` + `CreatePolicy` in that case instead.
+    AlterPolicy {
+        /// Table the policy belongs to.
+        table: QualifiedName,
+        /// The desired policy state.
+        policy: crate::ir::policy::Policy,
+    },
+    /// Toggle a table's `ROW LEVEL SECURITY`.
+    SetTableRowSecurity {
+        /// Qualified name of the table.
+        qname: QualifiedName,
+        /// `true` = `ENABLE ROW LEVEL SECURITY`, `false` = `DISABLE`.
+        enable: bool,
+    },
+    /// Toggle a table's `FORCE ROW LEVEL SECURITY`.
+    SetTableForceRowSecurity {
+        /// Qualified name of the table.
+        qname: QualifiedName,
+        /// `true` = `FORCE ROW LEVEL SECURITY`, `false` = `NO FORCE`.
+        force: bool,
+    },
+
     /// A change that cannot be performed in-place.
     ///
     /// Emitted by the differ when it detects a structural difference that has

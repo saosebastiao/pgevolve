@@ -295,6 +295,13 @@ pub fn diff_tables(
                         );
                     }
                 }
+
+                // ---- policy diff (RLS toggles + per-policy changes) ----
+                let mut policy_changes: Vec<Change> = Vec::new();
+                super::policies::diff_policies(target_table, source_table, &mut policy_changes);
+                for c in policy_changes {
+                    out.push(c, Destructiveness::Safe);
+                }
             }
         }
     }

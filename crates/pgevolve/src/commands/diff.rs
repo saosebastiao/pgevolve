@@ -401,6 +401,24 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     object_type, grant.privilege, grant.grantee
                 );
             }
+            // Stage 6 will wire these into proper display.
+            pgevolve_core::diff::change::Change::CreatePolicy { table, policy } => {
+                println!("      create policy {} on {table}", policy.name);
+            }
+            pgevolve_core::diff::change::Change::DropPolicy { table, name } => {
+                println!("      drop policy {name} on {table}");
+            }
+            pgevolve_core::diff::change::Change::AlterPolicy { table, policy } => {
+                println!("      alter policy {} on {table}", policy.name);
+            }
+            pgevolve_core::diff::change::Change::SetTableRowSecurity { qname, enable } => {
+                let verb = if *enable { "enable" } else { "disable" };
+                println!("      {verb} row level security on {qname}");
+            }
+            pgevolve_core::diff::change::Change::SetTableForceRowSecurity { qname, force } => {
+                let verb = if *force { "force" } else { "no force" };
+                println!("      {verb} row level security on {qname}");
+            }
             pgevolve_core::diff::change::Change::UnsupportedDiff { reason } => {
                 println!("      unsupported diff: {reason}");
             }
@@ -582,6 +600,11 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::RevokeColumnPrivilege { .. } => "RevokeColumnPrivilege",
         Change::AlterObjectOwner(_) => "AlterObjectOwner",
         Change::AlterDefaultPrivileges { .. } => "AlterDefaultPrivileges",
+        Change::CreatePolicy { .. } => "CreatePolicy",
+        Change::DropPolicy { .. } => "DropPolicy",
+        Change::AlterPolicy { .. } => "AlterPolicy",
+        Change::SetTableRowSecurity { .. } => "SetTableRowSecurity",
+        Change::SetTableForceRowSecurity { .. } => "SetTableForceRowSecurity",
         Change::UnsupportedDiff { .. } => "UnsupportedDiff",
     }
 }

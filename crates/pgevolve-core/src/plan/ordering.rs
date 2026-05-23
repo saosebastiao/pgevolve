@@ -215,6 +215,7 @@ type PartitionResult = Result<(Vec<ChangeEntry>, Vec<ChangeEntry>, Vec<ChangeEnt
 ///
 /// Returns `Err(PlanError::Internal)` immediately if any entry is a
 /// `Change::UnsupportedDiff` — the plan cannot proceed.
+#[allow(clippy::too_many_lines)] // One arm per Change variant; extraction would obscure intent.
 fn partition(changes: ChangeSet) -> PartitionResult {
     let mut creates = Vec::new();
     let mut modifies = Vec::new();
@@ -315,9 +316,16 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                 TriggerChange::CommentOn { .. } => modifies.push(entry),
             },
             // Partition changes: alter partition membership, not the table's existence.
+            // Policy + RLS changes: metadata-only, always non-destructive modifications.
+            // Stage 6 will emit real SQL for the policy variants; for now they land in modifies.
             Change::Table(
                 TableChange::AttachPartition { .. } | TableChange::DetachPartition { .. },
-            ) => {
+            )
+            | Change::CreatePolicy { .. }
+            | Change::DropPolicy { .. }
+            | Change::AlterPolicy { .. }
+            | Change::SetTableRowSecurity { .. }
+            | Change::SetTableForceRowSecurity { .. } => {
                 modifies.push(entry);
             }
             // UnsupportedDiff: abort the plan immediately.
@@ -448,6 +456,12 @@ fn change_node(change: &Change) -> NodeId {
             // keyed by the target_role name as a stable ordering anchor.
             NodeId::Schema(target_role.clone())
         }
+        // Policy + RLS changes: scoped to the owning table.
+        Change::CreatePolicy { table, .. }
+        | Change::DropPolicy { table, .. }
+        | Change::AlterPolicy { table, .. } => NodeId::Table(table.clone()),
+        Change::SetTableRowSecurity { qname, .. }
+        | Change::SetTableForceRowSecurity { qname, .. } => NodeId::Table(qname.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")

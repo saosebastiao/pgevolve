@@ -280,6 +280,15 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
+        // Stage 6 will wire these into real SQL emission.
+        Change::CreatePolicy { .. }
+        | Change::DropPolicy { .. }
+        | Change::AlterPolicy { .. }
+        | Change::SetTableRowSecurity { .. }
+        | Change::SetTableForceRowSecurity { .. } => {
+            // intentionally no-op for Stage 5 — Stage 6 implements SQL emission
+        }
+
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach the rewrite phase")

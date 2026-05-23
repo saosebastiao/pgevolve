@@ -22,6 +22,7 @@ pub mod extensions;
 pub mod grants;
 pub mod indexes;
 pub mod owner_op;
+pub mod policies;
 pub mod routines;
 pub mod schemas;
 pub mod sequence_op;
