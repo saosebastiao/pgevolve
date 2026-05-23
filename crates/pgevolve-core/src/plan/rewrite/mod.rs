@@ -23,6 +23,7 @@ pub mod fk_not_valid_validate;
 pub mod functions;
 pub mod grants;
 pub mod partitions;
+pub mod policies;
 pub mod refresh_mv_concurrently;
 pub mod set_not_null_check_pattern;
 pub mod sql;
@@ -280,13 +281,65 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        // Stage 6 will wire these into real SQL emission.
-        Change::CreatePolicy { .. }
-        | Change::DropPolicy { .. }
-        | Change::AlterPolicy { .. }
-        | Change::SetTableRowSecurity { .. }
-        | Change::SetTableForceRowSecurity { .. } => {
-            // intentionally no-op for Stage 5 — Stage 6 implements SQL emission
+        Change::CreatePolicy { table, policy } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::CreatePolicy,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![table.clone()],
+                sql: policies::create_policy(&table, &policy),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::DropPolicy { table, name } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::DropPolicy,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![table.clone()],
+                sql: policies::drop_policy(&table, &name),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterPolicy { table, policy } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterPolicy,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![table.clone()],
+                sql: policies::alter_policy(&table, &policy),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::SetTableRowSecurity { qname, enable } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::SetTableRowSecurity,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: policies::set_table_row_security(&qname, enable),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::SetTableForceRowSecurity { qname, force } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::SetTableForceRowSecurity,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: policies::set_table_force_row_security(&qname, force),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
         }
 
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.

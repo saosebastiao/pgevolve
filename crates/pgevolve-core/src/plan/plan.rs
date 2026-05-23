@@ -395,6 +395,11 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::GrantColumnPrivilege => "grant_column_privilege",
         K::RevokeColumnPrivilege => "revoke_column_privilege",
         K::AlterDefaultPrivileges => "alter_default_privileges",
+        K::CreatePolicy => "create_policy",
+        K::DropPolicy => "drop_policy",
+        K::AlterPolicy => "alter_policy",
+        K::SetTableRowSecurity => "set_table_row_security",
+        K::SetTableForceRowSecurity => "set_table_force_row_security",
     }
 }
 
@@ -477,6 +482,11 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "grant_column_privilege" => K::GrantColumnPrivilege,
         "revoke_column_privilege" => K::RevokeColumnPrivilege,
         "alter_default_privileges" => K::AlterDefaultPrivileges,
+        "create_policy" => K::CreatePolicy,
+        "drop_policy" => K::DropPolicy,
+        "alter_policy" => K::AlterPolicy,
+        "set_table_row_security" => K::SetTableRowSecurity,
+        "set_table_force_row_security" => K::SetTableForceRowSecurity,
         _ => return None,
     })
 }

@@ -204,6 +204,18 @@ pub enum StepKind {
     RevokeColumnPrivilege,
     /// `ALTER DEFAULT PRIVILEGES FOR ROLE x [IN SCHEMA y] GRANT/REVOKE priv ON … TO/FROM z`.
     AlterDefaultPrivileges,
+
+    // --- v0.3.2 row-level security policy step kinds ---
+    /// `CREATE POLICY name ON table …`.
+    CreatePolicy,
+    /// `DROP POLICY name ON table`.
+    DropPolicy,
+    /// `ALTER POLICY name ON table TO … USING (…) WITH CHECK (…)`.
+    AlterPolicy,
+    /// `ALTER TABLE qname { ENABLE | DISABLE } ROW LEVEL SECURITY`.
+    SetTableRowSecurity,
+    /// `ALTER TABLE qname { FORCE | NO FORCE } ROW LEVEL SECURITY`.
+    SetTableForceRowSecurity,
 }
 
 /// One unit of work the executor will attempt.
@@ -320,6 +332,11 @@ mod tests {
             StepKind::GrantColumnPrivilege,
             StepKind::RevokeColumnPrivilege,
             StepKind::AlterDefaultPrivileges,
+            StepKind::CreatePolicy,
+            StepKind::DropPolicy,
+            StepKind::AlterPolicy,
+            StepKind::SetTableRowSecurity,
+            StepKind::SetTableForceRowSecurity,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();
