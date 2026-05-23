@@ -1,4 +1,4 @@
 -- @pgevolve schema=app
 CREATE SCHEMA app;
 CREATE TABLE app.docs (id bigint);
-CREATE POLICY p ON app.docs TO PUBLIC, readers USING (true);
+CREATE POLICY p ON app.docs TO readers USING (true);

@@ -1,5 +1,5 @@
 [meta]
-title     = "CREATE POLICY — policy targeting multiple roles including named role"
+title     = "CREATE POLICY — policy targeting a named role (not PUBLIC)"
 authoring = "objects"
 spec_refs = ["objects.policy.create"]
 

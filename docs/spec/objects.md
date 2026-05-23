@@ -237,7 +237,7 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 
 - **`DETACH PARTITION CONCURRENTLY`** — not emitted. The non-concurrent `DETACH PARTITION` is used, which takes an `AccessExclusiveLock`. Concurrent detach is listed as ⛔ not planned for now.
 - **`FOREIGN TABLE PARTITION OF`** — foreign-table partitions are not modeled. Foreign tables are 🔮 Future.
-- **Per-partition `TABLESPACE` and storage parameters** — the partition bounds are modeled but per-partition storage overrides (tablespace, fillfactor, etc.) are not. They land when table reloptions are extended.
+- **Per-partition `TABLESPACE` and storage parameters** — partition bounds + reloptions are modeled (partitions are `Table` in IR, so they inherit table reloptions automatically). Per-partition `TABLESPACE` overrides are still 🔮 Future.
 - **Partition pruning at plan time** — pgevolve does not skip unaffected partitions when only the parent changes. All managed partitions are included in every diff. Pruning is 🔮 Future.
 - **Pre-flight partition-overlap detection** — pgevolve does not validate that declared bounds are non-overlapping before applying. Postgres enforces this at DDL time; a failed `ATTACH PARTITION` will surface as an apply error.
 
@@ -266,7 +266,9 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 |---|---|---|
 | `TABLESPACE` | 🔮 Future | The IR carries the `tablespace` attribute on tables and indexes, but pgevolve does not create / drop tablespaces — they're cluster-level admin objects outside the schema-management remit. |
 | `TABLE ... USING <access method>` | 🔮 Future | Custom table access methods (zheap, columnar, etc.). |
-| `WITH (storage_parameter = ...)` (table reloptions) | 🟡 Partial | The IR doesn't yet model `fillfactor`, autovacuum overrides, etc. Planned for v0.2. change_kinds: [alter] |
+| `WITH (storage_parameter = ...)` (table reloptions) | ✅ Supported | Typed fields for fillfactor + autovacuum_* + parallel_workers + toast_tuple_target + user_catalog_table + vacuum_truncate; `extra: BTreeMap` for unknown/extension keys. Lenient drift policy. change_kinds: [alter] |
+| Index reloptions | ✅ Supported | Per-AM validation: B-tree 50..=100 fillfactor, GiST 10..=100, SP-GiST 90..=100, BRIN/GIN no fillfactor; fastupdate (GIN), gin_pending_list_limit (GIN), buffering (GiST), deduplicate_items (B-tree), pages_per_range + autosummarize (BRIN). change_kinds: [alter] |
+| Materialized view reloptions | ✅ Supported | Same key set as tables (autovacuum_*, fillfactor, etc.). change_kinds: [alter] |
 | Toast options (`STORAGE EXTERNAL` / `EXTENDED` / `PLAIN` / `MAIN`) | ✅ Supported | Per-column TOAST storage; canon strips type-default. change_kinds: [alter] |
 | TOAST compression (`COMPRESSION pglz` / `lz4`) | ✅ Supported | Per-column codec; canon preserves `None` (cluster `default_toast_compression` GUC). change_kinds: [alter] |
 

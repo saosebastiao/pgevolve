@@ -2,7 +2,9 @@
   "schemas": [
     {
       "name": "app",
-      "comment": "Application schema"
+      "comment": "Application schema",
+      "owner": "pgevolve",
+      "grants": []
     }
   ],
   "extensions": [],
@@ -114,7 +116,38 @@
       ],
       "partition_by": null,
       "partition_of": null,
-      "comment": "Application users"
+      "comment": "Application users",
+      "owner": "pgevolve",
+      "grants": [],
+      "rls_enabled": false,
+      "rls_forced": false,
+      "policies": [],
+      "storage": {
+        "fillfactor": null,
+        "autovacuum": {
+          "enabled": null,
+          "vacuum_threshold": null,
+          "vacuum_scale_factor": null,
+          "vacuum_cost_delay": null,
+          "vacuum_cost_limit": null,
+          "analyze_threshold": null,
+          "analyze_scale_factor": null,
+          "freeze_max_age": null,
+          "freeze_min_age": null,
+          "freeze_table_age": null,
+          "multixact_freeze_max_age": null,
+          "multixact_freeze_min_age": null,
+          "multixact_freeze_table_age": null,
+          "vacuum_insert_threshold": null,
+          "vacuum_insert_scale_factor": null,
+          "log_min_duration": null
+        },
+        "parallel_workers": null,
+        "toast_tuple_target": null,
+        "user_catalog_table": null,
+        "vacuum_truncate": null,
+        "extra": {}
+      }
     }
   ],
   "indexes": [
@@ -145,7 +178,17 @@
       "nulls_not_distinct": false,
       "predicate": null,
       "tablespace": null,
-      "comment": "Lookup users by email"
+      "comment": "Lookup users by email",
+      "storage": {
+        "fillfactor": null,
+        "fastupdate": null,
+        "gin_pending_list_limit": null,
+        "buffering": null,
+        "deduplicate_items": null,
+        "pages_per_range": null,
+        "autosummarize": null,
+        "extra": {}
+      }
     }
   ],
   "sequences": [
@@ -164,7 +207,9 @@
       "cache": 1,
       "cycle": false,
       "owned_by": null,
-      "comment": "Independent ID sequence"
+      "comment": "Independent ID sequence",
+      "owner": "pgevolve",
+      "grants": []
     }
   ],
   "views": [],
@@ -172,5 +217,6 @@
   "types": [],
   "functions": [],
   "procedures": [],
-  "triggers": []
+  "triggers": [],
+  "default_privileges": []
 }

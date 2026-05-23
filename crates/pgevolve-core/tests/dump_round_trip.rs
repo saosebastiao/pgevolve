@@ -6,14 +6,16 @@
 //! 2. Render it to SQL via `render_catalog`.
 //! 3. Apply the rendered SQL to an `EphemeralPostgres`.
 //! 4. Read the catalog back from the ephemeral DB.
-//! 5. Compare with the original using `Catalog::canonicalize` + `Diff`.
+//! 5. Compare using the pgevolve-aware diff (lenient owner/grant semantics):
+//!    `diff(read_back, source)` treats source `owner = None` as "unmanaged"
+//!    and produces no change for it, matching v0.3.1+ semantics.
 //!
 //! Skipped when Docker is not available (matches the existing tier-3 pattern).
 
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use pgevolve_core::catalog::{CatalogFilter, read_catalog};
+    use pgevolve_core::catalog::{CatalogFilter, DriftReport, read_catalog};
     use pgevolve_core::identifier::{Identifier, QualifiedName};
     use pgevolve_core::ir::catalog::Catalog;
     use pgevolve_core::ir::column::Column;
@@ -235,12 +237,22 @@ mod tests {
             .canonicalize()
             .map_err(|e| anyhow::anyhow!("canonicalize read-back: {e}"))?;
 
-        // Compare using the IR diff.
+        // Compare using the pgevolve-aware diff (lenient semantics):
+        // `diff(catalog, source)` treats source `owner = None` as "unmanaged"
+        // and emits no change for it, matching v0.3.1+ owner/grant semantics.
+        // An empty changeset means the rendered + applied IR is convergent with
+        // the source — no further changes needed.
+        let changeset =
+            pgevolve_core::diff::diff(&read_canonical, &source_canonical, &DriftReport::default());
+        if changeset.is_empty() {
+            return Ok(());
+        }
+
+        // Fall back to the strict Diff trait for human-readable detail.
         let diffs = source_canonical.diff(&read_canonical);
         if diffs.is_empty() {
             return Ok(());
         }
-
         // Format diffs for a helpful assertion message.
         let diff_lines: Vec<String> = diffs
             .iter()

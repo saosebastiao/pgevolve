@@ -7,6 +7,27 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-05-23
+
+### Added
+
+- **Storage parameters / reloptions on tables, indexes, materialized views.** Typed `Option<T>` fields for the well-known keys (fillfactor, autovacuum_*, parallel_workers, fastupdate, buffering, pages_per_range, etc.) plus `extra: BTreeMap<String, String>` for extension-registered or unknown keys. Tables and MVs share the autovacuum substruct since PG documents identical key sets.
+- **Per-AM fillfactor validation** at parse time: B-tree 50..=100, GiST 10..=100, SP-GiST 90..=100, BRIN/GIN reject fillfactor.
+- **Lenient drift policy**: source `None` always means "unmanaged" — never triggers `RESET`. `unmanaged-reloption` lint surfaces catalog reloptions not in source.
+- **3 new StepKind variants**: `SetTableStorage`, `SetIndexStorage`, `SetMaterializedViewStorage`. One ALTER step per relkind per diff (batches multiple keys into one SET).
+- **`unmanaged-reloption` lint** (warning, waivable).
+- **Source parser** for `WITH (...)` on CREATE TABLE/INDEX/MATERIALIZED VIEW and `ALTER ... SET (...)`. `RESET (...)` rejected in source.
+- **Catalog reader** decodes `pg_class.reloptions::text[]` into typed structs.
+- **11 conformance fixtures.**
+
+### Known limitations
+
+- `CREATE TABLE/INDEX/MATERIALIZED VIEW … WITH (…)` against a brand-new object emits the CREATE without the inline `WITH`. Convergent on the next plan run via `ALTER … SET`. Same gap as owner/grants/policies on new objects in v0.3.x; will be closed uniformly in a follow-up.
+
+### Closes
+
+Slipped v0.2 commitment from `docs/spec/objects.md` (table reloptions row marked 🟡 Partial). Per-partition storage parameters also satisfied (partitions inherit since they're `Table` in IR).
+
 ## [0.3.2] — 2026-05-22
 
 ### Added

@@ -57,7 +57,7 @@ pub async fn apply_cluster_steps(
 /// each statement via [`apply_cluster_steps`].
 ///
 /// The `plan_dir` layout matches what the CLI will write in Stage 10:
-/// ```
+/// ```text
 /// cluster-plans/<id>/plan.sql
 /// ```
 ///
