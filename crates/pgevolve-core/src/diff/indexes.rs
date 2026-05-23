@@ -49,22 +49,17 @@ pub fn diff_indexes(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
                 );
             }
             Some(source_index) => {
-                if target_index == source_index {
-                    // Indexes are structurally identical; check storage reloptions separately.
-                    let delta = crate::diff::reloptions::index_delta(
-                        &target_index.storage,
-                        &source_index.storage,
-                    );
-                    if !delta.is_empty() {
-                        out.push(
-                            Change::SetIndexStorage {
-                                qname: (*qname).clone(),
-                                options: delta,
-                            },
-                            Destructiveness::Safe,
-                        );
-                    }
-                } else {
+                // Compute the storage delta first, then decide which change to emit
+                // based on whether the non-storage fields match.
+                let storage_delta = crate::diff::reloptions::index_delta(
+                    &target_index.storage,
+                    &source_index.storage,
+                );
+
+                if !target_index.structurally_eq(source_index) {
+                    // Structural change (columns, method, predicate, …) → DROP + CREATE.
+                    // The new `to` index already carries the desired storage options,
+                    // so no separate SET step is needed.
                     out.push(
                         Change::ReplaceIndex {
                             from: (*target_index).clone(),
@@ -76,7 +71,17 @@ pub fn diff_indexes(target: &Catalog, source: &Catalog, out: &mut ChangeSet) {
                             ),
                         },
                     );
+                } else if !storage_delta.is_empty() {
+                    // Only storage reloptions differ → emit ALTER INDEX SET (…).
+                    out.push(
+                        Change::SetIndexStorage {
+                            qname: (*qname).clone(),
+                            options: storage_delta,
+                        },
+                        Destructiveness::Safe,
+                    );
                 }
+                // else: fully equal — no-op.
             }
         }
     }
@@ -198,5 +203,78 @@ mod tests {
         let mut cs = ChangeSet::new();
         diff_indexes(&target, &source, &mut cs);
         assert!(cs.is_empty());
+    }
+
+    #[test]
+    fn storage_only_change_emits_set_not_replace() {
+        // Indexes that differ ONLY in a reloption (fillfactor) must emit
+        // SetIndexStorage, not ReplaceIndex.
+        let base = ix("ix1", vec![col("email")], true);
+        let mut target_cat = Catalog::empty();
+        target_cat.indexes.push(Index {
+            storage: crate::ir::reloptions::IndexStorageOptions {
+                fillfactor: Some(70),
+                ..Default::default()
+            },
+            ..base.clone()
+        });
+        let mut source_cat = Catalog::empty();
+        source_cat.indexes.push(Index {
+            storage: crate::ir::reloptions::IndexStorageOptions {
+                fillfactor: Some(80),
+                ..Default::default()
+            },
+            ..base
+        });
+        let mut cs = ChangeSet::new();
+        diff_indexes(&target_cat, &source_cat, &mut cs);
+        assert_eq!(cs.len(), 1, "expected exactly one change");
+        match &cs.entries[0].change {
+            Change::SetIndexStorage { options, .. } => {
+                assert_eq!(options.fillfactor, Some(80));
+            }
+            other => panic!("expected SetIndexStorage, got {other:?}"),
+        }
+        assert_eq!(
+            cs.entries[0].destructiveness,
+            Destructiveness::Safe,
+            "storage-only change should be safe"
+        );
+    }
+
+    #[test]
+    fn structural_change_emits_replace_not_set_storage() {
+        // Indexes that differ structurally (different column list) must emit
+        // ReplaceIndex, regardless of whether storage also differs.
+        let base = ix("ix1", vec![col("a")], false);
+        let mut target_cat = Catalog::empty();
+        target_cat.indexes.push(Index {
+            storage: crate::ir::reloptions::IndexStorageOptions {
+                fillfactor: Some(70),
+                ..Default::default()
+            },
+            ..base.clone()
+        });
+        let mut source_cat = Catalog::empty();
+        source_cat.indexes.push(Index {
+            columns: vec![col("a"), col("b")],
+            storage: crate::ir::reloptions::IndexStorageOptions {
+                fillfactor: Some(80),
+                ..Default::default()
+            },
+            ..base
+        });
+        let mut cs = ChangeSet::new();
+        diff_indexes(&target_cat, &source_cat, &mut cs);
+        assert_eq!(cs.len(), 1, "expected exactly one change");
+        assert!(
+            matches!(cs.entries[0].change, Change::ReplaceIndex { .. }),
+            "structural change must emit ReplaceIndex, got {:?}",
+            cs.entries[0].change
+        );
+        assert!(
+            cs.entries[0].destructiveness.requires_approval(),
+            "ReplaceIndex must require approval"
+        );
     }
 }

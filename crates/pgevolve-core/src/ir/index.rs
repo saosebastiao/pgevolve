@@ -68,6 +68,27 @@ pub struct Index {
     pub storage: crate::ir::reloptions::IndexStorageOptions,
 }
 
+impl Index {
+    /// Returns `true` if `self` and `other` are equal in every field **except**
+    /// `storage` (reloptions). Used by the differ to distinguish a
+    /// storage-only change (→ `ALTER INDEX SET`) from a structural change
+    /// (→ `DROP + CREATE`).
+    #[must_use]
+    pub fn structurally_eq(&self, other: &Self) -> bool {
+        self.qname == other.qname
+            && self.on == other.on
+            && self.method == other.method
+            && self.columns == other.columns
+            && self.include == other.include
+            && self.unique == other.unique
+            && self.nulls_not_distinct == other.nulls_not_distinct
+            && self.predicate == other.predicate
+            && self.tablespace == other.tablespace
+            && self.comment == other.comment
+        // `storage` is intentionally excluded.
+    }
+}
+
 /// One indexed column or expression.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexColumn {
