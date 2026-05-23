@@ -30,6 +30,7 @@ pub mod storage_downgrade_not_retroactive;
 pub mod trigger_references_unmanaged_function;
 pub mod trigger_references_unmanaged_table;
 pub mod type_shadows_table;
+pub mod unmanaged_reloption;
 pub mod view_body_references_unmanaged_schema;
 pub mod view_shadows_table;
 

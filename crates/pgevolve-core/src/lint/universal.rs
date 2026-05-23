@@ -127,6 +127,7 @@ pub fn check_universal(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Findin
 pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
     let mut out = Vec::new();
     rules::column_position_drift::check(source, target, &mut out);
+    out.extend(rules::unmanaged_reloption::check(source, target));
     out
 }
 
