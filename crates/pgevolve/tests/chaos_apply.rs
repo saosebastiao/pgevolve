@@ -61,6 +61,22 @@ async fn run_chaos(final_: &Catalog, abort_step: u32) -> Result<()> {
     second.map_err(|e| anyhow::anyhow!("recovery apply failed: {e}"))?;
 
     let live = introspect(&pg, &managed).await?;
+
+    // Use the pgevolve-aware diff for the convergence check: source
+    // `owner = None` (and `grants = []`, etc.) is "unmanaged" per the
+    // v0.3.1+ lenient semantics, so a strict field-by-field equality
+    // would spuriously fire on the connecting role's auto-ownership.
+    // We're convergent iff a re-plan from live → final emits no changes.
+    let changeset = pgevolve_core::diff::diff(
+        &live,
+        final_,
+        &pgevolve_core::catalog::DriftReport::default(),
+    );
+    if changeset.is_empty() {
+        return Ok(());
+    }
+
+    // Fall back to the strict comparator for a human-readable error.
     pgevolve_testkit::assert_canonical_eq(final_, &live)
 }
 

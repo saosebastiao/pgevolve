@@ -10,7 +10,10 @@ version = 2
 # Use empty ignore list so we can audit all security advisories.
 ignore = []
 yanked = "deny"
-unmaintained = "deny"
+# cargo-deny 0.19 replaced the boolean-ish "deny" with a granular enum.
+# "all" matches the pre-0.19 behaviour: flag any unmaintained crate,
+# whether direct or transitive.
+unmaintained = "all"
 notice = "warn"
 vulnerability = "deny"
 
