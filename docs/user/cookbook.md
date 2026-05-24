@@ -530,6 +530,92 @@ $$;
 
 Without the directive, the `plpgsql-dynamic-sql` lint rule fires as an Error. The directive tells pgevolve that `app.summary` is a dependency, so the planner can order the refresh after any changes to that MV.
 
+## Tune storage parameters (reloptions)
+
+Storage parameters (`fillfactor`, `autovacuum_*`, `parallel_workers`,
+GIN `fastupdate`, BRIN `pages_per_range`, …) are declared inline on
+the object. Each typed key has a `None` default that means *"unmanaged"*
+— pgevolve will neither set nor reset it.
+
+### Declare on a new or existing table
+
+```sql
+-- schema/app/tables/orders.sql
+CREATE TABLE app.orders (
+    id          bigint PRIMARY KEY,
+    customer_id bigint NOT NULL,
+    placed_at   timestamptz NOT NULL
+) WITH (
+    fillfactor          = 80,
+    autovacuum_enabled  = true,
+    autovacuum_vacuum_scale_factor = 0.05,
+    parallel_workers    = 4
+);
+```
+
+If `app.orders` already exists in the catalog without these settings,
+`pgevolve plan` emits a single batched `ALTER TABLE`:
+
+```sql
+ALTER TABLE app.orders SET (fillfactor = 80, autovacuum_enabled = true,
+    autovacuum_vacuum_scale_factor = 0.05, parallel_workers = 4);
+```
+
+Both the inline `WITH (…)` form on `CREATE TABLE` and a separate
+`ALTER TABLE app.orders SET (…);` are accepted in source.
+
+### Per-AM index reloptions
+
+Indexes accept access-method-specific options, validated at parse time
+so PG-invalid combinations fail fast:
+
+```sql
+CREATE INDEX orders_customer_id_idx ON app.orders (customer_id)
+    WITH (fillfactor = 80);                       -- B-tree: 50..=100
+
+CREATE INDEX orders_tags_idx ON app.orders USING gin (tags)
+    WITH (fastupdate = false, gin_pending_list_limit = 4096);
+
+CREATE INDEX orders_placed_at_idx ON app.orders USING brin (placed_at)
+    WITH (pages_per_range = 32, autosummarize = true);
+```
+
+`fillfactor` ranges differ per AM: B-tree 50..=100, GiST 10..=100,
+SP-GiST 90..=100. BRIN and GIN reject `fillfactor` outright.
+
+### Removing a managed reloption
+
+**Removing a value from source does *not* issue a `RESET`.** This is
+the same lenient pattern used by `owner`, `grants`, and RLS policies —
+pgevolve never destructively undoes state on the catalog side just
+because source went quiet.
+
+To clear a reloption you previously managed:
+
+1. Apply `ALTER TABLE app.orders RESET (fillfactor);` out-of-band
+   (psql, your DBA tooling, a one-off migration).
+2. Remove the `fillfactor = 80` declaration from source.
+
+On the next `pgevolve plan` run, both source and catalog read `None`
+and the diff is empty.
+
+### The `unmanaged-reloption` lint
+
+If the catalog has a reloption that source doesn't declare, the
+`unmanaged-reloption` lint fires as a warning. This includes both
+typed keys (e.g., the DBA set `fillfactor = 70` directly) and
+extension keys (e.g., `pg_partman.retention_keep_table = 'true'`).
+Waive via `[[lint_waiver]]` in `intent.toml` if the drift is
+intentional.
+
+> **First-apply caveat.** `CREATE TABLE … WITH (…)` against a
+> brand-new (not-yet-in-catalog) object currently emits the `CREATE`
+> step without the inline `WITH (…)` clause. The reloptions land on
+> the *second* `plan` + `apply` cycle as an `ALTER … SET`. This is a
+> known v0.3.x limitation (see
+> [`docs/spec/reloptions.md`](../spec/reloptions.md)); convergent in
+> two iterations.
+
 ## Run the same plan against multiple environments
 
 A plan is bound to a specific `target_identity`. If you generate

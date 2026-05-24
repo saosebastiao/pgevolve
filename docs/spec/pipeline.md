@@ -82,7 +82,11 @@ Runs after the AST canonicalization pass. Validates structural references before
 | Extensions | ✅ Implemented | `pg_extension` joined with `pg_namespace` and `pg_description`. Extension-owned objects excluded via `pg_depend deptype='e'` filter. |
 | Triggers | ✅ Implemented | `pg_trigger` joined with `pg_class`, `pg_namespace`, `pg_description`. Filtered: `NOT tgisinternal`; NOT extension-owned. |
 | Partitioning (parents + children) | ✅ Implemented | `pg_class.relkind='p'` + `pg_get_partkeydef` for partitioned parents; `relispartition=true` + `pg_get_expr(relpartbound)` for partition children. Both queries: NOT extension-owned; scoped to managed schemas. |
-| Object kinds beyond v0.2 (roles, RLS policies, statistics, …) | 📋 Planned, v0.3+ | Lands with the corresponding object-kind support. |
+| Cluster surface: roles, role attributes, role membership (`pg_authid`, `pg_auth_members`) | ✅ Implemented | Returned in `ClusterCatalog`, queried via the `pgevolve cluster …` subcommand family. v0.3.0. |
+| Per-object owner + grants (object-level + column-level) + `ALTER DEFAULT PRIVILEGES` rules | ✅ Implemented | `pg_class.relowner`, `pg_class.relacl`, `pg_attribute.attacl`, `pg_default_acl` decoded into `owner` / `grants` / `Catalog::default_privileges`. v0.3.1. |
+| Row-level security: per-table `rls_enabled` / `rls_forced` + `pg_policies` | ✅ Implemented | `pg_class.relrowsecurity` / `relforcerowsecurity` + a join on `pg_policies` for embedded `Vec<Policy>`. v0.3.2. |
+| Storage parameters / reloptions (`pg_class.reloptions::text[]`) | ✅ Implemented | Decoded into typed `TableStorageOptions` / `IndexStorageOptions` with `extra: BTreeMap` for unknown keys. Materialized views share the table decoder. v0.3.3. |
+| `CREATE STATISTICS`, publications, subscriptions, FDWs | 📋 Planned / 🔮 Future | See `docs/spec/objects.md`. |
 | Catalog filtering by `[managed]` schemas + `[managed].ignore_objects` globs | ✅ Implemented | Unmanaged schemas don't appear in the IR at all. |
 | Catalog drift detection — returns `(Catalog, DriftReport)` | ✅ Implemented | See "Catalog drift detection" section below. |
 

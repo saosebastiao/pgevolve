@@ -348,6 +348,25 @@ in a single `BEGIN/COMMIT` or fails atomically.
 Useful for hermetic dev / test environments where you don't care about
 locking and just want the apply to be a single atomic event.
 
+### v0.3 step kinds
+
+Each v0.3 cross-cutting state dimension adds one or more `StepKind`
+variants. They are all transactional, all sparse (only fields where
+source declares a value and target disagrees flow into the step):
+
+| Release | `StepKind` variants |
+|---|---|
+| v0.3.0 | `CreateRole`, `DropRole`, `AlterRole` (cluster-side) |
+| v0.3.1 | `AlterObjectOwner`, `GrantObjectPrivilege`, `RevokeObjectPrivilege`, `GrantColumnPrivilege`, `RevokeColumnPrivilege`, `AlterDefaultPrivileges` |
+| v0.3.2 | `CreatePolicy`, `DropPolicy`, `AlterPolicy`, `EnableRowSecurity`, `DisableRowSecurity`, `ForceRowSecurity`, `NoForceRowSecurity` |
+| v0.3.3 | `SetTableStorage`, `SetIndexStorage`, `SetMaterializedViewStorage` |
+
+All four sub-specs follow the same convention: one `Set*` variant per
+state dimension, no paired `Reset*` — the lenient drift policy makes
+the reset path unreachable. See
+[architecture.md § v0.3: cross-cutting state](./architecture.md#v03-cross-cutting-state)
+for the design rationale.
+
 ## Sub-phase 3: group
 
 `group_steps(steps) → Vec<TransactionGroup>`:

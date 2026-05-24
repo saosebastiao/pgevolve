@@ -31,6 +31,10 @@ mixes states (e.g., FK constraints are supported as a kind, but the
 | [`column-types.md`](./column-types.md) | Every Postgres column-type family with per-family support status |
 | [`constraints.md`](./constraints.md) | Constraint kinds (PK, UNIQUE, FK, CHECK, NOT NULL, EXCLUSION) and their attributes |
 | [`indexes.md`](./indexes.md) | Index access methods, options (partial, expression, INCLUDE, opclass, etc.) |
+| [`cluster.md`](./cluster.md) | Cluster-level surface: roles (`CREATE ROLE / USER`), role attributes, role membership, `ClusterCatalog`, the `pgevolve cluster …` subcommand family |
+| [`grants.md`](./grants.md) | Object-level and column-level `GRANT` / `REVOKE`, per-object `owner`, `ALTER DEFAULT PRIVILEGES`, lenient drift policy, `unmanaged-grant` lint |
+| [`policies.md`](./policies.md) | Row-level security: per-table `rls_enabled` / `rls_forced`, embedded `policies: Vec<Policy>`, `unmanaged-policy` lint |
+| [`reloptions.md`](./reloptions.md) | Storage parameters / reloptions on tables, indexes, and materialized views; per-AM fillfactor validation; `unmanaged-reloption` lint |
 | [`pipeline.md`](./pipeline.md) | The internal pipeline: parser → IR → diff → planner → rewrite → group → execute |
 | [`cli.md`](./cli.md) | CLI command surface, global flags, output formats, exit codes, `pgevolve.toml` schema |
 | [`lint-and-layout.md`](./lint-and-layout.md) | Universal lint rules, built-in and custom layout profiles |
@@ -38,12 +42,14 @@ mixes states (e.g., FK constraints are supported as a kind, but the
 
 ## Naming conventions
 
-- **"v0.1"** in this directory is the first tagged release once every phase
-  plan is implemented. It may include minor patch releases (v0.1.x) for
-  bug fixes that don't change the spec.
-- **"v0.2", "v0.3", …** refer to upcoming minor versions; entries marked
-  📋 will name the target version when known.
-- **"Future"** is anything past v0.2 with no firm version.
+- **"v0.1"** was the first tagged release (schemas + tables + indexes +
+  sequences). v0.1.x patches don't change the spec.
+- **"v0.2"** added new object kinds: views/MVs, types, extensions,
+  functions/procedures, triggers, declarative partitioning.
+- **"v0.3"** added cross-cutting state: cluster roles (v0.3.0), grants
+  + ownership (v0.3.1), row-level security (v0.3.2), storage parameters
+  (v0.3.3). Entries marked 📋 name the target version when known.
+- **"Future"** is anything past the current release with no firm version.
 
 ## How to update this directory
 

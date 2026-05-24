@@ -278,6 +278,63 @@ seams so v0.2 body-bearing objects have a home to fail into.
 `--shadow-validate` / `--shadow-strict` flags on `plan` / `diff` /
 `validate`.
 
+## v0.3: cross-cutting state
+
+v0.3 ships the **cross-cutting state** series. Where v0.2 added new
+object *kinds* (views, types, functions, triggers, partitions), v0.3
+adds new *state dimensions* that attach to existing IR objects:
+
+| Release | Adds (per-object field) | Reaches |
+|---|---|---|
+| v0.3.0 | cluster surface: `ClusterCatalog`, `Role`, `RoleAttributes` | `pgevolve cluster …` subcommands |
+| v0.3.1 | `owner: Option<Identifier>` + `grants: Vec<Grant>` | Schema, Table, View, MV, Sequence, Function, Procedure, UserType |
+| v0.3.2 | `rls_enabled: bool`, `rls_forced: bool`, `policies: Vec<Policy>` | Table |
+| v0.3.3 | `storage: *StorageOptions` (typed fields + `extra: BTreeMap`) | Table, Index, MaterializedView |
+
+All four sub-specs share a common design pattern:
+
+1. **Typed `Option<T>` fields, not bare booleans or strings.** Closed
+   sets become enums; open sets get a typed field plus an `extra:
+   BTreeMap<String, String>` escape hatch (reloptions). Numeric f64
+   fields wrap a `NotNanF64` newtype so they participate in `Eq`/`Hash`/`Ord`.
+2. **Lenient drift.** Source `None` means *"this attribute is
+   unmanaged"* and the differ produces no `Reset*` / `Revoke*` /
+   `DropPolicy` change. Removing a value from source therefore never
+   causes a destructive ALTER on the catalog side. To clear a managed
+   value, the operator issues the `RESET` / `REVOKE` out-of-band; the
+   next plan run sees both sides as `None` and the diff is empty.
+3. **Per-feature `unmanaged-*` lints.** Because the differ never resets
+   on its own, each sub-spec ships a lint that surfaces catalog values
+   not declared in source: `unmanaged-grant`, `unmanaged-policy`,
+   `unmanaged-reloption`. All warnings, waivable via
+   `[[lint_waiver]]` in `intent.toml`.
+4. **One `Set*` `Change` variant per dimension.** No paired `Reset*`
+   variant — the lenient policy makes the reset path unreachable.
+   The differ emits a *sparse delta*: only the fields where source is
+   `Some(_)` AND target disagrees flow into the change.
+
+### Known limitation: new objects don't carry cross-cutting state inline
+
+When the differ encounters an object in source that the target catalog
+doesn't have, it emits a single `Change::CreateTable` / `CreateIndex` /
+`CreateMaterializedView` step. The corresponding renderer (`sql::create_table`,
+`sql::create_index`, etc.) emits the bare `CREATE … (…)` statement —
+**without** the `WITH (…)` reloption clause, without `ALTER … OWNER TO`,
+without inline `GRANT`s or `CREATE POLICY` companions, and without
+`ENABLE ROW LEVEL SECURITY`.
+
+The state lands on the **second** plan run: after apply, the catalog
+reader sees the new object with PG-default attributes, the differ
+notices source declares non-default values, and emits the appropriate
+`AlterObjectOwner` / `GrantObjectPrivilege` / `CreatePolicy` /
+`SetTableStorage` steps. Convergent in two plan iterations.
+
+A uniform fix — emitting cross-cutting state inline at object creation
+or in companion steps adjacent to the `Create*` — is tracked for a
+future v0.3.x maintenance release. Until then, operators authoring
+brand-new objects with cross-cutting state should expect to run
+`pgevolve plan` and `pgevolve apply` twice to fully converge.
+
 ## The canonicalization pipeline
 
 Both the source parser and the catalog reader produce `Catalog` values

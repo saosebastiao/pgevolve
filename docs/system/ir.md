@@ -8,19 +8,30 @@ this doc lives in `crates/pgevolve-core/src/ir/`.
 ```rust
 pub struct Catalog {
     pub schemas:            Vec<Schema>,
+    pub extensions:         Vec<Extension>,
     pub tables:             Vec<Table>,
     pub indexes:            Vec<Index>,
     pub sequences:          Vec<Sequence>,
     pub views:              Vec<View>,
     pub materialized_views: Vec<MaterializedView>,
+    pub types:              Vec<UserType>,
+    pub functions:          Vec<Function>,
+    pub procedures:         Vec<Procedure>,
+    pub triggers:           Vec<Trigger>,
+    pub default_privileges: Vec<DefaultPrivilegeRule>,
 }
 ```
 
-Four flat collections. No nesting (e.g., `Table::indexes`) for a
-reason: indexes live in their own namespace within a schema and reference
-their table by qname. Hierarchical nesting would have to maintain
-referential integrity at every mutation; flat lists + name-based
-references defer that to canonicalization time.
+Flat collections, no nesting (e.g., `Table::indexes`) for a reason:
+indexes live in their own namespace within a schema and reference their
+table by qname. Hierarchical nesting would have to maintain referential
+integrity at every mutation; flat lists + name-based references defer
+that to canonicalization time.
+
+Cluster-level state (`Role`, `RoleAttributes`) lives in a sibling
+`ClusterCatalog` rather than on `Catalog`, since cluster surface is
+managed via the separate `pgevolve cluster …` subcommand family. See
+[`docs/spec/cluster.md`](../spec/cluster.md).
 
 The implicit name-based relationships look like this:
 
@@ -253,6 +264,57 @@ In v0.1 no objects carry a body; `NormalizedBody` is scaffolding for
 v0.2 views and functions. It is kept in `pgevolve-core::parse::normalize_body`
 so body-bearing objects added by v0.2 sub-specs can reuse the same
 diffing semantics as `NormalizedExpr`.
+
+## `Table`
+
+```rust
+pub struct Table {
+    pub qname:        QualifiedName,
+    pub columns:      Vec<Column>,
+    pub constraints:  Vec<Constraint>,
+    pub partition_by: Option<PartitionBy>,   // partitioned parent
+    pub partition_of: Option<PartitionOf>,   // partition child
+    pub comment:      Option<String>,
+
+    // --- v0.3 cross-cutting state ---------------------------------
+    pub owner:        Option<Identifier>,    // v0.3.1: None = unmanaged
+    pub grants:       Vec<Grant>,            // v0.3.1: empty = no grants
+    pub rls_enabled:  bool,                  // v0.3.2: PG default false
+    pub rls_forced:   bool,                  // v0.3.2: PG default false
+    pub policies:     Vec<Policy>,           // v0.3.2: RLS policies
+    pub storage:      TableStorageOptions,   // v0.3.3: WITH (…)
+}
+```
+
+The first six fields are the v0.1/v0.2 surface (structure, columns,
+constraints, partitioning, comment). The last six are
+[v0.3 cross-cutting state](./architecture.md#v03-cross-cutting-state) —
+each one follows the lenient-drift convention: `Option<T>` / `Vec<T>` /
+`bool` where the *absent* / *empty* / *false* state means "unmanaged."
+
+`Index` and `MaterializedView` carry a subset of the same v0.3 fields:
+
+- `Index` adds `storage: IndexStorageOptions`.
+- `MaterializedView` adds `owner`, `grants`, and `storage`
+  (`MaterializedViewStorageOptions = TableStorageOptions`).
+
+### `Grant`, `Policy`, `*StorageOptions`
+
+Defined in `crates/pgevolve-core/src/ir/{grant,policy,reloptions}.rs`.
+
+- `Grant { grantee, privileges, with_grant_option, columns: Option<Vec<Identifier>> }`.
+  `columns = Some(_)` is a column-level grant on a table/view/MV; `None`
+  is object-level. Canonicalized: stable sort by `(grantee, privileges)`.
+- `Policy { name, command, permissive, roles, using, with_check }`.
+  USING / WITH CHECK reuse `NormalizedExpr` (same canon as CHECK
+  constraints). Command-kind changes (e.g., `FOR SELECT` → `FOR UPDATE`)
+  diff as DROP + CREATE.
+- `TableStorageOptions` / `IndexStorageOptions` — typed `Option<T>`
+  fields for the well-known reloption keys (fillfactor, autovacuum_*,
+  parallel_workers, fastupdate, buffering, pages_per_range, …) plus
+  `extra: BTreeMap<String, String>` for extension or unknown keys. f64
+  fields wrap `NotNanF64` so `Eq`/`Hash`/`Ord` work. Per-AM fillfactor
+  ranges are enforced at parse time (see [`docs/spec/reloptions.md`](../spec/reloptions.md)).
 
 ## `Column` attributes
 
@@ -551,7 +613,9 @@ The catalog reader normalizes PG's per-type defaults for `min_value` /
   source. Constraint-backing indexes are tied to the constraint, not
   modeled as separate `Index`es.
 - **Row data.** pgevolve never reads or writes table contents.
-- **Cluster-level settings** (`postgresql.conf`, roles, tablespaces).
+- **`postgresql.conf` settings.** Roles *are* in scope as of v0.3.0
+  via the separate `ClusterCatalog`; cluster-level GUCs and
+  tablespaces remain out of scope.
 - **`pg_catalog` / `information_schema`** — unmanaged schemas don't
   appear in the IR.
 

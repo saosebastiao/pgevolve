@@ -13,7 +13,7 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-> **Status:** v0.1.0 tagged (the schemas + tables + indexes + sequences surface). v0.2 sub-spec series in progress — sub-specs #1 (views/MVs), #2 (types), #3 (extensions), #4 (functions/procedures), #5 (triggers), and #6 (declarative partitioning) merged. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
+> **Status:** v0.3.3 is the current release. The v0.2 sub-spec series (views/MVs, types, extensions, functions/procedures, triggers, declarative partitioning) is complete, and the v0.3 cross-cutting state series (cluster roles, GRANT/REVOKE, row-level security, table/index/MV storage parameters) is complete through v0.3.3. See [`CHANGELOG.md`](./CHANGELOG.md) for what's in each version.
 
 ## Install
 
@@ -162,7 +162,18 @@ Per the [arch-readiness spec §16](./docs/superpowers/specs/2026-05-15-v0.2-arch
 | 5 | Triggers | ✅ Landed `25ca3a5` |
 | 6 | Declarative partitioning + table reloptions | ✅ Landed `fbff481` |
 
-v0.3+ work (cluster-level surface — roles, GRANTs, `postgresql.conf`, RLS) is sketched in the arch spec §17 but not yet designed.
+### v0.3 sub-spec progress
+
+v0.3 ships the **cross-cutting state** series: each release adds a new dimension of state that attaches to existing IR objects (rather than introducing new object kinds). All four sub-specs share the same design pattern — typed `Option<T>` fields with a lenient drift policy: source `None` means "unmanaged, never reset," surfaced via per-feature `unmanaged-*` lints rather than destructive changes.
+
+| # | Sub-spec | Status |
+|---|---|---|
+| 0 | Cluster surface: roles, `CREATE USER`, role membership, `ClusterCatalog` | ✅ v0.3.0 |
+| 1 | `GRANT` / `REVOKE` on all 8 grantable object kinds + column-level grants + `ALTER DEFAULT PRIVILEGES` | ✅ v0.3.1 |
+| 2 | Row-level security: per-table `rls_enabled` / `rls_forced` + embedded `policies: Vec<Policy>` | ✅ v0.3.2 |
+| 3 | Storage parameters: typed `*StorageOptions` on Table / Index / MaterializedView + `unmanaged-reloption` lint | ✅ v0.3.3 |
+
+Next on the agreed v0.3 roadmap: `PUBLICATION` / `SUBSCRIPTION` (logical replication), `CREATE VIEW WITH CHECK OPTION`, aggregates, and `CREATE STATISTICS`.
 
 ### v0.2 views/MVs — what's in `0e2a7a0`
 
