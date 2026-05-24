@@ -189,8 +189,14 @@ pgevolve status --db dev --apply-id <uuid>
   and refuse to apply until you flip it. See
   [troubleshooting.md](./troubleshooting.md#unapproved-intent).
 - **The cookbook** ([cookbook.md](./cookbook.md)) covers patterns for
-  adding FKs / setting `NOT NULL` / dropping columns safely, and how
-  the online-rewrite policies change the plan shape.
+  adding FKs / setting `NOT NULL` / dropping columns safely, declaring
+  GRANTs and row-level-security policies, tuning storage parameters,
+  and how the online-rewrite policies change the plan shape.
 - **Configuration** ([configuration.md](./configuration.md)) has the
   full `pgevolve.toml` reference, including per-environment strategy
   overrides for production-grade deployments.
+- **Cluster surface.** Roles live above the per-database layer. If your
+  deployment owns its own Postgres cluster, scaffold a parallel cluster
+  project with `pgevolve cluster init` (separate from the per-DB
+  project you just created) to manage `CREATE ROLE` declaratively. See
+  the [cluster spec](../spec/cluster.md).

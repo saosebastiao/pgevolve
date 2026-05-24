@@ -344,8 +344,18 @@ pgevolve doctor --db dev
 #   recent applies: no failures
 ```
 
-Exit `0` in all observed cases — the report is informational; warnings
-appear in the printed output, not as a non-zero exit code.
+Exit codes:
+
+- `0` — every check passes (bootstrap installed, no drift, no recent
+  apply failures).
+- `1` — any of: bootstrap missing, NOT VALID constraint, INVALID
+  index, or a failed apply in the recent log. The specific issue is
+  printed in the report; exit code lets the command be scripted into
+  deploy pre-flights.
+
+A `pgevolve.apply_log` query error is not counted as an issue (the
+table may not exist on very old bootstrap versions); the message is
+printed but the command still returns `0` for that signal alone.
 
 ## `pgevolve rewrite-table` *(CLI skeleton)*
 

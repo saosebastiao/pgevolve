@@ -76,7 +76,15 @@ that touches the DB, so there's no separate migration step on upgrade.
 
 ## Pre-built binaries / package managers
 
-Not yet published. The first stable release will ship GitHub-release
-binaries for at least Linux x86_64 and macOS arm64. Homebrew, Cargo
-(`cargo install pgevolve`), and a Docker image are planned but not
-yet committed.
+`cargo install pgevolve` (the canonical install path described above)
+is published to [crates.io](https://crates.io/crates/pgevolve) as of
+v0.3.3. The following additional distribution channels are not yet
+shipped:
+
+- **GitHub-release prebuilt binaries** for Linux x86_64 / macOS arm64
+  / Windows x86_64 — planned for v1.0.
+- **Homebrew formula** — under consideration; no commitment.
+- **Docker image** — under consideration; no commitment.
+
+If you depend on one of these channels, open an issue saying so —
+demand drives prioritization.

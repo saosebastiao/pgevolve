@@ -616,6 +616,139 @@ intentional.
 > [`docs/spec/reloptions.md`](../spec/reloptions.md)); convergent in
 > two iterations.
 
+## Grant a role read-only access to a table
+
+`pgevolve` models per-object `owner` and `grants` as of v0.3.1. Both
+follow the **lenient drift policy**: declaring `owner = None` (the
+default in source) means "unmanaged" — the differ will neither set nor
+reset the owner. The same applies to `grants`: declared grants are
+added/kept; catalog grants you haven't declared surface as the
+`unmanaged-grant` lint warning but are never silently revoked.
+
+```sql
+-- schema/app/tables/orders.sql
+CREATE TABLE app.orders (
+    id          bigint PRIMARY KEY,
+    customer_id bigint NOT NULL,
+    placed_at   timestamptz NOT NULL
+);
+
+-- @pgevolve owner: app_owner
+GRANT SELECT ON app.orders TO reporting;
+GRANT SELECT (id, placed_at) ON app.orders TO analytics_readonly;
+```
+
+`pgevolve plan` emits:
+
+```sql
+ALTER TABLE app.orders OWNER TO app_owner;
+GRANT SELECT ON TABLE app.orders TO reporting;
+GRANT SELECT (id, placed_at) ON TABLE app.orders TO analytics_readonly;
+```
+
+To revoke an existing grant, simply remove the `GRANT` line from source.
+The differ emits an explicit `REVOKE` because the grant was previously
+managed (it appeared in your `Vec<Grant>` and is now gone). This is
+distinct from grants the catalog already had but source never claimed:
+those are *unmanaged*, never auto-revoked, and surface via the
+`unmanaged-grant` lint.
+
+For cross-cutting defaults (e.g., "every new table in `app` is owned by
+`app_owner` and grants `SELECT` to `reporting`"), use
+`ALTER DEFAULT PRIVILEGES`:
+
+```sql
+ALTER DEFAULT PRIVILEGES IN SCHEMA app
+    GRANT SELECT ON TABLES TO reporting;
+```
+
+`pgevolve` models these as first-class IR; see
+[`docs/spec/grants.md`](../spec/grants.md) for the full surface.
+
+## Enable row-level security on a table
+
+`pgevolve` models per-table `rls_enabled`, `rls_forced`, and an embedded
+`policies: Vec<Policy>` as of v0.3.2.
+
+```sql
+-- schema/app/tables/documents.sql
+CREATE TABLE app.documents (
+    id      bigint PRIMARY KEY,
+    owner   text   NOT NULL,
+    body    text   NOT NULL
+);
+
+ALTER TABLE app.documents ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY owner_can_read ON app.documents
+    FOR SELECT
+    USING (owner = current_user);
+
+CREATE POLICY owner_can_write ON app.documents
+    FOR INSERT
+    WITH CHECK (owner = current_user);
+```
+
+`pgevolve plan` emits one step per change (CREATE/ALTER/DROP POLICY,
+ENABLE/DISABLE/FORCE/NOFORCE ROW LEVEL SECURITY). Any change to a
+policy's `command` (e.g., `FOR SELECT` → `FOR UPDATE`) goes through
+DROP + CREATE because Postgres has no `ALTER POLICY … CHANGE COMMAND`.
+
+Two policy attributes use `NormalizedExpr` for diff (same canon as
+CHECK constraints): `USING (…)` and `WITH CHECK (…)`. Whitespace and
+keyword-case differences between source and `pg_policies` therefore
+don't trigger spurious recreates.
+
+The lenient-drift rule applies: a policy in the catalog that source
+doesn't declare surfaces as `unmanaged-policy` (warning) instead of an
+auto-DROP. Remove a managed policy from source to drop it explicitly.
+
+See [`docs/spec/policies.md`](../spec/policies.md) for the full
+attribute matrix.
+
+## Manage cluster roles
+
+The role surface is *cluster-level*, not per-database. pgevolve manages
+it via a separate project type (`pgevolve-cluster.toml` + a `roles/`
+tree) and a parallel command family: `pgevolve cluster init / diff /
+plan / apply / status`.
+
+```sh
+mkdir myapp-cluster && cd myapp-cluster
+pgevolve cluster init
+```
+
+Author roles as `CREATE ROLE` SQL:
+
+```sql
+-- roles/app_owner.sql
+CREATE ROLE app_owner WITH NOLOGIN;
+
+-- roles/reporting.sql
+CREATE ROLE reporting WITH LOGIN NOINHERIT;
+GRANT app_owner TO reporting;
+```
+
+The full role-attribute matrix is supported (`LOGIN`/`NOLOGIN`,
+`SUPERUSER`/`NOSUPERUSER`, `CREATEDB`, `CREATEROLE`, `REPLICATION`,
+`BYPASSRLS`, `CONNECTION LIMIT`, `VALID UNTIL`). Passwords are
+**intentionally not modeled** — set them out-of-band so they never
+appear in source-controlled SQL.
+
+```sh
+pgevolve cluster plan
+pgevolve cluster apply plans/2026-05-23-<id>
+```
+
+The per-database commands (`pgevolve plan`, `pgevolve apply`, etc.)
+treat the role names mentioned in `GRANT` / `OWNER TO` clauses as
+*references* — they don't create the roles. Use `pgevolve cluster …`
+to manage role lifecycle once at the cluster level, then reference
+those role names across all the per-DB projects that share the cluster.
+
+See [`docs/spec/cluster.md`](../spec/cluster.md) for the full project
+layout and the role-attribute surface.
+
 ## Run the same plan against multiple environments
 
 A plan is bound to a specific `target_identity`. If you generate
