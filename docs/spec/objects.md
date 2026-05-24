@@ -7,20 +7,20 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Object | Status | Notes |
 |---|---|---|
-| `SCHEMA` | ✅ Implemented | `CREATE / DROP / COMMENT ON`. Schemas are listed in `[managed].schemas`; everything outside the list is ignored by the differ and lint. change_kinds: [create, drop, alter, comment_on] |
-| `TABLE` | ✅ Implemented | `CREATE / DROP / ALTER` for every v0.1 column / constraint operation. See [`column-types.md`](./column-types.md) and [`constraints.md`](./constraints.md) for nested capability. Column reorder is detected but not yet applied. change_kinds: [create, drop, alter, comment_on] |
-| `INDEX` | ✅ Implemented | Six access methods; partial, expression, INCLUDE, NULLS NOT DISTINCT, opclass, collation, tablespace. See [`indexes.md`](./indexes.md). change_kinds: [create, drop, recreate, set_comment] |
-| `SEQUENCE` | ✅ Implemented | `CREATE / DROP / ALTER`. `OWNED BY` modeled. Identity-backing sequences derived from `SERIAL` / `GENERATED AS IDENTITY` columns. change_kinds: [create, drop, alter, comment_on] |
-| `COMMENT` | ✅ Implemented | On schemas, tables, columns, indexes, sequences, constraints. change_kinds: [comment_on] |
+| `SCHEMA` | ✅ Implemented | `CREATE / DROP / COMMENT ON`. Schemas are listed in `[managed].schemas`; everything outside the list is ignored by the differ and lint.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/schema.rs::tests`, `parse/builder/create_schema_stmt.rs::tests`, `diff/schemas.rs::tests`; tier-C: `failure/parse/duplicate-schema` |
+| `TABLE` | ✅ Implemented | `CREATE / DROP / ALTER` for every v0.1 column / constraint operation. See [`column-types.md`](./column-types.md) and [`constraints.md`](./constraints.md) for nested capability. Column reorder is detected but not yet applied.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/table.rs::tests`, `parse/builder/create_stmt.rs::tests`, `diff/tables.rs::tests`; tier-C: `objects/tables/create-simple`, `drop-simple`, `add-column-nullable`, `comment-on-table` |
+| `INDEX` | ✅ Implemented | Six access methods; partial, expression, INCLUDE, NULLS NOT DISTINCT, opclass, collation, tablespace. See [`indexes.md`](./indexes.md).<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/index.rs::tests`, `parse/builder/index_stmt.rs::tests`, `diff/indexes.rs::tests`; tier-3: `crates/pgevolve-core/tests/catalog_round_trip.rs` |
+| `SEQUENCE` | ✅ Implemented | `CREATE / DROP / ALTER`. `OWNED BY` modeled. Identity-backing sequences derived from `SERIAL` / `GENERATED AS IDENTITY` columns.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/sequence.rs::tests`, `parse/builder/create_seq_stmt.rs::tests`, `diff/sequences.rs::tests`, `diff/sequence_op.rs::tests`; tier-2: `parser/equivalent_pairs/0002-serial-desugar` |
+| `COMMENT` | ✅ Implemented | On schemas, tables, columns, indexes, sequences, constraints.<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/comment_stmt.rs::tests`; tier-C: `objects/tables/comment-on-table`, `comment-on-column` |
 | Inheritance (`INHERITS`) | ⛔ Not planned | Declarative partitioning supersedes inheritance for v0.1's target use cases. |
 
 ## Partitioning
 
 | Feature | Status | Notes |
 |---|---|---|
-| Declarative partitioned table (`PARTITION BY`) | ✅ Implemented | Range, list, hash partition strategies. `partition_by: Option<PartitionBy>` on `Table`. Source Forms 1, 2, and 3 all unified into the same IR. |
-| Partition attach / detach (`ATTACH PARTITION` / `DETACH PARTITION`) | ✅ Implemented | `TableChange::AttachPartition` / `DetachPartition`. Bounds rebound = detach + reattach. `DetachPartition` is destructive; intent required. |
-| Sub-partitioning | ✅ Implemented | A table may have both `partition_by` (is a partitioned parent) and `partition_of` (is a partition child). |
+| Declarative partitioned table (`PARTITION BY`) | ✅ Implemented | Range, list, hash partition strategies. `partition_by: Option<PartitionBy>` on `Table`. Source Forms 1, 2, and 3 all unified into the same IR.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/partition.rs::tests`; tier-C: `objects/partitions/create-range-parent-and-two-partitions`, `create-list-parent`, `create-hash-parent-and-partitions`, `create-default-partition` |
+| Partition attach / detach (`ATTACH PARTITION` / `DETACH PARTITION`) | ✅ Implemented | `TableChange::AttachPartition` / `DetachPartition`. Bounds rebound = detach + reattach. `DetachPartition` is destructive; intent required.<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/alter_table_attach_partition.rs::tests`, `plan/rewrite/partitions.rs::tests`; tier-C: `objects/partitions/attach-existing-standalone`, `attach-form-vs-declarative-form-equivalent`, `detach-to-standalone`, `replace-bounds`, `add-partition`, `drop-partition` |
+| Sub-partitioning | ✅ Implemented | A table may have both `partition_by` (is a partitioned parent) and `partition_of` (is a partition child).<br>**Tests:** tier-C: `objects/partitions/subpartitioned` |
 | `DETACH PARTITION CONCURRENTLY` | ⛔ Not planned | The non-concurrent form is used for now; concurrent detach adds apply-time complexity for minimal benefit. |
 | Partition pruning at plan time | 🔮 Future | Plan can skip unaffected partitions when a change touches only the parent. |
 
@@ -28,10 +28,10 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Object | Status | Notes |
 |---|---|---|
-| `VIEW` | ✅ Implemented | Stored SQL view. `NormalizedBody::from_sql` canonicalizes the SELECT body on both the source side (T3/T4 parse pass) and the catalog side (T5 catalog reader), so cosmetically-different views diff equal. `security_barrier` and `security_invoker` reloptions are modeled. change_kinds: [create, drop, replace_compatible, replace_incompatible, set_reloption, set_comment] |
-| `MATERIALIZED VIEW` | ✅ Implemented | Physically-stored view. `WITH NO DATA` initial state honored. `REFRESH MATERIALIZED VIEW` step kind lands with the planner; upgraded to `REFRESH MATERIALIZED VIEW CONCURRENTLY` under online strategy when the MV has a unique index (`refresh_mv_concurrently = true`). change_kinds: [create, drop, replace_body, refresh, set_comment] |
-| `security_barrier` reloption | ✅ Implemented | Modeled as `View::security_barrier: Option<bool>`. Emitted as `ALTER VIEW … SET (security_barrier = …)` via the `alter_view_set_reloption` step kind. |
-| `security_invoker` reloption | ✅ Implemented | Modeled as `View::security_invoker: Option<bool>`. Same step kind as `security_barrier`. |
+| `VIEW` | ✅ Implemented | Stored SQL view. `NormalizedBody::from_sql` canonicalizes the SELECT body on both the source side (T3/T4 parse pass) and the catalog side (T5 catalog reader), so cosmetically-different views diff equal. `security_barrier` and `security_invoker` reloptions are modeled.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/view.rs::tests`, `parse/builder/create_view_stmt.rs::tests`, `parse/normalize_body.rs::tests`, `diff/views.rs::tests`; tier-C: `objects/views/create-simple`, `create-with-aliases`, `drop`, `replace-body-compatible`, `replace-body-incompatible`, `comment-on-view` |
+| `MATERIALIZED VIEW` | ✅ Implemented | Physically-stored view. `WITH NO DATA` initial state honored. `REFRESH MATERIALIZED VIEW` step kind lands with the planner; upgraded to `REFRESH MATERIALIZED VIEW CONCURRENTLY` under online strategy when the MV has a unique index (`refresh_mv_concurrently = true`).<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/create_materialized_view_stmt.rs::tests`, `plan/rewrite/refresh_mv_concurrently.rs::tests`; tier-C: `objects/materialized_views/create-simple`, `index-on-mv`, `refresh-concurrently`, `replace-body`, `with-no-data-override` |
+| `security_barrier` reloption | ✅ Implemented | Modeled as `View::security_barrier: Option<bool>`. Emitted as `ALTER VIEW … SET (security_barrier = …)` via the `alter_view_set_reloption` step kind.<br>**Tests:** tier-C: `objects/views/security-barrier-toggle` |
+| `security_invoker` reloption | ✅ Implemented | Modeled as `View::security_invoker: Option<bool>`. Same step kind as `security_barrier`.<br>**Tests:** tier-C: `objects/views/security-invoker-toggle` |
 | `CREATE VIEW ... WITH CHECK OPTION` | 🔮 Future | Plumbed alongside views; defaults off. |
 | Recursive views (`WITH RECURSIVE`) | 🔮 Future | Requires cycle-aware dep-graph handling. |
 
@@ -39,11 +39,11 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Object | Status | Notes |
 |---|---|---|
-| `FUNCTION` (SQL language body) | ✅ Implemented | SQL bodies canonicalized via `NormalizedBody`. `CREATE OR REPLACE FUNCTION` for in-place changes; signature changes are Drop + Create. Full attribute matrix (volatility, strict, security, parallel, leakproof, cost, rows). change_kinds: [create, drop, create_or_replace, replace_with_cascade, comment_on] |
-| `FUNCTION` (PL/pgSQL body) | ✅ Implemented | PL/pgSQL bodies parsed via `pg_query::parse_plpgsql`; static SQL deps extracted; dynamic SQL closed by `-- @pgevolve dep:` directives. change_kinds: [create, drop, create_or_replace, replace_with_cascade, comment_on] |
+| `FUNCTION` (SQL language body) | ✅ Implemented | SQL bodies canonicalized via `NormalizedBody`. `CREATE OR REPLACE FUNCTION` for in-place changes; signature changes are Drop + Create. Full attribute matrix (volatility, strict, security, parallel, leakproof, cost, rows).<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/function.rs::tests`, `parse/builder/create_function_stmt.rs::tests`, `diff/routines.rs::tests`; tier-2: `crates/pgevolve-core/tests/functions_round_trip.rs`; tier-C: `objects/functions/create-sql-simple`, `replace-body`, `replace-volatility`, `replace-return-type-cascade`, `create-with-overload-pair`, `create-with-table-return`, `comment-on-function` |
+| `FUNCTION` (PL/pgSQL body) | ✅ Implemented | PL/pgSQL bodies parsed via `pg_query::parse_plpgsql`; static SQL deps extracted; dynamic SQL closed by `-- @pgevolve dep:` directives.<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/plpgsql.rs::tests`; tier-C: `objects/functions/create-plpgsql-simple`, `function-with-dynamic-sql-directive`, `create-trigger-function` |
 | `FUNCTION` (other PL languages — PL/Python, PL/Perl, etc.) | 🔮 Future | Requires support for `CREATE EXTENSION` for the language first. |
-| `PROCEDURE` | ✅ Implemented | Same as functions, qname-only identity. COMMIT/ROLLBACK in body auto-detected; step runs with transactional=OutsideTransaction. change_kinds: [create, drop, create_or_replace, comment_on] |
-| `TRIGGER` | ✅ Implemented | BEFORE/AFTER/INSTEAD OF; FOR EACH ROW/STATEMENT; WHEN clause; UPDATE OF columns; REFERENCING transition tables; CONSTRAINT TRIGGER with DEFERRABLE/INITIALLY DEFERRED. Any structural diff → Drop + Create. change_kinds: [create, drop, comment_on] |
+| `PROCEDURE` | ✅ Implemented | Same as functions, qname-only identity. COMMIT/ROLLBACK in body auto-detected; step runs with transactional=OutsideTransaction.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/procedure.rs::tests`; tier-C: `objects/procedures/create-simple`, `create-with-commit`, `replace-body`, `drop-procedure`, `comment-on-procedure` |
+| `TRIGGER` | ✅ Implemented | BEFORE/AFTER/INSTEAD OF; FOR EACH ROW/STATEMENT; WHEN clause; UPDATE OF columns; REFERENCING transition tables; CONSTRAINT TRIGGER with DEFERRABLE/INITIALLY DEFERRED. Any structural diff → Drop + Create.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/trigger.rs::tests`, `parse/builder/create_trigger_stmt.rs::tests`, `diff/triggers.rs::tests`, `plan/rewrite/triggers.rs::tests`, `plan/rewrite/emit/trigger.rs::tests`; tier-C: `objects/triggers/create-row-trigger-simple`, `create-statement-trigger`, `create-instead-of-on-view`, `create-with-transition-tables`, `create-constraint-trigger`, `replace-event-list`, `replace-function`, `replace-when-clause`, `drop-simple`, `comment-on` |
 | `EVENT TRIGGER` | 🔮 Future | Lower priority; intersects with admin/security tooling. |
 | `AGGREGATE` | 🔮 Future | Custom aggregates require user-defined functions; lands with PL languages. |
 
@@ -51,9 +51,9 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Object | Status | Notes |
 |---|---|---|
-| `ENUM` (`CREATE TYPE ... AS ENUM`) | ✅ Implemented | `ALTER TYPE … ADD VALUE [BEFORE\|AFTER]`, `RENAME VALUE`. Dropping or reordering values triggers `ReplaceWithCascade` (`DROP TYPE CASCADE` + `CREATE TYPE`). change_kinds: [create, drop, alter_type_add_value, alter_type_rename_value, comment_on, replace_with_cascade] |
-| `DOMAIN` (`CREATE DOMAIN`) | ✅ Implemented | `NOT NULL`, `CHECK`, default. `ALTER DOMAIN ADD/DROP CONSTRAINT`, `SET/DROP DEFAULT`, `SET/DROP NOT NULL`. Base-type change triggers `ReplaceWithCascade`. change_kinds: [create, drop, alter_domain_add_constraint, alter_domain_drop_constraint, alter_domain_set_default, alter_domain_set_not_null, comment_on, replace_with_cascade] |
-| `COMPOSITE TYPE` (`CREATE TYPE ... AS (...)`) | ✅ Implemented | `ADD ATTRIBUTE`, `DROP ATTRIBUTE`, `ALTER ATTRIBUTE TYPE`. Attribute reordering triggers `ReplaceWithCascade`. change_kinds: [create, drop, alter_type_add_attribute, alter_type_drop_attribute, alter_type_alter_attribute_type, comment_on, replace_with_cascade] |
+| `ENUM` (`CREATE TYPE ... AS ENUM`) | ✅ Implemented | `ALTER TYPE … ADD VALUE [BEFORE\|AFTER]`, `RENAME VALUE`. Dropping or reordering values triggers `ReplaceWithCascade` (`DROP TYPE CASCADE` + `CREATE TYPE`).<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/user_type.rs::tests`, `parse/builder/create_enum_stmt.rs::tests`, `diff/types.rs::tests`, `ir/canon/renumber_enum_sort_orders.rs::tests`; tier-2: `crates/pgevolve-core/tests/types_round_trip.rs`; tier-C: `objects/enums/create-simple`, `add-value-at-end`, `add-value-before-existing`, `rename-value`, `drop-value-cascade-recreate`, `comment-on-enum` |
+| `DOMAIN` (`CREATE DOMAIN`) | ✅ Implemented | `NOT NULL`, `CHECK`, default. `ALTER DOMAIN ADD/DROP CONSTRAINT`, `SET/DROP DEFAULT`, `SET/DROP NOT NULL`. Base-type change triggers `ReplaceWithCascade`.<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/create_domain_stmt.rs::tests`; tier-C: `objects/domains/create-simple`, `create-with-check-and-default`, `add-check-constraint`, `set-default`, `toggle-not-null`, `comment-on-domain` |
+| `COMPOSITE TYPE` (`CREATE TYPE ... AS (...)`) | ✅ Implemented | `ADD ATTRIBUTE`, `DROP ATTRIBUTE`, `ALTER ATTRIBUTE TYPE`. Attribute reordering triggers `ReplaceWithCascade`.<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/create_composite_type_stmt.rs::tests`; tier-C: `objects/composites/create-simple`, `add-attribute`, `alter-attribute-type`, `comment-on-composite` |
 | `RANGE TYPE` (`CREATE TYPE ... AS RANGE`) | 🔮 Future | Lands when range-typed columns become first-class. |
 | `BASE TYPE` (`CREATE TYPE ... ( INPUT = ..., OUTPUT = ... )`) | ⛔ Not planned | Requires C-language functions; out of scope. |
 
@@ -61,10 +61,12 @@ manage. See [`../README.md`](./README.md) for the status legend.
 
 | Object | Status | Notes |
 |---|---|---|
-| `EXTENSION` | ✅ Implemented | Source: `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA s] [VERSION 'v']` in `.sql` files. Catalog: `pg_extension` joined with `pg_namespace`. Differ: Create, Drop (CASCADE; intent required), AlterUpdate, ReplaceWithCascade for schema changes (intent required), CommentOn. Objects installed by extensions (`pg_depend.deptype='e'`) are excluded from every other catalog query. change_kinds: [create, drop, alter_update, replace_with_cascade, comment_on] |
-| Extension version upgrade (`ALTER EXTENSION ... UPDATE`) | ✅ Implemented | Non-destructive. Emits `ALTER EXTENSION foo UPDATE TO 'v';` when source pins a version different from the installed one. |
+| `EXTENSION` | ✅ Implemented | Source: `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA s] [VERSION 'v']` in `.sql` files. Catalog: `pg_extension` joined with `pg_namespace`. Differ: Create, Drop (CASCADE; intent required), AlterUpdate, ReplaceWithCascade for schema changes (intent required), CommentOn. Objects installed by extensions (`pg_depend.deptype='e'`) are excluded from every other catalog query.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/extension.rs::tests`, `parse/builder/create_extension_stmt.rs::tests`, `diff/extensions.rs::tests`, `plan/rewrite/extensions.rs::tests`; tier-C: `objects/extensions/create-simple`, `create-with-schema`, `create-with-version`, `drop-simple`, `replace-schema`, `comment-on`, `scenarios/extension-owned-objects-ignored` |
+| Extension version upgrade (`ALTER EXTENSION ... UPDATE`) | ✅ Implemented | Non-destructive. Emits `ALTER EXTENSION foo UPDATE TO 'v';` when source pins a version different from the installed one.<br>**Tests:** tier-C: `objects/extensions/version-pin-noop`, `version-unpinned-noop`, `lint-unpinned-warning` |
 
 ## Triggers
+
+**Tests (whole Triggers section):** tier-1: `crates/pgevolve-core/src/ir/trigger.rs::tests`, `parse/builder/create_trigger_stmt.rs::tests`, `diff/triggers.rs::tests`, `plan/rewrite/triggers.rs::tests`, `plan/rewrite/emit/trigger.rs::tests`, `lint/rules/trigger_references_unmanaged_function.rs`, `lint/rules/trigger_references_unmanaged_table.rs`; tier-C: every fixture under `crates/pgevolve-conformance/tests/cases/objects/triggers/` (12 fixtures) plus `objects/triggers/lint-unmanaged-function`, `lint-unmanaged-table`.
 
 ### IR shape
 
@@ -145,6 +147,8 @@ Both edges are `DepSource::Structural`. The function edge also ensures that a fu
 - **`WHEN` clause dependency extraction** — the WHEN predicate is stored as a `NormalizedExpr` for canonical diffing but its column references are not added as explicit dep edges. Renames of referenced columns will surface as a structural diff, prompting a Drop + Create.
 
 ## Partitioning (detail)
+
+**Tests (whole Partitioning section):** tier-1: `crates/pgevolve-core/src/ir/partition.rs::tests`, `parse/builder/alter_table_attach_partition.rs::tests`, `plan/rewrite/partitions.rs::tests`, `lint/rules/partition_references_unmanaged_parent.rs`; tier-2: `crates/pgevolve-core/src/catalog/queries/partitions.rs`, `partitioned_tables.rs`; tier-C: every fixture under `objects/partitions/` (12 fixtures) plus `failure/partitions/reject-partition-to-nonpartitioned`, `reject-rekey`.
 
 ### IR shape
 
@@ -245,9 +249,9 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 
 | Object | Status | Notes |
 |---|---|---|
-| `ROLE` (`CREATE ROLE / USER`) | ✅ Supported | Cluster-level surface (`pgevolve cluster …`). Full attribute matrix + role membership. Passwords intentionally not modeled — set out-of-band. change_kinds: [create, alter, drop, grant, revoke, comment] |
-| `GRANT` / `REVOKE` (object permissions) | ✅ Supported | Per-object `grants: Vec<Grant>` on all 8 grantable IR types (Schema, Sequence, Table, View, MV, Function, Procedure, UserType). Column-level grants on tables/views/MVs. Lenient drift policy: catalog grants to roles outside source surface as `grants-to-unmanaged-role` warning, never silently revoked. change_kinds: [grant, revoke, alter_owner, alter_default_privileges] |
-| Row-level security policies (`POLICY`) | ✅ Supported | Per-table `rls_enabled` + `rls_forced` flags + embedded `policies: Vec<Policy>`. USING / WITH CHECK use NormalizedExpr canon (shared with check constraints). Command-kind changes go through DROP + CREATE. change_kinds: [create, alter, drop, set_table_row_security, set_table_force_row_security] |
+| `ROLE` (`CREATE ROLE / USER`) | ✅ Supported | Cluster-level surface (`pgevolve cluster …`). Full attribute matrix + role membership. Passwords intentionally not modeled — set out-of-band. See [`cluster.md`](./cluster.md).<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/cluster/role.rs::tests`, `parse/cluster/create_role.rs`, `parse/cluster/alter_role.rs`, `diff/cluster.rs::tests`; tier-2: `crates/pgevolve-core/tests/cluster_parse.rs`, `cluster_catalog.rs`; tier-C: `cluster/roles/` (8 fixtures) |
+| `GRANT` / `REVOKE` (object permissions) | ✅ Supported | Per-object `grants: Vec<Grant>` on all 8 grantable IR types (Schema, Sequence, Table, View, MV, Function, Procedure, UserType). Column-level grants on tables/views/MVs. Lenient drift policy: catalog grants to roles outside source surface as `grants-to-unmanaged-role` warning, never silently revoked. See [`grants.md`](./grants.md).<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/grant.rs::tests`, `diff/grants.rs::tests`, `diff/default_privileges.rs::tests`, `diff/owner_op.rs::tests`; tier-2: `crates/pgevolve-core/tests/catalog_grants.rs`; tier-C: `objects/grants/` (7 fixtures) |
+| Row-level security policies (`POLICY`) | ✅ Supported | Per-table `rls_enabled` + `rls_forced` flags + embedded `policies: Vec<Policy>`. USING / WITH CHECK use NormalizedExpr canon (shared with check constraints). Command-kind changes go through DROP + CREATE. See [`policies.md`](./policies.md).<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/policy.rs::tests`, `diff/policies.rs::tests`, `plan/rewrite/policies.rs::tests`; tier-2: `crates/pgevolve-core/tests/catalog_policies.rs`; tier-C: `objects/policies/` (11 fixtures) |
 | Security barriers / leakproof flags | 🔮 Future | Less commonly used; lands alongside fine-grained policy review. |
 | `SECURITY LABEL` | ⛔ Not planned | Used primarily by SE-Linux integration; out of scope. |
 
@@ -266,11 +270,11 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 |---|---|---|
 | `TABLESPACE` | 🔮 Future | The IR carries the `tablespace` attribute on tables and indexes, but pgevolve does not create / drop tablespaces — they're cluster-level admin objects outside the schema-management remit. |
 | `TABLE ... USING <access method>` | 🔮 Future | Custom table access methods (zheap, columnar, etc.). |
-| `WITH (storage_parameter = ...)` (table reloptions) | ✅ Supported | Typed fields for fillfactor + autovacuum_* + parallel_workers + toast_tuple_target + user_catalog_table + vacuum_truncate; `extra: BTreeMap` for unknown/extension keys. Lenient drift policy. change_kinds: [alter] |
-| Index reloptions | ✅ Supported | Per-AM validation: B-tree 50..=100 fillfactor, GiST 10..=100, SP-GiST 90..=100, BRIN/GIN no fillfactor; fastupdate (GIN), gin_pending_list_limit (GIN), buffering (GiST), deduplicate_items (B-tree), pages_per_range + autosummarize (BRIN). change_kinds: [alter] |
-| Materialized view reloptions | ✅ Supported | Same key set as tables (autovacuum_*, fillfactor, etc.). change_kinds: [alter] |
-| Toast options (`STORAGE EXTERNAL` / `EXTENDED` / `PLAIN` / `MAIN`) | ✅ Supported | Per-column TOAST storage; canon strips type-default. change_kinds: [alter] |
-| TOAST compression (`COMPRESSION pglz` / `lz4`) | ✅ Supported | Per-column codec; canon preserves `None` (cluster `default_toast_compression` GUC). change_kinds: [alter] |
+| `WITH (storage_parameter = ...)` (table reloptions) | ✅ Supported | Typed fields for fillfactor + autovacuum_* + parallel_workers + toast_tuple_target + user_catalog_table + vacuum_truncate; `extra: BTreeMap` for unknown/extension keys. Lenient drift policy. See [`reloptions.md`](./reloptions.md).<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/reloptions.rs::tests`, `diff/reloptions.rs::tests`; tier-2: `crates/pgevolve-core/tests/catalog_reloptions.rs`; tier-C: `objects/reloptions/table-fillfactor`, `table-autovacuum-disabled`, `table-multi-set`, `alter-table-set-after-create`, `partition-inherits-reloptions` |
+| Index reloptions | ✅ Supported | Per-AM validation: B-tree 50..=100 fillfactor, GiST 10..=100, SP-GiST 90..=100, BRIN/GIN no fillfactor; fastupdate (GIN), gin_pending_list_limit (GIN), buffering (GiST), deduplicate_items (B-tree), pages_per_range + autosummarize (BRIN).<br>**Tests:** tier-C: `objects/reloptions/index-fillfactor`, `index-brin-pages-per-range`, `index-gin-fastupdate` |
+| Materialized view reloptions | ✅ Supported | Same key set as tables (autovacuum_*, fillfactor, etc.).<br>**Tests:** tier-C: `objects/reloptions/mv-fillfactor` |
+| Toast options (`STORAGE EXTERNAL` / `EXTENDED` / `PLAIN` / `MAIN`) | ✅ Supported | Per-column TOAST storage; canon strips type-default.<br>**Tests:** tier-1: `crates/pgevolve-core/src/lint/rules/storage_downgrade_not_retroactive.rs::tests`; tier-C: `objects/columns/set-storage-external`, `set-storage-plain-warning`, `set-storage-type-default-noop`, `create-table-with-storage` |
+| TOAST compression (`COMPRESSION pglz` / `lz4`) | ✅ Supported | Per-column codec; canon preserves `None` (cluster `default_toast_compression` GUC).<br>**Tests:** tier-1: `crates/pgevolve-core/src/lint/rules/compression_change_not_retroactive.rs::tests`; tier-C: `objects/columns/set-compression-lz4` |
 
 ## Operators, casts, collations, text search
 

@@ -11,6 +11,8 @@ keys.
 Every typed field is `Option<T>`. The semantics follow v0.3.1's owner
 pattern:
 
+**Tests (whole semantics table):** tier-1: `crates/pgevolve-core/src/diff/reloptions.rs::tests`, `crates/pgevolve-core/src/ir/reloptions.rs::tests`, `crates/pgevolve-core/src/ir/canon/reloptions.rs::tests`.
+
 | source | catalog | differ action |
 |---|---|---|
 | `None` | `None` | no-op |
@@ -48,7 +50,11 @@ CREATE MATERIALIZED VIEW m WITH (fillfactor = 90) AS SELECT * FROM ...;
 
 `ALTER ... RESET (...)` and `ALTER ... RESET ()` are **rejected** in source.
 
+**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/reloptions.rs::tests`; tier-2: `crates/pgevolve-core/tests/catalog_reloptions.rs`; tier-C: `objects/reloptions/table-fillfactor`, `table-autovacuum-disabled`, `table-multi-set`, `mv-fillfactor`, `alter-table-set-after-create`, `index-fillfactor`, `index-brin-pages-per-range`, `index-gin-fastupdate`, `partition-inherits-reloptions`.
+
 ## Per-relkind validation
+
+**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/reloptions.rs::tests` (per-relkind range checks).
 
 Parser enforces PG's documented ranges at parse time:
 
@@ -82,6 +88,7 @@ Parser enforces PG's documented ranges at parse time:
   reloption or extra-bag key not declared in source. Per the lenient
   drift policy, the differ doesn't RESET; the lint surfaces the drift
   so operators can decide.
+  **Tests:** tier-1: `crates/pgevolve-core/src/lint/rules/unmanaged_reloption.rs::tests`; tier-C: `objects/reloptions/lint`.
 
 ## Out of scope
 

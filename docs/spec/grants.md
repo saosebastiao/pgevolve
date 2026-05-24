@@ -23,12 +23,16 @@ ALTER DEFAULT PRIVILEGES FOR ROLE app_owner IN SCHEMA app GRANT SELECT ON TABLES
 REVOKE statements are **rejected in source** — revokes come from the
 diff against the catalog.
 
+**Tests:** tier-1: `crates/pgevolve-core/src/ir/grant.rs::tests`, `parse/builder/grants.rs`, `parse/builder/owner_stmt.rs::tests`, `parse/builder/default_privileges.rs`; tier-2: `crates/pgevolve-core/tests/catalog_grants.rs`; tier-C: `objects/grants/owner`, `objects/grants/table`, `objects/grants/schema`, `objects/grants/sequence`, `objects/grants/function`, `objects/grants/default-privs`.
+
 ## Drift policy
 
 Catalog grants to roles **not declared in source** are tolerated and
 surface as a `grants-to-unmanaged-role` warning, never silently
 revoked. This protects out-of-band workflows (e.g., temp consultant
 grants) while still surfacing the drift so operators can decide.
+
+**Tests:** tier-1: `crates/pgevolve-core/src/lint/rules/grants_to_unmanaged_role.rs::tests`, `crates/pgevolve-core/src/diff/grants.rs::tests`; tier-C: `objects/grants/lint`.
 
 ## Cluster-link option
 
@@ -46,6 +50,8 @@ Error severity, catching typos pre-apply.
 
 When absent, per-DB independence preserved.
 
+**Tests:** tier-1: `crates/pgevolve-core/src/lint/rules/grant_references_unknown_role.rs::tests`.
+
 ## Ownership semantics
 
 - `owner: None` — unmanaged. The differ ignores ownership for this
@@ -55,6 +61,8 @@ When absent, per-DB independence preserved.
 
 Source authors opt in per-object by writing an `ALTER ... OWNER TO`
 statement. Omitting it leaves the object unmanaged.
+
+**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/owner_stmt.rs::tests`, `crates/pgevolve-core/src/diff/owner_op.rs::tests`; tier-C: `objects/grants/owner`.
 
 ## Passwords
 
@@ -66,10 +74,13 @@ permissions.
 
 - `grants-to-unmanaged-role` (warning, waivable) — catalog has grants
   to roles not in source.
+  **Tests:** tier-1: `crates/pgevolve-core/src/lint/rules/grants_to_unmanaged_role.rs::tests`; tier-C: `objects/grants/lint`.
 - `revoke-from-owner` (error, non-waivable) — diff would REVOKE from
   the object's owner. PG silently rejects such REVOKEs; we pre-empt.
+  **Tests:** tier-1: `crates/pgevolve-core/src/lint/rules/revoke_from_owner.rs::tests`.
 - `grant-references-unknown-role` (error, when `[cluster].project` is set)
   — grantee not declared in the linked cluster source.
+  **Tests:** tier-1: `crates/pgevolve-core/src/lint/rules/grant_references_unknown_role.rs::tests`.
 
 ## Out of scope
 

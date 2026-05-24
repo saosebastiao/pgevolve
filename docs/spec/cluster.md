@@ -23,16 +23,18 @@ my-cluster/
 - `pgevolve cluster apply [<plan_id>]` — apply a cluster plan
 - `pgevolve cluster status` — list applied/pending plans
 
+**Tests:** tier-4: `crates/pgevolve/tests/cluster_api.rs::build_cluster_plan_empty_roles_dir`, `build_cluster_plan_surfaces_role_loses_superuser_finding`, `build_cluster_plan_creates_new_role`; tier-1: `crates/pgevolve/src/commands/cluster/*::tests`, `crates/pgevolve/src/cluster_config.rs::tests`.
+
 ## Currently managed
 
-| Object | Status |
-|---|---|
-| Roles (CREATE/ALTER/DROP ROLE, CREATE USER) | ✅ v0.3.0 |
-| Role membership (GRANT role TO target) | ✅ v0.3.0 |
-| Tablespaces | 🔮 Future |
-| Cluster GUCs (postgresql.conf) | 🔮 Future |
-| Foreign servers / user mappings | 🔮 Future |
-| Databases list | 🔮 Future |
+| Object | Status | Tests |
+|---|---|---|
+| Roles (CREATE/ALTER/DROP ROLE, CREATE USER) | ✅ v0.3.0 | tier-1: `crates/pgevolve-core/src/ir/cluster/role.rs::tests`, `parse/cluster/*::tests`; tier-2: `crates/pgevolve-core/tests/cluster_parse.rs`, `cluster_catalog.rs`; tier-C: `cluster/roles/create-simple-role`, `cluster/roles/create-login-user`, `cluster/roles/alter-role-attributes`, `cluster/roles/drop-role-intent-gated` |
+| Role membership (GRANT role TO target) | ✅ v0.3.0 | tier-C: `cluster/roles/add-membership`; tier-4: `crates/pgevolve/tests/cluster_api.rs::build_cluster_plan_creates_new_role` |
+| Tablespaces | 🔮 Future | |
+| Cluster GUCs (postgresql.conf) | 🔮 Future | |
+| Foreign servers / user mappings | 🔮 Future | |
+| Databases list | 🔮 Future | |
 
 ## Passwords
 
@@ -40,12 +42,16 @@ Passwords are **not stored in source**. The catalog reader skips
 `rolpassword`; the source parser drops `PASSWORD '…'` clauses
 silently. Set passwords out-of-band (`psql`, secret manager, etc.).
 
+**Tests:** tier-1: `crates/pgevolve-core/src/parse/cluster::tests` (PASSWORD-clause silent drop); tier-2: `crates/pgevolve-core/tests/cluster_parse.rs`.
+
 ## Bootstrap roles
 
 The `[bootstrap].roles` list in `pgevolve-cluster.toml` names roles
 that pgevolve treats as PG-owned and never diffs in or out. Defaults
 to `["postgres"]`. Cloud Postgres (RDS, Cloud SQL, etc.) typically
 needs additional entries (e.g. `["postgres", "cloudsqlsuperuser"]`).
+
+**Tests:** tier-1: `crates/pgevolve/src/cluster_config.rs::tests`; tier-1: `crates/pgevolve-core/src/diff/cluster.rs::tests` (bootstrap-role filter behavior).
 
 ## Linking from per-DB projects
 

@@ -8,6 +8,8 @@ See [`../README.md`](./README.md) for the status legend.
 
 ## Numeric
 
+**Tests (whole section):** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests` (variant parse + display); tier-2: `crates/pgevolve-core/tests/fixtures/parser/equivalent_pairs/0001-int-aliases`, `0004-timestamp-tz`; tier-C: `objects/columns/alter-column-type-widening`, `alter-column-type-narrowing`.
+
 | Type | Status | Notes |
 |---|---|---|
 | `boolean` | ✅ Implemented | change_kinds: [add, change_type] |
@@ -17,10 +19,12 @@ See [`../README.md`](./README.md) for the status legend.
 | `real` (`float4`) | ✅ Implemented | change_kinds: [add, change_type] |
 | `double precision` (`float8`) | ✅ Implemented | change_kinds: [add, change_type] |
 | `numeric` (`decimal`) | ✅ Implemented | Including precision and scale (`numeric(p)`, `numeric(p, s)`). Unbounded `numeric` round-trips. change_kinds: [add, change_type] |
-| `smallserial` / `serial` / `bigserial` | ✅ Implemented | Desugared at parse time into the underlying integer column + owned sequence; round-trips through introspection by detecting the `nextval(...)` default. change_kinds: [add, change_type] |
+| `smallserial` / `serial` / `bigserial` | ✅ Implemented | Desugared at parse time into the underlying integer column + owned sequence; round-trips through introspection by detecting the `nextval(...)` default.<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/desugar_serial.rs::tests`; tier-2: fixture `parser/equivalent_pairs/0002-serial-desugar` |
 | `money` | ⛔ Not planned | Locale-dependent representation; discouraged by Postgres docs. Use `numeric` instead. |
 
 ## Character
+
+**Tests (whole section):** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests`; tier-2: `crates/pgevolve-core/tests/fixtures/parser/equivalent_pairs/0003-varchar-aliases`.
 
 | Type | Status | Notes |
 |---|---|---|
@@ -34,11 +38,15 @@ See [`../README.md`](./README.md) for the status legend.
 
 ## Binary
 
+**Tests:** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests`; tier-3: `crates/pgevolve-core/tests/catalog_round_trip.rs`.
+
 | Type | Status | Notes |
 |---|---|---|
 | `bytea` | ✅ Implemented | change_kinds: [add, change_type] |
 
 ## Date / time
+
+**Tests (whole section):** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests`; tier-2: `crates/pgevolve-core/tests/fixtures/parser/equivalent_pairs/0004-timestamp-tz`.
 
 | Type | Status | Notes |
 |---|---|---|
@@ -51,6 +59,8 @@ See [`../README.md`](./README.md) for the status legend.
 
 ## Networking
 
+**Tests:** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests`; tier-3: `crates/pgevolve-core/tests/catalog_round_trip.rs`.
+
 | Type | Status | Notes |
 |---|---|---|
 | `inet` | ✅ Implemented | change_kinds: [add, change_type] |
@@ -59,6 +69,8 @@ See [`../README.md`](./README.md) for the status legend.
 | `macaddr8` | ✅ Implemented | change_kinds: [add, change_type] |
 
 ## UUID, JSON, XML
+
+**Tests:** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests`; tier-3: `crates/pgevolve-core/tests/catalog_round_trip.rs`.
 
 | Type | Status | Notes |
 |---|---|---|
@@ -70,12 +82,16 @@ See [`../README.md`](./README.md) for the status legend.
 
 ## Bit strings
 
+**Tests:** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests`.
+
 | Type | Status | Notes |
 |---|---|---|
 | `bit(n)` | ✅ Implemented | Fixed-length. change_kinds: [add, change_type] |
 | `bit varying(n)` (`varbit`) | ✅ Implemented | Variable-length. change_kinds: [add, change_type] |
 
 ## Arrays
+
+**Tests:** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests`.
 
 | Type | Status | Notes |
 |---|---|---|
@@ -112,6 +128,8 @@ See [`../README.md`](./README.md) for the status legend.
 
 ## User-defined types
 
+**Tests:** tier-1: `crates/pgevolve-core/src/ir/user_type.rs::tests`; tier-C: `objects/enums/`, `objects/domains/`, `objects/composites/` (see [`objects.md`](./objects.md) for fixture list).
+
 | Type | Status | Notes |
 |---|---|---|
 | Enum (`CREATE TYPE ... AS ENUM`) | 📋 Planned, v0.2 | A column typed as an enum is modeled as `ColumnType::UserDefined(qname)` today; v0.2 adds first-class enum diff (including `ALTER TYPE ... ADD VALUE`). |
@@ -124,19 +142,19 @@ See [`../README.md`](./README.md) for the status legend.
 
 | Variant | Status | Notes |
 |---|---|---|
-| `ColumnType::Other { raw: String }` | ✅ Implemented | Any type pgevolve doesn't recognize is preserved as a raw string. Two `Other` types compare equal iff their strings match — pgevolve makes no claim about semantic equivalence. Lets the system parse unknown types without aborting, which is essential for adopting an existing DB. change_kinds: [add, change_type] |
-| `ColumnType::UserDefined(QualifiedName)` | ✅ Implemented | Schema-qualified reference to a user-defined type. The IR doesn't introspect the type's structure in v0.1 — that lands with first-class custom types in v0.2. change_kinds: [add, change_type] |
+| `ColumnType::Other { raw: String }` | ✅ Implemented | Any type pgevolve doesn't recognize is preserved as a raw string. Two `Other` types compare equal iff their strings match — pgevolve makes no claim about semantic equivalence. Lets the system parse unknown types without aborting, which is essential for adopting an existing DB.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests` |
+| `ColumnType::UserDefined(QualifiedName)` | ✅ Implemented | Schema-qualified reference to a user-defined type. The IR doesn't introspect the type's structure in v0.1 — that lands with first-class custom types in v0.2.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests`, `user_type.rs::tests` |
 
 ## Type-level attributes
 
 | Attribute | Status | Notes |
 |---|---|---|
-| `NOT NULL` | ✅ Implemented | Column-level; not a constraint. change_kinds: [set_not_null, drop_not_null] |
-| `DEFAULT <literal>` | ✅ Implemented | Booleans, integers, floats, text, bytea, NULL. change_kinds: [set_default, drop_default] |
-| `DEFAULT <sequence>` | ✅ Implemented | `nextval('seq')` recognized; canonicalized at parse + introspect time. change_kinds: [set_default, drop_default] |
-| `DEFAULT <expression>` | ✅ Implemented | Any other expression preserved as canonical text (lowercased keywords, sorted commutative operands, paren-folded). change_kinds: [set_default, drop_default] |
-| `COLLATE <collation>` | ✅ Implemented | Per-column collation. `pg_catalog.default` is treated as "no collation" so it doesn't appear as drift. change_kinds: [change_collation] |
-| `GENERATED ALWAYS AS IDENTITY` / `GENERATED BY DEFAULT AS IDENTITY` | ✅ Implemented | Including sequence option overrides (`START`, `INCREMENT`, `MINVALUE`, `MAXVALUE`, `CACHE`, `CYCLE`). change_kinds: [add, change_type] |
-| `GENERATED ALWAYS AS (expr) STORED` (computed columns) | ✅ Implemented | Stored generated columns. change_kinds: [add, change_type] |
+| `NOT NULL` | ✅ Implemented | Column-level; not a constraint. The `SET NOT NULL via CHECK pattern` rewrite avoids long locks (see [`pipeline.md`](./pipeline.md)).<br>**Tests:** tier-1: `crates/pgevolve-core/src/plan/rewrite/tests::set_not_null_on_existing_column_emits_four_steps`, `crates/pgevolve-core/src/diff/columns.rs::tests`; tier-2: `parser/equivalent_pairs/0007-not-null-via-pk` |
+| `DEFAULT <literal>` | ✅ Implemented | Booleans, integers, floats, text, bytea, NULL.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/default_expr.rs::tests`; tier-C: `objects/columns/set-default`, `drop-default` |
+| `DEFAULT <sequence>` | ✅ Implemented | `nextval('seq')` recognized; canonicalized at parse + introspect time.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/default_expr.rs::tests`; tier-C: `objects/columns/add-column-with-default` |
+| `DEFAULT <expression>` | ✅ Implemented | Any other expression preserved as canonical text (lowercased keywords, sorted commutative operands, paren-folded).<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/normalize_expr.rs::tests`; tier-2: `parser/equivalent_pairs/0005-default-cast-strip` |
+| `COLLATE <collation>` | ✅ Implemented | Per-column collation. `pg_catalog.default` is treated as "no collation" so it doesn't appear as drift.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/canon/filter_pg_defaults.rs::tests` |
+| `GENERATED ALWAYS AS IDENTITY` / `GENERATED BY DEFAULT AS IDENTITY` | ✅ Implemented | Including sequence option overrides (`START`, `INCREMENT`, `MINVALUE`, `MAXVALUE`, `CACHE`, `CYCLE`).<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/sequence.rs::tests`, `parse/builder/create_stmt.rs::tests` |
+| `GENERATED ALWAYS AS (expr) STORED` (computed columns) | ✅ Implemented | Stored generated columns.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/column.rs::tests`; tier-C: `objects/columns/add-generated-column` |
 | `GENERATED ALWAYS AS (expr) VIRTUAL` | ⛔ Not planned | Postgres only supports `STORED` through at least PG 17; this row will move to ✅ Implemented if/when Postgres adds it. |
-| Per-column comments | ✅ Implemented | |
+| Per-column comments | ✅ Implemented | **Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/comment_stmt.rs::tests`; tier-C: `objects/tables/comment-on-column` |

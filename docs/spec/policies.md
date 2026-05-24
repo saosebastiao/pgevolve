@@ -23,12 +23,16 @@ ALTER TABLE app.docs FORCE ROW LEVEL SECURITY;
 `ALTER POLICY` and `DROP POLICY` are **rejected in source** — both
 come from the diff against the catalog.
 
+**Tests:** tier-1: `crates/pgevolve-core/src/ir/policy.rs::tests`, `parse/builder/policy_stmt.rs::tests`, `diff/policies.rs::tests`; tier-2: `crates/pgevolve-core/tests/catalog_policies.rs`; tier-C: `objects/policies/simple-permissive-policy`, `policy-with-check`, `policy-with-roles`, `restrictive-policy`, `enable-rls`, `disable-rls`, `force-rls-toggle`, `drop-policy-on-source-removal`.
+
 ## Command-kind changes recreate
 
 PG's `ALTER POLICY` can change roles, USING, and WITH CHECK but
 NOT the command kind. If source changes a policy from `FOR SELECT`
 to `FOR INSERT`, pgevolve emits `DROP POLICY` + `CREATE POLICY` as
 two separate plan steps.
+
+**Tests:** tier-1: `crates/pgevolve-core/src/plan/rewrite/policies.rs::tests`; tier-C: `objects/policies/alter-policy-command-recreates`, `alter-policy-roles`.
 
 ## Cross-cluster role validation
 
@@ -43,10 +47,14 @@ denies every row, including for the table owner. Almost always a
 configuration mistake. The `force-rls-without-policies` lint warns
 on this state.
 
+**Tests:** tier-1: `crates/pgevolve-core/src/lint/rules/force_rls_without_policies.rs::tests`; tier-C: `objects/policies/lint`.
+
 ## WITH CHECK validity
 
 `WITH CHECK` is invalid on `FOR SELECT` and `FOR DELETE` policies
 (PG rejects). The source parser pre-empts with a clear error.
+
+**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/policy_stmt.rs::tests`.
 
 ## Out of scope
 

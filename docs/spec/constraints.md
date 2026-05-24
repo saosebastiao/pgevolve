@@ -8,14 +8,16 @@ See [`../README.md`](./README.md) for the status legend.
 
 | Kind | Status | Notes |
 |---|---|---|
-| `PRIMARY KEY` | ✅ Implemented | Single- and multi-column. `INCLUDE` (covering) columns supported. change_kinds: [add, drop] |
-| `UNIQUE` | ✅ Implemented | Single- and multi-column. `INCLUDE` and `NULLS NOT DISTINCT` (PG 15+) supported. change_kinds: [add, drop] |
-| `FOREIGN KEY` | ✅ Implemented | Full attribute matrix below. The forward-reference cycle case is broken by the planner's FK-extraction post-pass. change_kinds: [add, drop, validate] |
-| `CHECK` | ✅ Implemented | Expression preserved as canonical text. `NO INHERIT` flag supported. change_kinds: [add, drop, validate] |
-| `NOT NULL` (column-level) | ✅ Implemented | Modeled as `Column::nullable` rather than as a `Constraint`. The `SET NOT NULL via CHECK pattern` rewrite avoids long locks (see [`pipeline.md`](./pipeline.md)). change_kinds: [add, drop] |
+| `PRIMARY KEY` | ✅ Implemented | Single- and multi-column. `INCLUDE` (covering) columns supported.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/constraint.rs::tests`; tier-2: `parser/equivalent_pairs/0006-pk-inline-vs-table-constraint`; tier-C: `objects/tables/create-simple` |
+| `UNIQUE` | ✅ Implemented | Single- and multi-column. `INCLUDE` and `NULLS NOT DISTINCT` (PG 15+) supported.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/constraint.rs::tests`; tier-C: `objects/tables/add-constraint-unique` |
+| `FOREIGN KEY` | ✅ Implemented | Full attribute matrix below. The forward-reference cycle case is broken by the planner's FK-extraction post-pass.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/constraint.rs::tests`, `plan/rewrite/fk_not_valid_validate.rs`; tier-C: `objects/tables/add-constraint-foreign-key`, `failure/ast-resolution/fk-to-missing-table` |
+| `CHECK` | ✅ Implemented | Expression preserved as canonical text. `NO INHERIT` flag supported.<br>**Tests:** tier-1: `crates/pgevolve-core/src/plan/rewrite/check_not_valid_validate.rs`; tier-C: `objects/tables/add-constraint-check`, `drop-constraint-check` |
+| `NOT NULL` (column-level) | ✅ Implemented | Modeled as `Column::nullable` rather than as a `Constraint`. The `SET NOT NULL via CHECK pattern` rewrite avoids long locks (see [`pipeline.md`](./pipeline.md)).<br>**Tests:** tier-1: `crates/pgevolve-core/src/plan/rewrite/tests::set_not_null_on_existing_column_emits_four_steps` |
 | `EXCLUSION` (`EXCLUDE USING gist (...)`) | 🔮 Future | Used primarily with range types; lands alongside range-type column support. |
 
 ## FOREIGN KEY attributes
+
+**Tests (whole section):** tier-1: `crates/pgevolve-core/src/ir/constraint.rs::tests`, `parse/builder/create_stmt.rs::tests`; tier-C: `objects/tables/add-constraint-foreign-key`.
 
 | Attribute | Status | Notes |
 |---|---|---|
@@ -27,11 +29,13 @@ See [`../README.md`](./README.md) for the status legend.
 | `MATCH FULL` | ✅ Implemented | change_kinds: [add] |
 | `MATCH PARTIAL` | ⛔ Not planned | Never implemented by Postgres itself. |
 | `DEFERRABLE` / `NOT DEFERRABLE`, `INITIALLY DEFERRED` / `INITIALLY IMMEDIATE` | ✅ Implemented | change_kinds: [add, set_deferrable] |
-| `NOT VALID` + `VALIDATE CONSTRAINT` rewrite for adds on existing tables | ✅ Implemented | See [`pipeline.md`](./pipeline.md). change_kinds: [validate] |
+| `NOT VALID` + `VALIDATE CONSTRAINT` rewrite for adds on existing tables | ✅ Implemented | See [`pipeline.md`](./pipeline.md).<br>**Tests:** tier-1: `crates/pgevolve-core/src/plan/rewrite/fk_not_valid_validate.rs` |
 | `NOT VALID` constraints persisted as-is | ⛔ Not planned | The IR represents only fully-validated constraints; the `NOT VALID` state is an intermediate planner artifact. |
-| NOT VALID drift detection and auto-resolution | ✅ Implemented | The catalog reader detects `pg_constraint.convalidated = false` (from a partial-apply) and the differ emits `Change::ValidateConstraint`. The planner emits `ALTER TABLE ... VALIDATE CONSTRAINT`. No user action required. See [`pipeline.md`](./pipeline.md). |
+| NOT VALID drift detection and auto-resolution | ✅ Implemented | The catalog reader detects `pg_constraint.convalidated = false` (from a partial-apply) and the differ emits `Change::ValidateConstraint`. The planner emits `ALTER TABLE ... VALIDATE CONSTRAINT`. No user action required. See [`pipeline.md`](./pipeline.md).<br>**Tests:** tier-2: `crates/pgevolve-core/tests/catalog_drift.rs` |
 
 ## CHECK attributes
+
+**Tests (whole section):** tier-1: `crates/pgevolve-core/src/ir/constraint.rs::tests`, `plan/rewrite/check_not_valid_validate.rs`; tier-C: `objects/tables/add-constraint-check`, `drop-constraint-check`.
 
 | Attribute | Status | Notes |
 |---|---|---|
@@ -41,6 +45,8 @@ See [`../README.md`](./README.md) for the status legend.
 | Table-level vs. column-level placement | ✅ Implemented | Treated identically at IR level. change_kinds: [add] |
 
 ## PRIMARY KEY / UNIQUE attributes
+
+**Tests (whole section):** tier-1: `crates/pgevolve-core/src/ir/constraint.rs::tests`; tier-2: `parser/equivalent_pairs/0006-pk-inline-vs-table-constraint`.
 
 | Attribute | Status | Notes |
 |---|---|---|
@@ -54,8 +60,8 @@ See [`../README.md`](./README.md) for the status legend.
 
 | Feature | Status | Notes |
 |---|---|---|
-| Constraint name preserved across diff | ✅ Implemented | Constraints are paired by qname; renaming a constraint registers as drop+add. change_kinds: [add, drop] |
-| Constraint comments | ✅ Implemented | change_kinds: [set_comment] |
-| `ALTER TABLE ... VALIDATE CONSTRAINT` as an explicit step | ✅ Implemented | Used by the FK / CHECK NOT VALID rewrites. change_kinds: [validate] |
+| Constraint name preserved across diff | ✅ Implemented | Constraints are paired by qname; renaming a constraint registers as drop+add.<br>**Tests:** tier-1: `crates/pgevolve-core/src/diff/constraints.rs::tests` |
+| Constraint comments | ✅ Implemented | **Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/comment_stmt.rs::tests` |
+| `ALTER TABLE ... VALIDATE CONSTRAINT` as an explicit step | ✅ Implemented | Used by the FK / CHECK NOT VALID rewrites.<br>**Tests:** tier-1: `crates/pgevolve-core/src/plan/rewrite/fk_not_valid_validate.rs`, `check_not_valid_validate.rs`; tier-2: `crates/pgevolve-core/tests/catalog_drift.rs` |
 | `ALTER TABLE ... RENAME CONSTRAINT` | 🔮 Future | Today a rename diffs as drop+add (semantically equivalent but a larger lock). |
 | Multi-column constraint reordering | ⛔ Not planned | The column order inside a constraint is semantically meaningful; changing it is a drop+add. |
