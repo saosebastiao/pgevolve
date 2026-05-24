@@ -76,18 +76,27 @@ CI will run on `main`. The tag does not trigger CI by itself in the current work
 
 ## Publish to crates.io (optional)
 
-When the release is ready for crates.io:
+When the release is ready for crates.io, publish in dependency order:
 
 ```sh
-cargo publish -p pgevolve-core
+cargo publish -p pgevolve-core-macros
 # Wait ~30 seconds for the index to sync, then:
+cargo publish -p pgevolve-core
+# Wait ~30 seconds again, then:
 cargo publish -p pgevolve
 ```
 
-`pgevolve-core-macros`, `pgevolve-conformance`, `pgevolve-testkit`, and `xtask` are all `publish = false` and stay local.
+`pgevolve-core-macros` is a proc-macro crate that's only published so
+`pgevolve-core` resolves on crates.io — it's not a stable public API.
+Bumping its version follows the same workspace-bump cadence; lock it
+in lockstep with `pgevolve-core` to avoid version-skew surprises.
+
+`pgevolve-conformance`, `pgevolve-testkit`, and `xtask` are all
+`publish = false` and stay local.
 
 For pre-publish sanity:
 ```sh
+cargo publish --dry-run -p pgevolve-core-macros
 cargo publish --dry-run -p pgevolve-core
 cargo publish --dry-run -p pgevolve
 ```
