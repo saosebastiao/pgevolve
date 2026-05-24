@@ -10,12 +10,12 @@ version = 2
 # Use empty ignore list so we can audit all security advisories.
 ignore = []
 yanked = "deny"
-# cargo-deny 0.19 replaced the boolean-ish "deny" with a granular enum.
-# "all" matches the pre-0.19 behaviour: flag any unmaintained crate,
-# whether direct or transitive.
+# cargo-deny 0.19 (PR #611) consolidated the advisory schema. The
+# `vulnerability` and `notice` keys were removed — vulnerabilities are
+# always errors and notices are always warnings; tune via `ignore` if
+# needed. `unmaintained` was migrated to a granular enum; "all"
+# matches the pre-0.19 behaviour of flagging direct + transitive.
 unmaintained = "all"
-notice = "warn"
-vulnerability = "deny"
 
 [licenses]
 version = 2
@@ -43,6 +43,10 @@ exceptions = []
 multiple-versions = "warn"
 # Disallow wildcard version specs in direct dependencies.
 wildcards = "deny"
+# Workspace-internal `{ path = "..." }` deps without a version field show up
+# as wildcards but are perfectly safe (they resolve to the local source tree,
+# not to crates.io). cargo-deny 0.19 began flagging these by default; opt in.
+allow-wildcard-paths = true
 
 [sources]
 # Restrict package sources to crates.io (via GitHub registry mirror).

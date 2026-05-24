@@ -25,7 +25,7 @@ name = "pgevolve"
 path = "src/main.rs"
 
 [dependencies]
-pgevolve-core = { path = "../pgevolve-core" }
+pgevolve-core = { version = "0.3.3", path = "../pgevolve-core" }
 
 clap                = { workspace = true }
 anyhow              = { workspace = true }
