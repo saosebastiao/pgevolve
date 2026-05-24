@@ -66,6 +66,8 @@ create_index_concurrent       = true
 fk_not_valid_then_validate    = true
 check_not_valid_then_validate = true
 not_null_via_check_pattern    = true
+refresh_mv_concurrently       = true
+view_drop_create_dependents   = true
 ```
 
 Each switch defaults to `true`. Setting any to `false` disables that
@@ -80,6 +82,8 @@ out of one pattern (e.g., a managed-service Postgres that disallows
 | `fk_not_valid_then_validate` | `ADD FOREIGN KEY` on an existing table → `ADD ... NOT VALID` + `VALIDATE CONSTRAINT` (two transaction groups). | [`pipeline.md`](../spec/pipeline.md#rewrites) |
 | `check_not_valid_then_validate` | Same shape, for CHECK constraints. | [`pipeline.md`](../spec/pipeline.md#rewrites) |
 | `not_null_via_check_pattern` | `SET NOT NULL` on a populated column → four-step `ADD CHECK NOT VALID` / `VALIDATE` / `SET NOT NULL` / `DROP CHECK`. | [`pipeline.md`](../spec/pipeline.md#rewrites) |
+| `refresh_mv_concurrently` | Upgrade `REFRESH MATERIALIZED VIEW` to `REFRESH … CONCURRENTLY` when the MV has at least one unique index. Has no effect under `strategy = "atomic"`. | [`cli.md`](../spec/cli.md) |
+| `view_drop_create_dependents` | Walk the `body_dependencies` graph and emit explicit `DROP + CREATE` steps for every view transitively affected by an upstream change. When `false`, the planner errors instead of cascading dependent-view recreations. | [`cli.md`](../spec/cli.md) |
 
 ## `[environments.<name>]`
 
@@ -180,6 +184,25 @@ Preflight at apply time validates structural well-formedness: both
 causes preflight to exit `2`.
 
 Multiple `[[lint_waiver]]` rows are supported — use one per finding.
+
+## `[cluster]`
+
+```toml
+[cluster]
+project = "../my-cluster"
+```
+
+Optional. Links this per-DB project to a sibling cluster project (managed
+via `pgevolve cluster …` against a `pgevolve-cluster.toml`). When set,
+cluster-aware lints (e.g. `grant-references-unknown-role`) cross-check
+grantee role names against the linked cluster project's declared roles.
+
+| Key | Notes |
+|---|---|
+| `project` | Path to the cluster project directory (containing `pgevolve-cluster.toml`). Relative paths resolve against `pgevolve.toml`'s directory. |
+
+See [`docs/spec/cluster.md`](../spec/cluster.md) for the cluster surface
+and [`docs/spec/grants.md`](../spec/grants.md) for the cross-check rules.
 
 ## Worked example: production-grade config
 

@@ -95,7 +95,7 @@ your real database:
 # Add a [shadow] block to pgevolve.toml first:
 echo '
 [shadow]
-provider         = "testcontainers"
+backend          = "testcontainers"
 postgres_version = "16"' >> pgevolve.toml
 
 pgevolve validate --shadow

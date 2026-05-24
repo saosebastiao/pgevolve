@@ -263,16 +263,20 @@ pgevolve dump --db dev -o /tmp/schema-snapshot
 # note: output does not include pgevolve directives; add them before running `pgevolve lint`
 ```
 
-**v0.1.1 scope notes:**
+**Scope notes (v0.3.x):**
 
-- The entire catalog is written to a single `schema.sql` file. Multi-file layout
-  following `layout_profile` is deferred to v0.1.2+.
+- The entire catalog is written to a single `schema.sql` file. Multi-file
+  layout following `layout_profile` is not yet implemented.
 - The output does **not** include pgevolve source directives
   (`-- pgevolve: intent = ...` etc.), so it cannot be fed directly to
   `pgevolve lint` or used with `parse_directory` without first adding those
   directives. After `dump`, add directives manually or use a future
   `pgevolve annotate` helper.
-- Views, materialized views, functions, procedures, triggers, user-defined types, and extensions are not emitted by `dump`. The `dump` command targets the v0.1 IR surface (schemas, tables, indexes, sequences); v0.2 object kinds require a separate emit pass not yet wired into `dump`.
+- Coverage: schemas, tables (with inline PK / UK / CHECK constraints and
+  FK ALTERs), standalone indexes, sequences, views, and materialized
+  views are emitted. Functions, procedures, triggers, user-defined
+  types, extensions, and role-level state (owners, grants, RLS policies,
+  reloptions) are **not** yet emitted by `dump`.
 
 The primary use case is *adoption*: pointing `dump` at an existing production
 database to produce a starting `schema/` tree for a new pgevolve project.
@@ -290,7 +294,7 @@ required.
 |---|---|---|
 | `--graph-format dot\|mermaid` | `dot` | Output format. `dot` is Graphviz DOT; `mermaid` is Mermaid flowchart syntax. Note: named `--graph-format`, not `--format`, to avoid a clap collision with the global `--format` flag. |
 | `-o, --out <path>` | stdout | Write output to a file instead of stdout. |
-| `--plan <dir>` | — | Render the dep graph captured inside an existing plan directory. **Not yet implemented** — errors with "not yet implemented"; reserved for a v0.2 sub-spec. |
+| `--plan <dir>` | — | Render the dep graph captured inside an existing plan directory. **Not yet implemented** — errors with "not yet implemented"; reserved for a future sub-spec. |
 
 ```sh
 # DOT output to stdout (pipe to `dot -Tpng -o deps.png` for a diagram)
@@ -319,39 +323,39 @@ any files.
 
 Reports:
 
-- Bootstrap status (whether `pgevolve.*` metadata tables are installed
-  and at what version).
+- Bootstrap status (whether the `pgevolve` schema is installed). If
+  not installed, the report tells you to run `pgevolve bootstrap`.
 - NOT VALID constraints in managed schemas (candidates for a follow-up
   `VALIDATE CONSTRAINT`).
 - INVALID indexes in managed schemas (candidates for a follow-up
   `REINDEX CONCURRENTLY`).
 - Source object count vs. catalog object count (quick sanity check
-  for unexpected drift).
-- Recent failed applies from `pgevolve.apply_log`.
+  for unexpected drift) — schemas, tables, indexes, sequences.
+- Recent failed applies from `pgevolve.apply_log` (only when
+  bootstrapped).
 
 ```sh
 pgevolve doctor --db dev
-# pgevolve bootstrap: ok (v3)
-# NOT VALID constraints: 0
-# INVALID indexes: 0
-# source objects: 42  catalog objects: 42
-# recent failed applies: 0
+# pgevolve doctor — env dev
+#   bootstrap: ok
+#   drift: none
+#   source:  1 schemas, 4 tables, 3 indexes, 1 sequences
+#   catalog: 1 schemas, 4 tables, 3 indexes, 1 sequences
+#   recent applies: no failures
 ```
 
-Exit `0` when no issues are found. Exits non-zero if the database is
-unbootstrapped, or if `--format json` is used and the caller wants to
-check values programmatically.
+Exit `0` in all observed cases — the report is informational; warnings
+appear in the printed output, not as a non-zero exit code.
 
-## `pgevolve rewrite-table` *(v0.2 skeleton)*
+## `pgevolve rewrite-table` *(CLI skeleton)*
 
 ```
 USAGE: pgevolve rewrite-table <qname> --db <env> --confirm-rewrite
 ```
 
 Destructive table rewrite. **Not yet implemented** — the CLI surface is
-stable but the command currently errors with "not yet implemented in
-v0.2 readiness". The implementation lands with the column-reorder
-v0.2 sub-spec.
+stable but the command currently errors with a not-yet-implemented
+message. The implementation lands with the column-reorder sub-spec.
 
 | Argument / flag | Effect |
 |---|---|
@@ -364,6 +368,47 @@ detects column-position drift and you have an approved
 `[[lint_waiver]]` for the relevant `column-position-drift` finding,
 this command performs the shadow-copy table rewrite to materialise the
 new column order.
+
+## `pgevolve cluster` *(v0.3.0+)*
+
+Cluster-level commands manage state shared across an entire Postgres
+cluster (today: roles; future: tablespaces, GUCs, foreign servers).
+They use a parallel project type — a directory containing
+`pgevolve-cluster.toml` and a `roles/` tree — that is separate from a
+per-DB pgevolve project. See [`docs/spec/cluster.md`](../spec/cluster.md)
+for the surface and the project shape.
+
+```
+USAGE: pgevolve cluster [--config <path>] <subcommand>
+
+Subcommands:
+  init [<path>]   Scaffold a new cluster project.
+  diff            Show the diff between source roles and the live cluster.
+  plan            Write a cluster plan directory under `cluster-plans/<id>/`.
+  apply [<id>]    Apply a cluster plan. Defaults to the most recent.
+  status          List cluster plans under `cluster-plans/`.
+```
+
+| Flag | Effect |
+|---|---|
+| `--config <path>` | Path to `pgevolve-cluster.toml`. Defaults to `./pgevolve-cluster.toml`. |
+
+Notes:
+
+- Cluster commands read `pgevolve-cluster.toml`, not `pgevolve.toml`.
+- The connection DSN comes from `[connection].dsn` in
+  `pgevolve-cluster.toml`. The role used must be able to read
+  `pg_authid` (typically superuser).
+- The `[bootstrap].roles` list names roles pgevolve treats as PG-owned
+  and never diffs in or out (default `["postgres"]`; cloud Postgres
+  typically needs additional entries, e.g.
+  `["postgres", "cloudsqlsuperuser"]`).
+- Passwords are **not** stored in source; set them out-of-band.
+- v0.3.0 limitations: cluster apply does not yet read `intent.toml`
+  to gate destructive role drops, does not take an advisory lock,
+  and does not write to a per-DB-style apply log. Review
+  `cluster-plans/<id>/plan.sql` before applying. See
+  [`docs/spec/cluster.md`](../spec/cluster.md#known-limitations-v030).
 
 ## Shadow validation
 

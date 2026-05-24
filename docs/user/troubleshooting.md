@@ -59,13 +59,6 @@ plan` and when you ran `pgevolve apply` — typically because someone
 `--allow-drift` exists as a documented escape hatch for "I know the
 drift is harmless"; it should be a thinking step, not a reflex.
 
-> **Phase-9 note.** In v0.1 the executor's drift recheck is stubbed
-> and `apply` forces `allow_drift = true` internally. The CLI flag is
-> wired but the actual check lands in v0.1.x once the binary-side
-> catalog reader is threaded into the executor's preflight. Today,
-> drift won't be caught by `apply`; we rely on the
-> `target_identity` check to catch the most common case (wrong DB).
-
 ## Apply failures (exit code 3)
 
 ### Advisory lock held
@@ -159,12 +152,14 @@ error. Most often it's a typo or an unsupported feature.
 error: unsupported object kind: <kind> at /path/to/file.sql:1:1
 ```
 
-**Cause.** You wrote a statement type that's not in v0.1's whitelist
-(e.g., `CREATE VIEW`, `CREATE FUNCTION`, `CREATE TYPE`, etc.).
+**Cause.** You wrote a statement type that's not in pgevolve's
+whitelist for the current release (e.g., a Postgres feature pgevolve
+doesn't yet model).
 
 **Fix.** See [`docs/spec/objects.md`](../spec/objects.md) for the
-roadmap. Views, functions, and custom types are 📋 planned for v0.2;
-they'll work once that ships.
+current coverage and roadmap. Views, materialized views, user-defined
+types (enum/domain/composite), functions, procedures, triggers, and
+extensions are supported as of v0.2.
 
 ### Layout-profile violation
 

@@ -204,7 +204,7 @@ target is large) afterward.
 
 ## Rename a column or table
 
-pgevolve does not detect renames in v0.1 — they diff as drop+add, which
+pgevolve does not detect renames today — they diff as drop+add, which
 is **destructive** for columns (data loss). If you need to rename:
 
 1. Add the new column / table, and a backfill in a data migration (a
@@ -213,7 +213,7 @@ is **destructive** for columns (data loss). If you need to rename:
 3. Drop the old in a separate, intent-approved plan.
 
 A future version may detect renames via a developer-supplied hint
-(e.g., a `-- @pgevolve rename` directive). For v0.1 the safety-first
+(e.g., a `-- @pgevolve rename` directive). For now the safety-first
 posture stands.
 
 ## Re-apply after a partial failure

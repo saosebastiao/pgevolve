@@ -23,7 +23,7 @@ audit logging.
 ### Header directives
 
 ```sql
--- @pgevolve plan id=abc1234567890123 version=0.1.0 ruleset=1 created=2026-05-11T18:42:11Z
+-- @pgevolve plan id=abc1234567890123 version=0.3.3 ruleset=1 created=2026-05-11T18:42:11Z
 -- @pgevolve source_rev=git:c0ffeeabc
 -- @pgevolve target=tid-xyz
 -- @pgevolve intents_required=2
@@ -127,6 +127,62 @@ The following step kinds were added in v0.2 alongside function and procedure sup
 
 > **`ReplaceWithCascade` for functions.** When a function's language or return type changes, `CREATE OR REPLACE FUNCTION` is not safe. The planner emits `DROP FUNCTION <qname> CASCADE` (destructive — requires intent approval) followed by `create_or_replace_function`. The `CASCADE` propagates to all dependent views and functions automatically.
 
+### Step kinds — v0.2 additions (extensions, triggers, partitions)
+
+| Kind | Description |
+|---|---|
+| `create_extension` | `CREATE EXTENSION [IF NOT EXISTS] <name> [WITH SCHEMA <s>] [VERSION '<v>']`. |
+| `drop_extension` | `DROP EXTENSION <name> CASCADE`. Destructive — requires intent approval. |
+| `alter_extension_update` | `ALTER EXTENSION <name> UPDATE TO '<v>'`. |
+| `comment_on_extension` | `COMMENT ON EXTENSION <name> IS '…'`. |
+| `create_trigger` | `CREATE [CONSTRAINT] TRIGGER <name> … ON <table> …`. |
+| `drop_trigger` | `DROP TRIGGER <name> ON <table>`. Destructive — requires intent approval. |
+| `comment_on_trigger` | `COMMENT ON TRIGGER <name> ON <table> IS '…'`. |
+| `attach_partition` | `ALTER TABLE <parent> ATTACH PARTITION <child> FOR VALUES …`. |
+| `detach_partition` | `ALTER TABLE <parent> DETACH PARTITION <child>`. |
+
+### Step kinds — v0.3 additions (cluster roles)
+
+These step kinds appear only in **cluster plans** (`pgevolve cluster plan`) — not in per-DB plans.
+
+| Kind | Description |
+|---|---|
+| `create_role` | `CREATE ROLE <name> WITH <options>`. |
+| `drop_role` | `DROP ROLE <name>`. Destructive — requires intent approval (gating not yet enforced; see v0.3.0 limits in `docs/spec/cluster.md`). |
+| `alter_role` | `ALTER ROLE <name> WITH <options>`. |
+| `grant_role_membership` | `GRANT <role> TO <member>`. |
+| `revoke_role_membership` | `REVOKE <role> FROM <member>`. |
+| `comment_on_role` | `COMMENT ON ROLE <name> IS '…'`. |
+
+### Step kinds — v0.3.1 additions (ownership and grants)
+
+| Kind | Description |
+|---|---|
+| `alter_object_owner` | `ALTER <kind> <qname> OWNER TO <new_owner>`. |
+| `grant_object_privilege` | `GRANT <priv> ON <kind> <qname> TO <grantee> [WITH GRANT OPTION]`. |
+| `revoke_object_privilege` | `REVOKE <priv> ON <kind> <qname> FROM <grantee>`. |
+| `grant_column_privilege` | `GRANT <priv> (<col>, …) ON TABLE <qname> TO <grantee> [WITH GRANT OPTION]`. |
+| `revoke_column_privilege` | `REVOKE <priv> (<col>, …) ON TABLE <qname> FROM <grantee>`. |
+| `alter_default_privileges` | `ALTER DEFAULT PRIVILEGES FOR ROLE <x> [IN SCHEMA <y>] GRANT/REVOKE <priv> ON … TO/FROM <z>`. |
+
+### Step kinds — v0.3.2 additions (row-level security)
+
+| Kind | Description |
+|---|---|
+| `create_policy` | `CREATE POLICY <name> ON <table> …`. |
+| `drop_policy` | `DROP POLICY <name> ON <table>`. |
+| `alter_policy` | `ALTER POLICY <name> ON <table> TO … USING (…) WITH CHECK (…)`. |
+| `set_table_row_security` | `ALTER TABLE <qname> { ENABLE \| DISABLE } ROW LEVEL SECURITY`. |
+| `set_table_force_row_security` | `ALTER TABLE <qname> { FORCE \| NO FORCE } ROW LEVEL SECURITY`. |
+
+### Step kinds — v0.3.3 additions (storage reloptions)
+
+| Kind | Description |
+|---|---|
+| `set_table_storage` | `ALTER TABLE <qname> SET (fillfactor = …, autovacuum_* = …, …)`. Batched per object. |
+| `set_index_storage` | `ALTER INDEX <qname> SET (fillfactor = …, …)`. |
+| `set_materialized_view_storage` | `ALTER MATERIALIZED VIEW <qname> SET (fillfactor = …, …)`. |
+
 ## `intent.toml`
 
 ```toml
@@ -183,7 +239,7 @@ suppress = true
 ```toml
 plan_id                 = "abc1234567890123"
 plan_hash               = "abc1234567890123…"  # full 64-char hex
-pgevolve_version        = "0.1.0"
+pgevolve_version        = "0.3.3"
 planner_ruleset_version = 1
 source_rev              = "git:c0ffeeabc"
 target_identity         = "tid-xyz"
@@ -204,8 +260,8 @@ target_snapshot_json    = "..."                # embedded pre-image catalog as p
 
 ## Round-trip property
 
-`Plan::write_to_dir(p, dir); Plan::read_from_dir(dir) == p` — modulo
-the grafted `destructive_reason` (which lives in `intent.toml`, not in
+`write_plan_dir(&p, dir); read_plan_dir(dir) == p` — modulo the
+grafted `destructive_reason` (which lives in `intent.toml`, not in
 `plan.sql`). The round-trip is property-tested over random catalogs.
 
 ## What pgevolve does and does NOT touch

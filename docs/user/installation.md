@@ -1,6 +1,6 @@
 # Installation
 
-v0.1 is pre-release; the only supported install is from source.
+v0.3.x is pre-release; the only supported install is from source.
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ end-to-end:
 ```sh
 cd /tmp/pgevolve-smoke
 echo '[shadow]
-provider         = "testcontainers"
+backend          = "testcontainers"
 postgres_version = "16"' >> pgevolve.toml
 mkdir -p schema/app
 cat > schema/app/0001-init.sql <<'SQL'
@@ -62,7 +62,7 @@ pgevolve validate --shadow
 
 ## Upgrading
 
-Until v0.1 ships, upgrade by pulling and rebuilding:
+Until a stable release ships, upgrade by pulling and rebuilding:
 
 ```sh
 cd pgevolve
@@ -76,6 +76,7 @@ that touches the DB, so there's no separate migration step on upgrade.
 
 ## Pre-built binaries / package managers
 
-Not yet published. v0.1.0 will ship GitHub-release binaries for at least
-Linux x86_64 and macOS arm64. Homebrew, Cargo (`cargo install
-pgevolve`), and a Docker image are planned but not yet committed.
+Not yet published. The first stable release will ship GitHub-release
+binaries for at least Linux x86_64 and macOS arm64. Homebrew, Cargo
+(`cargo install pgevolve`), and a Docker image are planned but not
+yet committed.
