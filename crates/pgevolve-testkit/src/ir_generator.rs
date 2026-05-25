@@ -446,7 +446,7 @@ fn arbitrary_non_pk_column() -> impl Strategy<Value = Column> {
         any::<bool>(),
     )
         .prop_flat_map(|(name, ty, nullable)| {
-            (arb_storage(&ty), arb_compression()).prop_map(move |(storage, compression)| Column {
+            (arb_storage(&ty), arb_compression(&ty)).prop_map(move |(storage, compression)| Column {
                 name: name.clone(),
                 ty: ty.clone(),
                 nullable,
@@ -482,17 +482,24 @@ fn arb_storage(ty: &ColumnType) -> BoxedStrategy<Option<StorageKind>> {
     }
 }
 
-/// Generate a random `COMPRESSION` strategy (type-independent).
+/// Generate a random `COMPRESSION` strategy that is type-aware.
 ///
-/// Picks uniformly from `{None, Pglz, Lz4}`. The caller is responsible for
-/// only applying compression to columns that support it (toastable types);
-/// for fixed-width columns this value is ignored by the differ and planner.
-fn arb_compression() -> impl Strategy<Value = Option<Compression>> {
-    prop_oneof![
-        Just(None),
-        Just(Some(Compression::Pglz)),
-        Just(Some(Compression::Lz4)),
-    ]
+/// Postgres rejects `COMPRESSION` on column types that aren't TOAST-able
+/// (`column data type X does not support compression`). Mirrors
+/// [`arb_storage`]: toastable types may carry any compression codec or
+/// `None`; fixed-width types only yield `None`.
+fn arb_compression(ty: &ColumnType) -> BoxedStrategy<Option<Compression>> {
+    let is_toastable = !matches!(type_default_storage(ty), StorageKind::Plain);
+    if is_toastable {
+        prop_oneof![
+            Just(None),
+            Just(Some(Compression::Pglz)),
+            Just(Some(Compression::Lz4)),
+        ]
+        .boxed()
+    } else {
+        Just(None).boxed()
+    }
 }
 
 // ---------------------------------------------------------------------------
