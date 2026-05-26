@@ -130,6 +130,9 @@ fn default_plan_dir() -> PathBuf {
 fn default_layout_profile() -> String {
     "schema-mirror".into()
 }
+fn default_min_pg_version() -> u32 {
+    14
+}
 
 /// `[managed]` section.
 #[derive(Debug, Default, Deserialize)]
@@ -140,6 +143,13 @@ pub struct ManagedConfig {
     /// Glob patterns of objects to ignore even within managed schemas.
     #[serde(default)]
     pub ignore_objects: Vec<String>,
+    /// Minimum Postgres major version the project targets. Default 14.
+    /// Used to gate PG-version-specific source features (e.g., publication
+    /// row filters require PG 15+). When source uses a feature newer than
+    /// `min_pg_version`, lint fires `publication-feature-requires-pg-version`
+    /// (Error) instead of letting the apply hit a Postgres syntax error.
+    #[serde(default = "default_min_pg_version")]
+    pub min_pg_version: u32,
 }
 
 /// `[planner]` section.
@@ -348,5 +358,27 @@ mod tests {
         let f = write_tmp("[project]\nname=\"x\"\n");
         let cfg = load(f.path()).unwrap();
         assert!(cfg.cluster.is_none());
+    }
+
+    #[test]
+    fn min_pg_version_defaults_to_14() {
+        let f = write_tmp(
+            "[project]\nname=\"t\"\nschema_dir=\"schema\"\nplan_dir=\"plans\"\n\
+             [managed]\nschemas=[\"app\"]\n\
+             [environments.dev]\nurl=\"postgres://localhost\"\n",
+        );
+        let cfg = load(f.path()).unwrap();
+        assert_eq!(cfg.managed.min_pg_version, 14);
+    }
+
+    #[test]
+    fn min_pg_version_can_be_raised() {
+        let f = write_tmp(
+            "[project]\nname=\"t\"\nschema_dir=\"schema\"\nplan_dir=\"plans\"\n\
+             [managed]\nschemas=[\"app\"]\nmin_pg_version=16\n\
+             [environments.dev]\nurl=\"postgres://localhost\"\n",
+        );
+        let cfg = load(f.path()).unwrap();
+        assert_eq!(cfg.managed.min_pg_version, 16);
     }
 }

@@ -42,6 +42,7 @@ ignore_objects = ["app.legacy_etl_*", "billing.audit_*"]
 |---|---|---|
 | `schemas` | `[]` | List of schema names pgevolve is responsible for. **Anything outside this list is ignored** by `diff`, `plan`, and `apply`. An empty list means "no schemas are managed" (lint will not enforce schema match). |
 | `ignore_objects` | `[]` | Qname or glob patterns to exclude even within managed schemas. Useful for legacy tables that aren't yet pgevolve-controlled. |
+| `min_pg_version` | `14` | Minimum PG major version the project targets. Gates PG-version-specific source features (e.g., publication row filters need PG 15+). |
 
 > **The `[managed]` filter is the safety net.** Even if your source tree
 > declares only one table, an unfiltered apply would emit drops for
