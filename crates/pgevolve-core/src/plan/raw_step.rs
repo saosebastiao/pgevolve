@@ -224,6 +224,30 @@ pub enum StepKind {
     SetIndexStorage,
     /// `ALTER MATERIALIZED VIEW qname SET (fillfactor = …, …)`.
     SetMaterializedViewStorage,
+
+    // --- v0.3.4 publication step kinds ---
+    /// `CREATE PUBLICATION …`.
+    CreatePublication,
+    /// `DROP PUBLICATION …`. Destructive (intent required).
+    DropPublication,
+    /// `DROP PUBLICATION old; CREATE PUBLICATION new;` — mode swap. Destructive.
+    ReplacePublication,
+    /// `ALTER PUBLICATION p ADD TABLE x [(cols)] [WHERE (filter)]`.
+    AlterPublicationAddTable,
+    /// `ALTER PUBLICATION p DROP TABLE x`.
+    AlterPublicationDropTable,
+    /// `ALTER PUBLICATION p SET TABLE x (cols) WHERE (filter)`.
+    AlterPublicationSetTable,
+    /// `ALTER PUBLICATION p ADD TABLES IN SCHEMA s` (PG 15+).
+    AlterPublicationAddSchema,
+    /// `ALTER PUBLICATION p DROP TABLES IN SCHEMA s` (PG 15+).
+    AlterPublicationDropSchema,
+    /// `ALTER PUBLICATION p SET (publish = '...')`.
+    AlterPublicationSetPublish,
+    /// `ALTER PUBLICATION p SET (publish_via_partition_root = ...)`.
+    AlterPublicationSetViaRoot,
+    /// `COMMENT ON PUBLICATION p IS '...'`.
+    CommentOnPublication,
 }
 
 /// One unit of work the executor will attempt.
@@ -348,6 +372,17 @@ mod tests {
             StepKind::SetTableStorage,
             StepKind::SetIndexStorage,
             StepKind::SetMaterializedViewStorage,
+            StepKind::CreatePublication,
+            StepKind::DropPublication,
+            StepKind::ReplacePublication,
+            StepKind::AlterPublicationAddTable,
+            StepKind::AlterPublicationDropTable,
+            StepKind::AlterPublicationSetTable,
+            StepKind::AlterPublicationAddSchema,
+            StepKind::AlterPublicationDropSchema,
+            StepKind::AlterPublicationSetPublish,
+            StepKind::AlterPublicationSetViaRoot,
+            StepKind::CommentOnPublication,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

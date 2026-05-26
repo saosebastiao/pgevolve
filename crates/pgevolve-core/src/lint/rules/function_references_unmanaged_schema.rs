@@ -47,6 +47,9 @@ pub fn check(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Finding> {
                 | NodeId::Function(q, _) => q.schema.as_str(),
                 NodeId::Schema(s) | NodeId::Extension(s) => s.as_str(),
                 NodeId::Constraint { table, .. } => table.schema.as_str(),
+                // Publications are not schema-qualified and cannot appear as
+                // function body dependency targets; skip.
+                NodeId::Publication(_) => continue,
             };
 
             if BUILTIN_SCHEMAS.contains(&target_schema) {

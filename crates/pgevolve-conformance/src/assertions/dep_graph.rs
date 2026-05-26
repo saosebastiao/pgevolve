@@ -100,6 +100,7 @@ fn node_label(n: &NodeId) -> String {
         NodeId::Procedure(q) => format!("procedure:{q}"),
         NodeId::Extension(n) => format!("extension:{}", n.as_str()),
         NodeId::Trigger(q) => format!("trigger:{q}"),
+        NodeId::Publication(n) => format!("publication:{}", n.as_str()),
     }
 }
 

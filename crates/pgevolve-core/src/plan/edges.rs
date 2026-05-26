@@ -61,6 +61,9 @@ pub enum NodeId {
     Extension(Identifier),
     /// A trigger (qname unique within schema).
     Trigger(QualifiedName),
+    /// A publication (not schema-qualified — publications are a per-database
+    /// global namespace).
+    Publication(Identifier),
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.
@@ -153,6 +156,22 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
                 NodeId::Extension(e.name.clone()),
                 NodeId::Schema(schema.clone()),
             );
+        }
+    }
+    // Register publications. For Selective publications, add edges from each
+    // referenced table and schema to the publication node so publications are
+    // ordered after their dependencies. AllTables publications have no explicit
+    // edges; they are ordered by tier rule.
+    for p in &catalog.publications {
+        let pub_node = NodeId::Publication(p.name.clone());
+        g.add_node(pub_node.clone());
+        if let crate::ir::publication::PublicationScope::Selective { schemas, tables } = &p.scope {
+            for t in tables {
+                g.add_edge(pub_node.clone(), NodeId::Table(t.qname.clone()));
+            }
+            for s in schemas {
+                g.add_edge(pub_node.clone(), NodeId::Schema(s.clone()));
+            }
         }
     }
 

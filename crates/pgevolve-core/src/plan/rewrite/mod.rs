@@ -24,6 +24,7 @@ pub mod functions;
 pub mod grants;
 pub mod partitions;
 pub mod policies;
+pub mod publications;
 pub mod refresh_mv_concurrently;
 pub mod reloptions;
 pub mod set_not_null_check_pattern;
@@ -380,19 +381,157 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
-        // Publication changes: real emit lands in Stage 8.
-        Change::CreatePublication(_)
-        | Change::DropPublication { .. }
-        | Change::ReplacePublication { .. }
-        | Change::AlterPublicationAddTable { .. }
-        | Change::AlterPublicationDropTable { .. }
-        | Change::AlterPublicationSetTable { .. }
-        | Change::AlterPublicationAddSchema { .. }
-        | Change::AlterPublicationDropSchema { .. }
-        | Change::AlterPublicationSetPublish { .. }
-        | Change::AlterPublicationSetViaRoot { .. }
-        | Change::CommentOnPublication { .. } => {
-            // Stage 8 fills this in.
+        Change::CreatePublication(p) => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::CreatePublication,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: publications::create_publication(&p),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+            // Follow-up COMMENT step if a comment is present.
+            if let Some(c) = &p.comment {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: crate::plan::raw_step::StepKind::CommentOnPublication,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![],
+                    sql: publications::comment_on_publication(&p.name, Some(c)),
+                    transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                });
+            }
+        }
+        Change::DropPublication { name } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::DropPublication,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![],
+                sql: publications::drop_publication(&name),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::ReplacePublication { from, to } => {
+            let [drop_sql, create_sql] = publications::replace_publication(&from, &to);
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::ReplacePublication,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![],
+                sql: format!("{drop_sql}\n{create_sql}"),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterPublicationAddTable { publication, table } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterPublicationAddTable,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![table.qname.clone()],
+                sql: publications::alter_publication_add_table(&publication, &table),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterPublicationDropTable { publication, qname } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterPublicationDropTable,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: publications::alter_publication_drop_table(&publication, &qname),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterPublicationSetTable { publication, table } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterPublicationSetTable,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![table.qname.clone()],
+                sql: publications::alter_publication_set_table(&publication, &table),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterPublicationAddSchema {
+            publication,
+            schema,
+        } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterPublicationAddSchema,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: publications::alter_publication_add_schema(&publication, &schema),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterPublicationDropSchema {
+            publication,
+            schema,
+        } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterPublicationDropSchema,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: publications::alter_publication_drop_schema(&publication, &schema),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterPublicationSetPublish { publication, kinds } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterPublicationSetPublish,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: publications::alter_publication_set_publish(&publication, kinds),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterPublicationSetViaRoot { publication, value } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterPublicationSetViaRoot,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: publications::alter_publication_set_via_root(&publication, value),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::CommentOnPublication { name, comment } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::CommentOnPublication,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: publications::comment_on_publication(&name, comment.as_deref()),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
         }
 
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.

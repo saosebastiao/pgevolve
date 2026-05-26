@@ -484,16 +484,12 @@ fn change_node(change: &Change) -> NodeId {
         Change::SetTableStorage { qname, .. } => NodeId::Table(qname.clone()),
         Change::SetIndexStorage { qname, .. } => NodeId::Index(qname.clone()),
         Change::SetMaterializedViewStorage { qname, .. } => NodeId::Mv(qname.clone()),
-        // Publication changes: use a synthetic Schema node keyed by publication
-        // name as a stable ordering anchor (same pattern as AlterDefaultPrivileges
-        // uses Schema keyed by target_role). Publications are not schema-qualified;
-        // the `__cluster__` schema prefix keeps the NodeId unique across families.
-        // Stage 8 will wire real NodeId::Publication dep edges.
-        Change::CreatePublication(p) => NodeId::Schema(p.name.clone()),
+        // Publication changes: use NodeId::Publication keyed by publication name.
+        Change::CreatePublication(p) => NodeId::Publication(p.name.clone()),
         Change::DropPublication { name } | Change::CommentOnPublication { name, .. } => {
-            NodeId::Schema(name.clone())
+            NodeId::Publication(name.clone())
         }
-        Change::ReplacePublication { to, .. } => NodeId::Schema(to.name.clone()),
+        Change::ReplacePublication { to, .. } => NodeId::Publication(to.name.clone()),
         Change::AlterPublicationAddTable { publication, .. }
         | Change::AlterPublicationDropTable { publication, .. }
         | Change::AlterPublicationSetTable { publication, .. }
@@ -501,7 +497,7 @@ fn change_node(change: &Change) -> NodeId {
         | Change::AlterPublicationDropSchema { publication, .. }
         | Change::AlterPublicationSetPublish { publication, .. }
         | Change::AlterPublicationSetViaRoot { publication, .. } => {
-            NodeId::Schema(publication.clone())
+            NodeId::Publication(publication.clone())
         }
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
@@ -587,6 +583,7 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Procedure(q) => format!("procedure:{q}"),
         NodeId::Extension(name) => format!("extension:{name}"),
         NodeId::Trigger(q) => format!("trigger:{q}"),
+        NodeId::Publication(name) => format!("publication:{name}"),
         NodeId::Function(q, args) => format!(
             "function:{}({})",
             q,

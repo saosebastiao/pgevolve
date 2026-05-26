@@ -403,6 +403,17 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::SetTableStorage => "set_table_storage",
         K::SetIndexStorage => "set_index_storage",
         K::SetMaterializedViewStorage => "set_materialized_view_storage",
+        K::CreatePublication => "create_publication",
+        K::DropPublication => "drop_publication",
+        K::ReplacePublication => "replace_publication",
+        K::AlterPublicationAddTable => "alter_publication_add_table",
+        K::AlterPublicationDropTable => "alter_publication_drop_table",
+        K::AlterPublicationSetTable => "alter_publication_set_table",
+        K::AlterPublicationAddSchema => "alter_publication_add_schema",
+        K::AlterPublicationDropSchema => "alter_publication_drop_schema",
+        K::AlterPublicationSetPublish => "alter_publication_set_publish",
+        K::AlterPublicationSetViaRoot => "alter_publication_set_via_root",
+        K::CommentOnPublication => "comment_on_publication",
     }
 }
 
@@ -493,6 +504,17 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "set_table_storage" => K::SetTableStorage,
         "set_index_storage" => K::SetIndexStorage,
         "set_materialized_view_storage" => K::SetMaterializedViewStorage,
+        "create_publication" => K::CreatePublication,
+        "drop_publication" => K::DropPublication,
+        "replace_publication" => K::ReplacePublication,
+        "alter_publication_add_table" => K::AlterPublicationAddTable,
+        "alter_publication_drop_table" => K::AlterPublicationDropTable,
+        "alter_publication_set_table" => K::AlterPublicationSetTable,
+        "alter_publication_add_schema" => K::AlterPublicationAddSchema,
+        "alter_publication_drop_schema" => K::AlterPublicationDropSchema,
+        "alter_publication_set_publish" => K::AlterPublicationSetPublish,
+        "alter_publication_set_via_root" => K::AlterPublicationSetViaRoot,
+        "comment_on_publication" => K::CommentOnPublication,
         _ => return None,
     })
 }

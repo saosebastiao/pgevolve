@@ -83,6 +83,13 @@ pub async fn run(args: DiffArgs, cfg: &PgevolveConfig, format: OutputFormat) -> 
     Ok(0)
 }
 
+const fn scope_name(s: &pgevolve_core::ir::publication::PublicationScope) -> &'static str {
+    match s {
+        pgevolve_core::ir::publication::PublicationScope::AllTables => "AllTables",
+        pgevolve_core::ir::publication::PublicationScope::Selective { .. } => "Selective",
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
     if changes.is_empty() {
@@ -431,22 +438,26 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
             pgevolve_core::diff::change::Change::UnsupportedDiff { reason } => {
                 println!("      unsupported diff: {reason}");
             }
-            // Publication changes: real display lands in Stage 8.
             pgevolve_core::diff::change::Change::CreatePublication(p) => {
-                println!("      + CREATE PUBLICATION {} (stub)", p.name);
+                println!("      + CREATE PUBLICATION {}", p.name);
             }
             pgevolve_core::diff::change::Change::DropPublication { name } => {
-                println!("      - DROP PUBLICATION {name} (stub)");
+                println!("      - DROP PUBLICATION {name}");
             }
-            pgevolve_core::diff::change::Change::ReplacePublication { to, .. } => {
-                println!("      ~ REPLACE PUBLICATION {} (stub)", to.name);
+            pgevolve_core::diff::change::Change::ReplacePublication { from, to } => {
+                println!(
+                    "      ~ REPLACE PUBLICATION {} (mode {} -> {})",
+                    from.name,
+                    scope_name(&from.scope),
+                    scope_name(&to.scope),
+                );
             }
             pgevolve_core::diff::change::Change::AlterPublicationAddTable {
                 publication,
                 table,
             } => {
                 println!(
-                    "      ~ ALTER PUBLICATION {publication} ADD TABLE {} (stub)",
+                    "      ~ ALTER PUBLICATION {publication} ADD TABLE {}",
                     table.qname
                 );
             }
@@ -454,14 +465,14 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                 publication,
                 qname,
             } => {
-                println!("      ~ ALTER PUBLICATION {publication} DROP TABLE {qname} (stub)");
+                println!("      ~ ALTER PUBLICATION {publication} DROP TABLE {qname}");
             }
             pgevolve_core::diff::change::Change::AlterPublicationSetTable {
                 publication,
                 table,
             } => {
                 println!(
-                    "      ~ ALTER PUBLICATION {publication} SET TABLE {} (stub)",
+                    "      ~ ALTER PUBLICATION {publication} SET TABLE {}",
                     table.qname
                 );
             }
@@ -469,33 +480,29 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                 publication,
                 schema,
             } => {
-                println!(
-                    "      ~ ALTER PUBLICATION {publication} ADD TABLES IN SCHEMA {schema} (stub)"
-                );
+                println!("      ~ ALTER PUBLICATION {publication} ADD TABLES IN SCHEMA {schema}");
             }
             pgevolve_core::diff::change::Change::AlterPublicationDropSchema {
                 publication,
                 schema,
             } => {
-                println!(
-                    "      ~ ALTER PUBLICATION {publication} DROP TABLES IN SCHEMA {schema} (stub)"
-                );
+                println!("      ~ ALTER PUBLICATION {publication} DROP TABLES IN SCHEMA {schema}");
             }
             pgevolve_core::diff::change::Change::AlterPublicationSetPublish {
                 publication, ..
             } => {
-                println!("      ~ ALTER PUBLICATION {publication} SET (publish=...) (stub)");
+                println!("      ~ ALTER PUBLICATION {publication} SET (publish = ...)");
             }
             pgevolve_core::diff::change::Change::AlterPublicationSetViaRoot {
                 publication,
                 value,
             } => {
                 println!(
-                    "      ~ ALTER PUBLICATION {publication} SET (publish_via_partition_root={value}) (stub)"
+                    "      ~ ALTER PUBLICATION {publication} SET (publish_via_partition_root = {value})"
                 );
             }
             pgevolve_core::diff::change::Change::CommentOnPublication { name, .. } => {
-                println!("      ~ COMMENT ON PUBLICATION {name} (stub)");
+                println!("      ~ COMMENT ON PUBLICATION {name}");
             }
         }
     }
@@ -684,16 +691,16 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::SetIndexStorage { .. } => "SetIndexStorage",
         Change::SetMaterializedViewStorage { .. } => "SetMaterializedViewStorage",
         Change::UnsupportedDiff { .. } => "UnsupportedDiff",
-        Change::CreatePublication(_) => "CreatePublication",
-        Change::DropPublication { .. } => "DropPublication",
-        Change::ReplacePublication { .. } => "ReplacePublication",
-        Change::AlterPublicationAddTable { .. } => "AlterPublicationAddTable",
-        Change::AlterPublicationDropTable { .. } => "AlterPublicationDropTable",
-        Change::AlterPublicationSetTable { .. } => "AlterPublicationSetTable",
-        Change::AlterPublicationAddSchema { .. } => "AlterPublicationAddSchema",
-        Change::AlterPublicationDropSchema { .. } => "AlterPublicationDropSchema",
-        Change::AlterPublicationSetPublish { .. } => "AlterPublicationSetPublish",
-        Change::AlterPublicationSetViaRoot { .. } => "AlterPublicationSetViaRoot",
-        Change::CommentOnPublication { .. } => "CommentOnPublication",
+        Change::CreatePublication(_) => "create_publication",
+        Change::DropPublication { .. } => "drop_publication",
+        Change::ReplacePublication { .. } => "replace_publication",
+        Change::AlterPublicationAddTable { .. } => "alter_publication_add_table",
+        Change::AlterPublicationDropTable { .. } => "alter_publication_drop_table",
+        Change::AlterPublicationSetTable { .. } => "alter_publication_set_table",
+        Change::AlterPublicationAddSchema { .. } => "alter_publication_add_schema",
+        Change::AlterPublicationDropSchema { .. } => "alter_publication_drop_schema",
+        Change::AlterPublicationSetPublish { .. } => "alter_publication_set_publish",
+        Change::AlterPublicationSetViaRoot { .. } => "alter_publication_set_via_root",
+        Change::CommentOnPublication { .. } => "comment_on_publication",
     }
 }
