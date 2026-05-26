@@ -380,6 +380,21 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
+        // Publication changes: real emit lands in Stage 8.
+        Change::CreatePublication(_)
+        | Change::DropPublication { .. }
+        | Change::ReplacePublication { .. }
+        | Change::AlterPublicationAddTable { .. }
+        | Change::AlterPublicationDropTable { .. }
+        | Change::AlterPublicationSetTable { .. }
+        | Change::AlterPublicationAddSchema { .. }
+        | Change::AlterPublicationDropSchema { .. }
+        | Change::AlterPublicationSetPublish { .. }
+        | Change::AlterPublicationSetViaRoot { .. }
+        | Change::CommentOnPublication { .. } => {
+            // Stage 8 fills this in.
+        }
+
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach the rewrite phase")

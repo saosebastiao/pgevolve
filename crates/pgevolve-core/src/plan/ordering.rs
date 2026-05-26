@@ -229,7 +229,8 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::CreateIndex(_)
             | Change::CreateSequence(_)
             | Change::View(ViewChange::Create(_))
-            | Change::Mv(MvChange::Create(_)) => creates.push(entry),
+            | Change::Mv(MvChange::Create(_))
+            | Change::CreatePublication(_) => creates.push(entry),
             // Drops: ordered by reverse-dependency (deepest dependents first).
             Change::DropSchema(_)
             | Change::DropTable { .. }
@@ -329,8 +330,21 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::SetTableForceRowSecurity { .. }
             | Change::SetTableStorage { .. }
             | Change::SetIndexStorage { .. }
-            | Change::SetMaterializedViewStorage { .. } => {
+            | Change::SetMaterializedViewStorage { .. }
+            // Publication alter/comment changes: metadata-only, always modifies.
+            | Change::AlterPublicationAddTable { .. }
+            | Change::AlterPublicationDropTable { .. }
+            | Change::AlterPublicationSetTable { .. }
+            | Change::AlterPublicationAddSchema { .. }
+            | Change::AlterPublicationDropSchema { .. }
+            | Change::AlterPublicationSetPublish { .. }
+            | Change::AlterPublicationSetViaRoot { .. }
+            | Change::CommentOnPublication { .. } => {
                 modifies.push(entry);
+            }
+            // Publication drops/replaces: destructive, goes in drops bucket.
+            Change::DropPublication { .. } | Change::ReplacePublication { .. } => {
+                drops.push(entry);
             }
             // UnsupportedDiff: abort the plan immediately.
             Change::UnsupportedDiff { reason } => {
@@ -470,6 +484,25 @@ fn change_node(change: &Change) -> NodeId {
         Change::SetTableStorage { qname, .. } => NodeId::Table(qname.clone()),
         Change::SetIndexStorage { qname, .. } => NodeId::Index(qname.clone()),
         Change::SetMaterializedViewStorage { qname, .. } => NodeId::Mv(qname.clone()),
+        // Publication changes: use a synthetic Schema node keyed by publication
+        // name as a stable ordering anchor (same pattern as AlterDefaultPrivileges
+        // uses Schema keyed by target_role). Publications are not schema-qualified;
+        // the `__cluster__` schema prefix keeps the NodeId unique across families.
+        // Stage 8 will wire real NodeId::Publication dep edges.
+        Change::CreatePublication(p) => NodeId::Schema(p.name.clone()),
+        Change::DropPublication { name } | Change::CommentOnPublication { name, .. } => {
+            NodeId::Schema(name.clone())
+        }
+        Change::ReplacePublication { to, .. } => NodeId::Schema(to.name.clone()),
+        Change::AlterPublicationAddTable { publication, .. }
+        | Change::AlterPublicationDropTable { publication, .. }
+        | Change::AlterPublicationSetTable { publication, .. }
+        | Change::AlterPublicationAddSchema { publication, .. }
+        | Change::AlterPublicationDropSchema { publication, .. }
+        | Change::AlterPublicationSetPublish { publication, .. }
+        | Change::AlterPublicationSetViaRoot { publication, .. } => {
+            NodeId::Schema(publication.clone())
+        }
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")

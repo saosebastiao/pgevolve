@@ -23,6 +23,7 @@ pub mod grants;
 pub mod indexes;
 pub mod owner_op;
 pub mod policies;
+pub mod publications;
 pub mod reloptions;
 pub mod routines;
 pub mod schemas;
@@ -112,6 +113,7 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
         &managed_roles,
     );
     triggers::diff_triggers(&target.triggers, &source.triggers, &mut out);
+    publications::diff_publications(target, source, &mut out);
 
     // ---- default-privileges diff ----
     let dp_changes = default_privileges::diff_default_privileges(

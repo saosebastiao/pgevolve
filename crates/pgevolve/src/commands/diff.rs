@@ -431,6 +431,72 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
             pgevolve_core::diff::change::Change::UnsupportedDiff { reason } => {
                 println!("      unsupported diff: {reason}");
             }
+            // Publication changes: real display lands in Stage 8.
+            pgevolve_core::diff::change::Change::CreatePublication(p) => {
+                println!("      + CREATE PUBLICATION {} (stub)", p.name);
+            }
+            pgevolve_core::diff::change::Change::DropPublication { name } => {
+                println!("      - DROP PUBLICATION {name} (stub)");
+            }
+            pgevolve_core::diff::change::Change::ReplacePublication { to, .. } => {
+                println!("      ~ REPLACE PUBLICATION {} (stub)", to.name);
+            }
+            pgevolve_core::diff::change::Change::AlterPublicationAddTable {
+                publication,
+                table,
+            } => {
+                println!(
+                    "      ~ ALTER PUBLICATION {publication} ADD TABLE {} (stub)",
+                    table.qname
+                );
+            }
+            pgevolve_core::diff::change::Change::AlterPublicationDropTable {
+                publication,
+                qname,
+            } => {
+                println!("      ~ ALTER PUBLICATION {publication} DROP TABLE {qname} (stub)");
+            }
+            pgevolve_core::diff::change::Change::AlterPublicationSetTable {
+                publication,
+                table,
+            } => {
+                println!(
+                    "      ~ ALTER PUBLICATION {publication} SET TABLE {} (stub)",
+                    table.qname
+                );
+            }
+            pgevolve_core::diff::change::Change::AlterPublicationAddSchema {
+                publication,
+                schema,
+            } => {
+                println!(
+                    "      ~ ALTER PUBLICATION {publication} ADD TABLES IN SCHEMA {schema} (stub)"
+                );
+            }
+            pgevolve_core::diff::change::Change::AlterPublicationDropSchema {
+                publication,
+                schema,
+            } => {
+                println!(
+                    "      ~ ALTER PUBLICATION {publication} DROP TABLES IN SCHEMA {schema} (stub)"
+                );
+            }
+            pgevolve_core::diff::change::Change::AlterPublicationSetPublish {
+                publication, ..
+            } => {
+                println!("      ~ ALTER PUBLICATION {publication} SET (publish=...) (stub)");
+            }
+            pgevolve_core::diff::change::Change::AlterPublicationSetViaRoot {
+                publication,
+                value,
+            } => {
+                println!(
+                    "      ~ ALTER PUBLICATION {publication} SET (publish_via_partition_root={value}) (stub)"
+                );
+            }
+            pgevolve_core::diff::change::Change::CommentOnPublication { name, .. } => {
+                println!("      ~ COMMENT ON PUBLICATION {name} (stub)");
+            }
         }
     }
 }
@@ -618,5 +684,16 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::SetIndexStorage { .. } => "SetIndexStorage",
         Change::SetMaterializedViewStorage { .. } => "SetMaterializedViewStorage",
         Change::UnsupportedDiff { .. } => "UnsupportedDiff",
+        Change::CreatePublication(_) => "CreatePublication",
+        Change::DropPublication { .. } => "DropPublication",
+        Change::ReplacePublication { .. } => "ReplacePublication",
+        Change::AlterPublicationAddTable { .. } => "AlterPublicationAddTable",
+        Change::AlterPublicationDropTable { .. } => "AlterPublicationDropTable",
+        Change::AlterPublicationSetTable { .. } => "AlterPublicationSetTable",
+        Change::AlterPublicationAddSchema { .. } => "AlterPublicationAddSchema",
+        Change::AlterPublicationDropSchema { .. } => "AlterPublicationDropSchema",
+        Change::AlterPublicationSetPublish { .. } => "AlterPublicationSetPublish",
+        Change::AlterPublicationSetViaRoot { .. } => "AlterPublicationSetViaRoot",
+        Change::CommentOnPublication { .. } => "CommentOnPublication",
     }
 }

@@ -277,6 +277,78 @@ pub enum Change {
         options: crate::ir::reloptions::TableStorageOptions,
     },
 
+    /// `CREATE PUBLICATION ...`
+    CreatePublication(crate::ir::publication::Publication),
+    /// `DROP PUBLICATION ...` — destructive.
+    DropPublication {
+        /// Publication name.
+        name: crate::identifier::Identifier,
+    },
+    /// `DROP PUBLICATION old; CREATE PUBLICATION new;` — destructive; used
+    /// when the publication's scope mode switches (`AllTables` ↔ `Selective`).
+    ReplacePublication {
+        /// The publication as it exists in the target.
+        from: crate::ir::publication::Publication,
+        /// The publication as it should exist in the source.
+        to: crate::ir::publication::Publication,
+    },
+    /// `ALTER PUBLICATION p ADD TABLE x [(cols)] [WHERE (filter)]`
+    AlterPublicationAddTable {
+        /// Publication name.
+        publication: crate::identifier::Identifier,
+        /// The table entry to add.
+        table: crate::ir::publication::PublishedTable,
+    },
+    /// `ALTER PUBLICATION p DROP TABLE x`
+    AlterPublicationDropTable {
+        /// Publication name.
+        publication: crate::identifier::Identifier,
+        /// Qualified name of the table to drop.
+        qname: crate::identifier::QualifiedName,
+    },
+    /// `ALTER PUBLICATION p SET TABLE x (cols) WHERE (filter)`
+    AlterPublicationSetTable {
+        /// Publication name.
+        publication: crate::identifier::Identifier,
+        /// The desired table entry state.
+        table: crate::ir::publication::PublishedTable,
+    },
+    /// `ALTER PUBLICATION p ADD TABLES IN SCHEMA s` (PG15+)
+    AlterPublicationAddSchema {
+        /// Publication name.
+        publication: crate::identifier::Identifier,
+        /// Schema to add.
+        schema: crate::identifier::Identifier,
+    },
+    /// `ALTER PUBLICATION p DROP TABLES IN SCHEMA s` (PG15+)
+    AlterPublicationDropSchema {
+        /// Publication name.
+        publication: crate::identifier::Identifier,
+        /// Schema to drop.
+        schema: crate::identifier::Identifier,
+    },
+    /// `ALTER PUBLICATION p SET (publish = '...')`
+    AlterPublicationSetPublish {
+        /// Publication name.
+        publication: crate::identifier::Identifier,
+        /// Desired publish-kinds bitset.
+        kinds: crate::ir::publication::PublishKinds,
+    },
+    /// `ALTER PUBLICATION p SET (publish_via_partition_root = ...)`
+    AlterPublicationSetViaRoot {
+        /// Publication name.
+        publication: crate::identifier::Identifier,
+        /// Desired value.
+        value: bool,
+    },
+    /// `COMMENT ON PUBLICATION p IS '...'`
+    CommentOnPublication {
+        /// Publication name.
+        name: crate::identifier::Identifier,
+        /// New comment value (`None` clears the comment).
+        comment: Option<String>,
+    },
+
     /// A change that cannot be performed in-place.
     ///
     /// Emitted by the differ when it detects a structural difference that has
