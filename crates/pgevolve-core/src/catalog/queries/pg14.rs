@@ -4,6 +4,37 @@
 //! is omitted from the SELECT list and the IR field defaults to `false` at
 //! assembly time.
 
+/// Per-table publication entries for PG 14.
+///
+/// PG 14 lacks `prqual` (added PG 15) and `prattrs` (added PG 15). Both are
+/// returned as NULL so the decoder produces `row_filter = None` and
+/// `col_attnums = None` for every row, which maps to "publish all columns,
+/// no row filter".
+pub const PUBLICATION_REL_QUERY_PG14: &str = "\
+    SELECT \
+        pr.prpubid::bigint AS pub_oid, \
+        ns.nspname::text AS schema, \
+        c.relname::text AS table_name, \
+        NULL::text AS row_filter, \
+        NULL::int8[] AS col_attnums, \
+        c.oid::bigint AS rel_oid \
+    FROM pg_publication_rel pr \
+    JOIN pg_class c ON c.oid = pr.prrelid \
+    JOIN pg_namespace ns ON ns.oid = c.relnamespace \
+    ORDER BY pr.prpubid, ns.nspname, c.relname";
+
+/// PG 14 has no `pg_publication_namespace` (added PG 15). Returns no rows.
+pub const PUBLICATION_NAMESPACE_QUERY_PG14: &str =
+    "SELECT NULL::bigint AS pub_oid, NULL::text AS schema WHERE false";
+
+/// PG 14 publication attributes query.
+///
+/// PG 14 lacks `prattrs` in `pg_publication_rel`; since no column list is
+/// ever present, this returns an empty result — the assembler will never
+/// find any attnums to resolve.
+pub const PUBLICATION_ATTRIBUTES_QUERY_PG14: &str =
+    "SELECT NULL::bigint AS rel_oid, NULL::bigint AS attnum, NULL::text AS attname WHERE false";
+
 /// Indexes for PG 14 — same as the shared query but without `indnullsnotdistinct`.
 /// Includes indexes on materialized views (`tc.relkind = 'm'`) as well as tables.
 pub const INDEXES_QUERY: &str = r"

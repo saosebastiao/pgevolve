@@ -86,10 +86,11 @@ mod tests {
     #[test]
     fn rejects_empty_selective() {
         let mut cat = Catalog::empty();
-        cat.publications.push(pub_with_scope(PublicationScope::Selective {
-            schemas: BTreeSet::new(),
-            tables: Vec::new(),
-        }));
+        cat.publications
+            .push(pub_with_scope(PublicationScope::Selective {
+                schemas: BTreeSet::new(),
+                tables: Vec::new(),
+            }));
         let err = run(&mut cat).unwrap_err();
         assert!(matches!(err, IrError::EmptyPublication(_)));
     }
@@ -98,36 +99,49 @@ mod tests {
     fn rejects_empty_publish_bitset() {
         let mut cat = Catalog::empty();
         let mut p = pub_with_scope(PublicationScope::AllTables);
-        p.publish = PublishKinds { insert: false, update: false, delete: false, truncate: false };
+        p.publish = PublishKinds {
+            insert: false,
+            update: false,
+            delete: false,
+            truncate: false,
+        };
         cat.publications.push(p);
-        assert!(matches!(run(&mut cat).unwrap_err(), IrError::EmptyPublishBitset(_)));
+        assert!(matches!(
+            run(&mut cat).unwrap_err(),
+            IrError::EmptyPublishBitset(_)
+        ));
     }
 
     #[test]
     fn rejects_empty_column_list() {
         let mut cat = Catalog::empty();
-        cat.publications.push(pub_with_scope(PublicationScope::Selective {
-            schemas: BTreeSet::new(),
-            tables: vec![PublishedTable {
-                qname: qn("app", "t"),
-                row_filter: None,
-                columns: Some(vec![]),
-            }],
-        }));
-        assert!(matches!(run(&mut cat).unwrap_err(), IrError::EmptyColumnList(_, _)));
+        cat.publications
+            .push(pub_with_scope(PublicationScope::Selective {
+                schemas: BTreeSet::new(),
+                tables: vec![PublishedTable {
+                    qname: qn("app", "t"),
+                    row_filter: None,
+                    columns: Some(vec![]),
+                }],
+            }));
+        assert!(matches!(
+            run(&mut cat).unwrap_err(),
+            IrError::EmptyColumnList(_, _)
+        ));
     }
 
     #[test]
     fn rejects_duplicate_columns() {
         let mut cat = Catalog::empty();
-        cat.publications.push(pub_with_scope(PublicationScope::Selective {
-            schemas: BTreeSet::new(),
-            tables: vec![PublishedTable {
-                qname: qn("app", "t"),
-                row_filter: None,
-                columns: Some(vec![id("a"), id("a")]),
-            }],
-        }));
+        cat.publications
+            .push(pub_with_scope(PublicationScope::Selective {
+                schemas: BTreeSet::new(),
+                tables: vec![PublishedTable {
+                    qname: qn("app", "t"),
+                    row_filter: None,
+                    columns: Some(vec![id("a"), id("a")]),
+                }],
+            }));
         assert!(matches!(
             run(&mut cat).unwrap_err(),
             IrError::DuplicateColumnInPublication(_, _, _)
@@ -137,21 +151,22 @@ mod tests {
     #[test]
     fn sorts_tables_and_columns() {
         let mut cat = Catalog::empty();
-        cat.publications.push(pub_with_scope(PublicationScope::Selective {
-            schemas: BTreeSet::new(),
-            tables: vec![
-                PublishedTable {
-                    qname: qn("app", "z"),
-                    row_filter: None,
-                    columns: Some(vec![id("c"), id("a"), id("b")]),
-                },
-                PublishedTable {
-                    qname: qn("app", "a"),
-                    row_filter: None,
-                    columns: None,
-                },
-            ],
-        }));
+        cat.publications
+            .push(pub_with_scope(PublicationScope::Selective {
+                schemas: BTreeSet::new(),
+                tables: vec![
+                    PublishedTable {
+                        qname: qn("app", "z"),
+                        row_filter: None,
+                        columns: Some(vec![id("c"), id("a"), id("b")]),
+                    },
+                    PublishedTable {
+                        qname: qn("app", "a"),
+                        row_filter: None,
+                        columns: None,
+                    },
+                ],
+            }));
         run(&mut cat).unwrap();
         let PublicationScope::Selective { tables, .. } = &cat.publications[0].scope else {
             panic!("expected Selective")
@@ -167,7 +182,8 @@ mod tests {
     #[test]
     fn all_tables_skips_selective_validation() {
         let mut cat = Catalog::empty();
-        cat.publications.push(pub_with_scope(PublicationScope::AllTables));
+        cat.publications
+            .push(pub_with_scope(PublicationScope::AllTables));
         assert!(run(&mut cat).is_ok());
     }
 }

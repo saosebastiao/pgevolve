@@ -20,6 +20,7 @@ pub(super) mod default_privileges;
 mod functions;
 mod partitions;
 pub(super) mod policies;
+pub(super) mod publications;
 mod tables;
 mod triggers;
 mod user_types;
@@ -66,6 +67,15 @@ pub struct RawRows {
     pub partitions: Vec<Row>,
     pub default_privileges: Vec<Row>,
     pub policies: Vec<Row>,
+    /// `pg_publication` rows.
+    pub publications: Vec<Row>,
+    /// `pg_publication_rel` rows.
+    pub publication_rels: Vec<Row>,
+    /// `pg_publication_namespace` rows (PG 15+; empty on PG 14).
+    pub publication_namespaces: Vec<Row>,
+    /// Column-attnum resolver rows from `pg_attribute` joined to
+    /// `pg_publication_rel`.
+    pub publication_attributes: Vec<Row>,
 }
 
 /// Convert raw rows into a [`Catalog`] and a [`DriftReport`]. Caller is
@@ -97,6 +107,10 @@ pub fn assemble(
         partitions,
         default_privileges,
         policies,
+        publications: pub_rows,
+        publication_rels,
+        publication_namespaces,
+        publication_attributes,
     } = raw;
 
     let mut catalog = Catalog::empty();
@@ -162,6 +176,14 @@ pub fn assemble(
 
     // Build ALTER DEFAULT PRIVILEGES rules from pg_default_acl.
     catalog.default_privileges = default_privileges::build_default_privileges(&default_privileges)?;
+
+    // Build publications from pg_publication + pg_publication_rel + pg_publication_namespace.
+    catalog.publications = publications::assemble_publications(
+        &pub_rows,
+        &publication_rels,
+        &publication_namespaces,
+        &publication_attributes,
+    )?;
 
     Ok((catalog, drift))
 }

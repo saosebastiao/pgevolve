@@ -56,7 +56,10 @@ pub enum IrError {
     EmptyPublication(crate::identifier::Identifier),
     /// A `PublishedTable.columns` was `Some(vec![])`.
     #[error("publication {0:?} table {1:?}: empty column list (use None to publish all columns)")]
-    EmptyColumnList(crate::identifier::Identifier, crate::identifier::QualifiedName),
+    EmptyColumnList(
+        crate::identifier::Identifier,
+        crate::identifier::QualifiedName,
+    ),
     /// A `PublishKinds` had all four DML flags false.
     #[error("publication {0:?}: empty publish bitset (must enable at least one DML kind)")]
     EmptyPublishBitset(crate::identifier::Identifier),

@@ -53,6 +53,17 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::ClusterMembers) => cluster::CLUSTER_MEMBERS_QUERY,
         (_, CatalogQuery::DefaultPrivileges) => default_privileges::DEFAULT_PRIVILEGES_QUERY,
         (_, CatalogQuery::Policies) => policies::POLICIES_QUERY,
+        (_, CatalogQuery::Publications) => shared::PUBLICATIONS_QUERY,
+        (PgVersion::Pg14, CatalogQuery::PublicationRel) => pg14::PUBLICATION_REL_QUERY_PG14,
+        (_, CatalogQuery::PublicationRel) => shared::PUBLICATION_REL_QUERY,
+        (PgVersion::Pg14, CatalogQuery::PublicationNamespace) => {
+            pg14::PUBLICATION_NAMESPACE_QUERY_PG14
+        }
+        (_, CatalogQuery::PublicationNamespace) => shared::PUBLICATION_NAMESPACE_QUERY,
+        (PgVersion::Pg14, CatalogQuery::PublicationAttributes) => {
+            pg14::PUBLICATION_ATTRIBUTES_QUERY_PG14
+        }
+        (_, CatalogQuery::PublicationAttributes) => shared::PUBLICATION_ATTRIBUTES_QUERY,
     }
 }
 

@@ -24,6 +24,7 @@ pub use version::PgVersion;
 
 mod assemble;
 pub(crate) mod grants;
+pub(crate) mod publications;
 pub(crate) mod reloptions;
 
 use crate::identifier::{Identifier, QualifiedName};
@@ -128,6 +129,24 @@ pub enum CatalogQuery {
     /// owning `Table` by the assembler. Policies on unmanaged tables are
     /// silently dropped.
     Policies,
+    /// `pg_publication` rows for all publications in the database.
+    ///
+    /// Publications are database-global (not schema-scoped); takes **no**
+    /// `$1::text[]` parameter (`takes_text_array_param` returns `false`).
+    Publications,
+    /// `pg_publication_rel` rows — one per (publication, table) membership.
+    ///
+    /// PG 15+ includes `prqual` (row filter) and `prattrs` (column list);
+    /// PG 14 variant substitutes `NULL` for both. Takes **no** parameter.
+    PublicationRel,
+    /// `pg_publication_namespace` rows — one per (publication, schema)
+    /// membership (PG 15+ only). PG 14 variant returns zero rows.
+    /// Takes **no** parameter.
+    PublicationNamespace,
+    /// `pg_attribute` rows for every column of every table referenced by
+    /// any publication. Used to resolve column attnums to names. Takes **no**
+    /// parameter.
+    PublicationAttributes,
 }
 
 impl CatalogQuery {
@@ -144,7 +163,13 @@ impl CatalogQuery {
     pub const fn takes_text_array_param(self) -> bool {
         !matches!(
             self,
-            Self::PgVersion | Self::Extensions | Self::DefaultPrivileges
+            Self::PgVersion
+                | Self::Extensions
+                | Self::DefaultPrivileges
+                | Self::Publications
+                | Self::PublicationRel
+                | Self::PublicationNamespace
+                | Self::PublicationAttributes
         )
     }
 
@@ -205,6 +230,10 @@ pub fn read_catalog(
     let partitions_rows = querier.fetch(CatalogQuery::Partitions, &managed)?;
     let default_privileges_rows = querier.fetch(CatalogQuery::DefaultPrivileges, &[])?;
     let policies_rows = querier.fetch(CatalogQuery::Policies, &managed)?;
+    let publications_rows = querier.fetch(CatalogQuery::Publications, &[])?;
+    let publication_rels_rows = querier.fetch(CatalogQuery::PublicationRel, &[])?;
+    let publication_namespaces_rows = querier.fetch(CatalogQuery::PublicationNamespace, &[])?;
+    let publication_attributes_rows = querier.fetch(CatalogQuery::PublicationAttributes, &[])?;
 
     let raw = assemble::RawRows {
         version,
@@ -229,6 +258,10 @@ pub fn read_catalog(
         partitions: partitions_rows,
         default_privileges: default_privileges_rows,
         policies: policies_rows,
+        publications: publications_rows,
+        publication_rels: publication_rels_rows,
+        publication_namespaces: publication_namespaces_rows,
+        publication_attributes: publication_attributes_rows,
     };
     let (catalog, drift) = assemble::assemble(raw, filter)?;
     Ok((catalog.canonicalize()?, drift))

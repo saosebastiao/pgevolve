@@ -276,3 +276,64 @@ WHERE c.relkind = 'S'
   AND cn.nspname = ANY($1::text[])
 ORDER BY cn.nspname, c.relname
 ";
+
+/// Publications (PG 15+ schema-scope + row filter + column list support).
+/// Takes no `$1` parameter — publications are database-global, not schema-scoped.
+pub const PUBLICATIONS_QUERY: &str = "\
+    SELECT \
+        p.oid::bigint AS oid, \
+        p.pubname::text AS name, \
+        coalesce(a.rolname, '') AS owner, \
+        p.puballtables AS all_tables, \
+        p.pubinsert AS pub_insert, \
+        p.pubupdate AS pub_update, \
+        p.pubdelete AS pub_delete, \
+        p.pubtruncate AS pub_truncate, \
+        p.pubviaroot AS publish_via_partition_root, \
+        coalesce(d.description, '') AS comment \
+    FROM pg_publication p \
+    JOIN pg_authid a ON a.oid = p.pubowner \
+    LEFT JOIN pg_description d \
+        ON d.classoid = 'pg_publication'::regclass AND d.objoid = p.oid AND d.objsubid = 0 \
+    ORDER BY p.pubname";
+
+/// Per-table publication entries with PG 15+ row filter (`prqual`) and column list (`prattrs`).
+///
+/// Column attnums are cast to `int8[]` so the driver returns `IntegerArray(Vec<i64>)`.
+/// Row filter is decoded with `pg_get_expr`.
+pub const PUBLICATION_REL_QUERY: &str = "\
+    SELECT \
+        pr.prpubid::bigint AS pub_oid, \
+        ns.nspname::text AS schema, \
+        c.relname::text AS table_name, \
+        pg_get_expr(pr.prqual, pr.prrelid) AS row_filter, \
+        pr.prattrs::int2[]::int8[] AS col_attnums, \
+        c.oid::bigint AS rel_oid \
+    FROM pg_publication_rel pr \
+    JOIN pg_class c ON c.oid = pr.prrelid \
+    JOIN pg_namespace ns ON ns.oid = c.relnamespace \
+    ORDER BY pr.prpubid, ns.nspname, c.relname";
+
+/// Schema-scope publication entries (PG 15+ only).
+pub const PUBLICATION_NAMESPACE_QUERY: &str = "\
+    SELECT \
+        pn.pnpubid::bigint AS pub_oid, \
+        ns.nspname::text AS schema \
+    FROM pg_publication_namespace pn \
+    JOIN pg_namespace ns ON ns.oid = pn.pnnspid \
+    ORDER BY pn.pnpubid, ns.nspname";
+
+/// Resolve column attnums to names for all tables referenced by any publication.
+///
+/// Returns `(rel_oid, attnum, attname)` for every non-dropped, user-visible column of
+/// every table that appears in `pg_publication_rel`. Fetched once and grouped by
+/// `rel_oid` in the assembler (no per-row queries).
+pub const PUBLICATION_ATTRIBUTES_QUERY: &str = "\
+    SELECT \
+        pr.prrelid::bigint AS rel_oid, \
+        a.attnum::bigint AS attnum, \
+        a.attname::text AS attname \
+    FROM pg_publication_rel pr \
+    JOIN pg_attribute a ON a.attrelid = pr.prrelid \
+    WHERE a.attnum > 0 AND NOT a.attisdropped \
+    ORDER BY pr.prrelid, a.attnum";
