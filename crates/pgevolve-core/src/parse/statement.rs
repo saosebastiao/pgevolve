@@ -53,6 +53,10 @@ pub enum Statement {
     AlterDefaultPrivileges(protobuf::AlterDefaultPrivilegesStmt),
     /// `CREATE POLICY name ON table ...`.
     CreatePolicy(protobuf::CreatePolicyStmt),
+    /// `CREATE PUBLICATION name ...`.
+    CreatePublication(protobuf::CreatePublicationStmt),
+    /// `ALTER PUBLICATION name ...`.
+    AlterPublication(protobuf::AlterPublicationStmt),
 }
 
 impl Statement {
@@ -89,6 +93,22 @@ impl Statement {
             NodeEnum::AlterOwnerStmt(s) => Ok(Self::AlterOwner(*s)),
             NodeEnum::AlterDefaultPrivilegesStmt(s) => Ok(Self::AlterDefaultPrivileges(s)),
             NodeEnum::CreatePolicyStmt(s) => Ok(Self::CreatePolicy(*s)),
+            NodeEnum::CreatePublicationStmt(s) => Ok(Self::CreatePublication(s)),
+            NodeEnum::AlterPublicationStmt(s) => Ok(Self::AlterPublication(s)),
+            NodeEnum::RenameStmt(s) => {
+                use pg_query::protobuf::ObjectType;
+                let rename_type =
+                    ObjectType::try_from(s.rename_type).unwrap_or(ObjectType::Undefined);
+                if matches!(rename_type, ObjectType::ObjectPublication) {
+                    return Err(ParseError::Structural {
+                        location,
+                        message: "ALTER PUBLICATION … RENAME TO is not supported in pgevolve \
+                                  (pgevolve never models renames)"
+                            .into(),
+                    });
+                }
+                Err(unsupported(location, "RENAME"))
+            }
             NodeEnum::AlterPolicyStmt(_) => Err(ParseError::Structural {
                 location,
                 message: "ALTER POLICY in source is not supported — policy modifications \

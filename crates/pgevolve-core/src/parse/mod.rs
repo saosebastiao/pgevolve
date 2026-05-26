@@ -14,16 +14,17 @@ pub mod normalize_body;
 pub mod normalize_expr;
 pub mod statement;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 pub use directives::{FileDirectives, extract_file_directives};
 pub use error::{ParseError, SourceLocation};
 pub use statement::Statement;
 
-use crate::identifier::QualifiedName;
+use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::IrError;
 use crate::ir::catalog::Catalog;
+use crate::ir::publication::Publication;
 
 /// Parse every `*.sql` file under `root`, recursively, and produce a fully-
 /// populated [`Catalog`]. Files matching any pattern in `ignores` are skipped.
@@ -81,6 +82,10 @@ pub fn parse_directory_with_locations(
         SourceLocation,
         Option<crate::identifier::Identifier>,
     )> = Vec::new();
+    // Publications are accumulated in insertion order (keyed by name) and
+    // folded: CREATE ... WITH (...) then subsequent ALTER ... ADD/DROP/SET
+    // all land in the same record.
+    let mut publications: BTreeMap<Identifier, Publication> = BTreeMap::new();
 
     for path in files {
         let contents = std::fs::read_to_string(&path).map_err(|e| ParseError::Io {
@@ -98,6 +103,7 @@ pub fn parse_directory_with_locations(
             &mut pending_rls_toggles,
             &mut pending_rel_options,
             &mut deferred_comments,
+            &mut publications,
         )?;
     }
 
@@ -118,6 +124,9 @@ pub fn parse_directory_with_locations(
     apply_pending_owners(&mut catalog, pending_owners)?;
     apply_pending_rls_toggles(&mut catalog, pending_rls_toggles)?;
     apply_pending_rel_options(&mut catalog, pending_rel_options)?;
+
+    // Flush the publications accumulator into the catalog.
+    catalog.publications = publications.into_values().collect();
 
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
@@ -256,6 +265,7 @@ fn process_file(
         SourceLocation,
         Option<crate::identifier::Identifier>,
     )>,
+    publications: &mut BTreeMap<Identifier, Publication>,
 ) -> Result<(), ParseError> {
     let directives = directives::extract_file_directives(contents, path)?;
     let parsed = pg_query::parse(contents).map_err(|e| ParseError::PgQuery {
@@ -561,6 +571,12 @@ fn process_file(
             }
             Statement::CreatePolicy(s) => {
                 builder::policy_stmt::apply(&s, catalog, &location)?;
+            }
+            Statement::CreatePublication(s) => {
+                builder::publication_stmt::parse_create_publication(&s, location, publications)?;
+            }
+            Statement::AlterPublication(s) => {
+                builder::publication_stmt::parse_alter_publication(&s, location, publications)?;
             }
         }
     }

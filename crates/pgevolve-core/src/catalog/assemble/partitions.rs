@@ -85,7 +85,9 @@ fn apply_partitioned_parents(
             ))
         })?;
 
-        table.partition_by = Some(build_partition_by(spec, loc)?);
+        table.partition_by = Some(
+            build_partition_by(spec, loc).map_err(|e| CatalogError::ReparseFailed(Box::new(e)))?,
+        );
     }
     Ok(())
 }
@@ -129,7 +131,8 @@ fn apply_partition_children(
             )))
         })?;
         let bound_spec = extract_partition_bound_spec(parsed)?;
-        let bounds = build_partition_bounds(&bound_spec, loc)?;
+        let bounds = build_partition_bounds(&bound_spec, loc)
+            .map_err(|e| CatalogError::ReparseFailed(Box::new(e)))?;
         table.partition_of = Some(PartitionOf { parent, bounds });
         // Clear inherited columns: a partition child's canonical source form
         // uses `PARTITION OF parent FOR VALUES …` with no column list.

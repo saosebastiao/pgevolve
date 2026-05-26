@@ -63,7 +63,7 @@ pub enum CatalogError {
 
     /// A `pg_get_constraintdef`/`pg_get_indexdef`/default expression failed to parse.
     #[error("re-parsing introspected SQL fragment failed: {0}")]
-    ReparseFailed(#[from] ParseError),
+    ReparseFailed(#[from] Box<ParseError>),
 
     /// A catalog row referenced an object oid that no other query produced.
     #[error("catalog assembly: dangling reference {kind} for {what}")]

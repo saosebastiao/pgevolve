@@ -120,6 +120,87 @@ pub enum ParseError {
     /// resolution error).
     #[error("{0}")]
     AstCanon(crate::parse::ast_canon::AstCanonError),
+
+    /// A string could not be parsed as a valid identifier.
+    #[error("invalid identifier {0:?}: {1}")]
+    InvalidIdentifier(String, String),
+
+    // ── Publication parse errors ─────────────────────────────────────────────
+    /// A publication with this name was declared more than once.
+    #[error("{1}: publication {0:?} declared more than once")]
+    DuplicatePublication(crate::identifier::Identifier, SourceLocation),
+
+    /// `FOR ALL TABLES` was combined with explicit object specs.
+    #[error(
+        "{1}: publication {0:?}: FOR ALL TABLES cannot be combined with \
+         FOR TABLE or FOR TABLES IN SCHEMA"
+    )]
+    PublicationAllTablesWithObjects(crate::identifier::Identifier, SourceLocation),
+
+    /// A publication object spec node had an unexpected shape.
+    #[error("{1}: publication {0:?}: malformed publication object spec node")]
+    PublicationObjectMalformed(crate::identifier::Identifier, SourceLocation),
+
+    /// `FOR TABLES IN CURRENT SCHEMA` is not declarative — pgevolve rejects it.
+    #[error(
+        "{1}: publication {0:?}: FOR TABLES IN CURRENT SCHEMA is not supported \
+         (not declarative; use explicit schema names)"
+    )]
+    PublicationCurrentSchemaForm(crate::identifier::Identifier, SourceLocation),
+
+    /// An unrecognized `PublicationObjSpecType` integer was encountered.
+    #[error(
+        "{2}: publication {1:?}: unknown publication object type {0} \
+         (expected 1=TABLE, 2=TABLES IN SCHEMA, 3=CUR_SCHEMA)"
+    )]
+    UnknownPublicationObjectType(i32, crate::identifier::Identifier, SourceLocation),
+
+    /// A table in a publication was not schema-qualified.
+    #[error("{1}: publication {0:?}: table must be schema-qualified")]
+    UnqualifiedPublicationTable(crate::identifier::Identifier, SourceLocation),
+
+    /// Failed to parse the row filter expression for a published table.
+    #[error("{3}: publication {0:?} table {1}: row filter parse error: {2}")]
+    PublicationFilterParse(
+        crate::identifier::Identifier,
+        crate::identifier::QualifiedName,
+        String,
+        SourceLocation,
+    ),
+
+    /// A `WITH (...)` option node for a publication had an unexpected shape.
+    #[error("{1}: publication {0:?}: malformed publication option node")]
+    PublicationOptionMalformed(crate::identifier::Identifier, SourceLocation),
+
+    /// An unrecognized key appeared in a publication `WITH (...)` clause.
+    #[error("{2}: publication {1:?}: unknown publication option {0:?}")]
+    UnknownPublicationOption(String, crate::identifier::Identifier, SourceLocation),
+
+    /// An unrecognized value appeared in a `publish = '...'` clause.
+    #[error(
+        "{2}: publication {1:?}: unknown publish kind {0:?} \
+         (valid: insert, update, delete, truncate)"
+    )]
+    UnknownPublishKind(String, crate::identifier::Identifier, SourceLocation),
+
+    /// A `publish = '...'` clause was empty (no DML kinds enabled).
+    #[error("{1}: publication {0:?}: empty publish list — at least one DML kind required")]
+    EmptyPublishBitset(crate::identifier::Identifier, SourceLocation),
+
+    /// A `CREATE PUBLICATION p` had no scope clause (empty selective).
+    #[error(
+        "{1}: publication {0:?}: no scope clause — add FOR ALL TABLES, \
+         FOR TABLE ..., or FOR TABLES IN SCHEMA ..."
+    )]
+    EmptyPublicationScope(crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER PUBLICATION p RENAME TO q` is not supported.
+    #[error("{1}: publication {0:?}: RENAME is not supported in pgevolve")]
+    PublicationRenameNotSupported(crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER PUBLICATION p ...` appeared before the matching `CREATE PUBLICATION p`.
+    #[error("{1}: publication {0:?}: ALTER PUBLICATION before CREATE PUBLICATION")]
+    AlterPublicationBeforeCreate(crate::identifier::Identifier, SourceLocation),
 }
 
 fn format_resolution_errors(errs: &[crate::parse::ast_resolution::AstResolutionError]) -> String {
