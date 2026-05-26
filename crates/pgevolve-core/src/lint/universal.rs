@@ -39,6 +39,19 @@
 //! - **`force-rls-without-policies`** — fires (Warning) when a table has
 //!   `FORCE ROW LEVEL SECURITY` enabled but no policies defined. PG denies
 //!   every row in that state — almost always a configuration mistake.
+//! - **`publication-feature-requires-pg-version`** — fires (Error) when source
+//!   uses a PG 15+ publication feature (`FOR TABLES IN SCHEMA`, row filters,
+//!   column lists) and `[managed].min_pg_version < 15`. Run via
+//!   [`check_plan_time_catalog`].
+//!
+//! Drift-detection rules (comparing source vs live catalog, run via [`run_drift_lints`]):
+//!
+//! - **`unmanaged-publication`** — catalog reports a publication source doesn't
+//!   declare. Standard v0.3.x lenient-drift pattern.
+//! - **`publication-captures-unmanaged-table`** — a `FOR ALL TABLES` or
+//!   `FOR TABLES IN SCHEMA` publication implicitly captures tables not in source.
+//! - **`publication-row-filter-references-unmanaged-column`** — a row filter
+//!   expression references a column not declared on the target table in source.
 //!
 //! Changeset-level rules (inspecting the diff, run via [`check_changeset`]):
 //!
@@ -128,6 +141,11 @@ pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
     let mut out = Vec::new();
     rules::column_position_drift::check(source, target, &mut out);
     out.extend(rules::unmanaged_reloption::check(source, target));
+    out.extend(rules::unmanaged_publication::check(source, target));
+    out.extend(rules::publication_captures_unmanaged_table::check(
+        source, target,
+    ));
+    out.extend(rules::publication_row_filter_references_unmanaged_column::check(source));
     out
 }
 
@@ -152,11 +170,22 @@ pub fn check_changeset(cs: &ChangeSet) -> Vec<Finding> {
 /// (managed config, file locations, etc.). Intended for callers such as the
 /// conformance pipeline that have a `Catalog` but not a full `SourceTree`.
 ///
+/// `min_pg_version` is the minimum Postgres major version the project targets
+/// (from `[managed].min_pg_version`; default `14`). Used to gate PG-version-
+/// specific source features at lint time.
+///
 /// Currently includes:
 /// - **`force-rls-without-policies`** — fires when a table has FORCE ROW LEVEL
 ///   SECURITY but no policies defined.
-pub fn check_plan_time_catalog(source: &Catalog) -> Vec<Finding> {
-    rules::force_rls_without_policies::check(source)
+/// - **`publication-feature-requires-pg-version`** — fires (Error) when source
+///   uses a PG 15+ publication feature with `min_pg_version < 15`.
+pub fn check_plan_time_catalog(source: &Catalog, min_pg_version: u32) -> Vec<Finding> {
+    let mut out = rules::force_rls_without_policies::check(source);
+    out.extend(rules::publication_feature_requires_pg_version::check(
+        source,
+        min_pg_version,
+    ));
+    out
 }
 
 /// Like [`check_universal`] but also runs cluster-aware source-tree lints.

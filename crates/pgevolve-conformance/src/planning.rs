@@ -79,7 +79,9 @@ pub fn render_plan(
 ) -> Result<(Plan, String, Vec<Finding>), PipelineError> {
     let (target, source, changes) = compute_changes(before_sql, after_sql)?;
     let mut advisory_findings = check_changeset(&changes);
-    advisory_findings.extend(check_plan_time_catalog(&source));
+    // Default to 14 (workspace minimum) in the conformance pipeline,
+    // which doesn't have a per-project config.
+    advisory_findings.extend(check_plan_time_catalog(&source, 14));
     let policy = PlannerPolicy {
         strategy,
         ..PlannerPolicy::default()
