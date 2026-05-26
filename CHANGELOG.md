@@ -7,6 +7,32 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.4] — 2026-05-26
+
+### Added
+
+- **PUBLICATION as a first-class IR object.** All 5 PG syntactic
+  forms (explicit FOR TABLE, FOR ALL TABLES, FOR TABLES IN SCHEMA
+  PG15+, row filters PG15+, column lists PG15+). `PublicationScope`
+  sum-type encodes PG's mutual exclusion of AllTables vs Selective.
+- **Granular ALTER PUBLICATION semantics.** 11 new StepKind
+  variants (add/drop/set per table, add/drop per schema, set publish,
+  etc.) — each plan step is independently auditable and rollback-safe.
+- **`[managed].min_pg_version` config key.** Defaults to 14;
+  raise to 15+ to use row filters, column lists, or schema-scope.
+  PG-version-gated source features fail at lint time
+  (`publication-feature-requires-pg-version`, Error) instead of at
+  apply with a Postgres syntax error.
+- **4 lint rules**: `unmanaged-publication` (Warning),
+  `publication-captures-unmanaged-table` (Warning),
+  `publication-row-filter-references-unmanaged-column` (Warning),
+  `publication-feature-requires-pg-version` (Error, not waivable).
+- **12 conformance fixtures** under `objects/publications/`.
+
+### Closes
+
+Slipped from the v0.3 roadmap commitment (next: v0.3.5 SUBSCRIPTION).
+
 ## [0.3.3] — 2026-05-23
 
 ### Added

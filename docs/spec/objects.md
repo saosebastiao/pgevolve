@@ -259,7 +259,7 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 
 | Object | Status | Notes |
 |---|---|---|
-| `PUBLICATION` | 🔮 Future | Logical replication source-side metadata. |
+| `PUBLICATION` | ✅ Supported | Logical-replication source-side metadata. All 5 forms (explicit FOR TABLE, FOR ALL TABLES, FOR TABLES IN SCHEMA PG15+, row filters PG15+, column lists PG15+). publish bitset + publish_via_partition_root. Lenient drift via unmanaged-publication. change_kinds: [create, drop, replace, alter_add_table, alter_drop_table, alter_set_table, alter_add_schema, alter_drop_schema, alter_set_publish, alter_set_via_root, comment_on]<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/publication.rs::tests`, `parse/builder/publication_stmt.rs`, `diff/publications.rs`; tier-C: `objects/publications/` (12 fixtures) |
 | `SUBSCRIPTION` | 🔮 Future | Logical replication consumer; connection strings introduce secrets-management questions. |
 | `FOREIGN DATA WRAPPER` (`FDW`) | 🔮 Future | First-class FDW lifecycle (`CREATE SERVER`, `USER MAPPING`, `IMPORT FOREIGN SCHEMA`). |
 | `FOREIGN TABLE` | 🔮 Future | Lands with FDWs. |

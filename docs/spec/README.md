@@ -35,6 +35,7 @@ mixes states (e.g., FK constraints are supported as a kind, but the
 | [`grants.md`](./grants.md) | Object-level and column-level `GRANT` / `REVOKE`, per-object `owner`, `ALTER DEFAULT PRIVILEGES`, lenient drift policy, `unmanaged-grant` lint |
 | [`policies.md`](./policies.md) | Row-level security: per-table `rls_enabled` / `rls_forced`, embedded `policies: Vec<Policy>`, `unmanaged-policy` lint |
 | [`reloptions.md`](./reloptions.md) | Storage parameters / reloptions on tables, indexes, and materialized views; per-AM fillfactor validation; `unmanaged-reloption` lint |
+| [`publications.md`](./publications.md) | Logical-replication source-side metadata: all 5 `PUBLICATION` forms, `publish` bitset, `publish_via_partition_root`, 11 step kinds, 4 lint rules, PG-version gating |
 | [`pipeline.md`](./pipeline.md) | The internal pipeline: parser → IR → diff → planner → rewrite → group → execute |
 | [`cli.md`](./cli.md) | CLI command surface, global flags, output formats, exit codes, `pgevolve.toml` schema |
 | [`lint-and-layout.md`](./lint-and-layout.md) | Universal lint rules, built-in and custom layout profiles |
