@@ -522,6 +522,7 @@ mod tests {
             functions: vec![],
             procedures: vec![],
             triggers: vec![],
+            publications: vec![],
             default_privileges: vec![],
         };
 

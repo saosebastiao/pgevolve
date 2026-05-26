@@ -11,6 +11,7 @@ use crate::ir::extension::Extension;
 use crate::ir::function::Function;
 use crate::ir::index::Index;
 use crate::ir::procedure::Procedure;
+use crate::ir::publication::Publication;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
@@ -43,6 +44,8 @@ pub struct Catalog {
     pub procedures: Vec<Procedure>,
     /// Triggers (`CREATE TRIGGER` / `CREATE CONSTRAINT TRIGGER`).
     pub triggers: Vec<Trigger>,
+    /// Publications (logical-replication source-side metadata).
+    pub publications: Vec<Publication>,
     /// `ALTER DEFAULT PRIVILEGES` rules. Canonicalized.
     pub default_privileges: Vec<crate::ir::default_privileges::DefaultPrivilegeRule>,
 }
@@ -63,6 +66,7 @@ impl Catalog {
             functions: Vec::new(),
             procedures: Vec::new(),
             triggers: Vec::new(),
+            publications: Vec::new(),
             default_privileges: Vec::new(),
         }
     }
