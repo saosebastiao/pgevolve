@@ -1,0 +1,16 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.customers.customers_pkey";
+  "constraint:app.orders.orders_pkey";
+  "publication:main";
+  "schema:app";
+  "table:app.customers";
+  "table:app.orders";
+  "table:app.customers" -> "schema:app" [style=solid];
+  "table:app.orders" -> "schema:app" [style=solid];
+  "constraint:app.customers.customers_pkey" -> "table:app.customers" [style=solid];
+  "constraint:app.orders.orders_pkey" -> "table:app.orders" [style=solid];
+  "publication:main" -> "table:app.customers" [style=solid];
+  "publication:main" -> "table:app.orders" [style=solid];
+}

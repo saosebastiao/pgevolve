@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER PUBLICATION ADD TABLE — add second table to existing publication"
+authoring = "objects"
+spec_refs = ["objects.publication"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

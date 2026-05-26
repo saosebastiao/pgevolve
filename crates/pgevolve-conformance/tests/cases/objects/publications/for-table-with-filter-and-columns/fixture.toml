@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE PUBLICATION FOR TABLE with row filter and column list (PG 15+)"
+authoring = "objects"
+spec_refs = ["objects.publication"]
+
+[pg]
+min = 15
+max = 17
+
+[expect.plan]
+steps = 1

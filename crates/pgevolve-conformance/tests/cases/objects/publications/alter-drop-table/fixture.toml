@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER PUBLICATION DROP TABLE — remove table from existing publication"
+authoring = "objects"
+spec_refs = ["objects.publication"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

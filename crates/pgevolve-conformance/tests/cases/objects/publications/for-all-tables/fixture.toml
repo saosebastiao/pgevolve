@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE PUBLICATION FOR ALL TABLES"
+authoring = "objects"
+spec_refs = ["objects.publication"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

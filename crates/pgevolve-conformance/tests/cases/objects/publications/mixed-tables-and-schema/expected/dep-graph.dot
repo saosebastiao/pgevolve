@@ -1,0 +1,21 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.customers.customers_pkey";
+  "constraint:app.orders.orders_pkey";
+  "constraint:billing.invoices.invoices_pkey";
+  "publication:mixed_pub";
+  "schema:app";
+  "schema:billing";
+  "table:app.customers";
+  "table:app.orders";
+  "table:billing.invoices";
+  "table:app.customers" -> "schema:app" [style=solid];
+  "table:app.orders" -> "schema:app" [style=solid];
+  "table:billing.invoices" -> "schema:billing" [style=solid];
+  "constraint:app.customers.customers_pkey" -> "table:app.customers" [style=solid];
+  "constraint:app.orders.orders_pkey" -> "table:app.orders" [style=solid];
+  "constraint:billing.invoices.invoices_pkey" -> "table:billing.invoices" [style=solid];
+  "publication:mixed_pub" -> "schema:billing" [style=solid];
+  "publication:mixed_pub" -> "table:app.orders" [style=solid];
+}

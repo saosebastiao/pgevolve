@@ -1,0 +1,17 @@
+[meta]
+title     = "Mode swap AllTables → Selective triggers destructive ReplacePublication"
+authoring = "objects"
+spec_refs = ["objects.publication"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps      = 1
+minimality = false
+
+[[expect.intent]]
+kind   = "replace_publication"
+target = ""
+reason_contains = ["mode swap"]

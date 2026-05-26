@@ -1,0 +1,18 @@
+[meta]
+title     = "Lenient drift: catalog has publication source doesn't declare — 0 plan steps"
+authoring = "objects"
+spec_refs = ["lint.unmanaged-publication"]
+
+[pg]
+min = 14
+max = 17
+
+# The differ uses a lenient policy: publications absent from source are NOT
+# dropped. This fixture verifies that removing a publication from source does
+# not produce a DROP step. The unmanaged-publication advisory fires via
+# run_drift_lints (real-catalog path) rather than the in-process pipeline, so
+# it is not asserted here; unit tests in lint/rules/unmanaged_publication cover it.
+[expect.plan]
+steps      = 0
+minimality = false
+golden     = false

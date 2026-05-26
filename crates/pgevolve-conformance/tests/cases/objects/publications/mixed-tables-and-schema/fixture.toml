@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE PUBLICATION mixing explicit TABLE and TABLES IN SCHEMA (PG 15+)"
+authoring = "objects"
+spec_refs = ["objects.publication"]
+
+[pg]
+min = 15
+max = 17
+
+[expect.plan]
+steps = 1
