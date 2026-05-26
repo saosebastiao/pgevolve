@@ -28,6 +28,7 @@ pub mod default_privileges;
 pub mod filter_pg_defaults;
 pub mod grants;
 pub mod policies;
+pub mod publications;
 pub mod reloptions;
 pub mod renumber_enum_sort_orders;
 pub mod sentinel_view_columns;
@@ -38,8 +39,8 @@ use crate::ir::catalog::Catalog;
 
 /// Run every canonicalization pass on `cat` in order.
 ///
-/// Only [`sort_and_dedupe`] is fallible; the other passes mutate in
-/// place and cannot fail.
+/// [`publications`] and [`sort_and_dedupe`] are fallible; the other
+/// passes mutate in place and cannot fail.
 pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
     filter_pg_defaults::run(cat);
     sentinel_view_columns::run(cat);
@@ -72,6 +73,7 @@ pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
     for t in &mut cat.tables {
         policies::run_on_table(t);
     }
+    publications::run(cat)?;
     reloptions::run(cat);
     sort_and_dedupe::run(cat)?;
     Ok(())

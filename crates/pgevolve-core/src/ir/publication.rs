@@ -67,6 +67,11 @@ pub struct PublishedTable {
 /// Which DML kinds a publication replicates. Maps to PG's four
 /// `pg_publication.pub{insert,update,delete,truncate}` booleans, and the
 /// source SQL `publish = 'insert, update, delete, truncate'` parameter.
+///
+/// The four `bool` fields directly model the four PG catalog columns; a
+/// bitset enum would be less readable and harder to (de)serialize from
+/// `pg_publication`.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublishKinds {
     /// `INSERT` is replicated.

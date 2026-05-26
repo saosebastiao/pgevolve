@@ -50,4 +50,21 @@ pub enum IrError {
     /// A required field was missing or empty.
     #[error("missing required field: {0}")]
     MissingField(&'static str),
+
+    /// A `PublicationScope::Selective` had no schemas and no tables.
+    #[error("publication {0:?}: empty Selective scope (no tables, no schemas)")]
+    EmptyPublication(crate::identifier::Identifier),
+    /// A `PublishedTable.columns` was `Some(vec![])`.
+    #[error("publication {0:?} table {1:?}: empty column list (use None to publish all columns)")]
+    EmptyColumnList(crate::identifier::Identifier, crate::identifier::QualifiedName),
+    /// A `PublishKinds` had all four DML flags false.
+    #[error("publication {0:?}: empty publish bitset (must enable at least one DML kind)")]
+    EmptyPublishBitset(crate::identifier::Identifier),
+    /// A `PublishedTable.columns` contained a duplicate column name.
+    #[error("publication {0:?} table {1:?}: duplicate column {2:?} in column list")]
+    DuplicateColumnInPublication(
+        crate::identifier::Identifier,
+        crate::identifier::QualifiedName,
+        crate::identifier::Identifier,
+    ),
 }
