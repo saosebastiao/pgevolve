@@ -662,11 +662,28 @@ fn arb_grant_from(privileges: &'static [Privilege], with_columns: bool) -> Boxed
     };
 
     (grantee_strategy, priv_strategy, any::<bool>(), col_strategy)
-        .prop_map(|(grantee, privilege, with_grant_option, columns)| Grant {
-            grantee,
-            privilege,
-            with_grant_option,
-            columns,
+        .prop_map(|(grantee, privilege, with_grant_option, columns)| {
+            // PG rejects column-level grants for privileges that aren't
+            // column-eligible: only SELECT/INSERT/UPDATE/REFERENCES may
+            // appear with a column subset. Drop the columns subset when
+            // the rolled privilege isn't one of those, instead of
+            // re-rolling the strategy.
+            let columns = match (columns, privilege) {
+                (
+                    Some(cols),
+                    Privilege::Select
+                    | Privilege::Insert
+                    | Privilege::Update
+                    | Privilege::References,
+                ) => Some(cols),
+                _ => None,
+            };
+            Grant {
+                grantee,
+                privilege,
+                with_grant_option,
+                columns,
+            }
         })
         .boxed()
 }

@@ -25,11 +25,9 @@ use proptest::test_runner::TestRunner;
 
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, default_pg_version, docker_available};
-use pgevolve_testkit::{
-    IRGeneratorConfig, arbitrary_catalog, arbitrary_mutation, assert_canonical_eq,
-};
+use pgevolve_testkit::{IRGeneratorConfig, arbitrary_catalog, arbitrary_mutation};
 
-use common::{apply_diff, connect_and_bootstrap, introspect, schemas_of};
+use common::{apply_diff, assert_convergent, connect_and_bootstrap, introspect, schemas_of};
 
 /// Read `PGEVOLVE_PROPERTY_CASES` (or use the default for PG-bound tests).
 fn case_count(default: u32) -> u32 {
@@ -50,7 +48,7 @@ async fn check_round_trip(catalog: &Catalog) -> Result<()> {
     let outcome = apply_diff(&mut client, &Catalog::empty(), catalog, &managed, None).await?;
     outcome.map_err(|e| anyhow::anyhow!("apply: {e}"))?;
     let live = introspect(&pg, &managed).await?;
-    assert_canonical_eq(catalog, &live)
+    assert_convergent(&live, catalog)
 }
 
 /// Idempotency: applying the same catalog twice is a no-op on the second
@@ -106,7 +104,7 @@ async fn check_end_to_end(initial: &Catalog, mutated: &Catalog) -> Result<()> {
     second.map_err(|e| anyhow::anyhow!("mutated apply: {e}"))?;
 
     let live = introspect(&pg, &managed).await?;
-    assert_canonical_eq(mutated, &live)
+    assert_convergent(&live, mutated)
 }
 
 /// Drift recovery: apply midway, abort, then re-plan from partial live
@@ -137,7 +135,7 @@ async fn check_drift_recovery(target: &Catalog, abort_step: u32) -> Result<()> {
     let second = apply_diff(&mut client, &partial, target, &managed, None).await?;
     second.map_err(|e| anyhow::anyhow!("recovery apply: {e}"))?;
     let live = introspect(&pg, &managed).await?;
-    assert_canonical_eq(target, &live)
+    assert_convergent(&live, target)
 }
 
 /// Run a synchronous proptest harness around an async property check.

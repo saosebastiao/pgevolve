@@ -21,11 +21,40 @@ use pgevolve_core::plan::{
     Plan, PlannerPolicy, Strategy, group_steps, order, rewrite, write_plan_dir,
 };
 
-/// Open a fresh client to `pg` and bootstrap the pgevolve metadata schema.
+/// Open a fresh client to `pg`, bootstrap the pgevolve metadata schema,
+/// and pre-create the role universe the IR generator may reference.
+///
+/// The IR generator (`pgevolve_testkit::ir_generator`) draws role names
+/// for owners and grantees from a small fixed pool — see
+/// `GRANTEE_ROLE_NAMES` in `ir_generator.rs`. We pre-create those roles
+/// in the ephemeral DB so generated catalogs can apply without
+/// `[42704] role "X" does not exist` failures. Property tests live in
+/// the per-DB layer and don't otherwise have a way to bring cluster-level
+/// roles into existence.
 pub async fn connect_and_bootstrap(pg: &pgevolve_testkit::EphemeralPostgres) -> Result<Client> {
     let mut client = pg.connect().await?;
     pgevolve::executor::bootstrap_metadata(&mut client).await?;
+    create_generator_role_pool(&client).await?;
     Ok(client)
+}
+
+/// Idempotently CREATE ROLE for every name in the IR-generator pool.
+/// Uses a DO block per role so a duplicate is silently swallowed (PG has
+/// no `CREATE ROLE IF NOT EXISTS`).
+async fn create_generator_role_pool(client: &Client) -> Result<()> {
+    const ROLES: &[&str] = &["app_owner", "readers", "writers", "app", "ops", "auditor"];
+    for r in ROLES {
+        let sql = format!(
+            "DO $do$ BEGIN \
+                CREATE ROLE {r}; \
+             EXCEPTION WHEN duplicate_object THEN NULL; END $do$;"
+        );
+        client
+            .batch_execute(&sql)
+            .await
+            .map_err(|e| anyhow!("pre-create role {r}: {e}"))?;
+    }
+    Ok(())
 }
 
 /// Build a `Plan` going from `target` (pre-image) to `source` (desired)
@@ -95,6 +124,26 @@ pub async fn apply_diff(
         abort_after_step,
     };
     Ok(pgevolve::apply(dir.path(), client, &filter, overrides).await)
+}
+
+/// Lenient convergence check: source `owner = None` / `grants = []` /
+/// `rls_enabled = false` etc. are *unmanaged*, per the v0.3.x lenient
+/// drift policy. Strict catalog equality spuriously fires on every
+/// auto-assigned owner and unmanaged-grant the catalog reports. We're
+/// convergent iff a re-plan from `live` → `source` emits no changes.
+///
+/// Falls back to the strict comparator's error formatter when not
+/// convergent so the failure message stays human-readable.
+pub fn assert_convergent(live: &Catalog, source: &Catalog) -> Result<()> {
+    let changeset = pgevolve_core::diff::diff(
+        live,
+        source,
+        &pgevolve_core::catalog::DriftReport::default(),
+    );
+    if changeset.is_empty() {
+        return Ok(());
+    }
+    pgevolve_testkit::assert_canonical_eq(source, live)
 }
 
 /// Introspect `client`'s database for `managed_schemas` and return the IR.
