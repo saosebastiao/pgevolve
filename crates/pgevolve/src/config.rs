@@ -130,7 +130,7 @@ fn default_plan_dir() -> PathBuf {
 fn default_layout_profile() -> String {
     "schema-mirror".into()
 }
-fn default_min_pg_version() -> u32 {
+const fn default_min_pg_version() -> u32 {
     14
 }
 

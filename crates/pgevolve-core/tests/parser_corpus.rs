@@ -6,6 +6,10 @@
 //!
 //! Layout — see `docs/superpowers/plans/phase-2-parser.md` task 2.13.
 
+// Integration tests are separate compilation units; the crate-level allow
+// doesn't propagate. See crates/pgevolve-core/src/lib.rs for rationale.
+#![allow(clippy::result_large_err)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

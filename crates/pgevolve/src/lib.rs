@@ -5,6 +5,9 @@
 
 #![warn(missing_docs)]
 #![deny(unsafe_code)]
+// pgevolve-core's ParseError / CatalogError flow through this crate's
+// Result types; see the matching allow in crates/pgevolve-core/src/lib.rs.
+#![allow(clippy::result_large_err)]
 
 pub mod api;
 pub mod cli;

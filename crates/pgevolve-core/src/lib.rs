@@ -5,6 +5,14 @@
 //! See the workspace `docs/superpowers/specs/` for the design.
 #![warn(missing_docs)]
 #![deny(unsafe_code)]
+// ParseError + CatalogError carry rich SourceLocation / QualifiedName context
+// in many variants, which grows the enum past clippy's 128-byte
+// `result_large_err` threshold. Boxing every error site would obscure the
+// error-handling code with `Box<…>::new(…)` noise without changing the
+// observable behavior — error paths are off the hot path. Allow crate-
+// wide rather than scattering `#![allow]` annotations across every parse /
+// catalog file.
+#![allow(clippy::result_large_err)]
 
 pub mod catalog;
 pub mod diff;
