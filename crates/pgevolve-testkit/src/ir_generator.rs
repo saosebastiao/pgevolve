@@ -446,17 +446,19 @@ fn arbitrary_non_pk_column() -> impl Strategy<Value = Column> {
         any::<bool>(),
     )
         .prop_flat_map(|(name, ty, nullable)| {
-            (arb_storage(&ty), arb_compression(&ty)).prop_map(move |(storage, compression)| Column {
-                name: name.clone(),
-                ty: ty.clone(),
-                nullable,
-                default: None,
-                identity: None,
-                generated: None,
-                collation: None,
-                storage,
-                compression,
-                comment: None,
+            (arb_storage(&ty), arb_compression(&ty)).prop_map(move |(storage, compression)| {
+                Column {
+                    name: name.clone(),
+                    ty: ty.clone(),
+                    nullable,
+                    default: None,
+                    identity: None,
+                    generated: None,
+                    collation: None,
+                    storage,
+                    compression,
+                    comment: None,
+                }
             })
         })
 }
