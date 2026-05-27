@@ -50,6 +50,10 @@ mixes states (e.g., FK constraints are supported as a kind, but the
 - **"v0.3"** added cross-cutting state: cluster roles (v0.3.0), grants
   + ownership (v0.3.1), row-level security (v0.3.2), storage parameters
   (v0.3.3). Entries marked 📋 name the target version when known.
+- **"v0.3.6+"** continues v0.3 with PG 18 support (v0.3.6),
+  `STATISTICS` + `WITH CHECK OPTION` (v0.3.7), `CREATE COLLATION`
+  + `RANGE TYPE` (v0.3.8). See [`roadmap.md`](./roadmap.md) for the
+  full per-version plan.
 - **"Future"** is anything past the current release with no firm version.
 
 ## How to update this directory
