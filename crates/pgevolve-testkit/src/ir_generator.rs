@@ -80,12 +80,14 @@ use pgevolve_core::ir::index::{
 };
 use pgevolve_core::ir::policy::{Policy, PolicyCommand};
 use pgevolve_core::ir::publication::{Publication, PublicationScope, PublishKinds, PublishedTable};
-use pgevolve_core::ir::subscription::{OriginMode, StreamingMode, Subscription, SubscriptionOptions};
 use pgevolve_core::ir::reloptions::{
     AutovacuumOptions, IndexStorageOptions, NotNanF64, TableStorageOptions,
 };
 use pgevolve_core::ir::schema::Schema;
 use pgevolve_core::ir::sequence::Sequence;
+use pgevolve_core::ir::subscription::{
+    OriginMode, StreamingMode, Subscription, SubscriptionOptions,
+};
 use pgevolve_core::ir::table::Table;
 use pgevolve_core::ir::view::View;
 use pgevolve_core::parse::normalize_body::NormalizedBody;
@@ -1287,7 +1289,7 @@ fn arb_subscription_options() -> impl Strategy<Value = SubscriptionOptions> {
         prop_oneof![Just(None), arb_streaming_mode().prop_map(Some)], // streaming
         prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // two_phase
         prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // disable_on_error
-        prop_oneof![Just(None), arb_origin_mode().prop_map(Some)],   // origin
+        prop_oneof![Just(None), arb_origin_mode().prop_map(Some)],    // origin
         prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // failover
     )
         .prop_map(
@@ -1360,18 +1362,15 @@ fn arb_subscriptions(publication_pool: Vec<Identifier>) -> BoxedStrategy<Vec<Sub
     (0usize..=1usize)
         .prop_flat_map(move |count| {
             let pp = publication_pool.clone();
-            proptest::sample::subsequence(
-                (0..SUB_NAMES.len()).collect::<Vec<_>>(),
-                count..=count,
-            )
-            .prop_flat_map(move |indices| {
-                let pp = pp.clone();
-                let strategies: Vec<_> = indices
-                    .into_iter()
-                    .map(|idx| arb_subscription_inner(idx, pp.clone()))
-                    .collect();
-                strategies
-            })
+            proptest::sample::subsequence((0..SUB_NAMES.len()).collect::<Vec<_>>(), count..=count)
+                .prop_flat_map(move |indices| {
+                    let pp = pp.clone();
+                    let strategies: Vec<_> = indices
+                        .into_iter()
+                        .map(|idx| arb_subscription_inner(idx, pp.clone()))
+                        .collect();
+                    strategies
+                })
         })
         .boxed()
 }
