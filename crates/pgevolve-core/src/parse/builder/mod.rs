@@ -28,6 +28,7 @@ pub mod policy_stmt;
 pub mod publication_stmt;
 pub mod reloptions;
 pub mod shared;
+pub mod subscription_stmt;
 
 use std::collections::HashMap;
 

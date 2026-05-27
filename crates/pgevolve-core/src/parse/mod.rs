@@ -25,6 +25,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::IrError;
 use crate::ir::catalog::Catalog;
 use crate::ir::publication::Publication;
+use crate::ir::subscription::Subscription;
 
 /// Parse every `*.sql` file under `root`, recursively, and produce a fully-
 /// populated [`Catalog`]. Files matching any pattern in `ignores` are skipped.
@@ -86,6 +87,8 @@ pub fn parse_directory_with_locations(
     // folded: CREATE ... WITH (...) then subsequent ALTER ... ADD/DROP/SET
     // all land in the same record.
     let mut publications: BTreeMap<Identifier, Publication> = BTreeMap::new();
+    // Subscriptions: same fold-accumulate pattern as publications.
+    let mut subscriptions: BTreeMap<Identifier, Subscription> = BTreeMap::new();
 
     for path in files {
         let contents = std::fs::read_to_string(&path).map_err(|e| ParseError::Io {
@@ -104,6 +107,7 @@ pub fn parse_directory_with_locations(
             &mut pending_rel_options,
             &mut deferred_comments,
             &mut publications,
+            &mut subscriptions,
         )?;
     }
 
@@ -127,6 +131,9 @@ pub fn parse_directory_with_locations(
 
     // Flush the publications accumulator into the catalog.
     catalog.publications = publications.into_values().collect();
+
+    // Flush the subscriptions accumulator into the catalog.
+    catalog.subscriptions = subscriptions.into_values().collect();
 
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
@@ -266,6 +273,7 @@ fn process_file(
         Option<crate::identifier::Identifier>,
     )>,
     publications: &mut BTreeMap<Identifier, Publication>,
+    subscriptions: &mut BTreeMap<Identifier, Subscription>,
 ) -> Result<(), ParseError> {
     let directives = directives::extract_file_directives(contents, path)?;
     let parsed = pg_query::parse(contents).map_err(|e| ParseError::PgQuery {
@@ -577,6 +585,12 @@ fn process_file(
             }
             Statement::AlterPublication(s) => {
                 builder::publication_stmt::parse_alter_publication(&s, location, publications)?;
+            }
+            Statement::CreateSubscription(s) => {
+                builder::subscription_stmt::parse_create_subscription(&s, location, subscriptions)?;
+            }
+            Statement::AlterSubscription(s) => {
+                builder::subscription_stmt::parse_alter_subscription(&s, location, subscriptions)?;
             }
         }
     }

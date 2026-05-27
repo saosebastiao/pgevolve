@@ -57,6 +57,10 @@ pub enum Statement {
     CreatePublication(protobuf::CreatePublicationStmt),
     /// `ALTER PUBLICATION name ...`.
     AlterPublication(protobuf::AlterPublicationStmt),
+    /// `CREATE SUBSCRIPTION name CONNECTION ... PUBLICATION ...`.
+    CreateSubscription(protobuf::CreateSubscriptionStmt),
+    /// `ALTER SUBSCRIPTION name ...`.
+    AlterSubscription(protobuf::AlterSubscriptionStmt),
 }
 
 impl Statement {
@@ -95,6 +99,8 @@ impl Statement {
             NodeEnum::CreatePolicyStmt(s) => Ok(Self::CreatePolicy(*s)),
             NodeEnum::CreatePublicationStmt(s) => Ok(Self::CreatePublication(s)),
             NodeEnum::AlterPublicationStmt(s) => Ok(Self::AlterPublication(s)),
+            NodeEnum::CreateSubscriptionStmt(s) => Ok(Self::CreateSubscription(s)),
+            NodeEnum::AlterSubscriptionStmt(s) => Ok(Self::AlterSubscription(s)),
             NodeEnum::RenameStmt(s) => {
                 use pg_query::protobuf::ObjectType;
                 let rename_type =
@@ -106,6 +112,20 @@ impl Statement {
                                   (pgevolve never models renames)"
                             .into(),
                     });
+                }
+                if matches!(rename_type, ObjectType::ObjectSubscription) {
+                    // Recover the subscription name for the error (subname is in
+                    // RenameStmt.relation for subscriptions).
+                    let sub_name = s
+                        .relation
+                        .as_ref()
+                        .map_or_else(|| String::from("<unknown>"), |r| r.relname.clone());
+                    let id = crate::identifier::Identifier::from_unquoted(&sub_name)
+                        .unwrap_or_else(|_| {
+                            crate::identifier::Identifier::from_unquoted("subscription")
+                                .expect("static identifier")
+                        });
+                    return Err(ParseError::SubscriptionRenameNotSupported(id, location));
                 }
                 Err(unsupported(location, "RENAME"))
             }

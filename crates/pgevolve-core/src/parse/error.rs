@@ -201,6 +201,65 @@ pub enum ParseError {
     /// `ALTER PUBLICATION p ...` appeared before the matching `CREATE PUBLICATION p`.
     #[error("{1}: publication {0:?}: ALTER PUBLICATION before CREATE PUBLICATION")]
     AlterPublicationBeforeCreate(crate::identifier::Identifier, SourceLocation),
+
+    // ── Subscription parse errors ────────────────────────────────────────────
+    /// A subscription with this name was declared more than once.
+    #[error("{1}: subscription {0:?} declared more than once")]
+    DuplicateSubscription(crate::identifier::Identifier, SourceLocation),
+
+    /// `CREATE SUBSCRIPTION` had an empty CONNECTION string.
+    #[error("{1}: subscription {0:?}: CONNECTION string must not be empty")]
+    SubscriptionEmptyConnection(crate::identifier::Identifier, SourceLocation),
+
+    /// `CREATE SUBSCRIPTION` had an empty PUBLICATION list.
+    #[error("{1}: subscription {0:?}: PUBLICATION list must not be empty")]
+    SubscriptionEmptyPublications(crate::identifier::Identifier, SourceLocation),
+
+    /// A `WITH (...)` option node for a subscription had an unexpected shape.
+    #[error("{1}: subscription {0:?}: malformed subscription option node")]
+    SubscriptionOptionMalformed(crate::identifier::Identifier, SourceLocation),
+
+    /// An unrecognized key appeared in a subscription `WITH (...)` clause.
+    #[error("{2}: subscription {1:?}: unknown subscription option {0:?}")]
+    UnknownSubscriptionOption(String, crate::identifier::Identifier, SourceLocation),
+
+    /// An unrecognized value appeared in a `streaming = ...` clause.
+    #[error(
+        "{2}: subscription {1:?}: unknown streaming mode {0:?} \
+         (valid: off, on, parallel)"
+    )]
+    UnknownStreamingMode(String, crate::identifier::Identifier, SourceLocation),
+
+    /// An unrecognized value appeared in an `origin = ...` clause.
+    #[error(
+        "{2}: subscription {1:?}: unknown origin mode {0:?} \
+         (valid: any, none)"
+    )]
+    UnknownOriginMode(String, crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER SUBSCRIPTION … REFRESH PUBLICATION` is not supported.
+    #[error("{1}: subscription {0:?}: REFRESH PUBLICATION is not supported in pgevolve")]
+    SubscriptionRefreshNotSupported(crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER SUBSCRIPTION … SKIP (…)` is not supported.
+    #[error("{1}: subscription {0:?}: SKIP is not supported in pgevolve")]
+    SubscriptionSkipNotSupported(crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER SUBSCRIPTION … ENABLE/DISABLE` (standalone, without SET) is not
+    /// supported. Declare `WITH (enabled = true/false)` in source instead.
+    #[error(
+        "{1}: subscription {0:?}: standalone ENABLE/DISABLE is not supported — \
+         use WITH (enabled = true/false) in source"
+    )]
+    SubscriptionStandaloneEnableDisableNotSupported(crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER SUBSCRIPTION … RENAME TO …` is not supported.
+    #[error("{1}: subscription {0:?}: RENAME is not supported in pgevolve")]
+    SubscriptionRenameNotSupported(crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER SUBSCRIPTION p …` appeared before the matching `CREATE SUBSCRIPTION p`.
+    #[error("{1}: subscription {0:?}: ALTER SUBSCRIPTION before CREATE SUBSCRIPTION")]
+    AlterSubscriptionBeforeCreate(crate::identifier::Identifier, SourceLocation),
 }
 
 fn format_resolution_errors(errs: &[crate::parse::ast_resolution::AstResolutionError]) -> String {
