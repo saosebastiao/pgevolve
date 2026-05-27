@@ -381,4 +381,15 @@ mod tests {
         let cfg = load(f.path()).unwrap();
         assert_eq!(cfg.managed.min_pg_version, 16);
     }
+
+    #[test]
+    fn min_pg_version_accepts_18() {
+        let f = write_tmp(
+            "[project]\nname=\"t\"\nschema_dir=\"schema\"\nplan_dir=\"plans\"\n\
+             [managed]\nschemas=[\"app\"]\nmin_pg_version=18\n\
+             [environments.dev]\nurl=\"postgres://localhost\"\n",
+        );
+        let cfg = load(f.path()).unwrap();
+        assert_eq!(cfg.managed.min_pg_version, 18);
+    }
 }
