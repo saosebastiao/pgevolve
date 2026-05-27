@@ -11,7 +11,7 @@ use crate::catalog::filter::CatalogFilter;
 use crate::catalog::rows::Row;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
-use crate::ir::view::{MaterializedView, View, ViewColumn};
+use crate::ir::view::{CheckOption, MaterializedView, View, ViewColumn};
 use crate::parse::normalize_body::NormalizedBody;
 
 use super::{ident_required, qname_from};
@@ -142,6 +142,21 @@ pub(super) fn build_views_and_mvs(
             "v" => {
                 let security_barrier = parse_bool_reloption(&reloptions, "security_barrier");
                 let security_invoker = parse_bool_reloption(&reloptions, "security_invoker");
+                let check_option_str = r.get_text(q, "check_option")?;
+                let check_option = match check_option_str.as_str() {
+                    "NONE" => None,
+                    "LOCAL" => Some(CheckOption::Local),
+                    "CASCADED" => Some(CheckOption::Cascaded),
+                    other => {
+                        return Err(CatalogError::BadColumnType {
+                            query: q,
+                            column: "check_option".to_string(),
+                            message: format!(
+                                "unknown information_schema.views.check_option value: {other:?}"
+                            ),
+                        });
+                    }
+                };
                 views.push(View {
                     qname,
                     columns,
@@ -149,7 +164,7 @@ pub(super) fn build_views_and_mvs(
                     body_dependencies,
                     security_barrier,
                     security_invoker,
-                    check_option: None, // Populated by build_views_and_mvs after check_option join
+                    check_option,
                     comment: comment.clone(),
                     raw_body: String::new(),
                     owner,

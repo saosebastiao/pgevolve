@@ -20,10 +20,13 @@ SELECT
   coalesce(c.reloptions, '{}'::text[]) AS reloptions,
   owner_role.rolname                   AS owner,
   coalesce(c.relacl::text[], '{}'::text[]) AS acl,
-  obj_description(c.oid, 'pg_class')   AS comment
+  obj_description(c.oid, 'pg_class')   AS comment,
+  coalesce(vv.check_option, 'NONE')    AS check_option
 FROM pg_class c
 JOIN pg_namespace n ON c.relnamespace = n.oid
 JOIN pg_authid owner_role ON owner_role.oid = c.relowner
+LEFT JOIN information_schema.views vv
+  ON vv.table_schema = n.nspname AND vv.table_name = c.relname
 WHERE c.relkind IN ('v','m')
   AND n.nspname = ANY($1::text[])
   AND NOT EXISTS (
