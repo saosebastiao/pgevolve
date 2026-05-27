@@ -43,6 +43,7 @@ impl EphemeralPostgres {
             PgVersion::Pg15 => "15-alpine",
             PgVersion::Pg16 => "16-alpine",
             PgVersion::Pg17 => "17-alpine",
+            PgVersion::Pg18 => "18-alpine",
         };
 
         let image = GenericImage::new("postgres", tag)
@@ -154,7 +155,10 @@ fn parse_pg_version_env(value: Option<&str>) -> PgVersion {
         Some("15") => PgVersion::Pg15,
         None | Some("16") => PgVersion::Pg16,
         Some("17") => PgVersion::Pg17,
-        Some(other) => panic!("PGEVOLVE_TEST_PG_VERSION must be one of 14|15|16|17, got {other:?}"),
+        Some("18") => PgVersion::Pg18,
+        Some(other) => {
+            panic!("PGEVOLVE_TEST_PG_VERSION must be one of 14|15|16|17|18, got {other:?}")
+        }
     }
 }
 
@@ -220,6 +224,7 @@ mod tests {
         assert_eq!(parse_pg_version_env(Some("15")), PgVersion::Pg15);
         assert_eq!(parse_pg_version_env(Some("16")), PgVersion::Pg16);
         assert_eq!(parse_pg_version_env(Some("17")), PgVersion::Pg17);
+        assert_eq!(parse_pg_version_env(Some("18")), PgVersion::Pg18);
     }
 
     #[test]
