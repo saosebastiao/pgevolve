@@ -36,6 +36,7 @@ mixes states (e.g., FK constraints are supported as a kind, but the
 | [`policies.md`](./policies.md) | Row-level security: per-table `rls_enabled` / `rls_forced`, embedded `policies: Vec<Policy>`, `unmanaged-policy` lint |
 | [`reloptions.md`](./reloptions.md) | Storage parameters / reloptions on tables, indexes, and materialized views; per-AM fillfactor validation; `unmanaged-reloption` lint |
 | [`publications.md`](./publications.md) | Logical-replication source-side metadata: all 5 `PUBLICATION` forms, `publish` bitset, `publish_via_partition_root`, 11 step kinds, 4 lint rules, PG-version gating |
+| [`subscriptions.md`](./subscriptions.md) | Logical-replication subscriber-side metadata: `SUBSCRIPTION` with per-field lenient options, `${VAR}` env-var interpolation in CONNECTION strings, 8 step kinds, 4 lint rules, PG-version gating |
 | [`pipeline.md`](./pipeline.md) | The internal pipeline: parser → IR → diff → planner → rewrite → group → execute |
 | [`cli.md`](./cli.md) | CLI command surface, global flags, output formats, exit codes, `pgevolve.toml` schema |
 | [`lint-and-layout.md`](./lint-and-layout.md) | Universal lint rules, built-in and custom layout profiles |
@@ -50,6 +51,8 @@ mixes states (e.g., FK constraints are supported as a kind, but the
 - **"v0.3"** added cross-cutting state: cluster roles (v0.3.0), grants
   + ownership (v0.3.1), row-level security (v0.3.2), storage parameters
   (v0.3.3). Entries marked 📋 name the target version when known.
+- **"v0.3.4–v0.3.5"** added replication metadata: `PUBLICATION`
+  (v0.3.4) and `SUBSCRIPTION` (v0.3.5).
 - **"v0.3.6+"** continues v0.3 with PG 18 support (v0.3.6),
   `STATISTICS` + `WITH CHECK OPTION` (v0.3.7), `CREATE COLLATION`
   + `RANGE TYPE` (v0.3.8). See [`roadmap.md`](./roadmap.md) for the
