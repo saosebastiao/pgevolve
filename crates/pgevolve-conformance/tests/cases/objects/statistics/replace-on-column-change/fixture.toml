@@ -1,0 +1,20 @@
+[meta]
+title     = "STATISTICS column change — structural diff emits ReplaceStatistic (DROP + CREATE)"
+authoring = "objects"
+spec_refs = ["objects.statistic"]
+
+# Adding a column to a statistic's ON list changes the column set.
+# The differ classifies this as a structural change and emits ReplaceStatistic
+# (RequiresApproval), which renders as DROP STATISTICS + CREATE STATISTICS.
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps      = 1
+minimality = false  # ReplaceStatistic is destructive; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "replace_statistic"
+target = "app.s"
+reason_contains = []

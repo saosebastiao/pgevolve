@@ -1,0 +1,13 @@
+[meta]
+title     = "ALTER STATISTICS SET STATISTICS (statistics_target) — AlterStatisticSetTarget step"
+authoring = "objects"
+spec_refs = ["objects.statistic"]
+
+# The parser folds ALTER STATISTICS … SET STATISTICS into the accumulated IR.
+# The differ detects the statistics_target change and emits AlterStatisticSetTarget.
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

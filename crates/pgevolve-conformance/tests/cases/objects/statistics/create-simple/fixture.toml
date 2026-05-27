@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE STATISTICS basic — ndistinct + dependencies"
+authoring = "objects"
+spec_refs = ["objects.statistic"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

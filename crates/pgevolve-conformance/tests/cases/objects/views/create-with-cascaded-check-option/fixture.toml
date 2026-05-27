@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE VIEW WITH CASCADED CHECK OPTION"
+authoring = "objects"
+spec_refs = ["objects.view.check_option"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

@@ -1,0 +1,18 @@
+[meta]
+title     = "Lenient drift: catalog has statistic source doesn't declare — 0 plan steps"
+authoring = "objects"
+spec_refs = ["lint.unmanaged-statistic"]
+
+[pg]
+min = 14
+max = 18
+
+# The differ uses a lenient policy: statistics absent from source are NOT
+# dropped. This fixture verifies that removing a statistic from source does
+# not produce a DROP step. The unmanaged-statistic advisory fires via
+# run_drift_lints (real-catalog path) rather than the in-process pipeline, so
+# it is not asserted here; unit tests in lint/rules/unmanaged_statistic cover it.
+[expect.plan]
+steps      = 0
+minimality = false
+golden     = false

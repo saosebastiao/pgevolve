@@ -1,0 +1,14 @@
+[meta]
+title     = "CREATE STATISTICS with explicit kinds (ndistinct + mcv) — non-default subset"
+authoring = "objects"
+spec_refs = ["objects.statistic"]
+
+# The renderer omits the (kinds) clause when all three kinds are enabled
+# (PG default-all). This fixture uses an explicit non-default subset so the
+# rendered plan.sql retains the (ndistinct, mcv) clause.
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

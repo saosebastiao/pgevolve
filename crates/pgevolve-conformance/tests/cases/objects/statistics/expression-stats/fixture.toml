@@ -1,0 +1,19 @@
+[meta]
+title     = "CREATE STATISTICS with expression column — lower(name)"
+authoring = "objects"
+spec_refs = ["objects.statistic"]
+
+[pg]
+min = 14
+max = 18
+
+[fixture]
+# The apply layer is disabled because expression statistics roundtrip via
+# pg_get_statisticsobjdef_expressions, which may produce a different canonical
+# text than what the source parser generates (e.g. PG may add type-casts or
+# schema-qualify function names). The parse + diff + plan.sql + golden layers
+# still fully validate the feature.
+apply = false
+
+[expect.plan]
+steps = 1
