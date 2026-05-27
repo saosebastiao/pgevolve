@@ -7,6 +7,18 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.6] — 2026-05-27
+
+### Added
+
+- **Postgres 18 catalog support.** `PgVersion::Pg18` variant; `catalog/queries/pg18.rs` thin re-export of shared (PG 18 is fully backward-compatible with PG 17 catalog queries — no divergences found). Tier-2/3/C suites green under PG 18. CI matrix exercises PG 18 on every push.
+- **`[managed].min_pg_version`** now accepts `18`.
+
+### Notes
+
+- v0.3.6 is catalog-read + conformance only. New PG 18 IR features (virtual generated columns, etc.) are explicitly deferred to v0.4.1 per the roadmap.
+- Constitution §6 now reads "14, 15, 16, 17, and 18" as actively-maintained PG majors.
+
 ## [0.3.5] — 2026-05-26
 
 ### Added

@@ -134,7 +134,7 @@ Full reference: [`docs/user/configuration.md`](./docs/user/configuration.md).
   `SET NOT NULL` via CHECK pattern, `REFRESH MATERIALIZED VIEW
   CONCURRENTLY` upgrade. Opt out per-environment with
   `strategy = "atomic"`.
-- **All actively-maintained PG majors.** PG 14, 15, 16, 17 covered in
+- **All actively-maintained PG majors.** PG 14, 15, 16, 17, 18 covered in
   CI on every push; per-version SQL paths in the catalog reader.
 - **Conformance-driven.** ~160 fixture-based end-to-end tests gate
   CI. Every claimed capability has a fixture; see

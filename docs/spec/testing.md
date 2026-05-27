@@ -114,7 +114,7 @@ Full schema in `crates/pgevolve-conformance/AUTHORING.md`.
 
 | Module | Status | Notes |
 |---|---|---|
-| `EphemeralPostgres` (testcontainers wrapper, PG 14-17) | ✅ Implemented | The binary has a separate `ShadowPostgres` for `validate --shadow`. |
+| `EphemeralPostgres` (testcontainers wrapper, PG 14-18) | ✅ Implemented | The binary has a separate `ShadowPostgres` for `validate --shadow`. |
 | `PgCatalogQuerier` (`tokio_postgres`-backed `CatalogQuerier`) | ✅ Implemented | Mirrored in the binary as `pgevolve::pg_querier`. |
 | `catalog_snapshotter` (canonical JSON renderer) | ✅ Implemented | Powers tier-3 goldens. |
 | `MigrationFixture` (tier-4 fixture loader) | ✅ Implemented | One seed fixture under `crates/pgevolve-core/tests/fixtures/e2e/`. |
