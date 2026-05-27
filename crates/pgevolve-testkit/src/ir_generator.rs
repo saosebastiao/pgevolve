@@ -35,6 +35,14 @@
 //! Row filters and column lists are left `None` — deeper variation is a
 //! v0.3.4.1 follow-up.
 //!
+//! v0.3.5 additions: `arb_streaming_mode`, `arb_origin_mode`,
+//! `arb_subscription_options`, `arb_subscription` — subscription strategies
+//! plumbed into `arbitrary_catalog`. Publication names are drawn from the
+//! catalog's actual publications so generated subscriptions always reference
+//! real publications. CREATE-only fields (`create_slot`, `copy_data`) and
+//! PG-version-gated fields (`password_required`, `run_as_owner`) are left
+//! `None` to keep generation simple and lint-clean.
+//!
 //! Richer coverage (CHECK constraints, multi-column UNIQUE, generated
 //! columns, identity sequences, partial indexes, the full `ColumnType`
 //! matrix) is deferred to v0.1.x.
@@ -72,6 +80,7 @@ use pgevolve_core::ir::index::{
 };
 use pgevolve_core::ir::policy::{Policy, PolicyCommand};
 use pgevolve_core::ir::publication::{Publication, PublicationScope, PublishKinds, PublishedTable};
+use pgevolve_core::ir::subscription::{OriginMode, StreamingMode, Subscription, SubscriptionOptions};
 use pgevolve_core::ir::reloptions::{
     AutovacuumOptions, IndexStorageOptions, NotNanF64, TableStorageOptions,
 };
@@ -164,30 +173,45 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
                 default_privs_strategy,
                 publications_strategy,
             )
-                .prop_map(
+                .prop_flat_map(
                     move |(idx_per_table, seq_owner_grants, default_privileges, publications)| {
-                        let indexes: Vec<Index> = idx_per_table.into_iter().flatten().collect();
-                        let mut catalog = Catalog::empty();
-                        catalog.schemas = schemas.clone();
-                        catalog.tables = tables.clone();
-                        catalog.indexes = indexes;
-                        // Sprinkle in sequences for variety (one per schema, with
-                        // random owner + grants).
-                        for (s, (seq_owner, seq_grants)) in
-                            catalog.schemas.iter().zip(seq_owner_grants)
-                        {
-                            let mut seq = stand_alone_sequence(&s.name);
-                            seq.owner = seq_owner;
-                            seq.grants = seq_grants;
-                            catalog.sequences.push(seq);
-                        }
-                        // Attach default-privilege rules (dedup by key before canon).
-                        catalog.default_privileges = default_privileges;
-                        // Attach publications (unique names enforced by arb_publications).
-                        catalog.publications = publications;
-                        catalog
-                            .canonicalize()
-                            .expect("generator produced invalid catalog")
+                        // Build the publication-name pool for subscription generation
+                        // from the publications just generated for this catalog.
+                        let pub_name_pool: Vec<Identifier> =
+                            publications.iter().map(|p| p.name.clone()).collect();
+                        let subscriptions_strategy = arb_subscriptions(pub_name_pool);
+
+                        let indexes_c = idx_per_table;
+                        let schemas_c = schemas.clone();
+                        let tables_c = tables.clone();
+
+                        subscriptions_strategy.prop_map(move |subscriptions| {
+                            let indexes: Vec<Index> =
+                                indexes_c.clone().into_iter().flatten().collect();
+                            let mut catalog = Catalog::empty();
+                            catalog.schemas = schemas_c.clone();
+                            catalog.tables = tables_c.clone();
+                            catalog.indexes = indexes;
+                            // Sprinkle in sequences for variety (one per schema, with
+                            // random owner + grants).
+                            for (s, (seq_owner, seq_grants)) in
+                                catalog.schemas.iter().zip(seq_owner_grants.clone())
+                            {
+                                let mut seq = stand_alone_sequence(&s.name);
+                                seq.owner = seq_owner;
+                                seq.grants = seq_grants;
+                                catalog.sequences.push(seq);
+                            }
+                            // Attach default-privilege rules (dedup by key before canon).
+                            catalog.default_privileges = default_privileges.clone();
+                            // Attach publications (unique names enforced by arb_publications).
+                            catalog.publications = publications.clone();
+                            // Attach 0–1 subscriptions (names reference actual publications).
+                            catalog.subscriptions = subscriptions;
+                            catalog
+                                .canonicalize()
+                                .expect("generator produced invalid catalog")
+                        })
                     },
                 )
         })
@@ -1225,6 +1249,129 @@ fn arb_publications(
                         .collect();
                     strategies
                 })
+        })
+        .boxed()
+}
+
+// ---------------------------------------------------------------------------
+// v0.3.5: subscription generators
+// ---------------------------------------------------------------------------
+
+/// Small fixed pool of subscription names (SQL-safe, short, distinct).
+const SUB_NAMES: &[&str] = &["sub_a", "sub_b", "sub_c"];
+
+/// Generate a random [`StreamingMode`].
+fn arb_streaming_mode() -> impl Strategy<Value = StreamingMode> {
+    prop_oneof![
+        Just(StreamingMode::Off),
+        Just(StreamingMode::On),
+        Just(StreamingMode::Parallel),
+    ]
+}
+
+/// Generate a random [`OriginMode`].
+fn arb_origin_mode() -> impl Strategy<Value = OriginMode> {
+    prop_oneof![Just(OriginMode::Any), Just(OriginMode::None)]
+}
+
+/// Generate random [`SubscriptionOptions`] with selected fields set.
+///
+/// CREATE-only fields (`create_slot`, `copy_data`) and PG-version-gated
+/// fields (`password_required`, `run_as_owner`) are left `None` to keep
+/// generation simple and lint-clean. `synchronous_commit` is also left
+/// `None` (free-form string; no bounded pool to sample from).
+fn arb_subscription_options() -> impl Strategy<Value = SubscriptionOptions> {
+    (
+        prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // enabled
+        prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // binary
+        prop_oneof![Just(None), arb_streaming_mode().prop_map(Some)], // streaming
+        prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // two_phase
+        prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // disable_on_error
+        prop_oneof![Just(None), arb_origin_mode().prop_map(Some)],   // origin
+        prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // failover
+    )
+        .prop_map(
+            |(enabled, binary, streaming, two_phase, disable_on_error, origin, failover)| {
+                SubscriptionOptions {
+                    enabled,
+                    slot_name: None,
+                    create_slot: None,
+                    copy_data: None,
+                    synchronous_commit: None,
+                    binary,
+                    streaming,
+                    two_phase,
+                    disable_on_error,
+                    password_required: None,
+                    run_as_owner: None,
+                    origin,
+                    failover,
+                }
+            },
+        )
+}
+
+/// Generate a single [`Subscription`] with a name from `sub_name_idx` into
+/// `SUB_NAMES`, 1–3 publications drawn from `publication_pool`, and random
+/// options. Connection string uses a `${TEST_PWD}` placeholder so it lints
+/// clean (`subscription-password-in-source` only fires on plaintext values).
+fn arb_subscription_inner(
+    sub_name_idx: usize,
+    publication_pool: Vec<Identifier>,
+) -> impl Strategy<Value = Subscription> {
+    let name = Identifier::from_unquoted(SUB_NAMES[sub_name_idx]).unwrap();
+    // Pick 1–3 publications from the pool; fall back to a synthetic name when
+    // the pool is empty so the strategy always produces a valid Subscription.
+    let pubs_strategy: BoxedStrategy<Vec<Identifier>> = if publication_pool.is_empty() {
+        Just(vec![Identifier::from_unquoted("pub_a").unwrap()]).boxed()
+    } else {
+        let max_pick = 3usize.min(publication_pool.len());
+        proptest::sample::subsequence(publication_pool, 1..=max_pick)
+            .prop_map(|mut v| {
+                v.sort();
+                v.dedup();
+                v
+            })
+            .boxed()
+    };
+    (pubs_strategy, arb_subscription_options()).prop_map(move |(publications, options)| {
+        Subscription {
+            name: name.clone(),
+            // Synthetic connection string with a ${VAR} placeholder for the
+            // password. The strategy doesn't vary the connection text — every
+            // generated subscription uses a benign placeholder that lints clean
+            // (subscription-password-in-source fires only on plaintext values).
+            connection: "host=replica.example.com dbname=app user=repl password=${TEST_PWD}"
+                .to_string(),
+            publications,
+            options,
+            owner: None,
+            comment: None,
+        }
+    })
+}
+
+/// Generate 0–1 [`Subscription`]s with names drawn from `SUB_NAMES`.
+///
+/// 0–1 (not 0–2+) keeps the generated catalog lightweight and avoids
+/// subscription-name collisions with the small `SUB_NAMES` pool when the
+/// publication pool is already non-empty.
+fn arb_subscriptions(publication_pool: Vec<Identifier>) -> BoxedStrategy<Vec<Subscription>> {
+    (0usize..=1usize)
+        .prop_flat_map(move |count| {
+            let pp = publication_pool.clone();
+            proptest::sample::subsequence(
+                (0..SUB_NAMES.len()).collect::<Vec<_>>(),
+                count..=count,
+            )
+            .prop_flat_map(move |indices| {
+                let pp = pp.clone();
+                let strategies: Vec<_> = indices
+                    .into_iter()
+                    .map(|idx| arb_subscription_inner(idx, pp.clone()))
+                    .collect();
+                strategies
+            })
         })
         .boxed()
 }
