@@ -317,6 +317,7 @@ impl Plan {
 ///
 /// The vocabulary matches [`crate::plan::StepKind`]'s `snake_case` serde encoding; this
 /// `const fn` exists so callers do not pay for a serde round-trip.
+#[allow(clippy::too_many_lines)] // One arm per StepKind variant — extraction would obscure intent.
 pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
     use crate::plan::raw_step::StepKind as K;
     match k {
@@ -414,10 +415,19 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::AlterPublicationSetPublish => "alter_publication_set_publish",
         K::AlterPublicationSetViaRoot => "alter_publication_set_via_root",
         K::CommentOnPublication => "comment_on_publication",
+        K::CreateSubscription => "create_subscription",
+        K::DropSubscription => "drop_subscription",
+        K::AlterSubscriptionConnection => "alter_subscription_connection",
+        K::AlterSubscriptionAddPublication => "alter_subscription_add_publication",
+        K::AlterSubscriptionDropPublication => "alter_subscription_drop_publication",
+        K::AlterSubscriptionSetPublication => "alter_subscription_set_publication",
+        K::AlterSubscriptionSetOptions => "alter_subscription_set_options",
+        K::CommentOnSubscription => "comment_on_subscription",
     }
 }
 
 /// Parse [`kind_name`]'s output back into [`crate::plan::StepKind`].
+#[allow(clippy::too_many_lines)] // One arm per StepKind variant — extraction would obscure intent.
 pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
     use crate::plan::raw_step::StepKind as K;
     Some(match s {
@@ -515,6 +525,14 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "alter_publication_set_publish" => K::AlterPublicationSetPublish,
         "alter_publication_set_via_root" => K::AlterPublicationSetViaRoot,
         "comment_on_publication" => K::CommentOnPublication,
+        "create_subscription" => K::CreateSubscription,
+        "drop_subscription" => K::DropSubscription,
+        "alter_subscription_connection" => K::AlterSubscriptionConnection,
+        "alter_subscription_add_publication" => K::AlterSubscriptionAddPublication,
+        "alter_subscription_drop_publication" => K::AlterSubscriptionDropPublication,
+        "alter_subscription_set_publication" => K::AlterSubscriptionSetPublication,
+        "alter_subscription_set_options" => K::AlterSubscriptionSetOptions,
+        "comment_on_subscription" => K::CommentOnSubscription,
         _ => return None,
     })
 }

@@ -29,6 +29,7 @@ pub mod refresh_mv_concurrently;
 pub mod reloptions;
 pub mod set_not_null_check_pattern;
 pub mod sql;
+pub mod subscriptions;
 pub mod triggers;
 pub mod types;
 pub mod views;
@@ -534,17 +535,117 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
-        // Subscription changes: Stage 8 will fill in real SQL helpers. For now,
-        // no-op stubs so the workspace compiles.
-        Change::CreateSubscription(_)
-        | Change::DropSubscription { .. }
-        | Change::AlterSubscriptionConnection { .. }
-        | Change::AlterSubscriptionAddPublication { .. }
-        | Change::AlterSubscriptionDropPublication { .. }
-        | Change::AlterSubscriptionSetPublication { .. }
-        | Change::AlterSubscriptionSetOptions { .. }
-        | Change::CommentOnSubscription { .. } => {
-            // Stage 8: emit real SQL. For now, produce no steps.
+        Change::CreateSubscription(s) => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::CreateSubscription,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: subscriptions::create_subscription(&s),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+            // Follow-up COMMENT step if a comment is present.
+            if let Some(c) = &s.comment {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: crate::plan::raw_step::StepKind::CommentOnSubscription,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![],
+                    sql: subscriptions::comment_on_subscription(&s.name, Some(c)),
+                    transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                });
+            }
+        }
+        Change::DropSubscription { name } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::DropSubscription,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![],
+                sql: subscriptions::drop_subscription(&name),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterSubscriptionConnection {
+            name,
+            new_connection,
+        } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterSubscriptionConnection,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: subscriptions::alter_subscription_connection(&name, &new_connection),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterSubscriptionAddPublication { name, publication } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterSubscriptionAddPublication,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: subscriptions::alter_subscription_add_publication(&name, &publication),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterSubscriptionDropPublication { name, publication } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterSubscriptionDropPublication,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: subscriptions::alter_subscription_drop_publication(&name, &publication),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterSubscriptionSetPublication { name, publications } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterSubscriptionSetPublication,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: subscriptions::alter_subscription_set_publication(&name, &publications),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterSubscriptionSetOptions { name, options } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterSubscriptionSetOptions,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: subscriptions::alter_subscription_set_options(&name, &options),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::CommentOnSubscription { name, comment } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::CommentOnSubscription,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![],
+                sql: subscriptions::comment_on_subscription(&name, comment.as_deref()),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
         }
 
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.

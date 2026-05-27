@@ -248,6 +248,25 @@ pub enum StepKind {
     AlterPublicationSetViaRoot,
     /// `COMMENT ON PUBLICATION p IS '...'`.
     CommentOnPublication,
+
+    // --- v0.3.5 subscription step kinds ---
+    /// `CREATE SUBSCRIPTION …`.
+    CreateSubscription,
+    /// `DROP SUBSCRIPTION …`. Destructive (intent required).
+    DropSubscription,
+    /// `ALTER SUBSCRIPTION s CONNECTION '...'`.
+    AlterSubscriptionConnection,
+    /// `ALTER SUBSCRIPTION s ADD PUBLICATION p`.
+    AlterSubscriptionAddPublication,
+    /// `ALTER SUBSCRIPTION s DROP PUBLICATION p`.
+    AlterSubscriptionDropPublication,
+    /// `ALTER SUBSCRIPTION s SET PUBLICATION p, …`. Reserved; differ emits
+    /// granular ADD/DROP only, but the variant exists for `kind_name` round-trips.
+    AlterSubscriptionSetPublication,
+    /// `ALTER SUBSCRIPTION s SET (option = value, …)` — sparse-delta.
+    AlterSubscriptionSetOptions,
+    /// `COMMENT ON SUBSCRIPTION s IS '...'`.
+    CommentOnSubscription,
 }
 
 /// One unit of work the executor will attempt.
@@ -286,6 +305,7 @@ mod tests {
         assert_eq!(s, "\"create_index_concurrent\"");
     }
 
+    #[allow(clippy::too_many_lines)] // One entry per StepKind variant — extraction would obscure intent.
     #[test]
     fn step_kind_round_trips_through_serde() {
         for kind in [
@@ -383,6 +403,14 @@ mod tests {
             StepKind::AlterPublicationSetPublish,
             StepKind::AlterPublicationSetViaRoot,
             StepKind::CommentOnPublication,
+            StepKind::CreateSubscription,
+            StepKind::DropSubscription,
+            StepKind::AlterSubscriptionConnection,
+            StepKind::AlterSubscriptionAddPublication,
+            StepKind::AlterSubscriptionDropPublication,
+            StepKind::AlterSubscriptionSetPublication,
+            StepKind::AlterSubscriptionSetOptions,
+            StepKind::CommentOnSubscription,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

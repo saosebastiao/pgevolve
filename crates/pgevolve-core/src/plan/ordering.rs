@@ -122,6 +122,14 @@ pub fn order(
     let modifies = sort_changes_by_order(modifies, &sorted_modify_nodes);
     let drops = sort_changes_by_order(drops, &sorted_drop_nodes);
 
+    // Tier rule for subscriptions: subscriptions cross-reference publications
+    // in a *different* cluster — no local dep edges anchor them. To minimize
+    // the window where a referenced object might be missing:
+    //   - In the creates bucket: subscription creates land after all other creates.
+    //   - In the drops bucket:   subscription drops land before all other drops.
+    let creates = tier_subscriptions_last(creates);
+    let drops = tier_subscriptions_first(drops);
+
     Ok(OrderedChangeSet {
         creates_and_adds: creates,
         modifies,
@@ -510,21 +518,48 @@ fn change_node(change: &Change) -> NodeId {
         | Change::AlterPublicationSetViaRoot { publication, .. } => {
             NodeId::Publication(publication.clone())
         }
-        // Subscription changes: Stage 8 wires real NodeId::Subscription.
-        // For now, use a placeholder schema node as a stable ordering anchor.
-        Change::CreateSubscription(s) => NodeId::Schema(s.name.clone()),
-        Change::DropSubscription { name } => NodeId::Schema(name.clone()),
+        // Subscription changes: use NodeId::Subscription keyed by subscription name.
+        // Subscriptions have no local dep edges (they cross-reference a remote cluster);
+        // the tier rule in `order` schedules them create-last, drop-first.
+        Change::CreateSubscription(s) => NodeId::Subscription(s.name.clone()),
+        Change::DropSubscription { name } => NodeId::Subscription(name.clone()),
         Change::AlterSubscriptionConnection { name, .. }
         | Change::AlterSubscriptionAddPublication { name, .. }
         | Change::AlterSubscriptionDropPublication { name, .. }
         | Change::AlterSubscriptionSetPublication { name, .. }
         | Change::AlterSubscriptionSetOptions { name, .. }
-        | Change::CommentOnSubscription { name, .. } => NodeId::Schema(name.clone()),
+        | Change::CommentOnSubscription { name, .. } => NodeId::Subscription(name.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")
         }
     }
+}
+
+/// Move all `CreateSubscription` entries to the end of the creates bucket.
+///
+/// Subscriptions create last so that any local publications they reference
+/// have already been created. (The remote-cluster pubs are beyond our control,
+/// but this minimizes the local-ref gap for same-cluster setups.)
+fn tier_subscriptions_last(entries: Vec<ChangeEntry>) -> Vec<ChangeEntry> {
+    let (mut rest, mut subs): (Vec<_>, Vec<_>) = entries
+        .into_iter()
+        .partition(|e| !matches!(e.change, Change::CreateSubscription(_)));
+    rest.append(&mut subs);
+    rest
+}
+
+/// Move all `DropSubscription` entries to the front of the drops bucket.
+///
+/// Subscriptions drop first so they are torn down before local publications
+/// (reducing the risk of network errors if a remote subscriber tries to read
+/// a publication we're about to drop).
+fn tier_subscriptions_first(entries: Vec<ChangeEntry>) -> Vec<ChangeEntry> {
+    let (mut subs, mut rest): (Vec<_>, Vec<_>) = entries
+        .into_iter()
+        .partition(|e| matches!(e.change, Change::DropSubscription { .. }));
+    subs.append(&mut rest);
+    subs
 }
 
 /// Sort `entries` by the position of their associated `NodeId` in `order`.
@@ -605,6 +640,7 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Extension(name) => format!("extension:{name}"),
         NodeId::Trigger(q) => format!("trigger:{q}"),
         NodeId::Publication(name) => format!("publication:{name}"),
+        NodeId::Subscription(name) => format!("subscription:{name}"),
         NodeId::Function(q, args) => format!(
             "function:{}({})",
             q,

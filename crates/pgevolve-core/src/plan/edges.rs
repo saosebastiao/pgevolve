@@ -64,6 +64,9 @@ pub enum NodeId {
     /// A publication (not schema-qualified — publications are a per-database
     /// global namespace).
     Publication(Identifier),
+    /// A subscription (not schema-qualified — subscriptions are a per-database
+    /// global namespace, like publications).
+    Subscription(Identifier),
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.
@@ -173,6 +176,13 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
                 g.add_edge(pub_node.clone(), NodeId::Schema(s.clone()));
             }
         }
+    }
+    // Register subscriptions. Subscriptions cross-reference publications in
+    // a *different* cluster — no local dep edges anchor them. They are
+    // registered as isolated nodes; the tier rule in ordering.rs schedules
+    // them create-last, drop-first via sort_key.
+    for s in &catalog.subscriptions {
+        g.add_node(NodeId::Subscription(s.name.clone()));
     }
 
     // Phase 1b.0: type → schema edges. Every user-defined type lives inside

@@ -323,7 +323,10 @@ fn node_id_to_key(node: &NodeId) -> String {
         | NodeId::Trigger(q)
         | NodeId::Procedure(q)
         | NodeId::Function(q, _) => q.to_string(),
-        NodeId::Schema(id) | NodeId::Extension(id) | NodeId::Publication(id) => id.to_string(),
+        NodeId::Schema(id)
+        | NodeId::Extension(id)
+        | NodeId::Publication(id)
+        | NodeId::Subscription(id) => id.to_string(),
         NodeId::Constraint { table, name } => format!("{table}.{name}"),
     }
 }
