@@ -34,8 +34,8 @@ pub struct Subscription {
 pub struct SubscriptionOptions {
     pub enabled:            Option<bool>,
     pub slot_name:          Option<Identifier>,    // None = PG uses subscription name
-    pub create_slot:        Option<bool>,
-    pub copy_data:          Option<bool>,
+    pub create_slot:        Option<bool>,           // CREATE-only; see below
+    pub copy_data:          Option<bool>,           // CREATE-only; see below
     pub synchronous_commit: Option<String>,        // GUC string ('on' | 'off' | 'remote_write' | …)
     pub binary:             Option<bool>,
     pub streaming:          Option<StreamingMode>,
@@ -60,6 +60,8 @@ pub enum OriginMode {
 ```
 
 `Catalog::subscriptions: Vec<Subscription>` — sorted by `name` in `sort_and_dedupe`. New module: `crates/pgevolve-core/src/ir/subscription.rs`.
+
+**CREATE-only options**: `create_slot` and `copy_data` have no `ALTER SUBSCRIPTION SET (…)` equivalent in PG. Source can declare them so they appear in the rendered `CREATE SUBSCRIPTION … WITH (…)`. The differ never includes them in `AlterSubscriptionSetOptions` deltas (would generate SQL PG rejects); the catalog reader returns `None` for both (pg_subscription doesn't store the CREATE-time decision).
 
 **Canon validation (`ir/canon/subscriptions.rs`):**
 - `publications` is empty → `IrError::EmptySubscriptionPublications` (PG requires at least one).
