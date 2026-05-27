@@ -8,7 +8,7 @@ v0.3.x is pre-release; the only supported install is from source.
   so `rustup` will pick it up automatically.
 - **Docker** (optional). Required only for `pgevolve validate --shadow`,
   for the tier-3/4/5 test suites, and for any local property-test runs.
-- **Postgres 14–17.** pgevolve introspects through `pg_catalog`; major
+- **Postgres 14–18.** pgevolve introspects through `pg_catalog`; major
   versions outside this range are not tested.
 
 ## Build the binary
