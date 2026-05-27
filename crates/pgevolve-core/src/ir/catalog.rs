@@ -46,6 +46,8 @@ pub struct Catalog {
     pub triggers: Vec<Trigger>,
     /// Publications (logical-replication source-side metadata).
     pub publications: Vec<Publication>,
+    /// Subscriptions (logical-replication subscriber-side metadata).
+    pub subscriptions: Vec<crate::ir::subscription::Subscription>,
     /// `ALTER DEFAULT PRIVILEGES` rules. Canonicalized.
     pub default_privileges: Vec<crate::ir::default_privileges::DefaultPrivilegeRule>,
 }
@@ -67,6 +69,7 @@ impl Catalog {
             procedures: Vec::new(),
             triggers: Vec::new(),
             publications: Vec::new(),
+            subscriptions: Vec::new(),
             default_privileges: Vec::new(),
         }
     }
