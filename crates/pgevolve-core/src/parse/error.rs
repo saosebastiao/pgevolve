@@ -125,6 +125,15 @@ pub enum ParseError {
     #[error("invalid identifier {0:?}: {1}")]
     InvalidIdentifier(String, String),
 
+    // ── Check option parse errors ────────────────────────────────────────────
+    /// `ViewStmt.with_check_option` held an unrecognized integer.
+    #[error("unknown ViewStmt.with_check_option integer value: {0}")]
+    UnknownCheckOptionVariant(i32),
+
+    /// A `check_option` WITH-option had an unrecognized string value.
+    #[error("unknown check_option value: {0:?} (expected 'local' or 'cascaded')")]
+    UnknownCheckOptionValue(String),
+
     // ── Publication parse errors ─────────────────────────────────────────────
     /// A publication with this name was declared more than once.
     #[error("{1}: publication {0:?} declared more than once")]

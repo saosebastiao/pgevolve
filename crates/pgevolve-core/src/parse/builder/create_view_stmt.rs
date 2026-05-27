@@ -9,7 +9,7 @@ use pg_query::protobuf::{AConst, ViewStmt, a_const};
 
 use crate::identifier::Identifier;
 use crate::ir::column_type::ColumnType;
-use crate::ir::view::{View, ViewColumn};
+use crate::ir::view::{CheckOption, View, ViewColumn};
 use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
 use crate::parse::normalize_body::NormalizedBody;
@@ -30,6 +30,7 @@ pub(crate) fn build_view(
     let qname = shared::resolve_qname(range_var, default_schema, location)?;
     let columns = view_columns_from_aliases(&stmt.aliases, location)?;
     let (security_barrier, security_invoker) = view_reloptions(&stmt.options, location)?;
+    let check_option = extract_check_option(stmt, location)?;
 
     // Extract a deparseable SELECT body from the query node. T4's
     // canonicalization pass will re-parse this string to fill
@@ -43,7 +44,7 @@ pub(crate) fn build_view(
         body_dependencies: Vec::new(),
         security_barrier,
         security_invoker,
-        check_option: None,
+        check_option,
         comment: None,
         raw_body,
         owner: None,
@@ -137,12 +138,11 @@ fn view_columns_from_aliases(
         .collect()
 }
 
-/// Parse the `WITH (...)` reloptions list for `security_barrier` and
-/// `security_invoker` boolean options.
+/// Parse the `WITH (...)` reloptions list for `security_barrier`,
+/// `security_invoker`, and `check_option` options.
 ///
 /// Unknown options are rejected: silently swallowing them would discard
-/// user intent (e.g. `check_option = local`) with no diagnostic, which
-/// constitutes silent data loss.
+/// user intent with no diagnostic, which constitutes silent data loss.
 fn view_reloptions(
     options: &[pg_query::protobuf::Node],
     location: &SourceLocation,
@@ -161,12 +161,15 @@ fn view_reloptions(
             "security_invoker" => {
                 security_invoker = Some(def_elem_bool(de, location)?);
             }
+            // check_option is handled by extract_check_option; allow it here
+            // so it doesn't trip the unknown-option guard.
+            "check_option" => {}
             other => {
                 return Err(ParseError::Structural {
                     location: location.clone(),
                     message: format!(
-                        "unsupported view reloption: {other} (v0.2 supports \
-                         security_barrier and security_invoker; see arch spec \
+                        "unsupported view reloption: {other} (pgevolve supports \
+                         security_barrier, security_invoker, and check_option; see arch spec \
                          §13 lint-at-plan tier for opt-in via [[lint_waiver]] \
                          once future reloption support lands)"
                     ),
@@ -176,6 +179,91 @@ fn view_reloptions(
     }
 
     Ok((security_barrier, security_invoker))
+}
+
+/// Extract `WITH [LOCAL | CASCADED] CHECK OPTION` from a `CREATE VIEW` AST.
+///
+/// Handles two forms:
+/// 1. **SQL-clause form**: `WITH LOCAL CHECK OPTION` / `WITH CASCADED CHECK OPTION` /
+///    bare `WITH CHECK OPTION` (PG default = Cascaded). Encoded in
+///    `stmt.with_check_option` (an i32 enum from `ViewCheckOption`).
+/// 2. **WITH-options form**: `WITH (check_option = 'local' | 'cascaded')`. Encoded
+///    in `stmt.options` as a `DefElem` with `defname = "check_option"`.
+///
+/// When both are present PG enforces they agree; we prefer the SQL-clause
+/// form (its value supersedes the options form).
+fn extract_check_option(
+    stmt: &ViewStmt,
+    location: &SourceLocation,
+) -> Result<Option<CheckOption>, ParseError> {
+    // 1. SQL-clause form: stmt.with_check_option
+    //    pg_query 6.x ViewCheckOption: 0=Undefined, 1=NoCheckOption, 2=Local, 3=Cascaded
+    let sql_clause = match stmt.with_check_option {
+        0 | 1 => None,  // Undefined or NoCheckOption
+        2 => Some(CheckOption::Local),
+        3 => Some(CheckOption::Cascaded),
+        other => return Err(ParseError::UnknownCheckOptionVariant(other)),
+    };
+
+    // If the SQL-clause form set a value, use it directly.
+    if sql_clause.is_some() {
+        return Ok(sql_clause);
+    }
+
+    // 2. WITH-options form: scan stmt.options for check_option DefElem.
+    for opt in &stmt.options {
+        let Some(NodeEnum::DefElem(de)) = opt.node.as_ref() else {
+            continue;
+        };
+        if de.defname.as_str() != "check_option" {
+            continue;
+        }
+        // Value is a String node containing 'local' or 'cascaded'.
+        let val = def_elem_string(de, location)?;
+        return match val.to_ascii_lowercase().as_str() {
+            "local" => Ok(Some(CheckOption::Local)),
+            "cascaded" => Ok(Some(CheckOption::Cascaded)),
+            other => Err(ParseError::UnknownCheckOptionValue(other.to_string())),
+        };
+    }
+
+    Ok(None)
+}
+
+/// Extract a string value from a `DefElem` node.
+fn def_elem_string(
+    de: &pg_query::protobuf::DefElem,
+    location: &SourceLocation,
+) -> Result<String, ParseError> {
+    let Some(arg_box) = de.arg.as_ref() else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!("option {:?} missing value", de.defname),
+        });
+    };
+    let Some(node) = arg_box.node.as_ref() else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!("option {:?} has empty value node", de.defname),
+        });
+    };
+    match node {
+        NodeEnum::String(s) => Ok(s.sval.clone()),
+        NodeEnum::AConst(c) => {
+            if let Some(a_const::Val::Sval(s)) = c.val.as_ref() {
+                Ok(s.sval.clone())
+            } else {
+                Err(ParseError::Structural {
+                    location: location.clone(),
+                    message: format!("option {:?} value is not a string", de.defname),
+                })
+            }
+        }
+        _ => Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!("option {:?} value has unexpected node type", de.defname),
+        }),
+    }
 }
 
 /// Extract a boolean from a `DefElem`.
@@ -248,6 +336,7 @@ fn aconst_to_bool(c: &AConst, location: &SourceLocation) -> Result<bool, ParseEr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::view::CheckOption;
     use std::path::PathBuf;
 
     fn loc() -> SourceLocation {
@@ -330,15 +419,49 @@ mod tests {
 
     #[test]
     fn view_with_unsupported_reloption_rejects() {
-        let stmt = parse_view("CREATE VIEW app.v WITH (check_option = local) AS SELECT 1;");
+        // An unknown option (not security_barrier, security_invoker, or check_option) should error.
+        let stmt = parse_view("CREATE VIEW app.v WITH (unknown_option = true) AS SELECT 1;");
         let err = build_view(&stmt, None, &loc()).unwrap_err();
         let msg = match &err {
             ParseError::Structural { message, .. } => message.clone(),
             other => panic!("expected Structural error, got: {other:?}"),
         };
         assert!(
-            msg.contains("check_option"),
-            "error message should mention 'check_option', got: {msg}"
+            msg.contains("unknown_option"),
+            "error message should mention 'unknown_option', got: {msg}"
         );
+    }
+
+    // ── WITH CHECK OPTION tests ───────────────────────────────────────────────
+
+    #[test]
+    fn create_view_with_local_check_option_parses() {
+        let v = build("CREATE VIEW app.v AS SELECT 1 AS x WITH LOCAL CHECK OPTION;");
+        assert_eq!(v.check_option, Some(CheckOption::Local));
+    }
+
+    #[test]
+    fn create_view_with_cascaded_check_option_parses() {
+        let v = build("CREATE VIEW app.v AS SELECT 1 AS x WITH CASCADED CHECK OPTION;");
+        assert_eq!(v.check_option, Some(CheckOption::Cascaded));
+    }
+
+    #[test]
+    fn create_view_bare_with_check_option_defaults_to_cascaded() {
+        // PG treats bare WITH CHECK OPTION as CASCADED.
+        let v = build("CREATE VIEW app.v AS SELECT 1 AS x WITH CHECK OPTION;");
+        assert_eq!(v.check_option, Some(CheckOption::Cascaded));
+    }
+
+    #[test]
+    fn create_view_with_options_form_parses() {
+        let v = build("CREATE VIEW app.v WITH (check_option = 'local') AS SELECT 1 AS x;");
+        assert_eq!(v.check_option, Some(CheckOption::Local));
+    }
+
+    #[test]
+    fn create_view_no_check_option_is_none() {
+        let v = build("CREATE VIEW app.v AS SELECT 1 AS x;");
+        assert_eq!(v.check_option, None);
     }
 }
