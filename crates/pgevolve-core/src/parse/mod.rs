@@ -25,6 +25,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::IrError;
 use crate::ir::catalog::Catalog;
 use crate::ir::publication::Publication;
+use crate::ir::statistic::Statistic;
 use crate::ir::subscription::Subscription;
 
 /// Parse every `*.sql` file under `root`, recursively, and produce a fully-
@@ -89,6 +90,8 @@ pub fn parse_directory_with_locations(
     let mut publications: BTreeMap<Identifier, Publication> = BTreeMap::new();
     // Subscriptions: same fold-accumulate pattern as publications.
     let mut subscriptions: BTreeMap<Identifier, Subscription> = BTreeMap::new();
+    // Statistics: fold CREATE + ALTER SET STATISTICS + COMMENT into one record per qname.
+    let mut statistics: BTreeMap<QualifiedName, Statistic> = BTreeMap::new();
 
     for path in files {
         let contents = std::fs::read_to_string(&path).map_err(|e| ParseError::Io {
@@ -108,6 +111,7 @@ pub fn parse_directory_with_locations(
             &mut deferred_comments,
             &mut publications,
             &mut subscriptions,
+            &mut statistics,
         )?;
     }
 
@@ -135,6 +139,9 @@ pub fn parse_directory_with_locations(
     // Flush the subscriptions accumulator into the catalog.
     catalog.subscriptions = subscriptions.into_values().collect();
 
+    // Flush the statistics accumulator into the catalog.
+    catalog.statistics = statistics.into_values().collect();
+
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
     ast_resolution::resolve(&catalog, &locations).map_err(ParseError::AstResolution)?;
@@ -157,6 +164,80 @@ pub fn parse_directory_with_locations(
         .canonicalize()
         .map_err(|e: IrError| translate_canonicalize_error(e, &locations))?;
     Ok((canonical, locations))
+}
+
+/// Apply a `COMMENT ON STATISTICS …` to the in-progress statistics accumulator.
+///
+/// Called inline during `process_file` (not deferred) because statistics are
+/// accumulated in a `BTreeMap<QualifiedName, Statistic>` that is flushed into
+/// the catalog *after* all deferred comments are applied.
+fn apply_statistics_comment(
+    stmt: &pg_query::protobuf::CommentStmt,
+    statistics: &mut BTreeMap<QualifiedName, Statistic>,
+    location: &SourceLocation,
+) -> Result<(), ParseError> {
+    use pg_query::NodeEnum;
+
+    // pg_query encodes COMMENT ON STATISTICS as a List of String nodes.
+    let obj = stmt
+        .object
+        .as_ref()
+        .and_then(|o| o.node.as_ref())
+        .ok_or_else(|| ParseError::Structural {
+            location: location.clone(),
+            message: "COMMENT ON STATISTICS missing object reference".into(),
+        })?;
+    let NodeEnum::List(list) = obj else {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "COMMENT ON STATISTICS expected a List node, got {:?}",
+                std::mem::discriminant(obj)
+            ),
+        });
+    };
+    let parts: Vec<String> = list
+        .items
+        .iter()
+        .filter_map(|n| {
+            if let Some(NodeEnum::String(s)) = n.node.as_ref() {
+                Some(s.sval.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let qname = match parts.as_slice() {
+        [schema, name] => QualifiedName::new(
+            builder::shared::ident(schema, location)?,
+            builder::shared::ident(name, location)?,
+        ),
+        [_name] => {
+            return Err(ParseError::UnqualifiedName {
+                location: location.clone(),
+            });
+        }
+        _ => {
+            return Err(ParseError::Structural {
+                location: location.clone(),
+                message: format!(
+                    "COMMENT ON STATISTICS expected 1-2 qualified components, got {parts:?}"
+                ),
+            });
+        }
+    };
+
+    let comment = if stmt.comment.is_empty() {
+        None
+    } else {
+        Some(stmt.comment.clone())
+    };
+
+    let statistic = statistics.get_mut(&qname).ok_or_else(|| {
+        ParseError::CommentOnStatisticBeforeCreate(qname.clone(), location.clone())
+    })?;
+    statistic.comment = comment;
+    Ok(())
 }
 
 /// Merge accumulated pending FKs onto their target tables.
@@ -274,6 +355,7 @@ fn process_file(
     )>,
     publications: &mut BTreeMap<Identifier, Publication>,
     subscriptions: &mut BTreeMap<Identifier, Subscription>,
+    statistics: &mut BTreeMap<QualifiedName, Statistic>,
 ) -> Result<(), ParseError> {
     let directives = directives::extract_file_directives(contents, path)?;
     let parsed = pg_query::parse(contents).map_err(|e| ParseError::PgQuery {
@@ -370,7 +452,16 @@ fn process_file(
                 pending_rel_options.extend(alter_out.pending_rel_options);
             }
             Statement::Comment(s) => {
-                deferred_comments.push((s, location, directives.schema.clone()));
+                use pg_query::protobuf::ObjectType;
+                let kind = ObjectType::try_from(s.objtype).unwrap_or(ObjectType::Undefined);
+                if matches!(kind, ObjectType::ObjectStatisticExt) {
+                    // COMMENT ON STATISTICS is handled inline against the statistics
+                    // accumulator (not deferred), because statistics are not yet in
+                    // catalog at the deferred-comment application point.
+                    apply_statistics_comment(&s, statistics, &location)?;
+                } else {
+                    deferred_comments.push((s, location, directives.schema.clone()));
+                }
             }
             Statement::CreateView(s) => {
                 let view = builder::create_view_stmt::build_view(
@@ -591,6 +682,12 @@ fn process_file(
             }
             Statement::AlterSubscription(s) => {
                 builder::subscription_stmt::parse_alter_subscription(&s, location, subscriptions)?;
+            }
+            Statement::CreateStatistics(s) => {
+                builder::statistic_stmt::parse_create_statistics(&s, location, statistics)?;
+            }
+            Statement::AlterStatistics(s) => {
+                builder::statistic_stmt::parse_alter_statistics(&s, &location, statistics)?;
             }
         }
     }

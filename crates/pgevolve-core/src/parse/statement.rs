@@ -61,11 +61,16 @@ pub enum Statement {
     CreateSubscription(protobuf::CreateSubscriptionStmt),
     /// `ALTER SUBSCRIPTION name ...`.
     AlterSubscription(protobuf::AlterSubscriptionStmt),
+    /// `CREATE STATISTICS name … ON … FROM …`.
+    CreateStatistics(protobuf::CreateStatsStmt),
+    /// `ALTER STATISTICS name SET STATISTICS n`.
+    AlterStatistics(protobuf::AlterStatsStmt),
 }
 
 impl Statement {
     /// Classify a node into the supported whitelist, or return
     /// [`ParseError::UnsupportedObjectKind`] for anything else.
+    #[allow(clippy::too_many_lines)]
     pub fn classify(node: NodeEnum, location: SourceLocation) -> Result<Self, ParseError> {
         match node {
             NodeEnum::CreateSchemaStmt(s) => Ok(Self::CreateSchema(s)),
@@ -101,6 +106,8 @@ impl Statement {
             NodeEnum::AlterPublicationStmt(s) => Ok(Self::AlterPublication(s)),
             NodeEnum::CreateSubscriptionStmt(s) => Ok(Self::CreateSubscription(s)),
             NodeEnum::AlterSubscriptionStmt(s) => Ok(Self::AlterSubscription(s)),
+            NodeEnum::CreateStatsStmt(s) => Ok(Self::CreateStatistics(s)),
+            NodeEnum::AlterStatsStmt(s) => Ok(Self::AlterStatistics(*s)),
             NodeEnum::RenameStmt(s) => {
                 use pg_query::protobuf::ObjectType;
                 let rename_type =
@@ -126,6 +133,30 @@ impl Statement {
                                 .expect("static identifier")
                         });
                     return Err(ParseError::SubscriptionRenameNotSupported(id, location));
+                }
+                if matches!(rename_type, ObjectType::ObjectStatisticExt) {
+                    // RenameStmt for statistics encodes the name in `s.subname` (the
+                    // new name) and `s.relation` (the old qualified name).
+                    let schema = s
+                        .relation
+                        .as_ref()
+                        .map_or_else(String::new, |r| r.schemaname.clone());
+                    let name = s
+                        .relation
+                        .as_ref()
+                        .map_or_else(|| String::from("<unknown>"), |r| r.relname.clone());
+                    let schema_id = crate::identifier::Identifier::from_unquoted(&schema)
+                        .unwrap_or_else(|_| {
+                            crate::identifier::Identifier::from_unquoted("unknown")
+                                .expect("static identifier")
+                        });
+                    let name_id = crate::identifier::Identifier::from_unquoted(&name)
+                        .unwrap_or_else(|_| {
+                            crate::identifier::Identifier::from_unquoted("statistic")
+                                .expect("static identifier")
+                        });
+                    let qname = crate::identifier::QualifiedName::new(schema_id, name_id);
+                    return Err(ParseError::StatisticRenameNotSupported(qname, location));
                 }
                 Err(unsupported(location, "RENAME"))
             }

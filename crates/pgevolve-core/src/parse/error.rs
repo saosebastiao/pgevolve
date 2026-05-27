@@ -269,6 +269,48 @@ pub enum ParseError {
     /// `ALTER SUBSCRIPTION p …` appeared before the matching `CREATE SUBSCRIPTION p`.
     #[error("{1}: subscription {0:?}: ALTER SUBSCRIPTION before CREATE SUBSCRIPTION")]
     AlterSubscriptionBeforeCreate(crate::identifier::Identifier, SourceLocation),
+
+    // ── Statistic parse errors ───────────────────────────────────────────────
+    /// A statistic with this qname was declared more than once.
+    #[error("{1}: statistic {0} declared more than once")]
+    DuplicateStatistic(crate::identifier::QualifiedName, SourceLocation),
+
+    /// `CREATE STATISTICS` had no name (anonymous form is not supported).
+    #[error("{0}: anonymous CREATE STATISTICS is not supported — provide an explicit name")]
+    StatisticAnonymous(SourceLocation),
+
+    /// `CREATE STATISTICS` had an empty kinds clause (at least one of ndistinct, dependencies, mcv is required).
+    #[error(
+        "{1}: statistic {0}: empty kinds clause (must list at least one of ndistinct, dependencies, mcv)"
+    )]
+    StatisticEmptyKinds(crate::identifier::QualifiedName, SourceLocation),
+
+    /// `CREATE STATISTICS` had no columns in the ON clause.
+    #[error("{1}: statistic {0}: empty column/expression list")]
+    StatisticEmptyColumns(crate::identifier::QualifiedName, SourceLocation),
+
+    /// An unrecognized kind appeared in a `CREATE STATISTICS (…)` clause.
+    #[error(
+        "{2}: statistic {1}: unknown statistic kind {0:?} \
+         (valid: ndistinct, dependencies, mcv)"
+    )]
+    UnknownStatisticKind(String, crate::identifier::QualifiedName, SourceLocation),
+
+    /// `CREATE STATISTICS … INCLUDE (…)` is not supported (PG 18+, deferred to v0.4.x).
+    #[error("{1}: statistic {0}: INCLUDE clause is not supported (deferred to v0.4.x)")]
+    StatisticIncludeNotSupported(crate::identifier::QualifiedName, SourceLocation),
+
+    /// `ALTER STATISTICS … RENAME TO …` is not supported.
+    #[error("{1}: statistic {0}: RENAME is not supported in pgevolve")]
+    StatisticRenameNotSupported(crate::identifier::QualifiedName, SourceLocation),
+
+    /// `ALTER STATISTICS s …` appeared before the matching `CREATE STATISTICS s`.
+    #[error("{1}: statistic {0}: ALTER STATISTICS before CREATE STATISTICS")]
+    AlterStatisticBeforeCreate(crate::identifier::QualifiedName, SourceLocation),
+
+    /// `COMMENT ON STATISTICS s …` appeared before the matching `CREATE STATISTICS s`.
+    #[error("{1}: statistic {0}: COMMENT ON STATISTICS before CREATE STATISTICS")]
+    CommentOnStatisticBeforeCreate(crate::identifier::QualifiedName, SourceLocation),
 }
 
 fn format_resolution_errors(errs: &[crate::parse::ast_resolution::AstResolutionError]) -> String {
