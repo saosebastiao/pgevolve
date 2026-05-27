@@ -14,6 +14,7 @@ pub mod pg14;
 pub mod pg15;
 pub mod pg16;
 pub mod pg17;
+pub mod pg18;
 pub mod policies;
 pub mod shared;
 pub mod triggers;
@@ -83,7 +84,12 @@ mod tests {
 
     #[test]
     fn pg15_plus_includes_nulls_not_distinct() {
-        for v in [PgVersion::Pg15, PgVersion::Pg16, PgVersion::Pg17] {
+        for v in [
+            PgVersion::Pg15,
+            PgVersion::Pg16,
+            PgVersion::Pg17,
+            PgVersion::Pg18,
+        ] {
             assert!(query_for(v, CatalogQuery::Indexes).contains("indnullsnotdistinct"));
         }
     }

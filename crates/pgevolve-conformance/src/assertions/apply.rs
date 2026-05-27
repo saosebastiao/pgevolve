@@ -176,6 +176,7 @@ fn pg_version_from_major(major: u32) -> anyhow::Result<pgevolve_core::catalog::P
         15 => Ok(PgVersion::Pg15),
         16 => Ok(PgVersion::Pg16),
         17 => Ok(PgVersion::Pg17),
+        18 => Ok(PgVersion::Pg18),
         other => Err(anyhow::anyhow!("unsupported PG major: {other}")),
     }
 }
