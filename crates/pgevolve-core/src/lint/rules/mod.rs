@@ -38,6 +38,7 @@ pub mod trigger_references_unmanaged_table;
 pub mod type_shadows_table;
 pub mod unmanaged_publication;
 pub mod unmanaged_reloption;
+pub mod unmanaged_statistic;
 pub mod unmanaged_subscription;
 pub mod view_body_references_unmanaged_schema;
 pub mod view_shadows_table;

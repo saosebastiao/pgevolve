@@ -146,6 +146,7 @@ pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
         source, target,
     ));
     out.extend(rules::publication_row_filter_references_unmanaged_column::check(source));
+    out.extend(rules::unmanaged_statistic::check(source, target));
     out.extend(rules::unmanaged_subscription::check(source, target));
     out
 }
