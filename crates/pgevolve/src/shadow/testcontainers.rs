@@ -100,8 +100,9 @@ fn major_to_tag(major: PgMajor) -> Result<&'static str> {
         15 => Ok("15-alpine"),
         16 => Ok("16-alpine"),
         17 => Ok("17-alpine"),
+        18 => Ok("18-alpine"),
         other => Err(anyhow!(
-            "unsupported Postgres major version: {other}; expected 14–17"
+            "unsupported Postgres major version: {other}; expected 14–18"
         )),
     }
 }
