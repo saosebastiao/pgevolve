@@ -48,7 +48,7 @@ We use the official Postgres parser made available by the `pg_query` crate (`pg_
 
 ## 6. Postgres Version Support
 
-We support every Postgres version that the Postgres community actively maintains. The currently supported versions are **14, 15, 16, and 17**. The conformance suite runs against all four.
+We support every Postgres version that the Postgres community actively maintains. The currently supported versions are **14, 15, 16, 17, and 18**. The conformance suite runs against all five.
 
 When a version reaches end of life per the [Postgres versioning policy](https://www.postgresql.org/support/versioning/), we drop it from the support matrix and remove any code that existed solely for compatibility with that version. This is a feature, not a chore: EOL drops pay down maintenance debt. Postgres 14 reaches EOL in **November 2026** and will be dropped at that time.
 
