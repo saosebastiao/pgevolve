@@ -145,7 +145,7 @@ identity). This is PG 13+ behavior; pgevolve tracks it as a plain `bool` on
 
 ## Out of scope
 
-- **`SUBSCRIPTION`** — consumer side; tracked as 🔮 Future (v0.3.5). Connection strings introduce secrets-management questions.
+- **`SUBSCRIPTION`** — consumer side; implemented as of v0.3.5. See [`subscriptions.md`](./subscriptions.md) for the full surface.
 - **`GRANT` on publications** — Postgres does not support object-level grants on publications; they have no ACL. Out of scope by PG design.
 - **`ALTER PUBLICATION … RENAME TO`** — not supported. Rename is treated as Drop + Create (old name disappears, new name appears).
 - **Replication slots and origins** — cluster-level admin objects outside the schema-management remit.

@@ -749,6 +749,133 @@ those role names across all the per-DB projects that share the cluster.
 See [`docs/spec/cluster.md`](../spec/cluster.md) for the full project
 layout and the role-attribute surface.
 
+## Set up logical replication
+
+Postgres logical replication is declared in two places: a **publication** on
+the source database and a **subscription** on the target database. pgevolve
+manages both as first-class objects since v0.3.4 (publications) and v0.3.5
+(subscriptions).
+
+### Step 1 — Declare the publication (source database project)
+
+```sql
+-- schema/publications/pub_orders.sql
+CREATE PUBLICATION pub_orders
+    FOR TABLE app.orders, app.order_items
+    WITH (publish = 'insert, update, delete');
+```
+
+`pgevolve plan` against the source DB emits:
+
+```sql
+-- @pgevolve step=1 kind=create_publication destructive=false targets=pub_orders
+CREATE PUBLICATION pub_orders
+    FOR TABLE app.orders, app.order_items
+    WITH (publish = 'insert, update, delete');
+```
+
+### Step 2 — Declare the subscription (target database project)
+
+Keep credentials out of source SQL by using the `${VAR}` interpolation syntax:
+
+```sql
+-- schema/subscriptions/sub_orders.sql
+CREATE SUBSCRIPTION sub_orders
+    CONNECTION 'host=primary.example.com dbname=app user=repl_user password=${REPL_PWD}'
+    PUBLICATION pub_orders
+    WITH (binary = true, streaming = on);
+```
+
+The literal `${REPL_PWD}` is stored verbatim in plan.sql. It is never
+resolved at plan time — only at apply time. This means:
+
+- The plan file is safe to commit and code-review.
+- The credential is never written to disk.
+
+`pgevolve plan` against the target DB emits:
+
+```sql
+-- @pgevolve step=1 kind=create_subscription destructive=false targets=sub_orders
+CREATE SUBSCRIPTION sub_orders
+    CONNECTION 'host=primary.example.com dbname=app user=repl_user password=${REPL_PWD}'
+    PUBLICATION pub_orders
+    WITH (binary = true, streaming = on);
+```
+
+### Step 3 — Apply with the credential in the environment
+
+```sh
+# In CI or your deploy script — never in source
+export REPL_PWD="$(vault kv get -field=password secret/repl_user)"
+pgevolve apply plans/2026-05-26-<plan-id>
+```
+
+pgevolve scans the plan for `${...}` references before opening any connection.
+If `REPL_PWD` is not set, it prints a clear error and exits before touching
+the database:
+
+```
+error: unresolved env-var reference ${REPL_PWD} in step 1 (create_subscription)
+```
+
+### Changing the connection string
+
+Edit the `CONNECTION` value in source and re-plan:
+
+```sql
+-- Updated host after a primary failover
+CREATE SUBSCRIPTION sub_orders
+    CONNECTION 'host=newprimary.example.com dbname=app user=repl_user password=${REPL_PWD}'
+    PUBLICATION pub_orders
+    WITH (binary = true, streaming = on);
+```
+
+`pgevolve plan` detects the connection-string change and emits:
+
+```sql
+-- @pgevolve step=1 kind=alter_subscription_connection destructive=false targets=sub_orders
+ALTER SUBSCRIPTION sub_orders
+    CONNECTION 'host=newprimary.example.com dbname=app user=repl_user password=${REPL_PWD}';
+```
+
+### Adding a publication to an existing subscription
+
+```sql
+-- Extend sub_orders to also consume pub_users
+CREATE SUBSCRIPTION sub_orders
+    CONNECTION 'host=primary.example.com dbname=app user=repl_user password=${REPL_PWD}'
+    PUBLICATION pub_orders, pub_users
+    WITH (binary = true, streaming = on);
+```
+
+```sql
+-- @pgevolve step=1 kind=alter_subscription_add_publication destructive=false targets=sub_orders
+ALTER SUBSCRIPTION sub_orders ADD PUBLICATION pub_users;
+```
+
+### Lint: plaintext password caught at plan time
+
+pgevolve's `subscription-password-in-source` lint fires **at parse time** if
+the source SQL contains a literal password:
+
+```sql
+-- This triggers a hard lint error — never commit plaintext credentials
+CREATE SUBSCRIPTION bad_sub
+    CONNECTION 'host=primary.example.com dbname=app user=repl password=hunter2'
+    PUBLICATION pub_orders;
+```
+
+```
+error[subscription-password-in-source]: CONNECTION string contains a literal
+  password= value. Use ${VAR} env-var interpolation instead.
+  --> schema/subscriptions/bad_sub.sql:2
+```
+
+The lint is severity Error and not waivable.
+
+See [`docs/spec/subscriptions.md`](../spec/subscriptions.md) for the full
+option matrix, lint rules, and operational verb rejection.
+
 ## Run the same plan against multiple environments
 
 A plan is bound to a specific `target_identity`. If you generate

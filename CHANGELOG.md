@@ -7,6 +7,35 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.5] — 2026-05-26
+
+### Added
+
+- **SUBSCRIPTION as a first-class IR object.** Per-field lenient
+  `SubscriptionOptions` (enabled, binary, streaming Off/On/Parallel,
+  two_phase, disable_on_error PG15+, password_required + run_as_owner
+  + origin PG16+, failover PG17+). Opaque CONNECTION string with
+  `${VAR}` env-var interpolation.
+- **Apply-time `${VAR}` resolution.** Source IR and plan.sql store
+  unresolved `${VAR}` placeholders. Preflight scans every step's SQL,
+  resolves against process env, fails before any DB connection if a
+  reference is unset. Secrets never persist to disk.
+- **8 new StepKind variants** for subscription operations.
+- **4 lint rules**: `unmanaged-subscription` (Warning),
+  `subscription-references-undeclared-publication` (Warning),
+  `subscription-feature-requires-pg-version` (Error, not waivable),
+  `subscription-password-in-source` (Error, not waivable) —
+  catches plaintext `password=` at parse time.
+- **`[fixture] apply` flag** in the conformance harness so fixtures
+  with cross-cluster side-effects (subscriptions) can validate
+  parse/diff/plan/lint without applying.
+- **12 conformance fixtures** under `objects/subscriptions/`.
+
+### Closes
+
+Second item from the post-v0.3.3 agreed roadmap (next:
+CREATE VIEW WITH CHECK OPTION).
+
 ## [0.3.4] — 2026-05-26
 
 ### Added
