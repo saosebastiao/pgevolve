@@ -43,6 +43,7 @@ pub(crate) fn build_view(
         body_dependencies: Vec::new(),
         security_barrier,
         security_invoker,
+        check_option: None,
         comment: None,
         raw_body,
         owner: None,

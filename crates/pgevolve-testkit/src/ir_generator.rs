@@ -1111,6 +1111,7 @@ pub fn arbitrary_view_catalog() -> impl Strategy<Value = Catalog> {
                                 body_dependencies: deps,
                                 security_barrier: None,
                                 security_invoker: None,
+                                check_option: None,
                                 comment: None,
                                 raw_body: String::new(),
                                 owner: None,

@@ -9,6 +9,15 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
+
+/// `WITH [LOCAL | CASCADED] CHECK OPTION` setting on a view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CheckOption {
+    /// `WITH LOCAL CHECK OPTION` — applies only to this view's predicate.
+    Local,
+    /// `WITH CASCADED CHECK OPTION` — applies through chained updatable views.
+    Cascaded,
+}
 use crate::ir::column_type::ColumnType;
 use crate::ir::difference::Difference;
 use crate::ir::eq::{Diff, diff_field};
@@ -68,6 +77,10 @@ pub struct View {
     pub security_barrier: Option<bool>,
     /// `WITH (security_invoker = ...)` option, if present.
     pub security_invoker: Option<bool>,
+    /// `WITH [LOCAL | CASCADED] CHECK OPTION`, when set in source.
+    /// `None` = unmanaged (lenient — operator may have set it out-of-band;
+    /// pgevolve neither sets nor resets unless source declares).
+    pub check_option: Option<CheckOption>,
     /// Optional `COMMENT ON VIEW` text.
     pub comment: Option<String>,
     /// Raw SELECT body text from source SQL. Populated by the parser (T3);
@@ -328,6 +341,7 @@ mod tests {
             body_dependencies: vec![],
             security_barrier: None,
             security_invoker: None,
+            check_option: None,
             comment: None,
             raw_body: String::new(),
             owner: None,
@@ -363,6 +377,7 @@ mod tests {
             body_dependencies: vec![],
             security_barrier: None,
             security_invoker: None,
+            check_option: None,
             comment: None,
             raw_body: String::new(),
             owner: None,
@@ -518,5 +533,18 @@ mod tests {
                 .iter()
                 .any(|x| x.path == "storage")
         );
+    }
+
+    #[test]
+    fn check_option_local_does_not_equal_cascaded() {
+        assert_ne!(CheckOption::Local, CheckOption::Cascaded);
+    }
+
+    #[test]
+    fn check_option_implements_copy() {
+        let a = CheckOption::Local;
+        let _b = a; // copies
+        let _c = a; // still usable
+        assert_eq!(a, CheckOption::Local);
     }
 }

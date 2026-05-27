@@ -149,6 +149,7 @@ pub(super) fn build_views_and_mvs(
                     body_dependencies,
                     security_barrier,
                     security_invoker,
+                    check_option: None, // Populated by build_views_and_mvs after check_option join
                     comment: comment.clone(),
                     raw_body: String::new(),
                     owner,

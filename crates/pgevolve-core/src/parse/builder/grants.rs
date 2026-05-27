@@ -631,6 +631,7 @@ mod tests {
             body_dependencies: vec![],
             security_barrier: None,
             security_invoker: None,
+            check_option: None,
             raw_body: "SELECT 1".into(),
             comment: None,
             owner: None,
