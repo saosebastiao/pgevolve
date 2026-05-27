@@ -102,6 +102,9 @@ pub enum StepKind {
     CreateView,
     /// `DROP VIEW`.
     DropView,
+    /// `CREATE OR REPLACE VIEW … WITH [LOCAL|CASCADED] CHECK OPTION` (no
+    /// direct ALTER; pgevolve re-issues the full definition).
+    AlterViewSetCheckOption,
     /// `CREATE MATERIALIZED VIEW ... WITH NO DATA`.
     CreateMaterializedView,
     /// `DROP MATERIALIZED VIEW`.
@@ -340,6 +343,7 @@ mod tests {
             StepKind::AddCheckForNotNull,
             StepKind::CreateView,
             StepKind::DropView,
+            StepKind::AlterViewSetCheckOption,
             StepKind::CreateMaterializedView,
             StepKind::DropMaterializedView,
             StepKind::RefreshMaterializedView,

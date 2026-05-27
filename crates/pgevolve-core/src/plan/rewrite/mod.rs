@@ -144,6 +144,27 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         }
 
         Change::View(vc) => emit::view::emit(vc, destructive, destructive_reason, out),
+        Change::AlterViewSetCheckOption { qname, .. } => {
+            // Look up the full source View IR to render CREATE OR REPLACE VIEW.
+            // The differ only emits this change when the source view is present,
+            // so the unwrap is invariant-safe.
+            let view = ctx
+                .source
+                .views
+                .iter()
+                .find(|v| v.qname == qname)
+                .expect("source view must be present when AlterViewSetCheckOption is emitted");
+            out.push(crate::plan::raw_step::RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterViewSetCheckOption,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname],
+                sql: crate::plan::rewrite::views::emit_alter_view_set_check_option(view),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
         Change::Mv(mc) => emit::mv::emit(mc, destructive, destructive_reason, out),
         Change::UserType(utc) => {
             emit::user_type::emit(utc, destructive, destructive_reason, ctx, out);

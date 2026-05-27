@@ -1,7 +1,7 @@
 //! Docker-gated read tests for VIEW WITH CHECK OPTION catalog decoding.
 //!
 //! Each test spins up an ephemeral Postgres container, creates a view with
-//! a specific check_option setting, reads the catalog back, and asserts that
+//! a specific `check_option` setting, reads the catalog back, and asserts that
 //! `check_option` is decoded correctly.
 //!
 //! Skipped when Docker is unavailable. Pattern mirrors `catalog_reloptions.rs`.

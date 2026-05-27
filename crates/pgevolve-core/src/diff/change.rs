@@ -125,6 +125,17 @@ pub enum Change {
 
     /// A view-level change.
     View(ViewChange),
+    /// `CREATE OR REPLACE VIEW … WITH [LOCAL|CASCADED] CHECK OPTION` or the
+    /// inverse (set/unset check option on an existing view). PG has no direct
+    /// `ALTER VIEW … SET CHECK OPTION`; pgevolve emits a full
+    /// `CREATE OR REPLACE VIEW` carrying the new option.
+    AlterViewSetCheckOption {
+        /// Schema-qualified view name.
+        qname: QualifiedName,
+        /// The desired check option state in the source.
+        /// `None` = source declares no check option (clear it).
+        new_value: Option<crate::ir::view::CheckOption>,
+    },
     /// A materialized-view-level change.
     Mv(MvChange),
     /// A user-defined type change (enum, domain, composite).

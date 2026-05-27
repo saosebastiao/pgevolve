@@ -5,7 +5,7 @@
 //! Output is deterministic: same input IR always produces the same bytes.
 
 use crate::identifier::{Identifier, QualifiedName};
-use crate::ir::view::{MaterializedView, View};
+use crate::ir::view::{CheckOption, MaterializedView, View};
 
 // ---------------------------------------------------------------------------
 // Views
@@ -37,10 +37,20 @@ pub(crate) fn emit_create_view(v: &View, or_replace: bool) -> String {
     }
     sql.push_str(" AS\n");
     let body = v.body_canonical.canonical_text().trim_end();
+    // Strip trailing semicolon from body if present — the check option clause or
+    // our own semicolon goes at the end.
+    let body = body.trim_end_matches(';');
     sql.push_str(body);
-    if !sql.ends_with(';') {
-        sql.push(';');
+    // Append WITH CHECK OPTION clause when present.
+    if let Some(co) = v.check_option {
+        sql.push_str("\nWITH ");
+        sql.push_str(match co {
+            CheckOption::Local => "LOCAL",
+            CheckOption::Cascaded => "CASCADED",
+        });
+        sql.push_str(" CHECK OPTION");
     }
+    sql.push(';');
     sql
 }
 
@@ -82,6 +92,15 @@ pub(crate) fn emit_alter_view_set_reloption(
         qname.render_sql(),
         parts.join(", ")
     )
+}
+
+/// `CREATE OR REPLACE VIEW qname … WITH [LOCAL|CASCADED] CHECK OPTION;`
+///
+/// PG has no `ALTER VIEW … SET CHECK OPTION`; pgevolve re-issues the full
+/// `CREATE OR REPLACE VIEW` with the desired `check_option` state. The caller
+/// must pass the full source `View` IR (with the new `check_option` set).
+pub(crate) fn emit_alter_view_set_check_option(v: &View) -> String {
+    emit_create_view(v, true)
 }
 
 /// `COMMENT ON VIEW qname IS '...'|NULL;`

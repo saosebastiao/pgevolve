@@ -199,7 +199,7 @@ fn extract_check_option(
     // 1. SQL-clause form: stmt.with_check_option
     //    pg_query 6.x ViewCheckOption: 0=Undefined, 1=NoCheckOption, 2=Local, 3=Cascaded
     let sql_clause = match stmt.with_check_option {
-        0 | 1 => None,  // Undefined or NoCheckOption
+        0 | 1 => None, // Undefined or NoCheckOption
         2 => Some(CheckOption::Local),
         3 => Some(CheckOption::Cascaded),
         other => return Err(ParseError::UnknownCheckOptionVariant(other)),

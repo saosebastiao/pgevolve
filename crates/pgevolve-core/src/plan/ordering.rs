@@ -343,6 +343,8 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::SetTableStorage { .. }
             | Change::SetIndexStorage { .. }
             | Change::SetMaterializedViewStorage { .. }
+            // AlterViewSetCheckOption: non-destructive, emits CREATE OR REPLACE VIEW.
+            | Change::AlterViewSetCheckOption { .. }
             // Publication alter/comment changes: metadata-only, always modifies.
             // Subscription alter/comment changes: same bucket.
             | Change::AlterPublicationAddTable { .. }
@@ -408,6 +410,7 @@ fn change_node(change: &Change) -> NodeId {
             | ViewChange::SetComment { qname, .. }
             | ViewChange::SetColumnComment { qname, .. },
         ) => NodeId::View(qname.clone()),
+        Change::AlterViewSetCheckOption { qname, .. } => NodeId::View(qname.clone()),
         // MV changes: use NodeId::Mv for correct topological ordering.
         Change::Mv(MvChange::Create(mv)) => NodeId::Mv(mv.qname.clone()),
         Change::Mv(MvChange::ReplaceBody { source, .. }) => NodeId::Mv(source.qname.clone()),

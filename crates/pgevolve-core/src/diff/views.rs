@@ -130,6 +130,17 @@ pub fn diff_views(
             );
         }
 
+        // Check option change (lenient — only managed when source declares it).
+        if src.check_option != tgt.check_option {
+            out.push(
+                Change::AlterViewSetCheckOption {
+                    qname: (*qname).clone(),
+                    new_value: src.check_option,
+                },
+                Destructiveness::Safe,
+            );
+        }
+
         // View-level comment change.
         if src.comment != tgt.comment {
             out.push(

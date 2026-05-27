@@ -176,6 +176,14 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            pgevolve_core::diff::change::Change::AlterViewSetCheckOption { qname, new_value } => {
+                let label = match new_value {
+                    Some(pgevolve_core::ir::view::CheckOption::Local) => "LOCAL",
+                    Some(pgevolve_core::ir::view::CheckOption::Cascaded) => "CASCADED",
+                    None => "none",
+                };
+                println!("      ~ ALTER VIEW {qname} SET CHECK OPTION ({label})");
+            }
             pgevolve_core::diff::change::Change::Mv(mc) => {
                 use pgevolve_core::diff::change::MvChange;
                 match mc {
@@ -619,6 +627,7 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::View(ViewChange::SetReloption { .. }) => "SetViewReloption",
         Change::View(ViewChange::SetComment { .. }) => "SetViewComment",
         Change::View(ViewChange::SetColumnComment { .. }) => "SetViewColumnComment",
+        Change::AlterViewSetCheckOption { .. } => "AlterViewSetCheckOption",
         Change::Mv(MvChange::Create(_)) => "CreateMv",
         Change::Mv(MvChange::Drop(_)) => "DropMv",
         Change::Mv(MvChange::ReplaceBody { .. }) => "ReplaceMvBody",

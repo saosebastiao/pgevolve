@@ -543,8 +543,9 @@ mod tests {
     #[test]
     fn check_option_implements_copy() {
         let a = CheckOption::Local;
-        let _b = a; // copies
-        let _c = a; // still usable
-        assert_eq!(a, CheckOption::Local);
+        let b = a; // copies
+        let c = a; // still usable
+        assert_eq!(b, CheckOption::Local);
+        assert_eq!(c, CheckOption::Local);
     }
 }
