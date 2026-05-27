@@ -29,6 +29,7 @@ pub mod routines;
 pub mod schemas;
 pub mod sequence_op;
 pub mod sequences;
+pub mod statistics;
 pub mod subscriptions;
 pub mod table_op;
 pub mod tables;
@@ -116,6 +117,7 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
     triggers::diff_triggers(&target.triggers, &source.triggers, &mut out);
     publications::diff_publications(target, source, &mut out);
     subscriptions::diff_subscriptions(target, source, &mut out);
+    statistics::diff_statistics(target, source, &mut out);
 
     // ---- default-privileges diff ----
     let dp_changes = default_privileges::diff_default_privileges(

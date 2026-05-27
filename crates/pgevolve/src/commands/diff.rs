@@ -512,6 +512,27 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
             pgevolve_core::diff::change::Change::CommentOnPublication { name, .. } => {
                 println!("      ~ COMMENT ON PUBLICATION {name}");
             }
+            // Statistic changes: Stage 8 will wire real display.
+            pgevolve_core::diff::change::Change::CreateStatistic(s) => {
+                println!("      + CREATE STATISTICS {}", s.qname);
+            }
+            pgevolve_core::diff::change::Change::DropStatistic { qname } => {
+                println!("      - DROP STATISTICS {qname}");
+            }
+            pgevolve_core::diff::change::Change::ReplaceStatistic { from, to } => {
+                println!("      ~ REPLACE STATISTICS {} (DROP + CREATE)", from.qname);
+                let _ = to;
+            }
+            pgevolve_core::diff::change::Change::AlterStatisticSetTarget { qname, value } => {
+                println!("      ~ ALTER STATISTICS {qname} SET STATISTICS {value}");
+            }
+            pgevolve_core::diff::change::Change::CommentOnStatistic { qname, comment } => {
+                if comment.is_some() {
+                    println!("      ~ COMMENT ON STATISTICS {qname}");
+                } else {
+                    println!("      ~ COMMENT ON STATISTICS {qname} IS NULL");
+                }
+            }
             // Subscription changes: Stage 8 will wire real display.
             pgevolve_core::diff::change::Change::CreateSubscription(s) => {
                 println!("      + CREATE SUBSCRIPTION {}", s.name);
@@ -744,6 +765,11 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::AlterPublicationSetPublish { .. } => "alter_publication_set_publish",
         Change::AlterPublicationSetViaRoot { .. } => "alter_publication_set_via_root",
         Change::CommentOnPublication { .. } => "comment_on_publication",
+        Change::CreateStatistic(_) => "create_statistic",
+        Change::DropStatistic { .. } => "drop_statistic",
+        Change::ReplaceStatistic { .. } => "replace_statistic",
+        Change::AlterStatisticSetTarget { .. } => "alter_statistic_set_target",
+        Change::CommentOnStatistic { .. } => "comment_on_statistic",
         Change::CreateSubscription(_) => "create_subscription",
         Change::DropSubscription { .. } => "drop_subscription",
         Change::AlterSubscriptionConnection { .. } => "alter_subscription_connection",

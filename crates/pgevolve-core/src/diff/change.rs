@@ -360,6 +360,37 @@ pub enum Change {
         comment: Option<String>,
     },
 
+    /// `CREATE STATISTICS ...`
+    CreateStatistic(crate::ir::statistic::Statistic),
+    /// `DROP STATISTICS ...` — destructive.
+    DropStatistic {
+        /// Schema-qualified statistic name.
+        qname: crate::identifier::QualifiedName,
+    },
+    /// `DROP STATISTICS old; CREATE STATISTICS new;` — destructive; used
+    /// when columns / kinds / target table differ (PG has no in-place ALTER
+    /// for those fields).
+    ReplaceStatistic {
+        /// The statistic as it exists in the target.
+        from: crate::ir::statistic::Statistic,
+        /// The statistic as it should exist in the source.
+        to: crate::ir::statistic::Statistic,
+    },
+    /// `ALTER STATISTICS s SET STATISTICS n` — analyze target.
+    AlterStatisticSetTarget {
+        /// Schema-qualified statistic name.
+        qname: crate::identifier::QualifiedName,
+        /// New statistics target value.
+        value: i32,
+    },
+    /// `COMMENT ON STATISTICS s IS '...'`
+    CommentOnStatistic {
+        /// Schema-qualified statistic name.
+        qname: crate::identifier::QualifiedName,
+        /// New comment value (`None` clears the comment).
+        comment: Option<String>,
+    },
+
     /// `CREATE SUBSCRIPTION ...`
     CreateSubscription(crate::ir::subscription::Subscription),
     /// `DROP SUBSCRIPTION ...` — destructive.

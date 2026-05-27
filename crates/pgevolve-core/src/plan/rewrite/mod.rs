@@ -669,6 +669,16 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
+        // Statistics changes: Stage 8 wires real SQL helpers.
+        // Stub arms let the workspace compile; real emit lands in Stage 8.
+        Change::CreateStatistic(_)
+        | Change::DropStatistic { .. }
+        | Change::ReplaceStatistic { .. }
+        | Change::AlterStatisticSetTarget { .. }
+        | Change::CommentOnStatistic { .. } => {
+            // Stage 8 will replace this with real SQL rendering.
+        }
+
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach the rewrite phase")

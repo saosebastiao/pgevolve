@@ -240,7 +240,9 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::Mv(MvChange::Create(_))
             | Change::CreatePublication(_)
             // Stage 8 wires real NodeId::Subscription; for now piggybacks creates bucket.
-            | Change::CreateSubscription(_) => creates.push(entry),
+            | Change::CreateSubscription(_)
+            // Stage 8 wires real NodeId::Statistic; for now piggybacks creates bucket.
+            | Change::CreateStatistic(_) => creates.push(entry),
             // Drops: ordered by reverse-dependency (deepest dependents first).
             Change::DropSchema(_)
             | Change::DropTable { .. }
@@ -249,7 +251,10 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::View(ViewChange::Drop(_))
             | Change::Mv(MvChange::Drop(_))
             // Stage 8 wires real NodeId::Subscription; for now piggybacks drops bucket.
-            | Change::DropSubscription { .. } => drops.push(entry),
+            | Change::DropSubscription { .. }
+            // Stage 8 wires real NodeId::Statistic; for now piggybacks drops bucket.
+            | Change::DropStatistic { .. }
+            | Change::ReplaceStatistic { .. } => drops.push(entry),
             // Modifies: ALTER / REPLACE / COMMENT / drift-recovery / grant / owner.
             Change::AlterTable { .. }
             | Change::AlterSchema { .. }
@@ -360,7 +365,10 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::AlterSubscriptionDropPublication { .. }
             | Change::AlterSubscriptionSetPublication { .. }
             | Change::AlterSubscriptionSetOptions { .. }
-            | Change::CommentOnSubscription { .. } => {
+            | Change::CommentOnSubscription { .. }
+            // Statistic scalar diffs: Stage 8 wires real NodeId::Statistic.
+            | Change::AlterStatisticSetTarget { .. }
+            | Change::CommentOnStatistic { .. } => {
                 modifies.push(entry);
             }
             // Publication drops/replaces: destructive, goes in drops bucket.
@@ -532,6 +540,14 @@ fn change_node(change: &Change) -> NodeId {
         | Change::AlterSubscriptionSetPublication { name, .. }
         | Change::AlterSubscriptionSetOptions { name, .. }
         | Change::CommentOnSubscription { name, .. } => NodeId::Subscription(name.clone()),
+        // Statistic changes: Stage 8 wires real NodeId::Statistic.
+        // For now, use the statistic's own qname via a Table placeholder so
+        // ordering works (statistics always depend on their target table anyway).
+        Change::CreateStatistic(s) => NodeId::Table(s.qname.clone()),
+        Change::ReplaceStatistic { to, .. } => NodeId::Table(to.qname.clone()),
+        Change::DropStatistic { qname }
+        | Change::AlterStatisticSetTarget { qname, .. }
+        | Change::CommentOnStatistic { qname, .. } => NodeId::Table(qname.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")
