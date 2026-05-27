@@ -36,6 +36,7 @@ const fn pg_major(version: PgVersion) -> u32 {
         PgVersion::Pg15 => 15,
         PgVersion::Pg16 => 16,
         PgVersion::Pg17 => 17,
+        PgVersion::Pg18 => 18,
     }
 }
 
@@ -45,6 +46,7 @@ fn make_shadow_backend(version: PgVersion) -> Box<dyn pgevolve::shadow::ShadowBa
         PgVersion::Pg15 => "15",
         PgVersion::Pg16 => "16",
         PgVersion::Pg17 => "17",
+        PgVersion::Pg18 => "18",
     };
     let cfg = pgevolve::config::ShadowConfig {
         backend: Some("testcontainers".to_string()),

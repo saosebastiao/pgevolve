@@ -33,6 +33,7 @@ fn pgevolve_toml(pg_version: PgVersion) -> String {
         PgVersion::Pg15 => "15",
         PgVersion::Pg16 => "16",
         PgVersion::Pg17 => "17",
+        PgVersion::Pg18 => "18",
     };
     format!(
         r#"[project]

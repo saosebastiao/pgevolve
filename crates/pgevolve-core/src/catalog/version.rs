@@ -14,6 +14,8 @@ pub enum PgVersion {
     Pg16,
     /// Postgres 17.
     Pg17,
+    /// Postgres 18.
+    Pg18,
 }
 
 impl PgVersion {
@@ -29,7 +31,7 @@ impl PgVersion {
 
     /// Convert a `server_version_num` integer (e.g., `160000`) into the major
     /// version. Returns [`CatalogError::UnsupportedPgVersion`] for anything
-    /// outside the 14–17 range.
+    /// outside the 14–18 range.
     pub fn from_server_version_num(n: i64) -> Result<Self, CatalogError> {
         let major = n / 10_000;
         match major {
@@ -37,6 +39,7 @@ impl PgVersion {
             15 => Ok(Self::Pg15),
             16 => Ok(Self::Pg16),
             17 => Ok(Self::Pg17),
+            18 => Ok(Self::Pg18),
             v => Err(CatalogError::UnsupportedPgVersion(
                 v.try_into().unwrap_or(0),
             )),
@@ -51,10 +54,11 @@ impl PgVersion {
             Self::Pg15 => "pg15",
             Self::Pg16 => "pg16",
             Self::Pg17 => "pg17",
+            Self::Pg18 => "pg18",
         }
     }
 
-    /// Major-version integer (14, 15, 16, 17).
+    /// Major-version integer (14, 15, 16, 17, 18).
     #[must_use]
     pub const fn major(self) -> u32 {
         match self {
@@ -62,6 +66,7 @@ impl PgVersion {
             Self::Pg15 => 15,
             Self::Pg16 => 16,
             Self::Pg17 => 17,
+            Self::Pg18 => 18,
         }
     }
 }
@@ -87,16 +92,25 @@ mod tests {
             (150_002, PgVersion::Pg15),
             (160_000, PgVersion::Pg16),
             (170_001, PgVersion::Pg17),
+            (180_000, PgVersion::Pg18),
         ] {
             assert_eq!(PgVersion::detect(&MockSingle(n)).unwrap(), v);
         }
     }
 
     #[test]
+    fn detects_pg18() {
+        assert_eq!(
+            PgVersion::detect(&MockSingle(180_000)).unwrap(),
+            PgVersion::Pg18,
+        );
+    }
+
+    #[test]
     fn rejects_unsupported() {
         let err = PgVersion::detect(&MockSingle(130_004)).unwrap_err();
         assert!(matches!(err, CatalogError::UnsupportedPgVersion(13)));
-        let err2 = PgVersion::detect(&MockSingle(180_000)).unwrap_err();
-        assert!(matches!(err2, CatalogError::UnsupportedPgVersion(18)));
+        let err2 = PgVersion::detect(&MockSingle(190_000)).unwrap_err();
+        assert!(matches!(err2, CatalogError::UnsupportedPgVersion(19)));
     }
 }
