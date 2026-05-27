@@ -32,7 +32,7 @@ manage. See [`../README.md`](./README.md) for the status legend.
 | `MATERIALIZED VIEW` | ✅ Implemented | Physically-stored view. `WITH NO DATA` initial state honored. `REFRESH MATERIALIZED VIEW` step kind lands with the planner; upgraded to `REFRESH MATERIALIZED VIEW CONCURRENTLY` under online strategy when the MV has a unique index (`refresh_mv_concurrently = true`).<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/create_materialized_view_stmt.rs::tests`, `plan/rewrite/refresh_mv_concurrently.rs::tests`; tier-C: `objects/materialized_views/create-simple`, `index-on-mv`, `refresh-concurrently`, `replace-body`, `with-no-data-override` |
 | `security_barrier` reloption | ✅ Implemented | Modeled as `View::security_barrier: Option<bool>`. Emitted as `ALTER VIEW … SET (security_barrier = …)` via the `alter_view_set_reloption` step kind.<br>**Tests:** tier-C: `objects/views/security-barrier-toggle` |
 | `security_invoker` reloption | ✅ Implemented | Modeled as `View::security_invoker: Option<bool>`. Same step kind as `security_barrier`.<br>**Tests:** tier-C: `objects/views/security-invoker-toggle` |
-| `CREATE VIEW ... WITH CHECK OPTION` | 🔮 Future | Plumbed alongside views; defaults off. |
+| `CREATE VIEW ... WITH CHECK OPTION` | 📋 Planned, v0.3.7 | Plumbed alongside views; defaults off. See [`roadmap.md`](./roadmap.md). |
 | Recursive views (`WITH RECURSIVE`) | 🔮 Future | Requires cycle-aware dep-graph handling. |
 
 ## Functions, procedures, triggers
@@ -41,11 +41,11 @@ manage. See [`../README.md`](./README.md) for the status legend.
 |---|---|---|
 | `FUNCTION` (SQL language body) | ✅ Implemented | SQL bodies canonicalized via `NormalizedBody`. `CREATE OR REPLACE FUNCTION` for in-place changes; signature changes are Drop + Create. Full attribute matrix (volatility, strict, security, parallel, leakproof, cost, rows).<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/function.rs::tests`, `parse/builder/create_function_stmt.rs::tests`, `diff/routines.rs::tests`; tier-2: `crates/pgevolve-core/tests/functions_round_trip.rs`; tier-C: `objects/functions/create-sql-simple`, `replace-body`, `replace-volatility`, `replace-return-type-cascade`, `create-with-overload-pair`, `create-with-table-return`, `comment-on-function` |
 | `FUNCTION` (PL/pgSQL body) | ✅ Implemented | PL/pgSQL bodies parsed via `pg_query::parse_plpgsql`; static SQL deps extracted; dynamic SQL closed by `-- @pgevolve dep:` directives.<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/plpgsql.rs::tests`; tier-C: `objects/functions/create-plpgsql-simple`, `function-with-dynamic-sql-directive`, `create-trigger-function` |
-| `FUNCTION` (other PL languages — PL/Python, PL/Perl, etc.) | 🔮 Future | Requires support for `CREATE EXTENSION` for the language first. |
+| `FUNCTION` (other PL languages — PL/Python, PL/Perl, etc.) | 📋 Planned, v0.4.2 | Requires support for `CREATE EXTENSION` for the language first. See [`roadmap.md`](./roadmap.md). |
 | `PROCEDURE` | ✅ Implemented | Same as functions, qname-only identity. COMMIT/ROLLBACK in body auto-detected; step runs with transactional=OutsideTransaction.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/procedure.rs::tests`; tier-C: `objects/procedures/create-simple`, `create-with-commit`, `replace-body`, `drop-procedure`, `comment-on-procedure` |
 | `TRIGGER` | ✅ Implemented | BEFORE/AFTER/INSTEAD OF; FOR EACH ROW/STATEMENT; WHEN clause; UPDATE OF columns; REFERENCING transition tables; CONSTRAINT TRIGGER with DEFERRABLE/INITIALLY DEFERRED. Any structural diff → Drop + Create.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/trigger.rs::tests`, `parse/builder/create_trigger_stmt.rs::tests`, `diff/triggers.rs::tests`, `plan/rewrite/triggers.rs::tests`, `plan/rewrite/emit/trigger.rs::tests`; tier-C: `objects/triggers/create-row-trigger-simple`, `create-statement-trigger`, `create-instead-of-on-view`, `create-with-transition-tables`, `create-constraint-trigger`, `replace-event-list`, `replace-function`, `replace-when-clause`, `drop-simple`, `comment-on` |
-| `EVENT TRIGGER` | 🔮 Future | Lower priority; intersects with admin/security tooling. |
-| `AGGREGATE` | 🔮 Future | Custom aggregates require user-defined functions; lands with PL languages. |
+| `EVENT TRIGGER` | 📋 Planned, v0.4.0 | Lower priority; intersects with admin/security tooling. See [`roadmap.md`](./roadmap.md). |
+| `AGGREGATE` | 📋 Planned, v0.4.1 | Custom aggregates require user-defined functions; lands with PL languages. See [`roadmap.md`](./roadmap.md). |
 
 ## Custom types
 
@@ -54,7 +54,7 @@ manage. See [`../README.md`](./README.md) for the status legend.
 | `ENUM` (`CREATE TYPE ... AS ENUM`) | ✅ Implemented | `ALTER TYPE … ADD VALUE [BEFORE\|AFTER]`, `RENAME VALUE`. Dropping or reordering values triggers `ReplaceWithCascade` (`DROP TYPE CASCADE` + `CREATE TYPE`).<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/user_type.rs::tests`, `parse/builder/create_enum_stmt.rs::tests`, `diff/types.rs::tests`, `ir/canon/renumber_enum_sort_orders.rs::tests`; tier-2: `crates/pgevolve-core/tests/types_round_trip.rs`; tier-C: `objects/enums/create-simple`, `add-value-at-end`, `add-value-before-existing`, `rename-value`, `drop-value-cascade-recreate`, `comment-on-enum` |
 | `DOMAIN` (`CREATE DOMAIN`) | ✅ Implemented | `NOT NULL`, `CHECK`, default. `ALTER DOMAIN ADD/DROP CONSTRAINT`, `SET/DROP DEFAULT`, `SET/DROP NOT NULL`. Base-type change triggers `ReplaceWithCascade`.<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/create_domain_stmt.rs::tests`; tier-C: `objects/domains/create-simple`, `create-with-check-and-default`, `add-check-constraint`, `set-default`, `toggle-not-null`, `comment-on-domain` |
 | `COMPOSITE TYPE` (`CREATE TYPE ... AS (...)`) | ✅ Implemented | `ADD ATTRIBUTE`, `DROP ATTRIBUTE`, `ALTER ATTRIBUTE TYPE`. Attribute reordering triggers `ReplaceWithCascade`.<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/create_composite_type_stmt.rs::tests`; tier-C: `objects/composites/create-simple`, `add-attribute`, `alter-attribute-type`, `comment-on-composite` |
-| `RANGE TYPE` (`CREATE TYPE ... AS RANGE`) | 🔮 Future | Lands when range-typed columns become first-class. |
+| `RANGE TYPE` (`CREATE TYPE ... AS RANGE`) | 📋 Planned, v0.3.8 | Lands when range-typed columns become first-class. See [`roadmap.md`](./roadmap.md). |
 | `BASE TYPE` (`CREATE TYPE ... ( INPUT = ..., OUTPUT = ... )`) | ⛔ Not planned | Requires C-language functions; out of scope. |
 
 ## Extensions
@@ -241,7 +241,7 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 
 - **`DETACH PARTITION CONCURRENTLY`** — not emitted. The non-concurrent `DETACH PARTITION` is used, which takes an `AccessExclusiveLock`. Concurrent detach is listed as ⛔ not planned for now.
 - **`FOREIGN TABLE PARTITION OF`** — foreign-table partitions are not modeled. Foreign tables are 🔮 Future.
-- **Per-partition `TABLESPACE` and storage parameters** — partition bounds + reloptions are modeled (partitions are `Table` in IR, so they inherit table reloptions automatically). Per-partition `TABLESPACE` overrides are still 🔮 Future.
+- **Per-partition `TABLESPACE` and storage parameters** — partition bounds + reloptions are modeled (partitions are `Table` in IR, so they inherit table reloptions automatically). Per-partition `TABLESPACE` overrides are 📋 Planned, v0.4.0. See [`roadmap.md`](./roadmap.md).
 - **Partition pruning at plan time** — pgevolve does not skip unaffected partitions when only the parent changes. All managed partitions are included in every diff. Pruning is 🔮 Future.
 - **Pre-flight partition-overlap detection** — pgevolve does not validate that declared bounds are non-overlapping before applying. Postgres enforces this at DDL time; a failed `ATTACH PARTITION` will surface as an apply error.
 
@@ -261,15 +261,15 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 |---|---|---|
 | `PUBLICATION` | ✅ Supported | Logical-replication source-side metadata. All 5 forms (explicit FOR TABLE, FOR ALL TABLES, FOR TABLES IN SCHEMA PG15+, row filters PG15+, column lists PG15+). publish bitset + publish_via_partition_root. Lenient drift via unmanaged-publication. change_kinds: [create, drop, replace, alter_add_table, alter_drop_table, alter_set_table, alter_add_schema, alter_drop_schema, alter_set_publish, alter_set_via_root, comment_on]<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/publication.rs::tests`, `parse/builder/publication_stmt.rs`, `diff/publications.rs`; tier-C: `objects/publications/` (12 fixtures) |
 | `SUBSCRIPTION` | 🔮 Future | Logical replication consumer; connection strings introduce secrets-management questions. |
-| `FOREIGN DATA WRAPPER` (`FDW`) | 🔮 Future | First-class FDW lifecycle (`CREATE SERVER`, `USER MAPPING`, `IMPORT FOREIGN SCHEMA`). |
-| `FOREIGN TABLE` | 🔮 Future | Lands with FDWs. |
+| `FOREIGN DATA WRAPPER` (`FDW`) | 📋 Planned, v0.5.0 | First-class FDW lifecycle (`CREATE SERVER`, `USER MAPPING`, `IMPORT FOREIGN SCHEMA`). See [`roadmap.md`](./roadmap.md). |
+| `FOREIGN TABLE` | 📋 Planned, v0.5.0 | Lands with FDWs. See [`roadmap.md`](./roadmap.md). |
 
 ## Storage and physical layout
 
 | Object | Status | Notes |
 |---|---|---|
-| `TABLESPACE` | 🔮 Future | The IR carries the `tablespace` attribute on tables and indexes, but pgevolve does not create / drop tablespaces — they're cluster-level admin objects outside the schema-management remit. |
-| `TABLE ... USING <access method>` | 🔮 Future | Custom table access methods (zheap, columnar, etc.). |
+| `TABLESPACE` | 📋 Planned, v0.4.2 | The IR carries the `tablespace` attribute on tables and indexes, but pgevolve does not create / drop tablespaces — they're cluster-level admin objects outside the schema-management remit. See [`roadmap.md`](./roadmap.md). |
+| `TABLE ... USING <access method>` | 📋 Planned, v0.4.0 | Custom table access methods (zheap, columnar, etc.). See [`roadmap.md`](./roadmap.md). |
 | `WITH (storage_parameter = ...)` (table reloptions) | ✅ Supported | Typed fields for fillfactor + autovacuum_* + parallel_workers + toast_tuple_target + user_catalog_table + vacuum_truncate; `extra: BTreeMap` for unknown/extension keys. Lenient drift policy. See [`reloptions.md`](./reloptions.md).<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/reloptions.rs::tests`, `diff/reloptions.rs::tests`; tier-2: `crates/pgevolve-core/tests/catalog_reloptions.rs`; tier-C: `objects/reloptions/table-fillfactor`, `table-autovacuum-disabled`, `table-multi-set`, `alter-table-set-after-create`, `partition-inherits-reloptions` |
 | Index reloptions | ✅ Supported | Per-AM validation: B-tree 50..=100 fillfactor, GiST 10..=100, SP-GiST 90..=100, BRIN/GIN no fillfactor; fastupdate (GIN), gin_pending_list_limit (GIN), buffering (GiST), deduplicate_items (B-tree), pages_per_range + autosummarize (BRIN).<br>**Tests:** tier-C: `objects/reloptions/index-fillfactor`, `index-brin-pages-per-range`, `index-gin-fastupdate` |
 | Materialized view reloptions | ✅ Supported | Same key set as tables (autovacuum_*, fillfactor, etc.).<br>**Tests:** tier-C: `objects/reloptions/mv-fillfactor` |
@@ -280,19 +280,19 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 
 | Object | Status | Notes |
 |---|---|---|
-| `OPERATOR` / `OPERATOR CLASS` / `OPERATOR FAMILY` | 🔮 Future | Heavy admin objects; lower priority than user-facing surface. |
-| `CAST` | 🔮 Future | Custom casts; lands with custom types. |
-| `COLLATION` | 🟡 Partial | Per-column collation **is** modeled in v0.1; `CREATE COLLATION` (defining new collations) is 🔮 Future. change_kinds: [alter] |
-| `TEXT SEARCH CONFIGURATION` / `DICTIONARY` / `PARSER` / `TEMPLATE` | 🔮 Future | Lands with full-text-search-aware index methods (`gin` is already supported as a method but text-search dictionaries are not modeled). |
+| `OPERATOR` / `OPERATOR CLASS` / `OPERATOR FAMILY` | 📋 Planned, v0.5.1 | Heavy admin objects; lower priority than user-facing surface. See [`roadmap.md`](./roadmap.md). |
+| `CAST` | 📋 Planned, v0.5.2 | Custom casts; lands with custom types. See [`roadmap.md`](./roadmap.md). |
+| `COLLATION` | 🟡 Partial | Per-column collation is supported in v0.1; `CREATE COLLATION` is 📋 Planned, v0.3.8. See [`roadmap.md`](./roadmap.md). change_kinds: [alter] |
+| `TEXT SEARCH CONFIGURATION` / `DICTIONARY` / `PARSER` / `TEMPLATE` | 📋 Planned, v0.4.3 | Lands with full-text-search-aware index methods (`gin` is already supported as a method but text-search dictionaries are not modeled). See [`roadmap.md`](./roadmap.md). |
 
 ## Statistics, rules, and other helpers
 
 | Object | Status | Notes |
 |---|---|---|
-| `STATISTICS` (`CREATE STATISTICS`) | 📋 Planned, v0.3 | Multi-column statistics objects (`ndistinct`, `dependencies`, `mcv`). |
+| `STATISTICS` (`CREATE STATISTICS`) | 📋 Planned, v0.3.7 | Multi-column statistics objects (`ndistinct`, `dependencies`, `mcv`). See [`roadmap.md`](./roadmap.md). |
 | `RULE` | ⛔ Not planned | Largely superseded by triggers; pg_query already discourages new rules. |
-| `SERVER` (FDW server) | 🔮 Future | Lands with FDWs. |
-| `USER MAPPING` | 🔮 Future | Lands with FDWs. |
+| `SERVER` (FDW server) | 📋 Planned, v0.5.0 | Lands with FDWs. See [`roadmap.md`](./roadmap.md). |
+| `USER MAPPING` | 📋 Planned, v0.5.0 | Lands with FDWs. See [`roadmap.md`](./roadmap.md). |
 
 ## What `pgevolve` deliberately does not manage
 
@@ -303,3 +303,13 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 | Cluster-wide settings (`postgresql.conf`) | ⛔ Not planned | Different lifecycle and audit story. |
 | Backups, restores, and physical replication | ⛔ Not planned | Outside the schema-management remit. |
 | Data itself (row contents) | ⛔ Not planned | pgevolve plans never `INSERT` / `UPDATE` / `DELETE`. Data migrations are users' responsibility. |
+
+## PG 18-only features
+
+These features ship only on Postgres 18+. They are *not* part of the
+v0.3.6 PG 18 catalog-support work; each gets its own roadmap entry.
+
+| Feature | Status | Notes |
+|---|---|---|
+| Virtual generated columns (`GENERATED ALWAYS AS (...) VIRTUAL`) | 📋 Planned, v0.4.1 | New `GeneratedKind::Virtual` variant alongside the existing stored generated columns. Requires `[managed].min_pg_version >= 18`. |
+| `NOT NULL NOT VALID` constraint variant | 🔮 Future | Allows declaring a NOT NULL constraint without validating existing rows. Useful for large-table migrations. |
