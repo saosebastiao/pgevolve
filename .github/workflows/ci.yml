@@ -121,6 +121,12 @@ jobs:
         run: cargo test --workspace --tests
         env:
           PGEVOLVE_TEST_PG_VERSION: ${{ matrix.pg }}
+          # CI Docker runners are slower than dev laptops; the default 300s
+          # suite budget is comfortable locally but tight on shared CI. PG14
+          # is the slowest matrix entry (most version-skipped paths fall
+          # through). 600s gives headroom for new fixtures landing in
+          # future sub-specs without re-tuning on every release.
+          PGEVOLVE_CONFORMANCE_SUITE_BUDGET_SECONDS: "600"
           # PROPTEST_CASES intentionally unset — property tests are now
           # #[ignore]'d by default. The property-tests.yml workflow runs
           # them on a schedule.
