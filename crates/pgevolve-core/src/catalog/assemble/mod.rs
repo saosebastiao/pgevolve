@@ -21,6 +21,7 @@ mod functions;
 mod partitions;
 pub(super) mod policies;
 pub(super) mod publications;
+pub(super) mod subscriptions;
 mod tables;
 mod triggers;
 mod user_types;
@@ -76,6 +77,9 @@ pub struct RawRows {
     /// Column-attnum resolver rows from `pg_attribute` joined to
     /// `pg_publication_rel`.
     pub publication_attributes: Vec<Row>,
+    /// `pg_subscription` rows. Empty when the connection lacks superuser
+    /// privilege (`DriftReport::unreadable_subscriptions` is set in that case).
+    pub subscriptions: Vec<Row>,
 }
 
 /// Convert raw rows into a [`Catalog`] and a [`DriftReport`]. Caller is
@@ -111,6 +115,7 @@ pub fn assemble(
         publication_rels,
         publication_namespaces,
         publication_attributes,
+        subscriptions: sub_rows,
     } = raw;
 
     let mut catalog = Catalog::empty();
@@ -184,6 +189,11 @@ pub fn assemble(
         &publication_namespaces,
         &publication_attributes,
     )?;
+
+    // Build subscriptions from pg_subscription. Rows may be empty if the
+    // connection lacked superuser privilege; the drift flag is set upstream
+    // by read_catalog before assemble() is called.
+    catalog.subscriptions = subscriptions::assemble_subscriptions(&sub_rows)?;
 
     Ok((catalog, drift))
 }

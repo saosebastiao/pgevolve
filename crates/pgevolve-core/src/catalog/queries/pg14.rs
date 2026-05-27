@@ -35,6 +35,44 @@ pub const PUBLICATION_NAMESPACE_QUERY_PG14: &str =
 pub const PUBLICATION_ATTRIBUTES_QUERY_PG14: &str =
     "SELECT NULL::bigint AS rel_oid, NULL::bigint AS attnum, NULL::text AS attname WHERE false";
 
+/// Subscriptions for PG 14.
+///
+/// PG 14 lacks:
+///   - `subtwophasestate`  (PG 15+)
+///   - `subdisableonerr`   (PG 15+)
+///   - `subpasswordrequired`, `subrunasowner`, `suborigin` (PG 16+)
+///   - `subfailover`       (PG 17+)
+///
+/// `substream` is `bool` in PG 14; the `::text` cast returns `'f'` or `'t'`
+/// which the decoder handles identically to the PG 16+ text column.
+///
+/// `two_phase_state` is returned as NULL so the IR field is always `None`
+/// when reading from a PG 14 instance (`two_phase` was added in PG 15).
+pub const SUBSCRIPTIONS_QUERY_PG14: &str = "\
+    SELECT \
+        s.oid::bigint AS oid, \
+        s.subname::text AS name, \
+        coalesce(a.rolname, '') AS owner, \
+        s.subenabled AS enabled, \
+        s.subconninfo::text AS connection, \
+        coalesce(s.subslotname::text, '') AS slot_name, \
+        s.subsynccommit::text AS synchronous_commit, \
+        s.subpublications::text[] AS publications, \
+        s.subbinary AS binary, \
+        s.substream::text AS streaming, \
+        NULL::text AS two_phase_state, \
+        NULL::bool AS disable_on_error, \
+        NULL::bool AS password_required, \
+        NULL::bool AS run_as_owner, \
+        NULL::text AS origin, \
+        NULL::bool AS failover, \
+        coalesce(d.description, '') AS comment \
+    FROM pg_subscription s \
+    JOIN pg_authid a ON a.oid = s.subowner \
+    LEFT JOIN pg_description d \
+        ON d.classoid = 'pg_subscription'::regclass AND d.objoid = s.oid AND d.objsubid = 0 \
+    ORDER BY s.subname";
+
 /// Indexes for PG 14 — same as the shared query but without `indnullsnotdistinct`.
 /// Includes indexes on materialized views (`tc.relkind = 'm'`) as well as tables.
 pub const INDEXES_QUERY: &str = r"

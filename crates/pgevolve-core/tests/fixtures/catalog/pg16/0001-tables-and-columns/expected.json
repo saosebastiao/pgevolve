@@ -359,5 +359,6 @@
   "procedures": [],
   "triggers": [],
   "publications": [],
+  "subscriptions": [],
   "default_privileges": []
 }

@@ -4,6 +4,7 @@
 //! because v0.1's tier-3 round-trip tests are the only callers; the binary's
 //! `introspect` command path lands in phase 9.
 
+use std::error::Error as StdError;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -12,6 +13,7 @@ use pgevolve_core::catalog::queries::query_for;
 use pgevolve_core::catalog::{CatalogError, CatalogQuerier, CatalogQuery, PgVersion, Row, Value};
 use tokio::runtime::Handle;
 use tokio_postgres::Row as PgRow;
+use tokio_postgres::error::DbError;
 use tokio_postgres::types::Type;
 
 /// Adapter that runs catalog queries against a live `tokio_postgres::Client`.
@@ -82,9 +84,26 @@ impl CatalogQuerier for PgCatalogQuerier {
                 }
             })
         })
-        .map_err(|e| CatalogError::QueryFailed {
-            query,
-            message: e.to_string(),
+        .map_err(|e| {
+            // `tokio_postgres::Error::to_string()` for a DB-level error only
+            // returns "db error". The PG sqlstate code and message are in the
+            // error source chain. Build a richer message so that callers (e.g.
+            // the 42501 / insufficient_privilege detection in read_catalog) can
+            // inspect the code.
+            let message = StdError::source(&e)
+                .and_then(|s| s.downcast_ref::<DbError>())
+                .map_or_else(
+                    || e.to_string(),
+                    |db_err| {
+                        format!(
+                            "{} (code={}, detail={})",
+                            db_err.message(),
+                            db_err.code().code(),
+                            db_err.detail().unwrap_or("")
+                        )
+                    },
+                );
+            CatalogError::QueryFailed { query, message }
         })?;
 
         pg_rows

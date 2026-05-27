@@ -26,6 +26,7 @@ mod assemble;
 pub(crate) mod grants;
 pub(crate) mod publications;
 pub(crate) mod reloptions;
+pub(crate) mod subscriptions;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
@@ -44,6 +45,10 @@ use crate::ir::catalog::Catalog;
 ///   manage these; they are surfaced in the drift report so callers can
 ///   inspect them. The associated row is skipped and never appears in
 ///   `catalog.functions` / `catalog.procedures`.
+/// - `unreadable_subscriptions`: the connection used for the catalog read had
+///   insufficient privilege to query `pg_subscription` (sqlstate 42501). The
+///   subscription list in the returned catalog is empty; the operator must use
+///   a superuser connection to get subscription data.
 ///
 /// The differ consumes this report and emits [`crate::diff::change::Change::ValidateConstraint`]
 /// and [`crate::diff::change::Change::RecreateIndex`] to recover automatically.
@@ -58,6 +63,9 @@ pub struct DriftReport {
     /// Routines whose `LANGUAGE` is not `sql` or `plpgsql`.
     /// Identified by `(qname, language_name)`.
     pub unmanaged_language_routines: Vec<(QualifiedName, String)>,
+    /// `pg_subscription` was unreadable due to insufficient privilege (sqlstate
+    /// 42501). `catalog.subscriptions` will be empty when this is `true`.
+    pub unreadable_subscriptions: bool,
 }
 
 /// Identifier for each catalog query the reader runs. Adapters dispatch on
@@ -147,6 +155,15 @@ pub enum CatalogQuery {
     /// any publication. Used to resolve column attnums to names. Takes **no**
     /// parameter.
     PublicationAttributes,
+    /// `pg_subscription` rows for all subscriptions in the database.
+    ///
+    /// Subscriptions are database-global (not schema-scoped). Takes **no**
+    /// `$1::text[]` parameter (`takes_text_array_param` returns `false`).
+    ///
+    /// `pg_subscription` is superuser-readable only. Non-super connections
+    /// will receive an empty result or a permission error; the assembler
+    /// catches the error and sets `DriftReport::unreadable_subscriptions`.
+    Subscriptions,
 }
 
 impl CatalogQuery {
@@ -170,6 +187,7 @@ impl CatalogQuery {
                 | Self::PublicationRel
                 | Self::PublicationNamespace
                 | Self::PublicationAttributes
+                | Self::Subscriptions
         )
     }
 
@@ -235,6 +253,21 @@ pub fn read_catalog(
     let publication_namespaces_rows = querier.fetch(CatalogQuery::PublicationNamespace, &[])?;
     let publication_attributes_rows = querier.fetch(CatalogQuery::PublicationAttributes, &[])?;
 
+    // `pg_subscription` is superuser-only. If the querier returns a
+    // `QueryFailed` error whose message contains the PG sqlstate 42501
+    // (insufficient_privilege), we silently return empty rows and record the
+    // gap in the drift report. Any other error is propagated normally.
+    let (subscriptions_rows, unreadable_subscriptions) =
+        match querier.fetch(CatalogQuery::Subscriptions, &[]) {
+            Ok(rows) => (rows, false),
+            Err(CatalogError::QueryFailed { message, .. })
+                if message.contains("42501") || message.contains("insufficient_privilege") =>
+            {
+                (vec![], true)
+            }
+            Err(e) => return Err(e),
+        };
+
     let raw = assemble::RawRows {
         version,
         schemas: schemas_rows,
@@ -262,8 +295,10 @@ pub fn read_catalog(
         publication_rels: publication_rels_rows,
         publication_namespaces: publication_namespaces_rows,
         publication_attributes: publication_attributes_rows,
+        subscriptions: subscriptions_rows,
     };
-    let (catalog, drift) = assemble::assemble(raw, filter)?;
+    let (catalog, mut drift) = assemble::assemble(raw, filter)?;
+    drift.unreadable_subscriptions = unreadable_subscriptions;
     Ok((catalog.canonicalize()?, drift))
 }
 

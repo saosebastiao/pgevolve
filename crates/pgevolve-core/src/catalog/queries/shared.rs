@@ -337,3 +337,41 @@ pub const PUBLICATION_ATTRIBUTES_QUERY: &str = "\
     JOIN pg_attribute a ON a.attrelid = pr.prrelid \
     WHERE a.attnum > 0 AND NOT a.attisdropped \
     ORDER BY pr.prrelid, a.attnum";
+
+/// Subscriptions — PG 17 full-surface query.
+///
+/// `pg_subscription` is superuser-readable only; non-super connections see
+/// empty rows (or a permission error at the query layer).
+///
+/// Per-version overrides in `pg14.rs`, `pg15.rs`, `pg16.rs` substitute
+/// `NULL` for columns that were added in later versions so the decoder uses
+/// a single code path for all supported versions.
+///
+/// Column availability:
+///   - `subdisableonerr`   — PG 15+
+///   - `subpasswordrequired`, `subrunasowner`, `suborigin` — PG 16+
+///   - `subfailover`       — PG 17+ (this query)
+pub const SUBSCRIPTIONS_QUERY: &str = "\
+    SELECT \
+        s.oid::bigint AS oid, \
+        s.subname::text AS name, \
+        coalesce(a.rolname, '') AS owner, \
+        s.subenabled AS enabled, \
+        s.subconninfo::text AS connection, \
+        coalesce(s.subslotname::text, '') AS slot_name, \
+        s.subsynccommit::text AS synchronous_commit, \
+        s.subpublications::text[] AS publications, \
+        s.subbinary AS binary, \
+        s.substream::text AS streaming, \
+        s.subtwophasestate::text AS two_phase_state, \
+        s.subdisableonerr AS disable_on_error, \
+        s.subpasswordrequired AS password_required, \
+        s.subrunasowner AS run_as_owner, \
+        s.suborigin::text AS origin, \
+        s.subfailover AS failover, \
+        coalesce(d.description, '') AS comment \
+    FROM pg_subscription s \
+    JOIN pg_authid a ON a.oid = s.subowner \
+    LEFT JOIN pg_description d \
+        ON d.classoid = 'pg_subscription'::regclass AND d.objoid = s.oid AND d.objsubid = 0 \
+    ORDER BY s.subname";
