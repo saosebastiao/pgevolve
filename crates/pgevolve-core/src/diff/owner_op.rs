@@ -27,6 +27,8 @@ pub enum OwnerObjectKind {
     UserType,
     /// `ALTER PUBLICATION x OWNER TO`.
     Publication,
+    /// `ALTER SUBSCRIPTION x OWNER TO`.
+    Subscription,
 }
 
 impl OwnerObjectKind {
@@ -43,6 +45,7 @@ impl OwnerObjectKind {
             Self::Procedure => "PROCEDURE",
             Self::UserType => "TYPE",
             Self::Publication => "PUBLICATION",
+            Self::Subscription => "SUBSCRIPTION",
         }
     }
 }
@@ -84,5 +87,6 @@ mod tests {
         assert_eq!(OwnerObjectKind::Procedure.sql_keyword(), "PROCEDURE");
         assert_eq!(OwnerObjectKind::UserType.sql_keyword(), "TYPE");
         assert_eq!(OwnerObjectKind::Publication.sql_keyword(), "PUBLICATION");
+        assert_eq!(OwnerObjectKind::Subscription.sql_keyword(), "SUBSCRIPTION");
     }
 }

@@ -349,6 +349,61 @@ pub enum Change {
         comment: Option<String>,
     },
 
+    /// `CREATE SUBSCRIPTION ...`
+    CreateSubscription(crate::ir::subscription::Subscription),
+    /// `DROP SUBSCRIPTION ...` — destructive.
+    DropSubscription {
+        /// Subscription name.
+        name: crate::identifier::Identifier,
+    },
+    /// `ALTER SUBSCRIPTION s CONNECTION '...'`
+    AlterSubscriptionConnection {
+        /// Subscription name.
+        name: crate::identifier::Identifier,
+        /// New connection string (may contain `${VAR}` placeholders).
+        new_connection: String,
+    },
+    /// `ALTER SUBSCRIPTION s ADD PUBLICATION p`
+    AlterSubscriptionAddPublication {
+        /// Subscription name.
+        name: crate::identifier::Identifier,
+        /// Publication to add.
+        publication: crate::identifier::Identifier,
+    },
+    /// `ALTER SUBSCRIPTION s DROP PUBLICATION p`
+    AlterSubscriptionDropPublication {
+        /// Subscription name.
+        name: crate::identifier::Identifier,
+        /// Publication to drop.
+        publication: crate::identifier::Identifier,
+    },
+    /// Reserved: pgevolve never emits this (granular ADD/DROP only), but
+    /// the parser accepts source `ALTER SUBSCRIPTION s SET PUBLICATION …` for
+    /// normalizing into the IR's publications field. The variant exists so
+    /// `kind_name` / `parse_kind_name` round-trip every legal `StepKind` name.
+    AlterSubscriptionSetPublication {
+        /// Subscription name.
+        name: crate::identifier::Identifier,
+        /// Publication list.
+        publications: Vec<crate::identifier::Identifier>,
+    },
+    /// `ALTER SUBSCRIPTION s SET (option = value, ...)` — sparse-delta.
+    ///
+    /// `create_slot` and `copy_data` are NEVER included (CREATE-only PG options).
+    AlterSubscriptionSetOptions {
+        /// Subscription name.
+        name: crate::identifier::Identifier,
+        /// Sparse options delta — only changed fields are `Some`.
+        options: crate::ir::subscription::SubscriptionOptions,
+    },
+    /// `COMMENT ON SUBSCRIPTION s IS '...'`
+    CommentOnSubscription {
+        /// Subscription name.
+        name: crate::identifier::Identifier,
+        /// New comment value (`None` clears the comment).
+        comment: Option<String>,
+    },
+
     /// A change that cannot be performed in-place.
     ///
     /// Emitted by the differ when it detects a structural difference that has

@@ -230,14 +230,18 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::CreateSequence(_)
             | Change::View(ViewChange::Create(_))
             | Change::Mv(MvChange::Create(_))
-            | Change::CreatePublication(_) => creates.push(entry),
+            | Change::CreatePublication(_)
+            // Stage 8 wires real NodeId::Subscription; for now piggybacks creates bucket.
+            | Change::CreateSubscription(_) => creates.push(entry),
             // Drops: ordered by reverse-dependency (deepest dependents first).
             Change::DropSchema(_)
             | Change::DropTable { .. }
             | Change::DropIndex(_)
             | Change::DropSequence(_)
             | Change::View(ViewChange::Drop(_))
-            | Change::Mv(MvChange::Drop(_)) => drops.push(entry),
+            | Change::Mv(MvChange::Drop(_))
+            // Stage 8 wires real NodeId::Subscription; for now piggybacks drops bucket.
+            | Change::DropSubscription { .. } => drops.push(entry),
             // Modifies: ALTER / REPLACE / COMMENT / drift-recovery / grant / owner.
             Change::AlterTable { .. }
             | Change::AlterSchema { .. }
@@ -332,6 +336,7 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::SetIndexStorage { .. }
             | Change::SetMaterializedViewStorage { .. }
             // Publication alter/comment changes: metadata-only, always modifies.
+            // Subscription alter/comment changes: same bucket.
             | Change::AlterPublicationAddTable { .. }
             | Change::AlterPublicationDropTable { .. }
             | Change::AlterPublicationSetTable { .. }
@@ -339,7 +344,13 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::AlterPublicationDropSchema { .. }
             | Change::AlterPublicationSetPublish { .. }
             | Change::AlterPublicationSetViaRoot { .. }
-            | Change::CommentOnPublication { .. } => {
+            | Change::CommentOnPublication { .. }
+            | Change::AlterSubscriptionConnection { .. }
+            | Change::AlterSubscriptionAddPublication { .. }
+            | Change::AlterSubscriptionDropPublication { .. }
+            | Change::AlterSubscriptionSetPublication { .. }
+            | Change::AlterSubscriptionSetOptions { .. }
+            | Change::CommentOnSubscription { .. } => {
                 modifies.push(entry);
             }
             // Publication drops/replaces: destructive, goes in drops bucket.
@@ -499,6 +510,16 @@ fn change_node(change: &Change) -> NodeId {
         | Change::AlterPublicationSetViaRoot { publication, .. } => {
             NodeId::Publication(publication.clone())
         }
+        // Subscription changes: Stage 8 wires real NodeId::Subscription.
+        // For now, use a placeholder schema node as a stable ordering anchor.
+        Change::CreateSubscription(s) => NodeId::Schema(s.name.clone()),
+        Change::DropSubscription { name } => NodeId::Schema(name.clone()),
+        Change::AlterSubscriptionConnection { name, .. }
+        | Change::AlterSubscriptionAddPublication { name, .. }
+        | Change::AlterSubscriptionDropPublication { name, .. }
+        | Change::AlterSubscriptionSetPublication { name, .. }
+        | Change::AlterSubscriptionSetOptions { name, .. }
+        | Change::CommentOnSubscription { name, .. } => NodeId::Schema(name.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")

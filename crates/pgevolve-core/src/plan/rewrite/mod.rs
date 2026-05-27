@@ -534,6 +534,19 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
+        // Subscription changes: Stage 8 will fill in real SQL helpers. For now,
+        // no-op stubs so the workspace compiles.
+        Change::CreateSubscription(_)
+        | Change::DropSubscription { .. }
+        | Change::AlterSubscriptionConnection { .. }
+        | Change::AlterSubscriptionAddPublication { .. }
+        | Change::AlterSubscriptionDropPublication { .. }
+        | Change::AlterSubscriptionSetPublication { .. }
+        | Change::AlterSubscriptionSetOptions { .. }
+        | Change::CommentOnSubscription { .. } => {
+            // Stage 8: emit real SQL. For now, produce no steps.
+        }
+
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach the rewrite phase")

@@ -504,6 +504,39 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
             pgevolve_core::diff::change::Change::CommentOnPublication { name, .. } => {
                 println!("      ~ COMMENT ON PUBLICATION {name}");
             }
+            // Subscription changes: Stage 8 will wire real display.
+            pgevolve_core::diff::change::Change::CreateSubscription(s) => {
+                println!("      + CREATE SUBSCRIPTION {}", s.name);
+            }
+            pgevolve_core::diff::change::Change::DropSubscription { name } => {
+                println!("      - DROP SUBSCRIPTION {name}");
+            }
+            pgevolve_core::diff::change::Change::AlterSubscriptionConnection { name, .. } => {
+                println!("      ~ ALTER SUBSCRIPTION {name} CONNECTION ...");
+            }
+            pgevolve_core::diff::change::Change::AlterSubscriptionAddPublication {
+                name,
+                publication,
+            } => {
+                println!("      ~ ALTER SUBSCRIPTION {name} ADD PUBLICATION {publication}");
+            }
+            pgevolve_core::diff::change::Change::AlterSubscriptionDropPublication {
+                name,
+                publication,
+            } => {
+                println!("      ~ ALTER SUBSCRIPTION {name} DROP PUBLICATION {publication}");
+            }
+            pgevolve_core::diff::change::Change::AlterSubscriptionSetPublication {
+                name, ..
+            } => {
+                println!("      ~ ALTER SUBSCRIPTION {name} SET PUBLICATION ...");
+            }
+            pgevolve_core::diff::change::Change::AlterSubscriptionSetOptions { name, .. } => {
+                println!("      ~ ALTER SUBSCRIPTION {name} SET (...)");
+            }
+            pgevolve_core::diff::change::Change::CommentOnSubscription { name, .. } => {
+                println!("      ~ COMMENT ON SUBSCRIPTION {name}");
+            }
         }
     }
 }
@@ -702,5 +735,13 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::AlterPublicationSetPublish { .. } => "alter_publication_set_publish",
         Change::AlterPublicationSetViaRoot { .. } => "alter_publication_set_via_root",
         Change::CommentOnPublication { .. } => "comment_on_publication",
+        Change::CreateSubscription(_) => "create_subscription",
+        Change::DropSubscription { .. } => "drop_subscription",
+        Change::AlterSubscriptionConnection { .. } => "alter_subscription_connection",
+        Change::AlterSubscriptionAddPublication { .. } => "alter_subscription_add_publication",
+        Change::AlterSubscriptionDropPublication { .. } => "alter_subscription_drop_publication",
+        Change::AlterSubscriptionSetPublication { .. } => "alter_subscription_set_publication",
+        Change::AlterSubscriptionSetOptions { .. } => "alter_subscription_set_options",
+        Change::CommentOnSubscription { .. } => "comment_on_subscription",
     }
 }
