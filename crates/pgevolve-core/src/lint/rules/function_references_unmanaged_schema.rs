@@ -49,7 +49,8 @@ pub fn check(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Finding> {
                 NodeId::Constraint { table, .. } => table.schema.as_str(),
                 // Publications and subscriptions are not schema-qualified and
                 // cannot appear as function body dependency targets; skip.
-                NodeId::Publication(_) | NodeId::Subscription(_) => continue,
+                // Statistics are schema-qualified but not referenced by function bodies.
+                NodeId::Publication(_) | NodeId::Subscription(_) | NodeId::Statistic(_) => continue,
             };
 
             if BUILTIN_SCHEMAS.contains(&target_schema) {

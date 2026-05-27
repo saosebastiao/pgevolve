@@ -424,6 +424,11 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::AlterSubscriptionSetPublication => "alter_subscription_set_publication",
         K::AlterSubscriptionSetOptions => "alter_subscription_set_options",
         K::CommentOnSubscription => "comment_on_subscription",
+        K::CreateStatistic => "create_statistic",
+        K::DropStatistic => "drop_statistic",
+        K::ReplaceStatistic => "replace_statistic",
+        K::AlterStatisticSetTarget => "alter_statistic_set_target",
+        K::CommentOnStatistic => "comment_on_statistic",
     }
 }
 
@@ -535,6 +540,11 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "alter_subscription_set_publication" => K::AlterSubscriptionSetPublication,
         "alter_subscription_set_options" => K::AlterSubscriptionSetOptions,
         "comment_on_subscription" => K::CommentOnSubscription,
+        "create_statistic" => K::CreateStatistic,
+        "drop_statistic" => K::DropStatistic,
+        "replace_statistic" => K::ReplaceStatistic,
+        "alter_statistic_set_target" => K::AlterStatisticSetTarget,
+        "comment_on_statistic" => K::CommentOnStatistic,
         _ => return None,
     })
 }

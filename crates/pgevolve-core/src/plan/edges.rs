@@ -67,6 +67,8 @@ pub enum NodeId {
     /// A subscription (not schema-qualified — subscriptions are a per-database
     /// global namespace, like publications).
     Subscription(Identifier),
+    /// A statistics object (`CREATE STATISTICS schema.name`).
+    Statistic(QualifiedName),
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.
@@ -183,6 +185,13 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     // them create-last, drop-first via sort_key.
     for s in &catalog.subscriptions {
         g.add_node(NodeId::Subscription(s.name.clone()));
+    }
+    // Register statistics; each depends on its target table (must be created
+    // after the table exists and dropped before the table is dropped).
+    for s in &catalog.statistics {
+        let stat_node = NodeId::Statistic(s.qname.clone());
+        g.add_node(stat_node.clone());
+        g.add_edge(stat_node, NodeId::Table(s.target.clone()));
     }
 
     // Phase 1b.0: type → schema edges. Every user-defined type lives inside

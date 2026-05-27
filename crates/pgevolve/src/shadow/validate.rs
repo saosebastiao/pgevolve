@@ -322,6 +322,7 @@ fn node_id_to_key(node: &NodeId) -> String {
         | NodeId::Type(q)
         | NodeId::Trigger(q)
         | NodeId::Procedure(q)
+        | NodeId::Statistic(q)
         | NodeId::Function(q, _) => q.to_string(),
         NodeId::Schema(id)
         | NodeId::Extension(id)

@@ -29,6 +29,7 @@ pub mod refresh_mv_concurrently;
 pub mod reloptions;
 pub mod set_not_null_check_pattern;
 pub mod sql;
+pub mod statistics;
 pub mod subscriptions;
 pub mod triggers;
 pub mod types;
@@ -669,14 +670,79 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
-        // Statistics changes: Stage 8 wires real SQL helpers.
-        // Stub arms let the workspace compile; real emit lands in Stage 8.
-        Change::CreateStatistic(_)
-        | Change::DropStatistic { .. }
-        | Change::ReplaceStatistic { .. }
-        | Change::AlterStatisticSetTarget { .. }
-        | Change::CommentOnStatistic { .. } => {
-            // Stage 8 will replace this with real SQL rendering.
+        Change::CreateStatistic(s) => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::CreateStatistic,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![s.qname.clone()],
+                sql: statistics::create_statistic(&s),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+            // Follow-up COMMENT if present.
+            if let Some(c) = &s.comment {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: crate::plan::raw_step::StepKind::CommentOnStatistic,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![s.qname.clone()],
+                    sql: statistics::comment_on_statistic(&s.qname, Some(c)),
+                    transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                });
+            }
+        }
+        Change::DropStatistic { qname } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::DropStatistic,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: statistics::drop_statistic(&qname),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::ReplaceStatistic { from, to } => {
+            let [drop_sql, create_sql] = statistics::replace_statistic(&from, &to);
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::ReplaceStatistic,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![to.qname],
+                sql: format!("{drop_sql}\n{create_sql}"),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::AlterStatisticSetTarget { qname, value } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::AlterStatisticSetTarget,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: statistics::alter_statistic_set_target(&qname, value),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
+        }
+        Change::CommentOnStatistic { qname, comment } => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: crate::plan::raw_step::StepKind::CommentOnStatistic,
+                destructive: false,
+                destructive_reason: None,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: statistics::comment_on_statistic(&qname, comment.as_deref()),
+                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+            });
         }
 
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.

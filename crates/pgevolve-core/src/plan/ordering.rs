@@ -540,14 +540,14 @@ fn change_node(change: &Change) -> NodeId {
         | Change::AlterSubscriptionSetPublication { name, .. }
         | Change::AlterSubscriptionSetOptions { name, .. }
         | Change::CommentOnSubscription { name, .. } => NodeId::Subscription(name.clone()),
-        // Statistic changes: Stage 8 wires real NodeId::Statistic.
-        // For now, use the statistic's own qname via a Table placeholder so
-        // ordering works (statistics always depend on their target table anyway).
-        Change::CreateStatistic(s) => NodeId::Table(s.qname.clone()),
-        Change::ReplaceStatistic { to, .. } => NodeId::Table(to.qname.clone()),
+        // Statistic changes: use NodeId::Statistic for correct topological ordering.
+        // Statistics depend on their target table, so they are created after it and
+        // dropped before it.
+        Change::CreateStatistic(s) => NodeId::Statistic(s.qname.clone()),
+        Change::ReplaceStatistic { to, .. } => NodeId::Statistic(to.qname.clone()),
         Change::DropStatistic { qname }
         | Change::AlterStatisticSetTarget { qname, .. }
-        | Change::CommentOnStatistic { qname, .. } => NodeId::Table(qname.clone()),
+        | Change::CommentOnStatistic { qname, .. } => NodeId::Statistic(qname.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")
@@ -660,6 +660,7 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Trigger(q) => format!("trigger:{q}"),
         NodeId::Publication(name) => format!("publication:{name}"),
         NodeId::Subscription(name) => format!("subscription:{name}"),
+        NodeId::Statistic(q) => format!("statistic:{q}"),
         NodeId::Function(q, args) => format!(
             "function:{}({})",
             q,

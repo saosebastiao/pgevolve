@@ -270,6 +270,18 @@ pub enum StepKind {
     AlterSubscriptionSetOptions,
     /// `COMMENT ON SUBSCRIPTION s IS '...'`.
     CommentOnSubscription,
+
+    // --- v0.3.7 statistics step kinds ---
+    /// `CREATE STATISTICS …`.
+    CreateStatistic,
+    /// `DROP STATISTICS …`. Destructive (intent required).
+    DropStatistic,
+    /// `DROP STATISTICS old; CREATE STATISTICS new;` — structural change. Destructive.
+    ReplaceStatistic,
+    /// `ALTER STATISTICS s SET STATISTICS n`.
+    AlterStatisticSetTarget,
+    /// `COMMENT ON STATISTICS s IS '...'`.
+    CommentOnStatistic,
 }
 
 /// One unit of work the executor will attempt.
@@ -415,6 +427,11 @@ mod tests {
             StepKind::AlterSubscriptionSetPublication,
             StepKind::AlterSubscriptionSetOptions,
             StepKind::CommentOnSubscription,
+            StepKind::CreateStatistic,
+            StepKind::DropStatistic,
+            StepKind::ReplaceStatistic,
+            StepKind::AlterStatisticSetTarget,
+            StepKind::CommentOnStatistic,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();
