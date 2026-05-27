@@ -47,7 +47,11 @@ impl StatisticKinds {
     /// PG's default when no kinds clause is given: all three enabled.
     #[must_use]
     pub const fn pg_default() -> Self {
-        Self { ndistinct: true, dependencies: true, mcv: true }
+        Self {
+            ndistinct: true,
+            dependencies: true,
+            mcv: true,
+        }
     }
 
     /// True iff at least one kind is enabled. An empty bitset is illegal

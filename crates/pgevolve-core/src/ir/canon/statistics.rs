@@ -1,7 +1,10 @@
 //! Canon pass for statistics. Validates and sorts.
 //!
 //! Invariants enforced:
-//! - `Statistic.kinds` has at least one enabled.
+//! - `Statistic.kinds` has at least one enabled OR all columns are expressions.
+//!   Expression-only statistics (`CREATE STATISTICS s ON (expr) FROM t`) store
+//!   only the internal `'e'` marker in `stxkind`; `kinds` is empty but the
+//!   object is valid because PG applies all-kinds statistics to the expressions.
 //! - `Statistic.columns` is non-empty.
 //!
 //! Sorts:
@@ -27,7 +30,14 @@ pub fn run(cat: &mut Catalog) -> Result<(), IrError> {
 }
 
 fn validate_and_sort(s: &mut Statistic) -> Result<(), IrError> {
-    if s.kinds.is_empty() {
+    // An empty kinds bitset is invalid unless all columns are Expression entries
+    // (expression-only statistics). PG stores only `'e'` in stxkind for those;
+    // ndistinct/dependencies/mcv don't apply to the expressions themselves.
+    let all_expressions = !s.columns.is_empty()
+        && s.columns
+            .iter()
+            .all(|c| matches!(c, StatisticColumn::Expression(_)));
+    if s.kinds.is_empty() && !all_expressions {
         return Err(IrError::EmptyStatisticKinds(s.qname.clone()));
     }
     if s.columns.is_empty() {

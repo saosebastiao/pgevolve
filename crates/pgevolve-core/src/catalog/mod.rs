@@ -26,6 +26,7 @@ mod assemble;
 pub(crate) mod grants;
 pub(crate) mod publications;
 pub(crate) mod reloptions;
+pub(crate) mod statistics;
 pub(crate) mod subscriptions;
 
 use crate::identifier::{Identifier, QualifiedName};
@@ -164,6 +165,17 @@ pub enum CatalogQuery {
     /// will receive an empty result or a permission error; the assembler
     /// catches the error and sets `DriftReport::unreadable_subscriptions`.
     Subscriptions,
+    /// `pg_statistic_ext` rows for managed schemas. Takes `$1::text[]`
+    /// (managed schema names).
+    Statistics,
+    /// Column-attnum resolver for statistics target tables. Bulk-fetched once;
+    /// grouped by `target_oid` in the assembler. Takes `$1::text[]`.
+    StatisticAttributes,
+    /// Bulk expression decode via `pg_get_statisticsobjdef_expressions` for all
+    /// statistics in managed schemas. Returns one row per expression entry with
+    /// columns `(stat_oid, expr_index, expr_sql)`. Takes `$1::text[]`
+    /// (managed schema names).
+    StatisticExpressions,
 }
 
 impl CatalogQuery {
@@ -268,6 +280,12 @@ pub fn read_catalog(
             Err(e) => return Err(e),
         };
 
+    // Statistics — schema-scoped. Attribute rows resolve stxkeys attnums to
+    // column names. Expression rows are bulk-fetched for all managed schemas.
+    let statistics_rows = querier.fetch(CatalogQuery::Statistics, &managed)?;
+    let statistic_attributes_rows = querier.fetch(CatalogQuery::StatisticAttributes, &managed)?;
+    let statistic_expressions_rows = querier.fetch(CatalogQuery::StatisticExpressions, &managed)?;
+
     let raw = assemble::RawRows {
         version,
         schemas: schemas_rows,
@@ -297,8 +315,17 @@ pub fn read_catalog(
         publication_attributes: publication_attributes_rows,
         subscriptions: subscriptions_rows,
     };
-    let (catalog, mut drift) = assemble::assemble(raw, filter)?;
+    let (mut catalog, mut drift) = assemble::assemble(raw, filter)?;
     drift.unreadable_subscriptions = unreadable_subscriptions;
+
+    // Assemble statistics after the main assemble pass. All three row sets
+    // (base rows, attribute rows, expression rows) are already bulk-fetched.
+    catalog.statistics = assemble::statistics::assemble_statistics(
+        &statistics_rows,
+        &statistic_attributes_rows,
+        &statistic_expressions_rows,
+    )?;
+
     Ok((catalog.canonicalize()?, drift))
 }
 

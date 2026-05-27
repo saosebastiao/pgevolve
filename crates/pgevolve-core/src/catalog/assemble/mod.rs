@@ -21,6 +21,7 @@ mod functions;
 mod partitions;
 pub(super) mod policies;
 pub(super) mod publications;
+pub(in crate::catalog) mod statistics;
 pub(super) mod subscriptions;
 mod tables;
 mod triggers;
@@ -194,6 +195,11 @@ pub fn assemble(
     // connection lacked superuser privilege; the drift flag is set upstream
     // by read_catalog before assemble() is called.
     catalog.subscriptions = subscriptions::assemble_subscriptions(&sub_rows)?;
+
+    // Statistics are assembled by `read_catalog` directly (not via RawRows)
+    // because the expression-decode step requires a live querier. The field
+    // starts as `Vec::new()` (from `Catalog::empty()`) and is populated after
+    // `assemble()` returns.
 
     Ok((catalog, drift))
 }

@@ -69,6 +69,9 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (PgVersion::Pg15, CatalogQuery::Subscriptions) => pg15::SUBSCRIPTIONS_QUERY_PG15,
         (PgVersion::Pg16, CatalogQuery::Subscriptions) => pg16::SUBSCRIPTIONS_QUERY_PG16,
         (_, CatalogQuery::Subscriptions) => shared::SUBSCRIPTIONS_QUERY,
+        (_, CatalogQuery::Statistics) => shared::STATISTICS_QUERY,
+        (_, CatalogQuery::StatisticAttributes) => shared::STATISTIC_ATTRIBUTES_QUERY,
+        (_, CatalogQuery::StatisticExpressions) => shared::STATISTIC_EXPRESSIONS_QUERY,
     }
 }
 

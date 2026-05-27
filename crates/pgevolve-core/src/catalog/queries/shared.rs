@@ -338,6 +338,83 @@ pub const PUBLICATION_ATTRIBUTES_QUERY: &str = "\
     WHERE a.attnum > 0 AND NOT a.attisdropped \
     ORDER BY pr.prrelid, a.attnum";
 
+/// Multi-column statistics objects (CREATE STATISTICS). Stable across
+/// PG 14–17 — no version variants needed.
+///
+/// Expression statistics are decoded via
+/// `pg_get_statisticsobjdef_expressions(s.oid)` in a follow-up query
+/// (see [`STATISTIC_EXPRESSIONS_QUERY`]).
+///
+/// `stxstattarget` is `int4` with NULL meaning "use PG default" (-1 in PG 14
+/// before the column changed to nullable). `COALESCE(s.stxstattarget, -1)`
+/// normalises both PG 14 and PG 17+ rows to the same sentinel value so the
+/// decoder uses a single code path.
+pub const STATISTICS_QUERY: &str = "\
+    SELECT \
+        s.oid::bigint AS oid, \
+        sn.nspname::text AS schema, \
+        s.stxname::text AS name, \
+        tn.nspname::text AS target_schema, \
+        t.relname::text AS target_name, \
+        s.stxkind::text[] AS kinds, \
+        s.stxkeys::int2[]::int8[] AS keys, \
+        t.oid::bigint AS target_oid, \
+        coalesce(s.stxstattarget, -1)::bigint AS stat_target, \
+        coalesce(a.rolname, '') AS owner, \
+        coalesce(d.description, '') AS comment, \
+        (s.stxexprs IS NOT NULL)::bool AS has_expressions \
+    FROM pg_statistic_ext s \
+    JOIN pg_namespace sn ON sn.oid = s.stxnamespace \
+    JOIN pg_class t ON t.oid = s.stxrelid \
+    JOIN pg_namespace tn ON tn.oid = t.relnamespace \
+    JOIN pg_authid a ON a.oid = s.stxowner \
+    LEFT JOIN pg_description d \
+        ON d.classoid = 'pg_statistic_ext'::regclass AND d.objoid = s.oid AND d.objsubid = 0 \
+    WHERE sn.nspname = ANY($1::text[]) \
+    ORDER BY sn.nspname, s.stxname";
+
+/// Bulk expression decode for all statistics in managed schemas.
+///
+/// Returns one row per expression entry per statistic object, ordered by
+/// (`stat_oid`, `expr_index`). The assembler groups these by `stat_oid` to
+/// build per-statistic expression lists.
+///
+/// `pg_get_statisticsobjdef_expressions(oid)` is a PG 14+ function that
+/// returns `text[]` of SQL expression strings in stxexprs order.
+///
+/// `$1` = managed schema names (`text[]`).
+pub const STATISTIC_EXPRESSIONS_QUERY: &str = "\
+    SELECT \
+        s.oid::bigint AS stat_oid, \
+        (row_number() OVER (PARTITION BY s.oid ORDER BY s.oid))::bigint - 1 AS expr_index, \
+        expr_sql::text \
+    FROM pg_statistic_ext s \
+    JOIN pg_namespace sn ON sn.oid = s.stxnamespace \
+    CROSS JOIN LATERAL unnest(pg_get_statisticsobjdef_expressions(s.oid)) AS t(expr_sql) \
+    WHERE sn.nspname = ANY($1::text[]) \
+      AND s.stxexprs IS NOT NULL \
+    ORDER BY s.oid, expr_index";
+
+/// Resolve column attnums to names for all tables referenced by any statistic.
+///
+/// Returns `(target_oid, attnum, attname)` for every non-dropped, user-visible
+/// column of every table that appears as a statistic target. Fetched once and
+/// grouped by `target_oid` in the assembler (no per-row queries).
+///
+/// `$1` = managed schema names (`text[]`).
+pub const STATISTIC_ATTRIBUTES_QUERY: &str = "\
+    SELECT \
+        s.stxrelid::bigint AS target_oid, \
+        a.attnum::bigint AS attnum, \
+        a.attname::text AS attname \
+    FROM pg_statistic_ext s \
+    JOIN pg_namespace sn ON sn.oid = s.stxnamespace \
+    JOIN pg_attribute a ON a.attrelid = s.stxrelid \
+    WHERE sn.nspname = ANY($1::text[]) \
+      AND a.attnum > 0 \
+      AND NOT a.attisdropped \
+    ORDER BY s.stxrelid, a.attnum";
+
 /// Subscriptions — PG 17 full-surface query.
 ///
 /// `pg_subscription` is superuser-readable only; non-super connections see
