@@ -24,6 +24,7 @@ pub mod publication;
 pub mod reloptions;
 pub mod schema;
 pub mod sequence;
+pub mod subscription;
 pub mod table;
 pub use function::*;
 pub mod procedure;
