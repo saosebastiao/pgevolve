@@ -30,11 +30,15 @@ pub mod revoke_from_owner;
 pub mod role_loses_superuser;
 pub mod role_membership_cycle;
 pub mod storage_downgrade_not_retroactive;
+pub mod subscription_feature_requires_pg_version;
+pub mod subscription_password_in_source;
+pub mod subscription_references_undeclared_publication;
 pub mod trigger_references_unmanaged_function;
 pub mod trigger_references_unmanaged_table;
 pub mod type_shadows_table;
 pub mod unmanaged_publication;
 pub mod unmanaged_reloption;
+pub mod unmanaged_subscription;
 pub mod view_body_references_unmanaged_schema;
 pub mod view_shadows_table;
 

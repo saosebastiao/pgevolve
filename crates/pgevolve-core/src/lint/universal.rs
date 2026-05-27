@@ -146,6 +146,7 @@ pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
         source, target,
     ));
     out.extend(rules::publication_row_filter_references_unmanaged_column::check(source));
+    out.extend(rules::unmanaged_subscription::check(source, target));
     out
 }
 
@@ -179,12 +180,26 @@ pub fn check_changeset(cs: &ChangeSet) -> Vec<Finding> {
 ///   SECURITY but no policies defined.
 /// - **`publication-feature-requires-pg-version`** — fires (Error) when source
 ///   uses a PG 15+ publication feature with `min_pg_version < 15`.
+/// - **`subscription-references-undeclared-publication`** — fires (Warning) when
+///   a source subscription's PUBLICATION list names a publication not declared
+///   in source.
+/// - **`subscription-feature-requires-pg-version`** — fires (Error) when source
+///   uses a PG-version-gated subscription option below `min_pg_version`.
+/// - **`subscription-password-in-source`** — fires (Error) when a source
+///   subscription CONNECTION contains a plaintext `password=` value instead of
+///   a `${ENV_VAR}` reference.
 pub fn check_plan_time_catalog(source: &Catalog, min_pg_version: u32) -> Vec<Finding> {
     let mut out = rules::force_rls_without_policies::check(source);
     out.extend(rules::publication_feature_requires_pg_version::check(
         source,
         min_pg_version,
     ));
+    out.extend(rules::subscription_references_undeclared_publication::check(source));
+    out.extend(rules::subscription_feature_requires_pg_version::check(
+        source,
+        min_pg_version,
+    ));
+    out.extend(rules::subscription_password_in_source::check(source));
     out
 }
 
