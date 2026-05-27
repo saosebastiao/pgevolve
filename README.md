@@ -13,7 +13,7 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-Current release: **v0.3.3** (Postgres 14–17). See
+Current release: **v0.3.6** (Postgres 14–18). See
 [`CHANGELOG.md`](./CHANGELOG.md) for per-release detail.
 
 ## Install
