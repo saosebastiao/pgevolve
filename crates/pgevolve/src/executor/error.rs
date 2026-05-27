@@ -75,4 +75,10 @@ pub enum ApplyError {
         /// Brief listing for diagnostics: `(rule, target)` per finding.
         details: Vec<(String, String)>,
     },
+
+    /// A plan step's SQL referenced an env var that wasn't set.
+    #[error(
+        "missing env var ${{{0}}} referenced by step {1}; required for subscription CONNECTION resolution"
+    )]
+    MissingEnvVar(String, u32),
 }

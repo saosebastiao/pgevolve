@@ -115,7 +115,10 @@ async fn execute_transactional_group(
         // get rolled back together if a later step fails. That's fine: we
         // re-mark them outside the tx after rollback.
         audit::mark_step_running(tx.client(), apply_id, step.step_no).await?;
-        if let Err(e) = tx.batch_execute(&step.sql).await {
+        let resolved_sql =
+            crate::executor::env_interp::resolve(&step.sql, |k| std::env::var(k).ok())
+                .map_err(|e| ApplyError::MissingEnvVar(e.0, step.step_no))?;
+        if let Err(e) = tx.batch_execute(&resolved_sql).await {
             let err_msg = render_pg_error(&e);
             tx.rollback().await?;
             // After rollback, write the final audit rows on the bare client.
@@ -161,7 +164,10 @@ async fn execute_autocommit_group(
             continue;
         }
         audit::mark_step_running(client, apply_id, step.step_no).await?;
-        if let Err(e) = client.batch_execute(&step.sql).await {
+        let resolved_sql =
+            crate::executor::env_interp::resolve(&step.sql, |k| std::env::var(k).ok())
+                .map_err(|e| ApplyError::MissingEnvVar(e.0, step.step_no))?;
+        if let Err(e) = client.batch_execute(&resolved_sql).await {
             let err_msg = render_pg_error(&e);
             audit::mark_step_failed(client, apply_id, step.step_no, &err_msg).await?;
             return Err(ApplyError::StepFailed {

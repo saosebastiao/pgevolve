@@ -11,6 +11,7 @@
 pub mod audit;
 pub mod bootstrap;
 pub mod cluster_apply;
+pub mod env_interp;
 pub mod error;
 pub mod execute;
 pub mod lock;

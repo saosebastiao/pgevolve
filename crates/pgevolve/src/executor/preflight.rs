@@ -31,6 +31,27 @@ pub struct PreflightOverrides {
     pub allow_unapproved_intents: bool,
 }
 
+/// Walk every step's SQL; resolve `${VAR}` references against process env.
+/// Fail with `MissingEnvVar` for the first unresolved reference.
+///
+/// Resolution happens *here* (not at plan render time) so plan.sql on disk
+/// always stores the unresolved form. The resolved SQL is recomputed at
+/// execute time from the same env, ensuring secrets never persist.
+pub fn check_env_vars_resolvable(plan: &Plan) -> Result<(), ApplyError> {
+    use crate::executor::env_interp;
+    for group in &plan.groups {
+        for step in &group.steps {
+            let refs = env_interp::references(&step.sql);
+            for var in refs {
+                if std::env::var(&var).is_err() {
+                    return Err(ApplyError::MissingEnvVar(var, step.step_no));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Run every preflight check. Returns the first failure.
 pub async fn run_preflight(
     client: &Client,
@@ -38,6 +59,10 @@ pub async fn run_preflight(
     filter: &CatalogFilter,
     overrides: PreflightOverrides,
 ) -> Result<(), ApplyError> {
+    // 0. Env-var resolution check — must run before any DB I/O so that
+    //    missing secrets fail fast without touching the database.
+    check_env_vars_resolvable(plan)?;
+
     // 1. Target-identity match.
     let live = compute_target_identity(client).await?;
     if live != plan.metadata.target_identity && !overrides.allow_different_target {
