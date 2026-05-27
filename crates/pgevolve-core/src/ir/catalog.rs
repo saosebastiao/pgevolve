@@ -46,6 +46,8 @@ pub struct Catalog {
     pub triggers: Vec<Trigger>,
     /// Publications (logical-replication source-side metadata).
     pub publications: Vec<Publication>,
+    /// Multi-column statistics objects (CREATE STATISTICS).
+    pub statistics: Vec<crate::ir::statistic::Statistic>,
     /// Subscriptions (logical-replication subscriber-side metadata).
     pub subscriptions: Vec<crate::ir::subscription::Subscription>,
     /// `ALTER DEFAULT PRIVILEGES` rules. Canonicalized.
@@ -69,6 +71,7 @@ impl Catalog {
             procedures: Vec::new(),
             triggers: Vec::new(),
             publications: Vec::new(),
+            statistics: Vec::new(),
             subscriptions: Vec::new(),
             default_privileges: Vec::new(),
         }
