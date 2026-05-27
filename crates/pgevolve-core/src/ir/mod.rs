@@ -79,4 +79,13 @@ pub enum IrError {
     /// A `Subscription.connection` was empty or whitespace-only.
     #[error("subscription {0:?}: empty connection string")]
     EmptyConnection(crate::identifier::Identifier),
+
+    /// A `StatisticKinds` had all three flags false.
+    #[error(
+        "statistic {0}: empty kinds bitset (must enable at least one of ndistinct, dependencies, mcv)"
+    )]
+    EmptyStatisticKinds(crate::identifier::QualifiedName),
+    /// A `Statistic.columns` was empty.
+    #[error("statistic {0}: empty column list")]
+    EmptyStatisticColumns(crate::identifier::QualifiedName),
 }
