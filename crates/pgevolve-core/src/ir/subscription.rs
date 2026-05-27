@@ -47,7 +47,7 @@ pub struct Subscription {
 /// (no `ALTER SUBSCRIPTION s SET (create_slot = …)` exists). They flow into
 /// the IR from source CREATE statements so users can declare them, but the
 /// differ NEVER includes them in `AlterSubscriptionSetOptions` deltas, and
-/// the catalog reader ALWAYS returns `None` for them (pg_subscription
+/// the catalog reader ALWAYS returns `None` for them (`pg_subscription`
 /// doesn't store the CREATE-time decision). See `diff::subscriptions::options_delta`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct SubscriptionOptions {

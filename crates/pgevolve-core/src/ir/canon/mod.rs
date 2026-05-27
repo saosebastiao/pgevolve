@@ -33,6 +33,7 @@ pub mod reloptions;
 pub mod renumber_enum_sort_orders;
 pub mod sentinel_view_columns;
 pub mod sort_and_dedupe;
+pub mod subscriptions;
 
 use crate::ir::IrError;
 use crate::ir::catalog::Catalog;
@@ -74,6 +75,7 @@ pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
         policies::run_on_table(t);
     }
     publications::run(cat)?;
+    subscriptions::run(cat)?;
     reloptions::run(cat);
     sort_and_dedupe::run(cat)?;
     Ok(())

@@ -71,4 +71,11 @@ pub enum IrError {
         crate::identifier::QualifiedName,
         crate::identifier::Identifier,
     ),
+
+    /// A `Subscription.publications` was empty.
+    #[error("subscription {0:?}: empty publication list (PG requires at least one)")]
+    EmptySubscriptionPublications(crate::identifier::Identifier),
+    /// A `Subscription.connection` was empty or whitespace-only.
+    #[error("subscription {0:?}: empty connection string")]
+    EmptyConnection(crate::identifier::Identifier),
 }
