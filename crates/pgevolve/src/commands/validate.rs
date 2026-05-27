@@ -367,16 +367,19 @@ fn build_plan_for_shadow(source: &Catalog, target_identity: String) -> Result<Pl
 
 /// Parse an optional `postgres_version` string into a `PgMajor`.
 ///
-/// Defaults to `17` when `None` is supplied (testcontainers auto-selects
-/// the latest stable; the dsn backend ignores the major entirely).
+/// Defaults to `17` when `None` is supplied. (The shadow's role is to
+/// validate the source IR by round-tripping it through an ephemeral PG;
+/// defaulting to 17 — one major behind newest — keeps the round-trip
+/// stable while still exercising a modern catalog.)
 fn parse_pg_major(s: Option<&str>) -> Result<crate::shadow::PgMajor> {
     match s.map(str::trim) {
         None | Some("17") => Ok(17),
+        Some("18") => Ok(18),
         Some("16") => Ok(16),
         Some("15") => Ok(15),
         Some("14") => Ok(14),
         Some(other) => Err(anyhow!(
-            "[shadow].postgres_version must be one of 14/15/16/17; got `{other}`",
+            "[shadow].postgres_version must be one of 14/15/16/17/18; got `{other}`",
         )),
     }
 }
