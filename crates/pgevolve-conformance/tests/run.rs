@@ -359,40 +359,51 @@ async fn run_objects(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     // for asserting the shape of those intents matches [[expect.intent]];
     // the apply runner just needs to flip approved=false → true so the
     // executor's preflight gate doesn't block the apply.
-    let apply_opts = apply::ApplyOptions {
-        auto_approve_intents: true,
+    //
+    // When [fixture] apply = false (e.g. SUBSCRIPTION fixtures that can't
+    // connect to a real publisher), skip the apply and minimality layers
+    // entirely. All other layers still run.
+    let apply_outcome = if fixture.fixture.apply {
+        let apply_opts = apply::ApplyOptions {
+            auto_approve_intents: true,
+        };
+        let outcome = match apply::check_with_options(fixture, pg_major, apply_opts).await {
+            Ok(o) => o,
+            Err(e) => {
+                failures.push(("apply".into(), e.to_string()));
+                return FixtureResult::Ran { failures };
+            }
+        };
+        match &outcome {
+            apply::ApplyOutcome::Ok(_)
+            | apply::ApplyOutcome::OkExpectedFailure
+            | apply::ApplyOutcome::Skipped => {}
+            apply::ApplyOutcome::ApplyFailed { stderr, stage } => {
+                failures.push(("apply".into(), format!("{stage} failed:\n{stderr}")));
+            }
+            apply::ApplyOutcome::IrMismatch(diff_str) => {
+                failures.push((
+                    "apply".into(),
+                    format!("post-apply IR diverged:\n{diff_str}"),
+                ));
+            }
+            apply::ApplyOutcome::UnexpectedSuccess => {
+                failures.push((
+                    "apply".into(),
+                    "fixture expected apply.succeeds=false but apply succeeded".into(),
+                ));
+            }
+        }
+        Some(outcome)
+    } else {
+        // Skip apply layer; parse + diff + plan.sql + lint still ran above.
+        tracing::info!(fixture = %fixture.dir.display(), "skipping apply layer (apply = false)");
+        None
     };
-    let apply_outcome = match apply::check_with_options(fixture, pg_major, apply_opts).await {
-        Ok(o) => o,
-        Err(e) => {
-            failures.push(("apply".into(), e.to_string()));
-            return FixtureResult::Ran { failures };
-        }
-    };
-    match &apply_outcome {
-        apply::ApplyOutcome::Ok(_)
-        | apply::ApplyOutcome::OkExpectedFailure
-        | apply::ApplyOutcome::Skipped => {}
-        apply::ApplyOutcome::ApplyFailed { stderr, stage } => {
-            failures.push(("apply".into(), format!("{stage} failed:\n{stderr}")));
-        }
-        apply::ApplyOutcome::IrMismatch(diff_str) => {
-            failures.push((
-                "apply".into(),
-                format!("post-apply IR diverged:\n{diff_str}"),
-            ));
-        }
-        apply::ApplyOutcome::UnexpectedSuccess => {
-            failures.push((
-                "apply".into(),
-                "fixture expected apply.succeeds=false but apply succeeded".into(),
-            ));
-        }
-    }
 
     // Layer 5: minimality.
     if effective_plan.minimality
-        && let apply::ApplyOutcome::Ok(state) = &apply_outcome
+        && let Some(apply::ApplyOutcome::Ok(state)) = &apply_outcome
     {
         let input = minimality::MinimalityInput {
             post_apply_catalog: &state.catalog,
@@ -546,41 +557,49 @@ async fn run_intent(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     // that the intent approval path is exercised end-to-end. The runner
     // patches the plan's intent.toml (flipping approved=false → true) after
     // `pgevolve plan` writes it and before `pgevolve apply` reads it.
-    let apply_opts = apply::ApplyOptions {
-        auto_approve_intents: true,
+    //
+    // When [fixture] apply = false, skip apply and minimality layers.
+    let apply_outcome = if fixture.fixture.apply {
+        let apply_opts = apply::ApplyOptions {
+            auto_approve_intents: true,
+        };
+        let outcome = match apply::check_with_options(fixture, pg_major, apply_opts).await {
+            Ok(o) => o,
+            Err(e) => {
+                failures.push(("apply".into(), e.to_string()));
+                return FixtureResult::Ran { failures };
+            }
+        };
+        match &outcome {
+            apply::ApplyOutcome::Ok(_)
+            | apply::ApplyOutcome::OkExpectedFailure
+            | apply::ApplyOutcome::Skipped => {}
+            apply::ApplyOutcome::ApplyFailed { stderr, stage } => {
+                failures.push(("apply".into(), format!("{stage} failed:\n{stderr}")));
+            }
+            apply::ApplyOutcome::IrMismatch(diff_str) => {
+                failures.push((
+                    "apply".into(),
+                    format!("post-apply IR diverged:\n{diff_str}"),
+                ));
+            }
+            apply::ApplyOutcome::UnexpectedSuccess => {
+                failures.push((
+                    "apply".into(),
+                    "fixture expected apply.succeeds=false but apply succeeded".into(),
+                ));
+            }
+        }
+        Some(outcome)
+    } else {
+        tracing::info!(fixture = %fixture.dir.display(), "skipping apply layer (apply = false)");
+        None
     };
-    let apply_outcome = match apply::check_with_options(fixture, pg_major, apply_opts).await {
-        Ok(o) => o,
-        Err(e) => {
-            failures.push(("apply".into(), e.to_string()));
-            return FixtureResult::Ran { failures };
-        }
-    };
-    match &apply_outcome {
-        apply::ApplyOutcome::Ok(_)
-        | apply::ApplyOutcome::OkExpectedFailure
-        | apply::ApplyOutcome::Skipped => {}
-        apply::ApplyOutcome::ApplyFailed { stderr, stage } => {
-            failures.push(("apply".into(), format!("{stage} failed:\n{stderr}")));
-        }
-        apply::ApplyOutcome::IrMismatch(diff_str) => {
-            failures.push((
-                "apply".into(),
-                format!("post-apply IR diverged:\n{diff_str}"),
-            ));
-        }
-        apply::ApplyOutcome::UnexpectedSuccess => {
-            failures.push((
-                "apply".into(),
-                "fixture expected apply.succeeds=false but apply succeeded".into(),
-            ));
-        }
-    }
 
     // Layer 5: minimality — only when the fixture opts in (default off for
     // intent/ because the destructive step intentionally removes objects).
     if effective_plan.minimality
-        && let apply::ApplyOutcome::Ok(state) = &apply_outcome
+        && let Some(apply::ApplyOutcome::Ok(state)) = &apply_outcome
     {
         let input = minimality::MinimalityInput {
             post_apply_catalog: &state.catalog,

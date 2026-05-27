@@ -1,0 +1,14 @@
+[meta]
+title     = "CREATE SUBSCRIPTION WITH (disable_on_error = true) — PG 15+"
+authoring = "objects"
+spec_refs = ["objects.subscription"]
+
+[pg]
+min = 15
+max = 17
+
+[fixture]
+apply = false
+
+[expect.plan]
+steps = 2

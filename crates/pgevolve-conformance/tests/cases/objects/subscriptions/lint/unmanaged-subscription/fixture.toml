@@ -1,0 +1,21 @@
+[meta]
+title     = "Lenient drift: catalog has subscription source doesn't declare — 0 plan steps"
+authoring = "objects"
+spec_refs = ["lint.unmanaged-subscription"]
+
+[pg]
+min = 14
+max = 17
+
+[fixture]
+apply = false
+
+# The differ uses a lenient policy: subscriptions absent from source are NOT
+# dropped. This fixture verifies that removing a subscription from source does
+# not produce a DROP step. The unmanaged-subscription advisory fires via
+# run_drift_lints (real-catalog path) rather than the in-process pipeline, so
+# it is not asserted here; unit tests in lint/rules/unmanaged_subscription cover it.
+[expect.plan]
+steps      = 0
+minimality = false
+golden     = false

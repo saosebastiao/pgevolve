@@ -373,6 +373,30 @@ impl Default for ExpectApply {
     }
 }
 
+/// `[fixture]` section — top-level fixture-runner knobs. Optional.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct FixtureSettings {
+    /// Whether the Layer-7 apply step runs. Default true. Set to false
+    /// for fixtures that can't apply end-to-end (e.g., SUBSCRIPTION
+    /// fixtures pointing at a publisher that doesn't exist). Parse +
+    /// diff + plan.sql + lint layers always run.
+    #[serde(default = "default_apply")]
+    pub apply: bool,
+}
+
+const fn default_apply() -> bool {
+    true
+}
+
+impl Default for FixtureSettings {
+    fn default() -> Self {
+        Self {
+            apply: default_apply(),
+        }
+    }
+}
+
 /// Passthrough tables forwarded verbatim to the planner.
 ///
 /// Deserialized as `toml::Table` so the runner can write them straight to
@@ -410,6 +434,8 @@ pub struct Fixture {
     pub pg: FixturePg,
     /// `[budget]` — per-fixture wall-clock cap.
     pub budget: FixtureBudget,
+    /// `[fixture]` — fixture-runner knobs.
+    pub fixture: FixtureSettings,
     /// `[intent]` + `[planner]` passthroughs.
     pub passthrough: FixturePassthrough,
     /// `[expect]`.
@@ -423,6 +449,8 @@ struct RawFixtureToml {
     pg: FixturePg,
     #[serde(default)]
     budget: FixtureBudget,
+    #[serde(default)]
+    fixture: FixtureSettings,
     #[serde(default)]
     intent: toml::Table,
     #[serde(default)]
@@ -474,6 +502,7 @@ impl Fixture {
             meta: raw.meta,
             pg: raw.pg,
             budget: raw.budget,
+            fixture: raw.fixture,
             passthrough: FixturePassthrough {
                 intent: raw.intent,
                 planner: raw.planner,
@@ -537,6 +566,50 @@ mod tests {
         std::fs::write(dir.join("fixture.toml"), toml_body).unwrap();
         std::fs::write(dir.join("before.sql"), before).unwrap();
         std::fs::write(dir.join("after.sql"), after).unwrap();
+    }
+
+    #[test]
+    fn apply_defaults_to_true() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_fixture(
+            tmp.path(),
+            r#"
+[meta]
+title = "t"
+authoring = "objects"
+spec_refs = []
+[pg]
+min = 14
+max = 17
+"#,
+            "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+            "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+        );
+        let f = Fixture::load(tmp.path()).unwrap();
+        assert!(f.fixture.apply, "apply should default to true");
+    }
+
+    #[test]
+    fn apply_can_be_false() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_fixture(
+            tmp.path(),
+            r#"
+[meta]
+title = "t"
+authoring = "objects"
+spec_refs = []
+[pg]
+min = 14
+max = 17
+[fixture]
+apply = false
+"#,
+            "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+            "-- @pgevolve schema=app\nCREATE SCHEMA app;\n",
+        );
+        let f = Fixture::load(tmp.path()).unwrap();
+        assert!(!f.fixture.apply, "apply = false should be preserved");
     }
 
     #[test]

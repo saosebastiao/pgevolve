@@ -170,7 +170,7 @@ mod tests {
     use super::*;
     use crate::fixture::{
         ExpectAdvisory, ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureBudget,
-        FixtureExpect, FixtureMeta, FixturePassthrough, FixturePg,
+        FixtureExpect, FixtureMeta, FixturePassthrough, FixturePg, FixtureSettings,
     };
     use std::path::PathBuf;
 
@@ -188,6 +188,7 @@ mod tests {
             },
             pg: FixturePg::default(),
             budget: FixtureBudget::default(),
+            fixture: FixtureSettings::default(),
             passthrough: FixturePassthrough::default(),
             expect: FixtureExpect {
                 diff: ExpectDiff::default(),
@@ -251,7 +252,7 @@ mod golden_tests {
     use super::*;
     use crate::fixture::{
         ExpectAdvisory, ExpectApply, ExpectDepGraph, ExpectDiff, ExpectPlan, FixtureBudget,
-        FixtureExpect, FixtureMeta, FixturePassthrough, FixturePg,
+        FixtureExpect, FixtureMeta, FixturePassthrough, FixturePg, FixtureSettings,
     };
     use std::path::PathBuf;
 
@@ -271,6 +272,7 @@ mod golden_tests {
             },
             pg: FixturePg::default(),
             budget: FixtureBudget::default(),
+            fixture: FixtureSettings::default(),
             passthrough: FixturePassthrough::default(),
             expect: FixtureExpect {
                 diff: ExpectDiff::default(),

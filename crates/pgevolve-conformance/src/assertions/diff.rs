@@ -61,7 +61,7 @@ mod tests {
     use super::*;
     use crate::fixture::{
         ExpectAdvisory, ExpectApply, ExpectDiff, ExpectPlan, FixtureBudget, FixtureExpect,
-        FixtureMeta, FixturePassthrough, FixturePg,
+        FixtureMeta, FixturePassthrough, FixturePg, FixtureSettings,
     };
     use std::path::PathBuf;
 
@@ -79,6 +79,7 @@ mod tests {
             },
             pg: FixturePg::default(),
             budget: FixtureBudget::default(),
+            fixture: FixtureSettings::default(),
             passthrough: FixturePassthrough::default(),
             expect: FixtureExpect {
                 diff: ExpectDiff {

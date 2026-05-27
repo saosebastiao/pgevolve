@@ -1,0 +1,14 @@
+[meta]
+title     = "ALTER SUBSCRIPTION ADD PUBLICATION"
+authoring = "objects"
+spec_refs = ["objects.subscription"]
+
+[pg]
+min = 14
+max = 17
+
+[fixture]
+apply = false
+
+[expect.plan]
+steps = 1
