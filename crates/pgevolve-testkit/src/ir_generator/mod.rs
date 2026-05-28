@@ -1,4 +1,5 @@
-//! Proptest strategy producing random valid [`Catalog`]s and [`ClusterCatalog`]s.
+//! Proptest strategy producing random valid [`Catalog`]s and
+//! [`pgevolve_core::ir::cluster::catalog::ClusterCatalog`]s.
 //!
 //! Scope for v0.1: schemas + tables + indexes + sequences with `PRIMARY KEY`
 //! and a modest set of column types. Foreign-key density is configurable;

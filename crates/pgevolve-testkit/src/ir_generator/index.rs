@@ -1,4 +1,4 @@
-//! Index strategies. The B-tree opclass whitelist [`is_btree_indexable`] is
+//! Index strategies. The B-tree opclass whitelist `is_btree_indexable` is
 //! shared with the IR mutator so both code paths stay in sync.
 
 #![allow(clippy::needless_pass_by_value)]
