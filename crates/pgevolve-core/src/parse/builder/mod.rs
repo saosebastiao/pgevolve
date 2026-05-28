@@ -7,6 +7,7 @@
 pub mod alter_table_attach_partition;
 pub mod alter_table_stmt;
 pub mod comment_stmt;
+pub mod create_collation_stmt;
 pub mod create_composite_type_stmt;
 pub mod create_domain_stmt;
 pub mod create_enum_stmt;

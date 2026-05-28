@@ -705,6 +705,22 @@ fn process_file(
             Statement::AlterStatistics(s) => {
                 builder::statistic_stmt::parse_alter_statistics(&s, &location, statistics)?;
             }
+            Statement::CreateCollation(s) => {
+                let coll = builder::create_collation_stmt::build_collation(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                )?;
+                if let Some(prior) = locations.get(&coll.qname.to_string()) {
+                    return Err(ParseError::DuplicateObject {
+                        qname: coll.qname.to_string(),
+                        first: prior.clone(),
+                        second: location,
+                    });
+                }
+                locations.insert(coll.qname.to_string(), location.clone());
+                catalog.collations.push(coll);
+            }
         }
     }
     Ok(())

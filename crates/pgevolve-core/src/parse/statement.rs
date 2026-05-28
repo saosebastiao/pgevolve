@@ -67,6 +67,8 @@ pub enum Statement {
     CreateStatistics(protobuf::CreateStatsStmt),
     /// `ALTER STATISTICS name SET STATISTICS n`.
     AlterStatistics(protobuf::AlterStatsStmt),
+    /// `CREATE COLLATION qname (provider = …, locale = …, …)`.
+    CreateCollation(protobuf::DefineStmt),
 }
 
 impl Statement {
@@ -111,6 +113,14 @@ impl Statement {
             NodeEnum::AlterSubscriptionStmt(s) => Ok(Self::AlterSubscription(s)),
             NodeEnum::CreateStatsStmt(s) => Ok(Self::CreateStatistics(s)),
             NodeEnum::AlterStatsStmt(s) => Ok(Self::AlterStatistics(*s)),
+            NodeEnum::DefineStmt(s) => {
+                let kind = ObjectType::try_from(s.kind).unwrap_or(ObjectType::Undefined);
+                if matches!(kind, ObjectType::ObjectCollation) {
+                    Ok(Self::CreateCollation(s))
+                } else {
+                    Err(unsupported(location, "CREATE AGGREGATE/OPERATOR/etc."))
+                }
+            }
             NodeEnum::RenameStmt(s) => {
                 use pg_query::protobuf::ObjectType;
                 let rename_type =

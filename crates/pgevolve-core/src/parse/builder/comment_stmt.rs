@@ -118,6 +118,17 @@ fn apply_comment_inner(
             let (obj_qname, col_name) = split_column_target(&parts, default_schema, location)?;
             apply_column_comment(catalog, location, &obj_qname, &col_name, comment)?;
         }
+        ObjectType::ObjectCollation => {
+            // `COMMENT ON COLLATION qname IS '...'`
+            // pg_query encodes the target as a List of String parts.
+            let qname = qualified_name(stmt, default_schema, location)?;
+            let coll = catalog
+                .collations
+                .iter_mut()
+                .find(|c| c.qname == qname)
+                .ok_or_else(|| missing(location, "collation", &qname.to_string()))?;
+            coll.comment = comment;
+        }
         ObjectType::ObjectType | ObjectType::ObjectDomain => {
             // `COMMENT ON TYPE app.foo IS '...'`
             // `COMMENT ON DOMAIN app.foo IS '...'`
@@ -768,6 +779,38 @@ mod tests {
         let stmt = parse_first("COMMENT ON FUNCTION app.double(integer) IS 'doubles the value';");
         apply_comment(&stmt, &mut c, None, &loc()).unwrap();
         assert_eq!(c.functions[0].comment.as_deref(), Some("doubles the value"));
+    }
+
+    #[test]
+    fn comment_on_collation_attaches_to_ir() {
+        use crate::ir::collation::{Collation, CollationProvider};
+        let mut c = seed_catalog();
+        let qname = QualifiedName::new(
+            Identifier::from_unquoted("app").unwrap(),
+            Identifier::from_unquoted("x").unwrap(),
+        );
+        c.collations.push(Collation {
+            qname: qname.clone(),
+            provider: CollationProvider::Libc,
+            lc_collate: "C".into(),
+            lc_ctype: "C".into(),
+            deterministic: true,
+            version: None,
+            owner: None,
+            comment: None,
+        });
+        let stmt = parse_first("COMMENT ON COLLATION app.x IS 'pinned for sorting';");
+        apply_comment(&stmt, &mut c, None, &loc()).unwrap();
+        let coll = c.collations.iter().find(|x| x.qname == qname).unwrap();
+        assert_eq!(coll.comment.as_deref(), Some("pinned for sorting"));
+    }
+
+    #[test]
+    fn comment_on_missing_collation_errors() {
+        let mut c = seed_catalog();
+        let stmt = parse_first("COMMENT ON COLLATION app.nope IS 'x';");
+        let err = apply_comment(&stmt, &mut c, None, &loc()).unwrap_err();
+        assert!(matches!(err, ParseError::Structural { .. }));
     }
 
     #[test]
