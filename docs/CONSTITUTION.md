@@ -89,3 +89,15 @@ We write secure code by default. We do not defer security concerns for later; th
 When a vulnerability is reported — whether by an external researcher, a user, or a contributor — the response is: acknowledge, investigate, fix, and disclose. The person who reported it is doing the project a favor and is treated as such. Blame is not part of the process. The expected response timeline is: acknowledge within **7 days**, provide a fix or mitigation within **30 days** for medium-severity issues, and faster for criticals at the maintainer's discretion. Security issues are disclosed publicly after a fix is available, with a CVE filed where applicable.
 
 A `SECURITY.md` documenting the reporting process is a TODO for the repository root.
+
+---
+
+## Relationship to the v1.0 charter
+
+This constitution states the **always-binding principles** for the
+project — they apply to every commit, v0.x and v1.x alike. The
+[v1.0 charter](./v1.md) is the parallel document that states what
+pgevolve v1.0 **specifically** commits to (stable surface, quality
+gate, PG-version policy, post-1.0 parking lot). At the 1.0 cut, the
+charter's stability + cadence sections will be merged into this
+constitution and the rest of the charter retired.

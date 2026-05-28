@@ -10,6 +10,11 @@ Version numbers may slip; the **order** does not. Each row links to a
 plan stub under [`../superpowers/plans/_skeleton/`](../superpowers/plans/_skeleton/);
 the stub is promoted to a dated plan when brainstorming begins.
 
+**See also [`../v1.md`](../v1.md)** — the v1.0 charter defines the
+gate that triggers the 0.x → 1.0 cut, the stability commitments, and
+the quality bar. The roadmap below is the slotted feature schedule;
+the charter is the meaning of "done".
+
 ## Shipped
 
 | Released | Object / sub-feature | Plan |

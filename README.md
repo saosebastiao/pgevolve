@@ -154,6 +154,10 @@ Full reference: [`docs/user/configuration.md`](./docs/user/configuration.md).
 - [`docs/CONSTITUTION.md`](./docs/CONSTITUTION.md) — binding principles
   for the project (license, dependency policy, type-system rigor,
   release discipline). Worth reading once if you intend to contribute.
+- [`docs/v1.md`](./docs/v1.md) — v1.0 charter: the gate, stability
+  commitments, quality bar, PG-version policy, parking lot. Read this
+  to understand what pgevolve commits to keep stable, and what's
+  deliberately deferred past v1.0.
 - [`docs/RELEASING.md`](./docs/RELEASING.md) — release runbook.
 
 ## License
