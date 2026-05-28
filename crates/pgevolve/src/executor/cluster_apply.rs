@@ -61,13 +61,13 @@ pub async fn apply_cluster_steps(
 /// cluster-plans/<id>/plan.sql
 /// ```
 ///
-/// # Limitations (v0.3.0)
+/// # Limitations (tracked in [#7])
 /// - `intent.toml` is not read; destructive-step approval is not enforced.
 /// - `manifest.toml` cross-check is not performed.
 /// - No advisory lock is taken.
 /// - No `pgevolve.apply_log` row is created.
 ///
-/// These gaps are tracked as TODOs and will be closed in Stage 12.
+/// [#7]: https://github.com/saosebastiao/pgevolve/issues/7
 pub async fn apply_cluster_plan_dir(
     plan_dir: &Path,
     cfg: &ClusterConfig,
@@ -79,13 +79,11 @@ pub async fn apply_cluster_plan_dir(
     })?;
 
     // The plan.sql format uses the same `-- @pgevolve step` directive headers
-    // as per-DB plans. For v0.3.0 we simply split on the statement boundary
-    // (semicolons) and run each non-empty statement. A proper parse of the
-    // directive header (step_no, kind, etc.) is left for Stage 12 when we
-    // attach manifest / intent cross-check.
-    //
-    // TODO(stage-12): use `pgevolve_core::plan::deserialize::read_plan_sql` to
-    // parse the structured `-- @pgevolve step` header and enforce intent gates.
+    // as per-DB plans, but for now we simply split on semicolons and run each
+    // non-empty statement. Parsing the structured header (via
+    // `pgevolve_core::plan::deserialize::read_plan_sql`) and wiring the same
+    // intent / manifest / audit machinery the per-DB executor uses is tracked
+    // in GH #7.
     let statements = split_sql_statements(&sql);
 
     if statements.is_empty() {

@@ -16,7 +16,7 @@ use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::default_privileges::DefaultPrivObjectType;
 use crate::ir::extension::Extension;
 use crate::ir::function::{Function, NormalizedArgTypes};
-use crate::ir::grant::{Grant, GrantTarget};
+use crate::ir::grant::Grant;
 use crate::ir::index::Index;
 use crate::ir::partition::PartitionBounds;
 use crate::ir::procedure::Procedure;
@@ -309,14 +309,6 @@ pub enum Change {
         reason: String,
     },
 }
-
-// Silence the unused-import lint — OwnerObjectKind and GrantTarget are used in
-// the variants above but Rust's lint fires on the `use` line when all uses are
-// inside the enum definition.
-const _: () = {
-    let _ = core::mem::size_of::<OwnerObjectKind>();
-    let _ = core::mem::size_of::<GrantTarget>();
-};
 
 /// A structural change to a single user-defined type.
 #[allow(clippy::large_enum_variant)]
