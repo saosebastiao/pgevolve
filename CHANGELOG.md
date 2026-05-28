@@ -7,6 +7,77 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.8] — 2026-05-28
+
+### Added
+
+- **`CREATE COLLATION` as a first-class IR object.** libc / ICU /
+  PG 17+ `builtin` providers with the `deterministic` toggle, RENAME,
+  and `COMMENT ON COLLATION` all managed. Source may use the
+  `locale = 'X'` shorthand or explicit `lc_collate` + `lc_ctype`; the
+  IR always stores the latter and the renderer collapses back to the
+  shorthand when they match. `pg_collation.collversion` is read-only
+  (differ ignores it); `ALTER COLLATION … REFRESH VERSION` and the
+  matching `collation-version-drift` lint are deferred to v0.3.9.
+- **`CREATE TYPE … AS RANGE`** — additive `UserTypeKind::Range`
+  variant on the existing user-type machinery. Models subtype,
+  subtype opclass, collation, canonical fn, subtype_diff fn, and an
+  optional custom multirange type name. Any structural change goes
+  through the existing `ReplaceWithCascade` path — Postgres has no
+  in-place ALTER for range fields. Auto-generated multirange types
+  filtered from `pg_type` via `typtype != 'm'`.
+- **5 new lint rules:** `unmanaged-collation`,
+  `column-references-unmanaged-collation`,
+  `range-type-references-unmanaged-subtype`,
+  `nondeterministic-collation-requires-pg-12`,
+  `builtin-provider-requires-pg-17`.
+- **5 new `StepKind` variants** for collation lifecycle:
+  `CreateCollation`, `DropCollation`, `RenameCollation`,
+  `ReplaceCollation`, `CommentOnCollation`. Dep-graph gains
+  `NodeId::Collation` plus 4 edge types (Column → Collation,
+  Domain → Collation, Range → Collation, CompositeAttribute →
+  Collation).
+- **11 conformance fixtures**: 6 under `objects/collations/`
+  (`create-libc`, `create-icu`, `create-nondeterministic`, `drop`,
+  `comment-on`, `replace-on-locale-change`) and 5 under
+  `objects/ranges/` (`create-simple-int4range`, `create-with-opclass`,
+  `create-with-subtype-diff-fn`, `drop`, `column-with-range-type`),
+  plus the `scenarios/column-references-managed-collation` cross-kind
+  fixture. The originally-planned `objects/collations/rename` was
+  substituted to `replace-on-locale-change` (rename is exercised in
+  unit + property tests; replace-on-structural-change is the
+  higher-value end-to-end path). The originally-planned
+  `objects/ranges/create-with-canonical-fn` was substituted to
+  `create-with-subtype-diff-fn` (canonical-fn requires authoring a
+  matching C/PLpgSQL function, which is out of scope for v0.3.8
+  fixtures).
+
+### Fixed
+
+- **Range-type round-trip** — the differ now treats source-side
+  `None` for range-type optional fields (opclass, collation,
+  canonical, subtype_diff, multirange_type_name) leniently, matching
+  the established "source `None` means unmanaged" pattern. Previously
+  any catalog-side default would spuriously diff against an unpinned
+  source. Surfaces a new `resolve_user_defined_types` canon pass
+  that resolves `ColumnType::Other(qname)` references against
+  `Catalog::types` after the source parse pass — applies to any
+  user-defined type, not just ranges. (`054364a`)
+- **ICU collation locale reader** on PG 16+ — `pg_collation.colllocale`
+  replaced `collcollate` / `collctype` for ICU rows in PG 16+. The
+  reader now selects the right column per PG major; previously ICU
+  collations dumped on PG 16+ surfaced as empty locales. (`51fc476`)
+
+### Out of scope (deferred to v0.3.9+)
+
+- `CREATE COLLATION FROM existing_collation` form.
+- `ALTER COLLATION … REFRESH VERSION` and the matching
+  `collation-version-drift` lint.
+- Multirange-type customization beyond `multirange_type_name` (no
+  per-multirange opclass / canonical fn surface yet).
+- A first-class `Multirange` IR object distinct from `Range` —
+  multiranges are still modeled implicitly via the parent range.
+
 ## [0.3.7] — 2026-05-27
 
 ### Added
