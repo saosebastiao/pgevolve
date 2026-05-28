@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use crate::catalog::error::CatalogError;
 use crate::catalog::filter::CatalogFilter;
 use crate::catalog::rows::Row;
+use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::user_type::{CompositeAttribute, DomainCheck, EnumValue, UserType, UserTypeKind};
 
@@ -180,6 +181,7 @@ pub(super) fn build_user_types(
                     .collect::<Result<_, CatalogError>>()?;
                 UserTypeKind::Composite { attributes }
             }
+            'r' => build_range_kind(r, &qname)?,
             other => {
                 return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
                     format!("unknown user type kind {other:?} for {qname}"),
@@ -214,4 +216,79 @@ pub(super) fn build_user_types(
     // consistent ordering before the catalog-level canonicalize call.
     out.sort_by(|a, b| a.qname.cmp(&b.qname));
     Ok(out)
+}
+
+/// Build a [`UserTypeKind::Range`] from the `pg_range` LEFT JOIN columns on a
+/// `SELECT_USER_TYPES` row. Called when `typtype = 'r'`.
+///
+/// Round-trip rule for `multirange_type_name`: PG auto-names the implicit
+/// multirange `<range>_multirange`. When the catalog matches that pattern,
+/// store `None` so the source can omit the field; otherwise preserve the
+/// explicit identifier.
+fn build_range_kind(row: &Row, qname: &QualifiedName) -> Result<UserTypeKind, CatalogError> {
+    use crate::catalog::CatalogQuery as Q;
+
+    let subtype = qname_from(row, Q::UserTypes, "rng_subtype_schema", "rng_subtype_name")?;
+
+    let subtype_opclass = opt_qname(row, "rng_subopc_schema", "rng_subopc_name")?;
+    let collation = opt_qname(row, "rng_collation_schema", "rng_collation_name")?;
+    let canonical = opt_qname(row, "rng_canonical_schema", "rng_canonical_name")?;
+    let subtype_diff = opt_qname(row, "rng_subdiff_schema", "rng_subdiff_name")?;
+
+    // Multirange name: compare against the PG default `<range>_multirange`
+    // pattern; preserve None when source omitted it, Some otherwise.
+    let multirange_name_text = row.get_opt_text(Q::UserTypes, "rng_multirange_name")?;
+    let multirange_type_name = match multirange_name_text {
+        Some(name) => {
+            let expected = format!("{}_multirange", qname.name.as_str());
+            if name == expected {
+                None
+            } else {
+                Some(Identifier::from_unquoted(&name).map_err(|e| {
+                    CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
+                        "range {qname} multirange name {name:?}: {e}"
+                    )))
+                })?)
+            }
+        }
+        None => None,
+    };
+
+    Ok(UserTypeKind::Range {
+        subtype,
+        subtype_opclass,
+        collation,
+        canonical,
+        subtype_diff,
+        multirange_type_name,
+    })
+}
+
+/// Build an `Option<QualifiedName>` from a pair of nullable schema/name
+/// columns. Returns `None` when either column is NULL.
+fn opt_qname(
+    row: &Row,
+    schema_col: &str,
+    name_col: &str,
+) -> Result<Option<QualifiedName>, CatalogError> {
+    use crate::catalog::CatalogQuery as Q;
+
+    let schema = row.get_opt_text(Q::UserTypes, schema_col)?;
+    let name = row.get_opt_text(Q::UserTypes, name_col)?;
+    match (schema, name) {
+        (Some(s), Some(n)) => {
+            let schema_id = Identifier::from_unquoted(&s).map_err(|e| {
+                CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
+                    "schema {s:?}: {e}"
+                )))
+            })?;
+            let name_id = Identifier::from_unquoted(&n).map_err(|e| {
+                CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
+                    "name {n:?}: {e}"
+                )))
+            })?;
+            Ok(Some(QualifiedName::new(schema_id, name_id)))
+        }
+        _ => Ok(None),
+    }
 }

@@ -216,7 +216,9 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
 
     // Phase 1b: type → type edges from composite attributes and domain bases.
     // These edges ensure composites/domains that reference other user-defined
-    // types are created after those types.
+    // types are created after those types. Range types additionally depend on
+    // their subtype (when managed) and on their canonical / subtype_diff
+    // functions (when managed).
     for ut in &catalog.types {
         match &ut.kind {
             UserTypeKind::Composite { attributes } => {
@@ -237,6 +239,38 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
                     NodeId::Type(ut.qname.clone()),
                     NodeId::Type(base_qname.clone()),
                 );
+            }
+            UserTypeKind::Range {
+                subtype,
+                canonical,
+                subtype_diff,
+                ..
+            } => {
+                // Skip built-in subtypes (pg_catalog.* are not user-managed).
+                if subtype.schema.as_str() != "pg_catalog"
+                    && catalog.types.iter().any(|t| &t.qname == subtype)
+                {
+                    g.add_edge(
+                        NodeId::Type(ut.qname.clone()),
+                        NodeId::Type(subtype.clone()),
+                    );
+                }
+                if let Some(fn_qname) = canonical
+                    && let Some(f) = catalog.functions.iter().find(|f| &f.qname == fn_qname)
+                {
+                    g.add_edge(
+                        NodeId::Type(ut.qname.clone()),
+                        NodeId::Function(f.qname.clone(), f.arg_types_normalized.clone()),
+                    );
+                }
+                if let Some(fn_qname) = subtype_diff
+                    && let Some(f) = catalog.functions.iter().find(|f| &f.qname == fn_qname)
+                {
+                    g.add_edge(
+                        NodeId::Type(ut.qname.clone()),
+                        NodeId::Function(f.qname.clone(), f.arg_types_normalized.clone()),
+                    );
+                }
             }
             _ => {}
         }
@@ -1165,6 +1199,171 @@ mod tests {
             ),
             "domain must depend on its user-defined base type"
         );
+    }
+
+    // ── Range type edge tests ────────────────────────────────────────────────
+
+    fn make_range(
+        schema: &str,
+        name: &str,
+        subtype: QualifiedName,
+        canonical: Option<QualifiedName>,
+        subtype_diff: Option<QualifiedName>,
+    ) -> UserType {
+        UserType {
+            qname: qn(schema, name),
+            kind: UserTypeKind::Range {
+                subtype,
+                subtype_opclass: None,
+                collation: None,
+                canonical,
+                subtype_diff,
+                multirange_type_name: None,
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        }
+    }
+
+    fn make_function(schema: &str, name: &str) -> crate::ir::function::Function {
+        use crate::ir::function::{
+            FunctionLanguage, NormalizedArgTypes, ParallelSafety, ReturnType, SecurityMode,
+            Volatility,
+        };
+        use crate::parse::normalize_body::NormalizedBody;
+        crate::ir::function::Function {
+            qname: qn(schema, name),
+            args: vec![],
+            arg_types_normalized: NormalizedArgTypes::from_args(&[]),
+            return_type: ReturnType::Scalar {
+                ty: ColumnType::Integer,
+            },
+            language: FunctionLanguage::Sql,
+            body: NormalizedBody::empty(),
+            body_dependencies: vec![],
+            volatility: Volatility::Volatile,
+            strict: false,
+            security: SecurityMode::Invoker,
+            parallel: ParallelSafety::Unsafe,
+            leakproof: false,
+            cost: None,
+            rows: None,
+            comment: None,
+            owner: None,
+            grants: vec![],
+        }
+    }
+
+    #[test]
+    fn range_with_builtin_subtype_adds_no_subtype_edge() {
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        c.types.push(make_range(
+            "app",
+            "ir",
+            qn("pg_catalog", "int4"),
+            None,
+            None,
+        ));
+        let g = build_create_graph(&c);
+        // Type edges: only schema; no edge to pg_catalog.int4.
+        let deps: Vec<&NodeId> = g.dependencies_of(&NodeId::Type(qn("app", "ir"))).collect();
+        assert_eq!(deps, vec![&NodeId::Schema(id("app"))]);
+    }
+
+    #[test]
+    fn range_with_managed_subtype_adds_type_edge() {
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        c.types.push(make_enum("app", "base_t"));
+        c.types.push(make_range(
+            "app",
+            "myrange",
+            qn("app", "base_t"),
+            None,
+            None,
+        ));
+        let g = build_create_graph(&c);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Type(qn("app", "myrange")),
+                &NodeId::Type(qn("app", "base_t"))
+            ),
+            "range type must depend on its managed subtype"
+        );
+    }
+
+    #[test]
+    fn range_canonical_fn_adds_function_edge() {
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        let f = make_function("app", "canon_fn");
+        let arg_types = f.arg_types_normalized.clone();
+        c.functions.push(f);
+        c.types.push(make_range(
+            "app",
+            "myrange",
+            qn("pg_catalog", "int4"),
+            Some(qn("app", "canon_fn")),
+            None,
+        ));
+        let g = build_create_graph(&c);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Type(qn("app", "myrange")),
+                &NodeId::Function(qn("app", "canon_fn"), arg_types),
+            ),
+            "range type must depend on its canonical function"
+        );
+    }
+
+    #[test]
+    fn range_subtype_diff_fn_adds_function_edge() {
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        let f = make_function("app", "diff_fn");
+        let arg_types = f.arg_types_normalized.clone();
+        c.functions.push(f);
+        c.types.push(make_range(
+            "app",
+            "myrange",
+            qn("pg_catalog", "int4"),
+            None,
+            Some(qn("app", "diff_fn")),
+        ));
+        let g = build_create_graph(&c);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Type(qn("app", "myrange")),
+                &NodeId::Function(qn("app", "diff_fn"), arg_types),
+            ),
+            "range type must depend on its subtype_diff function"
+        );
+    }
+
+    #[test]
+    fn range_unmanaged_canonical_fn_adds_no_edge() {
+        // canonical references a function that is NOT in the source catalog.
+        // No edge should be added (the lint rule would surface this later).
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        c.types.push(make_range(
+            "app",
+            "myrange",
+            qn("pg_catalog", "int4"),
+            Some(qn("app", "unmanaged_fn")),
+            None,
+        ));
+        let g = build_create_graph(&c);
+        // Only the schema edge.
+        let deps: Vec<&NodeId> = g
+            .dependencies_of(&NodeId::Type(qn("app", "myrange")))
+            .collect();
+        assert_eq!(deps, vec![&NodeId::Schema(id("app"))]);
     }
 
     #[test]

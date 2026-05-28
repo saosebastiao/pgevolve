@@ -13,7 +13,8 @@ use crate::ir::user_type::{CompositeAttribute, DomainCheck, UserType, UserTypeKi
 // CREATE TYPE
 // ---------------------------------------------------------------------------
 
-/// `CREATE TYPE qname AS ENUM (…)` / `CREATE DOMAIN …` / `CREATE TYPE … AS (…)`
+/// `CREATE TYPE qname AS ENUM (…)` / `CREATE DOMAIN …` / `CREATE TYPE … AS (…)` /
+/// `CREATE TYPE … AS RANGE (…)`.
 pub(crate) fn emit_create_type(ut: &UserType) -> String {
     match &ut.kind {
         UserTypeKind::Enum { values } => emit_create_enum(&ut.qname, values),
@@ -32,6 +33,22 @@ pub(crate) fn emit_create_type(ut: &UserType) -> String {
             collation.as_ref(),
         ),
         UserTypeKind::Composite { attributes } => emit_create_composite(&ut.qname, attributes),
+        UserTypeKind::Range {
+            subtype,
+            subtype_opclass,
+            collation,
+            canonical,
+            subtype_diff,
+            multirange_type_name,
+        } => emit_create_range(
+            &ut.qname,
+            subtype,
+            subtype_opclass.as_ref(),
+            collation.as_ref(),
+            canonical.as_ref(),
+            subtype_diff.as_ref(),
+            multirange_type_name.as_ref(),
+        ),
     }
 }
 
@@ -101,6 +118,43 @@ fn emit_create_composite(qname: &QualifiedName, attributes: &[CompositeAttribute
     }
     sql.push_str("\n);");
     sql
+}
+
+/// `CREATE TYPE qname AS RANGE (subtype = …, …);`
+///
+/// Option list order: `subtype`, then any of `subtype_opclass`, `collation`,
+/// `canonical`, `subtype_diff`, `multirange_type_name` that are `Some`.
+fn emit_create_range(
+    qname: &QualifiedName,
+    subtype: &QualifiedName,
+    subtype_opclass: Option<&QualifiedName>,
+    collation: Option<&QualifiedName>,
+    canonical: Option<&QualifiedName>,
+    subtype_diff: Option<&QualifiedName>,
+    multirange_type_name: Option<&Identifier>,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!("subtype = {}", subtype.render_sql()));
+    if let Some(opc) = subtype_opclass {
+        parts.push(format!("subtype_opclass = {}", opc.render_sql()));
+    }
+    if let Some(coll) = collation {
+        parts.push(format!("collation = {}", coll.render_sql()));
+    }
+    if let Some(canon) = canonical {
+        parts.push(format!("canonical = {}", canon.render_sql()));
+    }
+    if let Some(diff) = subtype_diff {
+        parts.push(format!("subtype_diff = {}", diff.render_sql()));
+    }
+    if let Some(mrtn) = multirange_type_name {
+        parts.push(format!("multirange_type_name = {}", mrtn.render_sql()));
+    }
+    format!(
+        "CREATE TYPE {} AS RANGE ({});",
+        qname.render_sql(),
+        parts.join(", "),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +513,87 @@ mod tests {
             sql,
             "CREATE TYPE app.address AS (\n    street text,\n    zip text\n);"
         );
+    }
+
+    // --- emit_create_type (range) ---
+
+    #[allow(clippy::too_many_arguments)] // test helper mirrors UserTypeKind::Range layout.
+    fn range(
+        schema: &str,
+        name: &str,
+        subtype: QualifiedName,
+        subtype_opclass: Option<QualifiedName>,
+        collation: Option<QualifiedName>,
+        canonical: Option<QualifiedName>,
+        subtype_diff: Option<QualifiedName>,
+        multirange_type_name: Option<Identifier>,
+    ) -> UserType {
+        UserType {
+            qname: qn(schema, name),
+            kind: UserTypeKind::Range {
+                subtype,
+                subtype_opclass,
+                collation,
+                canonical,
+                subtype_diff,
+                multirange_type_name,
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        }
+    }
+
+    #[test]
+    fn create_range_minimal() {
+        let ut = range(
+            "app",
+            "tsr",
+            qn("pg_catalog", "timestamptz"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let sql = emit_create_type(&ut);
+        assert_eq!(
+            sql,
+            "CREATE TYPE app.tsr AS RANGE (subtype = pg_catalog.timestamptz);"
+        );
+    }
+
+    #[test]
+    fn create_range_with_all_options_order() {
+        let ut = range(
+            "app",
+            "myrange",
+            qn("pg_catalog", "int4"),
+            Some(qn("pg_catalog", "int4_ops")),
+            Some(qn("pg_catalog", "C")),
+            Some(qn("app", "canon_fn")),
+            Some(qn("app", "diff_fn")),
+            Some(id("myrange_mr")),
+        );
+        let sql = emit_create_type(&ut);
+        // Verify field order: subtype, subtype_opclass, collation, canonical,
+        // subtype_diff, multirange_type_name.
+        let i_subtype = sql.find("subtype =").unwrap();
+        let i_opc = sql.find("subtype_opclass").unwrap();
+        let i_coll = sql.find("collation =").unwrap();
+        let i_canon = sql.find("canonical =").unwrap();
+        let i_diff = sql.find("subtype_diff").unwrap();
+        let i_mrtn = sql.find("multirange_type_name").unwrap();
+        assert!(i_subtype < i_opc, "{sql}");
+        assert!(i_opc < i_coll, "{sql}");
+        assert!(i_coll < i_canon, "{sql}");
+        assert!(i_canon < i_diff, "{sql}");
+        assert!(i_diff < i_mrtn, "{sql}");
+        assert!(
+            sql.starts_with("CREATE TYPE app.myrange AS RANGE ("),
+            "{sql}"
+        );
+        assert!(sql.ends_with(");"), "{sql}");
     }
 
     // --- emit_drop_type ---

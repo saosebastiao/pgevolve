@@ -35,6 +35,8 @@ pub enum Statement {
     CreateDomain(protobuf::CreateDomainStmt),
     /// `CREATE TYPE ... AS (...)` (composite).
     CreateCompositeType(protobuf::CompositeTypeStmt),
+    /// `CREATE TYPE ... AS RANGE (...)`.
+    CreateRange(protobuf::CreateRangeStmt),
     /// `CREATE [OR REPLACE] FUNCTION ...`.
     CreateFunction(protobuf::CreateFunctionStmt),
     /// `CREATE [OR REPLACE] PROCEDURE ...`.
@@ -89,6 +91,7 @@ impl Statement {
             NodeEnum::CreateEnumStmt(s) => Ok(Self::CreateEnum(s)),
             NodeEnum::CreateDomainStmt(s) => Ok(Self::CreateDomain(*s)),
             NodeEnum::CompositeTypeStmt(s) => Ok(Self::CreateCompositeType(s)),
+            NodeEnum::CreateRangeStmt(s) => Ok(Self::CreateRange(s)),
             NodeEnum::CreateFunctionStmt(s) => {
                 if s.is_procedure {
                     Ok(Self::CreateProcedure(*s))
@@ -224,9 +227,9 @@ const fn friendly_kind(node: &NodeEnum) -> &'static str {
         NodeEnum::CreateEnumStmt(_) => "CREATE TYPE ... AS ENUM", // never reached — routed above
         NodeEnum::CreateFunctionStmt(_) => "CREATE FUNCTION/PROCEDURE", // never reached — routed above
         NodeEnum::CreateTrigStmt(_) => "CREATE TRIGGER", // never reached — routed above
-        NodeEnum::CreateRangeStmt(_) => "CREATE TYPE ... AS RANGE",
+        NodeEnum::CreateRangeStmt(_) => "CREATE TYPE ... AS RANGE", // never reached — routed above
         NodeEnum::CreateExtensionStmt(_) => "CREATE EXTENSION", // never reached — routed above
-        NodeEnum::CreatePolicyStmt(_) => "CREATE POLICY",       // never reached — routed above
+        NodeEnum::CreatePolicyStmt(_) => "CREATE POLICY", // never reached — routed above
         NodeEnum::CreateForeignTableStmt(_) => "CREATE FOREIGN TABLE",
         NodeEnum::CreateFdwStmt(_) => "CREATE FOREIGN DATA WRAPPER",
         NodeEnum::CreateForeignServerStmt(_) => "CREATE FOREIGN SERVER",

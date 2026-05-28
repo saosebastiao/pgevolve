@@ -203,6 +203,23 @@ fn resolve_user_defined_references(
             UserTypeKind::Enum { .. } => {
                 // Enums have no UserDefined references — their values are bare labels.
             }
+            UserTypeKind::Range { subtype, .. } => {
+                // Built-in subtypes (pg_catalog.*) need no closed-world check.
+                // Managed user-type subtypes do — they must be declared in source.
+                if subtype.schema.as_str() != "pg_catalog" {
+                    let key = subtype.to_string();
+                    if !known_types.contains(&key) {
+                        let location = locations.get(&ut.qname.to_string()).cloned();
+                        errors.push(AstResolutionError {
+                            message: format!(
+                                "range type {} subtype {} is not declared in source",
+                                ut.qname, subtype,
+                            ),
+                            location,
+                        });
+                    }
+                }
+            }
         }
     }
 }

@@ -134,6 +134,7 @@ fn diff_same_qname(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
                 UserTypeKind::Composite { .. },
                 UserTypeKind::Composite { .. }
             )
+            | (UserTypeKind::Range { .. }, UserTypeKind::Range { .. })
     );
 
     // Comment change is always safe — but only emit when we're NOT replacing
@@ -165,6 +166,9 @@ fn diff_same_qname(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
             },
         ) => {
             diff_composite(&catalog.qname, cat_attrs, src_attrs, catalog, source, out);
+        }
+        (UserTypeKind::Range { .. }, UserTypeKind::Range { .. }) => {
+            diff_range(catalog, source, out);
         }
         // Kind mismatch — must replace with cascade (PG can't change type kind in-place).
         _ => {
@@ -504,6 +508,63 @@ fn diff_domain(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
 }
 
 // ---------------------------------------------------------------------------
+// Range diffing
+// ---------------------------------------------------------------------------
+
+/// Diff two range types and emit a `ReplaceWithCascade` if any structural
+/// field differs. PG has no in-place ALTER for the structural fields, so any
+/// change requires DROP TYPE … CASCADE + CREATE TYPE.
+///
+/// Comment-only diffs are handled by `diff_same_qname` via `SetComment`.
+fn diff_range(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
+    let (
+        UserTypeKind::Range {
+            subtype: cat_subtype,
+            subtype_opclass: cat_opclass,
+            collation: cat_collation,
+            canonical: cat_canonical,
+            subtype_diff: cat_diff,
+            multirange_type_name: cat_mrtn,
+        },
+        UserTypeKind::Range {
+            subtype: src_subtype,
+            subtype_opclass: src_opclass,
+            collation: src_collation,
+            canonical: src_canonical,
+            subtype_diff: src_diff,
+            multirange_type_name: src_mrtn,
+        },
+    ) = (&catalog.kind, &source.kind)
+    else {
+        // Caller guarantees both kinds are Range.
+        return;
+    };
+
+    let structural_changed = cat_subtype != src_subtype
+        || cat_opclass != src_opclass
+        || cat_collation != src_collation
+        || cat_canonical != src_canonical
+        || cat_diff != src_diff
+        || cat_mrtn != src_mrtn;
+
+    if structural_changed {
+        out.push(
+            Change::UserType(UserTypeChange::ReplaceWithCascade {
+                source: source.clone(),
+                catalog: catalog.clone(),
+            }),
+            Destructiveness::RequiresApprovalAndDataLossWarning {
+                reason: format!(
+                    "range type {} structural change (requires DROP TYPE … CASCADE + CREATE TYPE)",
+                    source.qname,
+                ),
+            },
+        );
+    }
+    // Comment-only changes are handled by the surrounding diff_same_qname via SetComment.
+}
+
+// ---------------------------------------------------------------------------
 // Composite diffing
 // ---------------------------------------------------------------------------
 
@@ -717,6 +778,23 @@ mod tests {
         }
     }
 
+    fn make_range(qname: QualifiedName, subtype: QualifiedName) -> UserType {
+        UserType {
+            qname,
+            kind: UserTypeKind::Range {
+                subtype,
+                subtype_opclass: None,
+                collation: None,
+                canonical: None,
+                subtype_diff: None,
+                multirange_type_name: None,
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        }
+    }
+
     fn make_domain(qname: QualifiedName, nullable: bool) -> UserType {
         UserType {
             qname,
@@ -920,6 +998,96 @@ mod tests {
             &changes[0],
             Change::UserType(UserTypeChange::ReplaceWithCascade { .. })
         ));
+    }
+
+    // ---- Range: identical → no change ----
+
+    #[test]
+    fn identical_range_emits_no_changes() {
+        let r = make_range(qn("app", "ir"), qn("pg_catalog", "int4"));
+        let changes = run(&[r.clone()], &[r]);
+        assert!(changes.is_empty());
+    }
+
+    // ---- Range: subtype change → ReplaceWithCascade ----
+
+    #[test]
+    fn range_subtype_change_triggers_cascade() {
+        let cat = make_range(qn("app", "ir"), qn("pg_catalog", "int4"));
+        let src = make_range(qn("app", "ir"), qn("pg_catalog", "int8"));
+        let changes = run(&[cat], &[src]);
+        assert_eq!(changes.len(), 1);
+        assert!(matches!(
+            &changes[0],
+            Change::UserType(UserTypeChange::ReplaceWithCascade { .. })
+        ));
+    }
+
+    // ---- Range: opclass change → ReplaceWithCascade ----
+
+    #[test]
+    fn range_opclass_change_triggers_cascade() {
+        let cat = make_range(qn("app", "ir"), qn("pg_catalog", "int4"));
+        let mut src = cat.clone();
+        if let UserTypeKind::Range {
+            subtype_opclass, ..
+        } = &mut src.kind
+        {
+            *subtype_opclass = Some(qn("pg_catalog", "int4_ops"));
+        }
+        let changes = run(&[cat], &[src]);
+        assert_eq!(changes.len(), 1);
+        assert!(matches!(
+            &changes[0],
+            Change::UserType(UserTypeChange::ReplaceWithCascade { .. })
+        ));
+    }
+
+    // ---- Range: multirange_type_name change → ReplaceWithCascade ----
+
+    #[test]
+    fn range_multirange_name_change_triggers_cascade() {
+        let cat = make_range(qn("app", "ir"), qn("pg_catalog", "int4"));
+        let mut src = cat.clone();
+        if let UserTypeKind::Range {
+            multirange_type_name,
+            ..
+        } = &mut src.kind
+        {
+            *multirange_type_name = Some(id("custom_mr"));
+        }
+        let changes = run(&[cat], &[src]);
+        assert_eq!(changes.len(), 1);
+        assert!(matches!(
+            &changes[0],
+            Change::UserType(UserTypeChange::ReplaceWithCascade { .. })
+        ));
+    }
+
+    // ---- Range: comment-only change → SetComment (no cascade) ----
+
+    #[test]
+    fn range_comment_only_change_emits_set_comment() {
+        let mut cat = make_range(qn("app", "ir"), qn("pg_catalog", "int4"));
+        cat.comment = Some("old".into());
+        let mut src = make_range(qn("app", "ir"), qn("pg_catalog", "int4"));
+        src.comment = Some("new".into());
+        let changes = run(&[cat], &[src]);
+        assert_eq!(changes.len(), 1);
+        assert!(matches!(
+            &changes[0],
+            Change::UserType(UserTypeChange::SetComment { .. })
+        ));
+    }
+
+    // ---- Range: replace destructiveness ----
+
+    #[test]
+    fn range_structural_change_is_data_loss() {
+        let cat = make_range(qn("app", "ir"), qn("pg_catalog", "int4"));
+        let src = make_range(qn("app", "ir"), qn("pg_catalog", "int8"));
+        let pairs = run_with_destructiveness(&[cat], &[src]);
+        assert!(pairs[0].1.data_loss_risk());
     }
 
     // ---- Domain: set not null ----

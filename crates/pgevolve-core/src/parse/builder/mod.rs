@@ -13,6 +13,7 @@ pub mod create_enum_stmt;
 pub mod create_extension_stmt;
 pub mod create_function_stmt;
 pub mod create_materialized_view_stmt;
+pub mod create_range_stmt;
 pub mod create_schema_stmt;
 pub mod create_seq_stmt;
 pub mod create_stmt;

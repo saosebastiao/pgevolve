@@ -5,12 +5,19 @@
 
 /// Enumerate every user-defined type in the managed schemas.
 ///
-/// `typtype` values: `'e'` = enum, `'d'` = domain, `'c'` = composite.
+/// `typtype` values: `'e'` = enum, `'d'` = domain, `'c'` = composite,
+/// `'r'` = range. Auto-generated multirange types (`'m'`) are excluded —
+/// they are companions of ranges, materialized implicitly when the range
+/// is created.
+///
 /// Auto-generated row types backing ordinary tables (`relkind != 'c'`) are
 /// excluded: a `pg_class` entry backing a composite *type* has `relkind='c'`;
 /// one backing a table has `relkind='r'` (etc.). We keep only composites whose
-/// `typrelid` references a `relkind='c'` class (or is zero, which domains and
-/// enums have).
+/// `typrelid` references a `relkind='c'` class (or is zero, which domains,
+/// enums, and ranges have).
+///
+/// Range-specific columns come from `pg_range`. When `rngtypid IS NULL`, the
+/// type is not a range and the assembler ignores the range-* columns.
 pub const SELECT_USER_TYPES: &str = "\
 SELECT \
     n.nspname  AS schema_name, \
@@ -18,15 +25,34 @@ SELECT \
     t.typtype::text  AS kind, \
     owner_role.rolname AS owner, \
     coalesce(t.typacl::text[], '{}'::text[]) AS acl, \
-    obj_description(t.oid, 'pg_type') AS comment \
+    obj_description(t.oid, 'pg_type') AS comment, \
+    r.rngtypid IS NOT NULL AS is_range, \
+    stn.nspname AS rng_subtype_schema, st.typname AS rng_subtype_name, \
+    on_.nspname AS rng_subopc_schema, o.opcname AS rng_subopc_name, \
+    cn.nspname AS rng_collation_schema, c.collname AS rng_collation_name, \
+    cann.nspname AS rng_canonical_schema, canon.proname AS rng_canonical_name, \
+    difn.nspname AS rng_subdiff_schema, dif.proname AS rng_subdiff_name, \
+    mr.typname AS rng_multirange_name \
 FROM pg_type t \
 JOIN pg_namespace n ON t.typnamespace = n.oid \
 JOIN pg_authid owner_role ON owner_role.oid = t.typowner \
-WHERE t.typtype IN ('e','d','c') \
+LEFT JOIN pg_range r ON r.rngtypid = t.oid \
+LEFT JOIN pg_type st ON st.oid = r.rngsubtype \
+LEFT JOIN pg_namespace stn ON stn.oid = st.typnamespace \
+LEFT JOIN pg_opclass o ON o.oid = r.rngsubopc \
+LEFT JOIN pg_namespace on_ ON on_.oid = o.opcnamespace \
+LEFT JOIN pg_collation c ON c.oid = r.rngcollation AND c.oid <> 0 \
+LEFT JOIN pg_namespace cn ON cn.oid = c.collnamespace \
+LEFT JOIN pg_proc canon ON canon.oid = r.rngcanonical AND canon.oid <> 0 \
+LEFT JOIN pg_namespace cann ON cann.oid = canon.pronamespace \
+LEFT JOIN pg_proc dif ON dif.oid = r.rngsubdiff AND dif.oid <> 0 \
+LEFT JOIN pg_namespace difn ON difn.oid = dif.pronamespace \
+LEFT JOIN pg_type mr ON mr.oid = r.rngmultitypid \
+WHERE t.typtype IN ('e','d','c','r') \
   AND n.nspname = ANY($1::text[]) \
   AND NOT (t.typtype = 'c' AND EXISTS ( \
-      SELECT 1 FROM pg_class c \
-      WHERE c.oid = t.typrelid AND c.relkind <> 'c' \
+      SELECT 1 FROM pg_class c2 \
+      WHERE c2.oid = t.typrelid AND c2.relkind <> 'c' \
   )) \
   AND NOT EXISTS ( \
       SELECT 1 \

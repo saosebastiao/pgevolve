@@ -51,6 +51,21 @@ pub enum UserTypeKind {
         /// Ordered list of composite attributes.
         attributes: Vec<CompositeAttribute>,
     },
+    /// `CREATE TYPE … AS RANGE (…)`.
+    Range {
+        /// Element type — `pg_range.rngsubtype`.
+        subtype: QualifiedName,
+        /// Optional opclass for the subtype's comparison.
+        subtype_opclass: Option<QualifiedName>,
+        /// Optional collation (only meaningful for collatable subtypes like text).
+        collation: Option<QualifiedName>,
+        /// Optional canonical function — `pg_range.rngcanonical`.
+        canonical: Option<QualifiedName>,
+        /// Optional `subtype_diff` function — `pg_range.rngsubdiff`.
+        subtype_diff: Option<QualifiedName>,
+        /// Custom multirange-type name (`None` → PG auto-names `<range>_multirange`).
+        multirange_type_name: Option<Identifier>,
+    },
 }
 
 /// A single label in a `CREATE TYPE … AS ENUM` declaration.
@@ -178,6 +193,23 @@ mod tests {
         }
     }
 
+    fn sample_range() -> UserType {
+        UserType {
+            qname: qname("app", "tsrange_co"),
+            kind: UserTypeKind::Range {
+                subtype: qname("pg_catalog", "timestamptz"),
+                subtype_opclass: None,
+                collation: None,
+                canonical: None,
+                subtype_diff: None,
+                multirange_type_name: None,
+            },
+            comment: None,
+            owner: None,
+            grants: Vec::new(),
+        }
+    }
+
     fn sample_composite() -> UserType {
         UserType {
             qname: qname("app", "address"),
@@ -203,11 +235,37 @@ mod tests {
 
     #[test]
     fn user_types_round_trip_through_serde() {
-        for ut in [sample_enum(), sample_domain(), sample_composite()] {
+        for ut in [
+            sample_enum(),
+            sample_domain(),
+            sample_composite(),
+            sample_range(),
+        ] {
             let json = serde_json::to_string(&ut).unwrap();
             let back: UserType = serde_json::from_str(&json).unwrap();
             assert_eq!(ut, back);
         }
+    }
+
+    #[test]
+    fn range_variant_with_all_fields_round_trip() {
+        let r = UserType {
+            qname: qname("app", "myrange"),
+            kind: UserTypeKind::Range {
+                subtype: qname("pg_catalog", "int4"),
+                subtype_opclass: Some(qname("pg_catalog", "int4_ops")),
+                collation: Some(qname("pg_catalog", "C")),
+                canonical: Some(qname("app", "canon_fn")),
+                subtype_diff: Some(qname("app", "diff_fn")),
+                multirange_type_name: Some(ident("myrange_mr")),
+            },
+            comment: Some("a range".into()),
+            owner: Some(ident("dba")),
+            grants: Vec::new(),
+        };
+        let json = serde_json::to_string(&r).unwrap();
+        let back: UserType = serde_json::from_str(&json).unwrap();
+        assert_eq!(r, back);
     }
 
     #[test]

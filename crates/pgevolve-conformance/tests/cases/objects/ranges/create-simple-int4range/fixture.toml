@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE TYPE AS RANGE — minimal subtype-only range type"
+authoring = "objects"
+spec_refs = ["types.range.create"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.diff]
+contains = [
+  "types.app.int_window",
+]
+
+[expect.plan]
+steps = 1
