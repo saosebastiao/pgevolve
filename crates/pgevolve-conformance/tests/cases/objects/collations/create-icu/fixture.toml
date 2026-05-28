@@ -8,12 +8,5 @@ spec_refs = ["objects.collation"]
 min = 15
 max = 18
 
-# Apply disabled: PG 16+ leaves `pg_collation.collcollate` NULL for ICU
-# collations (locale is stored in `colllocale` instead). The Stage 3 catalog
-# reader currently requires non-NULL collcollate; that bug is pre-existing on
-# main and tracked separately.
-[fixture]
-apply = false
-
 [expect.plan]
 steps = 1

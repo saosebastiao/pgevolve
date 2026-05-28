@@ -73,7 +73,12 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::Statistics) => shared::STATISTICS_QUERY,
         (_, CatalogQuery::StatisticAttributes) => shared::STATISTIC_ATTRIBUTES_QUERY,
         (_, CatalogQuery::StatisticExpressions) => shared::STATISTIC_EXPRESSIONS_QUERY,
-        (_, CatalogQuery::Collations) => collations::SELECT_COLLATIONS,
+        (PgVersion::Pg14 | PgVersion::Pg15, CatalogQuery::Collations) => {
+            collations::SELECT_COLLATIONS_PG14_15
+        }
+        (PgVersion::Pg16 | PgVersion::Pg17 | PgVersion::Pg18, CatalogQuery::Collations) => {
+            collations::SELECT_COLLATIONS_PG16_PLUS
+        }
     }
 }
 
@@ -96,6 +101,24 @@ mod tests {
             PgVersion::Pg18,
         ] {
             assert!(query_for(v, CatalogQuery::Indexes).contains("indnullsnotdistinct"));
+        }
+    }
+
+    #[test]
+    fn pg14_15_collations_query_uses_legacy_columns_only() {
+        for v in [PgVersion::Pg14, PgVersion::Pg15] {
+            let q = query_for(v, CatalogQuery::Collations);
+            assert!(!q.contains("colllocale"));
+            assert!(q.contains("collcollate"));
+        }
+    }
+
+    #[test]
+    fn pg16_plus_collations_query_coalesces_colllocale() {
+        for v in [PgVersion::Pg16, PgVersion::Pg17, PgVersion::Pg18] {
+            let q = query_for(v, CatalogQuery::Collations);
+            assert!(q.contains("colllocale"));
+            assert!(q.contains("COALESCE"));
         }
     }
 }
