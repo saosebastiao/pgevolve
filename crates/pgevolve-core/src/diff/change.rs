@@ -419,16 +419,6 @@ pub enum Change {
         /// Publication to drop.
         publication: crate::identifier::Identifier,
     },
-    /// Reserved: pgevolve never emits this (granular ADD/DROP only), but
-    /// the parser accepts source `ALTER SUBSCRIPTION s SET PUBLICATION …` for
-    /// normalizing into the IR's publications field. The variant exists so
-    /// `kind_name` / `parse_kind_name` round-trip every legal `StepKind` name.
-    AlterSubscriptionSetPublication {
-        /// Subscription name.
-        name: crate::identifier::Identifier,
-        /// Publication list.
-        publications: Vec<crate::identifier::Identifier>,
-    },
     /// `ALTER SUBSCRIPTION s SET (option = value, ...)` — sparse-delta.
     ///
     /// `create_slot` and `copy_data` are NEVER included (CREATE-only PG options).

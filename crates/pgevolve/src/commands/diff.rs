@@ -555,11 +555,6 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
             } => {
                 println!("      ~ ALTER SUBSCRIPTION {name} DROP PUBLICATION {publication}");
             }
-            pgevolve_core::diff::change::Change::AlterSubscriptionSetPublication {
-                name, ..
-            } => {
-                println!("      ~ ALTER SUBSCRIPTION {name} SET PUBLICATION ...");
-            }
             pgevolve_core::diff::change::Change::AlterSubscriptionSetOptions { name, .. } => {
                 println!("      ~ ALTER SUBSCRIPTION {name} SET (...)");
             }
@@ -775,7 +770,6 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::AlterSubscriptionConnection { .. } => "alter_subscription_connection",
         Change::AlterSubscriptionAddPublication { .. } => "alter_subscription_add_publication",
         Change::AlterSubscriptionDropPublication { .. } => "alter_subscription_drop_publication",
-        Change::AlterSubscriptionSetPublication { .. } => "alter_subscription_set_publication",
         Change::AlterSubscriptionSetOptions { .. } => "alter_subscription_set_options",
         Change::CommentOnSubscription { .. } => "comment_on_subscription",
     }

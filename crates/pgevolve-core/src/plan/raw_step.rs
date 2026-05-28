@@ -263,9 +263,6 @@ pub enum StepKind {
     AlterSubscriptionAddPublication,
     /// `ALTER SUBSCRIPTION s DROP PUBLICATION p`.
     AlterSubscriptionDropPublication,
-    /// `ALTER SUBSCRIPTION s SET PUBLICATION p, …`. Reserved; differ emits
-    /// granular ADD/DROP only, but the variant exists for `kind_name` round-trips.
-    AlterSubscriptionSetPublication,
     /// `ALTER SUBSCRIPTION s SET (option = value, …)` — sparse-delta.
     AlterSubscriptionSetOptions,
     /// `COMMENT ON SUBSCRIPTION s IS '...'`.
@@ -424,7 +421,6 @@ mod tests {
             StepKind::AlterSubscriptionConnection,
             StepKind::AlterSubscriptionAddPublication,
             StepKind::AlterSubscriptionDropPublication,
-            StepKind::AlterSubscriptionSetPublication,
             StepKind::AlterSubscriptionSetOptions,
             StepKind::CommentOnSubscription,
             StepKind::CreateStatistic,

@@ -357,7 +357,6 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::AlterSubscriptionConnection { .. }
             | Change::AlterSubscriptionAddPublication { .. }
             | Change::AlterSubscriptionDropPublication { .. }
-            | Change::AlterSubscriptionSetPublication { .. }
             | Change::AlterSubscriptionSetOptions { .. }
             | Change::CommentOnSubscription { .. }
             | Change::AlterStatisticSetTarget { .. }
@@ -530,7 +529,6 @@ fn change_node(change: &Change) -> NodeId {
         Change::AlterSubscriptionConnection { name, .. }
         | Change::AlterSubscriptionAddPublication { name, .. }
         | Change::AlterSubscriptionDropPublication { name, .. }
-        | Change::AlterSubscriptionSetPublication { name, .. }
         | Change::AlterSubscriptionSetOptions { name, .. }
         | Change::CommentOnSubscription { name, .. } => NodeId::Subscription(name.clone()),
         // Statistic changes: use NodeId::Statistic for correct topological ordering.

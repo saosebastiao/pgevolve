@@ -633,18 +633,6 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterSubscriptionSetPublication { name, publications } => {
-            out.push(RawStep {
-                step_no: 0,
-                kind: crate::plan::raw_step::StepKind::AlterSubscriptionSetPublication,
-                destructive: false,
-                destructive_reason: None,
-                intent_id: None,
-                targets: vec![],
-                sql: subscriptions::alter_subscription_set_publication(&name, &publications),
-                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
-            });
-        }
         Change::AlterSubscriptionSetOptions { name, options } => {
             out.push(RawStep {
                 step_no: 0,

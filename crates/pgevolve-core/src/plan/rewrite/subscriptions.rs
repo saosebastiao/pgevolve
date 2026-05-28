@@ -69,23 +69,6 @@ pub fn alter_subscription_drop_publication(name: &Identifier, publication: &Iden
     )
 }
 
-/// `ALTER SUBSCRIPTION s SET PUBLICATION p, ...;`
-///
-/// Note: the differ emits granular ADD/DROP; this helper exists for
-/// `StepKind::AlterSubscriptionSetPublication` round-trips only.
-#[must_use]
-pub fn alter_subscription_set_publication(
-    name: &Identifier,
-    publications: &[Identifier],
-) -> String {
-    let pubs: Vec<String> = publications.iter().map(Identifier::render_sql).collect();
-    format!(
-        "ALTER SUBSCRIPTION {} SET PUBLICATION {};",
-        name.render_sql(),
-        pubs.join(", "),
-    )
-}
-
 /// `ALTER SUBSCRIPTION s SET (option = value, ...);`
 ///
 /// Uses `render_options_body_for_alter` which OMITS `create_slot` and
@@ -296,13 +279,6 @@ mod tests {
     fn alter_subscription_drop_publication_renders_correctly() {
         let sql = alter_subscription_drop_publication(&id("mysub"), &id("oldpub"));
         assert_eq!(sql, "ALTER SUBSCRIPTION mysub DROP PUBLICATION oldpub;");
-    }
-
-    #[test]
-    fn alter_subscription_set_publication_renders_correctly() {
-        let pubs = vec![id("p1"), id("p2")];
-        let sql = alter_subscription_set_publication(&id("mysub"), &pubs);
-        assert_eq!(sql, "ALTER SUBSCRIPTION mysub SET PUBLICATION p1, p2;");
     }
 
     #[test]
