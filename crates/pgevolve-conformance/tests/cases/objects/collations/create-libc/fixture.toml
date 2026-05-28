@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE COLLATION with provider = libc and locale = 'C'"
+authoring = "objects"
+spec_refs = ["objects.collation"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

@@ -1,0 +1,22 @@
+[meta]
+title     = "CREATE COLLATION with deterministic = false (ICU, PG 15+)"
+authoring = "objects"
+spec_refs = ["objects.collation"]
+
+# Nondeterministic collations require provider = icu (canon-rejected with libc)
+# and ICU is built-in from PG 15. The lint
+# `nondeterministic-collation-requires-pg-12` enforces the PG 12 floor for the
+# feature itself; we gate at PG 15 here because the chosen provider is ICU.
+[pg]
+min = 15
+max = 18
+
+# Apply disabled: PG 16+ leaves `pg_collation.collcollate` NULL for ICU
+# collations (locale is stored in `colllocale` instead). The Stage 3 catalog
+# reader requires non-NULL collcollate; that bug is tracked separately and is
+# pre-existing on main.
+[fixture]
+apply = false
+
+[expect.plan]
+steps = 1

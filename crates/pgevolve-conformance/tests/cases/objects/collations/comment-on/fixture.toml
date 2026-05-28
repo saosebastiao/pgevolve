@@ -1,0 +1,11 @@
+[meta]
+title     = "COMMENT ON COLLATION — add comment to an existing collation"
+authoring = "objects"
+spec_refs = ["objects.collation"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

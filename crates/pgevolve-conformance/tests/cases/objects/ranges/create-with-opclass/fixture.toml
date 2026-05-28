@@ -1,0 +1,20 @@
+[meta]
+title     = "CREATE TYPE AS RANGE with explicit subtype_opclass"
+authoring = "objects"
+spec_refs = ["types.range.create"]
+
+[pg]
+min = 14
+max = 18
+
+# Apply disabled: the Stage 1 catalog reader for ranges does not yet recover
+# the source-form distinction between an explicitly-specified subtype_opclass
+# and PG's default opclass (post-apply the reader returns the resolved
+# opclass even when source said None), and does not filter the
+# auto-generated <range>_multirange typname. Tracked as Stage 1 follow-up;
+# this fixture exercises parse + diff + plan + dep-graph.
+[fixture]
+apply = false
+
+[expect.plan]
+steps = 1

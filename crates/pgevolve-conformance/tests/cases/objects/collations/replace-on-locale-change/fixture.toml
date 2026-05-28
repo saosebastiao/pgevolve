@@ -1,0 +1,24 @@
+[meta]
+title     = "COLLATION locale change — structural diff emits ReplaceCollation (DROP + CREATE)"
+authoring = "objects"
+spec_refs = ["objects.collation"]
+
+# Substituted for the originally-planned `rename` fixture: the collation
+# differ does not emit ALTER COLLATION … RENAME TO (rename intent is not
+# structurally derivable from a name swap — see diff/collations.rs doc).
+# This fixture instead exercises the structural-change → Replace path: the
+# locale changes from 'C' to 'POSIX' on the same qname, which yields
+# CollationChange::Replace (RequiresApproval). At render time this expands
+# to two steps: DROP COLLATION then CREATE COLLATION.
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps      = 2
+minimality = false  # DROP + CREATE is destructive; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "drop_collation"
+target = "app.sort"
+reason_contains = []

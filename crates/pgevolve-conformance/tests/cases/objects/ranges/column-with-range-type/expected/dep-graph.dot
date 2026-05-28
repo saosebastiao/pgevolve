@@ -1,0 +1,12 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.reservations.reservations_pkey";
+  "schema:app";
+  "table:app.reservations";
+  "type:app.int_window";
+  "table:app.reservations" -> "schema:app" [style=solid];
+  "table:app.reservations" -> "type:app.int_window" [style=solid];
+  "constraint:app.reservations.reservations_pkey" -> "table:app.reservations" [style=solid];
+  "type:app.int_window" -> "schema:app" [style=solid];
+}

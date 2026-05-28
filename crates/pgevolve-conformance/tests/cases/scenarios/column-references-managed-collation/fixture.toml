@@ -1,0 +1,14 @@
+[meta]
+title     = "Table column references a managed collation — plan creates collation before table"
+authoring = "scenarios"
+spec_refs = ["objects.collation", "tables.create"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 2
+order = [
+  "app.ci < app.users",
+]

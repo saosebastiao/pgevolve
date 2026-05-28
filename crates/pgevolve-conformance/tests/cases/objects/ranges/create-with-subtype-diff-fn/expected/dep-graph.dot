@@ -1,0 +1,10 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "function:app.float8_diff(double precision,double precision)";
+  "schema:app";
+  "type:app.float8_range";
+  "type:app.float8_range" -> "schema:app" [style=solid];
+  "type:app.float8_range" -> "function:app.float8_diff(double precision,double precision)" [style=solid];
+  "function:app.float8_diff(double precision,double precision)" -> "schema:app" [style=solid];
+}

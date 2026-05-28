@@ -1,0 +1,19 @@
+[meta]
+title     = "Lenient drift: catalog has a collation source doesn't declare — 0 plan steps"
+authoring = "objects"
+spec_refs = ["objects.collation", "lint.unmanaged-collation"]
+
+# The collation differ uses a lenient policy: collations absent from source
+# are NOT dropped. This fixture verifies that removing a collation from source
+# does not produce a DROP step. The `unmanaged-collation` advisory fires via
+# run_drift_lints (real-catalog path) rather than the in-process pipeline, so
+# it is not asserted here; unit tests in lint/rules/unmanaged_collation cover
+# it.
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps      = 0
+minimality = false
+golden     = false

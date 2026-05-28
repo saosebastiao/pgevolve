@@ -1,0 +1,17 @@
+[meta]
+title     = "DROP TYPE — range variant — requires intent approval"
+authoring = "objects"
+spec_refs = ["types.range.drop"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps      = 1
+minimality = false  # DROP TYPE is irreversible; post-apply re-plan is empty
+
+[[expect.intent]]
+kind   = "drop_type"
+target = "app.int_window"
+reason_contains = []
