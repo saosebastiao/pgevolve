@@ -75,7 +75,7 @@ pub enum NodeId {
 ///
 /// Topologically sorting this graph yields **dependencies first**: schemas
 /// before tables, tables before indexes, referenced tables before FKs, etc.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // two-phase walk of every catalog object family adding nodes + edges; one place per object.
 pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     let mut g = Graph::new();
 

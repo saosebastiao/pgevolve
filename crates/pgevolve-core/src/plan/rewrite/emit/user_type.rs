@@ -11,7 +11,7 @@ use crate::diff::change::UserTypeChange;
 use crate::ir::user_type::UserTypeKind;
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // one arm per `UserTypeChange` variant emitting its SQL; extraction would scatter the templates.
 pub fn emit(
     utc: UserTypeChange,
     destructive: bool,

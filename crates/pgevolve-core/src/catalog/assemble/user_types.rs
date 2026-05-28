@@ -14,7 +14,7 @@ use crate::ir::user_type::{CompositeAttribute, DomainCheck, EnumValue, UserType,
 use super::{ident_required, qname_from, reparse_expression_text, strip_check_wrapper};
 
 /// Build user-defined types (enums, domains, composites) from raw catalog rows.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // assembles three distinct user-type families from joined rows; splitting would hide the row-grouping pass.
 pub(super) fn build_user_types(
     type_rows: &[Row],
     enum_value_rows: &[Row],

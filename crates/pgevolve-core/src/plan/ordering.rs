@@ -383,7 +383,7 @@ fn partition(changes: ChangeSet) -> PartitionResult {
 /// `AlterTable` maps to its target table node; per-op constraint changes
 /// inside it are not separately ordered (they ride with the table).
 #[allow(clippy::match_same_arms)] // View and Mv arms share the body shape but not the inner type.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // one arm per Change variant mapping to its NodeId; extraction would obscure the table.
 fn change_node(change: &Change) -> NodeId {
     match change {
         Change::CreateSchema(s) => NodeId::Schema(s.name.clone()),

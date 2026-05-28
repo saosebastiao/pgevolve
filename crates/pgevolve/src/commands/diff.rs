@@ -90,7 +90,7 @@ const fn scope_name(s: &pgevolve_core::ir::publication::PublicationScope) -> &'s
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // one arm per Change variant for human-readable formatting; extraction would scatter the labels.
 fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
     if changes.is_empty() {
         println!("No changes.");
@@ -624,7 +624,7 @@ fn print_sql(changes: &pgevolve_core::diff::ChangeSet) {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // one arm per Change variant returning its name; mechanical enumeration, not logic.
 const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static str {
     use pgevolve_core::diff::change::{Change, MvChange, ViewChange};
     match c {

@@ -123,7 +123,7 @@ fn pg_row_to_row(row: &PgRow, query: CatalogQuery) -> Result<Row, CatalogError> 
     Ok(out)
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // one arm per supported PG type-code; decoder is intentionally exhaustive.
 fn pg_value(
     row: &PgRow,
     idx: usize,

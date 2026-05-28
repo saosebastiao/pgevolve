@@ -24,7 +24,7 @@ use super::ident_required;
 /// to fetch these rows is [`crate::catalog::queries::functions::SELECT_FUNCTIONS`].
 ///
 /// Returns `(functions, procedures)`.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // assembles functions + procedures in one pass to share argmode decoding; splitting would duplicate it.
 pub(super) fn build_functions_and_procedures(
     rows: &[Row],
     filter: &CatalogFilter,

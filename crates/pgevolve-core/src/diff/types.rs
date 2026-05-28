@@ -366,7 +366,7 @@ fn diff_enum(
 // ---------------------------------------------------------------------------
 
 /// Diff two domain types and emit per-property changes.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive domain-property diff (base, nullability, default, checks, collation).
 fn diff_domain(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
     let (cat_base, cat_nullable, cat_default, cat_checks, cat_collation) = match &catalog.kind {
         UserTypeKind::Domain {

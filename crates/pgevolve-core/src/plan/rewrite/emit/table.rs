@@ -99,7 +99,7 @@ pub fn alter(
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // one arm per `TableOpEntry` variant emitting its SQL; extraction would scatter the templates.
 pub fn op(
     qname: &QualifiedName,
     entry: TableOpEntry,

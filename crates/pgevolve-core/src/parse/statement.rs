@@ -70,7 +70,7 @@ pub enum Statement {
 impl Statement {
     /// Classify a node into the supported whitelist, or return
     /// [`ParseError::UnsupportedObjectKind`] for anything else.
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)] // one arm per supported `NodeEnum` variant; the dispatch table is the function.
     pub fn classify(node: NodeEnum, location: SourceLocation) -> Result<Self, ParseError> {
         match node {
             NodeEnum::CreateSchemaStmt(s) => Ok(Self::CreateSchema(s)),

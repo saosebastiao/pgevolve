@@ -22,7 +22,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 /// The statement produces one [`DefaultPrivilegeRule`] per
 /// (`target_role` × schema) cross-product. Each rule carries the full grants
 /// decoded from the nested `GrantStmt.action`.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive `ALTER DEFAULT PRIVILEGES` decoder; one arm per object-type / action combination.
 pub(crate) fn apply(
     s: &AlterDefaultPrivilegesStmt,
     cat: &mut Catalog,

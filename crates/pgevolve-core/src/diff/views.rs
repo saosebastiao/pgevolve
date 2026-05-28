@@ -61,7 +61,7 @@ pub(crate) fn or_replace_compatible(catalog: &[ViewColumn], source: &[ViewColumn
 /// - [`Change::AlterObjectOwner`] / grant changes when applicable.
 ///
 /// No change is emitted when target and source are byte-for-byte identical.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive per-view-property diff with create / replace / drop branches.
 pub fn diff_views(
     target_views: &[View],
     source_views: &[View],
@@ -253,7 +253,7 @@ pub fn diff_views(
 /// - [`MvChange::ReplaceBody`] when the canonical body hashes differ.
 /// - [`MvChange::SetComment`] / [`MvChange::SetColumnComment`] for metadata.
 /// - [`Change::AlterObjectOwner`] / grant changes when applicable.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive per-MV-property diff with create / replace / drop branches.
 pub fn diff_materialized_views(
     target_mvs: &[MaterializedView],
     source_mvs: &[MaterializedView],

@@ -23,7 +23,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 /// REVOKE → [`ParseError::Structural`]. Unmanaged object kinds → error.
 /// Non-OBJECT target types (ALL IN SCHEMA, DEFAULTS) → error (DEFAULTS arrives
 /// via [`super::default_privileges`] instead).
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // one arm per `GRANT ... ON <object-kind>` target; extraction would obscure the kind dispatch.
 pub(crate) fn apply(
     s: &GrantStmt,
     cat: &mut Catalog,

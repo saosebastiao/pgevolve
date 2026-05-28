@@ -31,7 +31,7 @@ pub fn apply_comment(
     apply_comment_inner(stmt, catalog, default_schema, location, kind, comment)
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // one arm per `COMMENT ON <object>` kind; extraction would obscure the kind-by-kind dispatch.
 fn apply_comment_inner(
     stmt: &CommentStmt,
     catalog: &mut Catalog,

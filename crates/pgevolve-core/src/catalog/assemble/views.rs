@@ -41,7 +41,7 @@ fn build_body(body_text: &str, qname: &QualifiedName) -> Result<NormalizedBody, 
 /// Build all views and materialized views from catalog rows.
 ///
 /// Returns `(views, materialized_views)`.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // assembles views + MVs in one pass to share the column-row grouping; splitting would duplicate it.
 pub(super) fn build_views_and_mvs(
     view_rows: &[Row],
     column_rows: &[Row],

@@ -23,7 +23,7 @@ use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
 use super::table_op::TableOpEntry;
 
 /// Diff tables in `target` against `source`, appending entries to `out`.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive per-table-property diff; extraction would fragment a single conceptual pass.
 pub fn diff_tables(
     target: &Catalog,
     source: &Catalog,

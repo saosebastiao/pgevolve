@@ -27,7 +27,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 use crate::parse::normalize_expr;
 
 /// Build a [`Table`] from a `CREATE TABLE` AST.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive walk of every `CREATE TABLE` clause; splitting would scatter the AST decoding.
 pub fn build_table(
     create: &CreateStmt,
     default_schema: Option<&Identifier>,
@@ -190,7 +190,7 @@ fn decode_inline_compression(
 /// `pk_inline_column` is `Some(col_name)` if this column had `PRIMARY KEY`
 /// inline — used to implicitly mark the column NOT NULL after the table is
 /// fully assembled.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive walk of every `ColumnDef` constraint kind; splitting would scatter the AST decoding.
 fn build_column(
     col: &ColumnDef,
     table_qname: &QualifiedName,

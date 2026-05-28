@@ -77,7 +77,7 @@ fn add_column_entry(col: Column) -> TableOpEntry {
 // Each attribute's diff block is a self-contained guard + push; extracting
 // them into sub-functions would scatter the logic across many tiny helpers
 // without reducing cognitive load.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive per-column-attribute diff with destructiveness classification.
 fn diff_column(target: &Column, source: &Column, out: &mut Vec<TableOpEntry>) {
     if target.ty != source.ty {
         let destructiveness = if is_widening(&target.ty, &source.ty) {

@@ -25,7 +25,7 @@ use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
 use super::sequence_op::{SequenceOp, SequenceOpEntry};
 
 /// Diff sequences in `target` against `source`, appending entries to `out`.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive per-sequence-attribute diff; extraction would fragment a single conceptual pass.
 pub fn diff_sequences(
     target: &Catalog,
     source: &Catalog,

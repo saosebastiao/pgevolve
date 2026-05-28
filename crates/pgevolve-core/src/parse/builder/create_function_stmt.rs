@@ -43,7 +43,7 @@ pub enum Routine {
 /// * Procedure-specific constraints: `VOLATILE/STABLE/IMMUTABLE`, `STRICT`,
 ///   `PARALLEL`, `LEAKPROOF`, `COST`, `ROWS`, and a return-type clause are
 ///   all rejected on procedures.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive walk of `CREATE FUNCTION`/`CREATE PROCEDURE` options; one arm per option kind.
 pub(crate) fn build_function_or_procedure(
     stmt: &CreateFunctionStmt,
     default_schema: Option<&Identifier>,

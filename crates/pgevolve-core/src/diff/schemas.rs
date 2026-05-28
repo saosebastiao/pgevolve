@@ -17,7 +17,7 @@ use super::grants::diff_grants;
 use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
 
 /// Diff schemas in `target` against `source`, appending entries to `out`.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // exhaustive per-field schema diff; extraction would fragment a single conceptual pass.
 pub fn diff_schemas(
     target: &Catalog,
     source: &Catalog,

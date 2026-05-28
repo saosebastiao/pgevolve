@@ -51,7 +51,7 @@ pub struct PartialPlan {
 }
 
 /// Parse `plan.sql` from a string.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // sequential parser that walks the plan.sql header + body in one pass.
 pub fn read_plan_sql(s: &str) -> Result<PartialPlan, PlanIoError> {
     let mut id_short: Option<String> = None;
     let mut version: Option<String> = None;

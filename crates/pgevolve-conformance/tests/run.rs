@@ -233,7 +233,7 @@ enum FixtureResult {
 }
 
 /// Run one fixture through all assertion layers for `Objects` authoring.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // one block per assertion layer (L1–L9); inlined to keep the layered flow visible.
 async fn run_objects(fixture: &Fixture, pg_major: u32) -> FixtureResult {
     if !fixture.applies_to(pg_major) {
         return FixtureResult::Skipped;
@@ -615,7 +615,7 @@ async fn run_intent(fixture: &Fixture, pg_major: u32) -> FixtureResult {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // the top-level test orchestrates fixture discovery, dispatch, and reporting in one place.
 async fn conformance_suite() {
     let pg_major = active_pg_major();
     let root = cases_root();
