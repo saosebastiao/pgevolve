@@ -107,3 +107,54 @@ pub fn check(tree: &SourceTree) -> Vec<Finding> {
 
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::catalog::Catalog;
+    use crate::ir::constraint::{
+        Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
+    };
+    use crate::ir::schema::Schema;
+    use crate::ir::table::Table;
+    use crate::lint::test_helpers::{empty_tree, id, qn};
+
+    #[test]
+    fn closed_world_references_flags_dangling_fk() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.tables.push(Table {
+            qname: qn("app", "users"),
+            columns: vec![],
+            constraints: vec![Constraint {
+                qname: qn("app", "users_fk"),
+                kind: ConstraintKind::ForeignKey(ForeignKey {
+                    columns: vec![id("orgs_id")],
+                    referenced_table: qn("app", "orgs"), // doesn't exist
+                    referenced_columns: vec![id("id")],
+                    on_update: ReferentialAction::NoAction,
+                    on_delete: ReferentialAction::NoAction,
+                    match_type: FkMatchType::Simple,
+                }),
+                deferrable: Deferrable::NotDeferrable,
+                comment: None,
+            }],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: None,
+            grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
+        });
+        let tree = empty_tree(c);
+        let findings = check(&tree);
+        let count_cwr = findings
+            .iter()
+            .filter(|f| f.rule == "closed_world_references")
+            .count();
+        assert_eq!(count_cwr, 1);
+    }
+}

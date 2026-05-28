@@ -12,6 +12,8 @@ pub mod finding;
 pub mod profile;
 pub(crate) mod rules;
 pub mod source_tree;
+#[cfg(test)]
+pub(crate) mod test_helpers;
 pub mod universal;
 
 use std::path::Path;

@@ -133,3 +133,26 @@ pub const fn is_id_start(b: u8) -> bool {
 pub const fn is_id_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_qualified_refs_basic() {
+        let refs = extract_qualified_refs("value > 0 and external.validate_int(value)");
+        assert!(
+            refs.contains(&("external".to_string(), "validate_int".to_string())),
+            "should extract external.validate_int: {refs:?}",
+        );
+    }
+
+    #[test]
+    fn extract_qualified_refs_empty_text() {
+        let refs = extract_qualified_refs("value > 0");
+        assert!(
+            refs.is_empty(),
+            "no qualified refs in simple expression: {refs:?}",
+        );
+    }
+}

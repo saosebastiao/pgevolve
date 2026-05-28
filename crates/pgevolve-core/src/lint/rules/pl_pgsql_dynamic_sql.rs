@@ -72,3 +72,93 @@ fn check_dynamic_sql_in_routine(
         ));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::catalog::Catalog;
+    use crate::ir::schema::Schema;
+    use crate::lint::test_helpers::{
+        empty_arg_types, empty_tree, id, make_plpgsql_function, make_procedure, qn,
+    };
+    use crate::plan::edges::{DepEdge, DepSource, NodeId};
+
+    #[test]
+    fn pl_pgsql_dynamic_sql_fires_when_execute_without_directive() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        // Body contains EXECUTE but no AstDeclared dep edge.
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "dyn_fn",
+            "BEGIN EXECUTE 'SELECT 1'; END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "dyn_fn"), empty_arg_types()),
+                to: NodeId::Table(qn("app", "users")),
+                source: DepSource::AstExtracted, // NOT AstDeclared
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check(&tree);
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "pl-pgsql-dynamic-sql")
+            .count();
+        assert_eq!(count, 1, "expected one pl-pgsql-dynamic-sql finding");
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "pl-pgsql-dynamic-sql")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Error,
+        );
+    }
+
+    #[test]
+    fn pl_pgsql_dynamic_sql_silent_when_directive_present() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        // Body has EXECUTE + an AstDeclared dep — should be silent.
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "dyn_fn_ok",
+            "BEGIN EXECUTE 'SELECT 1'; END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "dyn_fn_ok"), empty_arg_types()),
+                to: NodeId::Table(qn("app", "users")),
+                source: DepSource::AstDeclared,
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check(&tree);
+        assert!(
+            findings.iter().all(|f| f.rule != "pl-pgsql-dynamic-sql"),
+            "pl-pgsql-dynamic-sql must not fire when directive present",
+        );
+    }
+
+    #[test]
+    fn pl_pgsql_dynamic_sql_fires_for_procedure_without_directive() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        // Procedure with EXECUTE but no AstDeclared dep.
+        c.procedures.push(make_procedure(
+            "app",
+            "dyn_proc",
+            "BEGIN EXECUTE 'DELETE FROM users'; END",
+            false,
+            vec![],
+        ));
+        let tree = empty_tree(c);
+        let findings = check(&tree);
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "pl-pgsql-dynamic-sql")
+            .count();
+        assert_eq!(
+            count, 1,
+            "expected one pl-pgsql-dynamic-sql finding for procedure"
+        );
+    }
+}

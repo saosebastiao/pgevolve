@@ -79,3 +79,132 @@ pub fn check(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Finding> {
 
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::catalog::Catalog;
+    use crate::ir::schema::Schema;
+    use crate::lint::test_helpers::{empty_arg_types, empty_tree, id, make_plpgsql_function, qn};
+    use crate::plan::edges::{DepEdge, DepSource, NodeId};
+
+    #[test]
+    fn function_references_unmanaged_schema_fires_on_cross_schema_dep() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "cross_fn",
+            "BEGIN RETURN external.helper(); END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "cross_fn"), empty_arg_types()),
+                to: NodeId::Function(qn("external", "helper"), empty_arg_types()),
+                source: DepSource::AstExtracted,
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "function-references-unmanaged-schema")
+            .count();
+        assert_eq!(
+            count, 1,
+            "expected one function-references-unmanaged-schema warning"
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "function-references-unmanaged-schema")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Warning,
+        );
+    }
+
+    #[test]
+    fn function_references_unmanaged_schema_silent_on_managed_dep() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "managed_fn",
+            "BEGIN RETURN app.helper(); END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "managed_fn"), empty_arg_types()),
+                to: NodeId::Function(qn("app", "helper"), empty_arg_types()),
+                source: DepSource::AstExtracted,
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "function-references-unmanaged-schema"),
+            "function-references-unmanaged-schema must not fire when dep is in managed schema",
+        );
+    }
+
+    #[test]
+    fn function_references_unmanaged_schema_silent_on_builtin_schema() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "catalog_fn",
+            "BEGIN RETURN pg_catalog.now(); END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "catalog_fn"), empty_arg_types()),
+                to: NodeId::Function(qn("pg_catalog", "now"), empty_arg_types()),
+                source: DepSource::AstExtracted,
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "function-references-unmanaged-schema"),
+            "function-references-unmanaged-schema must not fire for pg_catalog",
+        );
+    }
+
+    #[test]
+    fn function_references_unmanaged_schema_silent_when_managed_is_empty() {
+        let mut c = Catalog::empty();
+        c.functions.push(make_plpgsql_function(
+            "app",
+            "any_fn",
+            "BEGIN NULL; END",
+            vec![DepEdge {
+                from: NodeId::Function(qn("app", "any_fn"), empty_arg_types()),
+                to: NodeId::Table(qn("external", "data")),
+                source: DepSource::AstExtracted,
+            }],
+        ));
+        let tree = empty_tree(c);
+        let findings = check(&tree, &ManagedConfig::default());
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "function-references-unmanaged-schema"),
+            "function-references-unmanaged-schema must be silent when managed.schemas is empty",
+        );
+    }
+}

@@ -74,3 +74,173 @@ pub fn check(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Finding> {
 
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::catalog::Catalog;
+    use crate::ir::schema::Schema;
+    use crate::ir::view::View;
+    use crate::lint::test_helpers::{empty_tree, id, qn};
+    use crate::parse::normalize_body::NormalizedBody;
+    use crate::plan::edges::{DepEdge, DepSource, NodeId};
+
+    #[test]
+    fn view_body_references_unmanaged_schema_fires_when_dep_in_unmanaged_schema() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.views.push(View {
+            qname: qn("app", "my_view"),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![DepEdge {
+                from: NodeId::View(qn("app", "my_view")),
+                // references table in "external" schema — not managed
+                to: NodeId::Table(qn("external", "data")),
+                source: DepSource::AstExtracted,
+            }],
+            security_barrier: None,
+            security_invoker: None,
+            check_option: None,
+            comment: None,
+            raw_body: String::new(),
+            owner: None,
+            grants: vec![],
+        });
+        let tree = empty_tree(c);
+        // managed only has "app" — "external" is unmanaged
+        let findings = check(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "view-body-references-unmanaged-schema")
+            .count();
+        assert_eq!(
+            count, 1,
+            "expected one view-body-references-unmanaged-schema warning"
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "view-body-references-unmanaged-schema")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Warning,
+        );
+    }
+
+    #[test]
+    fn view_body_references_unmanaged_schema_silent_on_managed_dep() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.views.push(View {
+            qname: qn("app", "my_view"),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![DepEdge {
+                from: NodeId::View(qn("app", "my_view")),
+                // references table in the managed "app" schema — fine
+                to: NodeId::Table(qn("app", "users")),
+                source: DepSource::AstExtracted,
+            }],
+            security_barrier: None,
+            security_invoker: None,
+            check_option: None,
+            comment: None,
+            raw_body: String::new(),
+            owner: None,
+            grants: vec![],
+        });
+        let tree = empty_tree(c);
+        let findings = check(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "view-body-references-unmanaged-schema"),
+            "rule must not fire when dep is in a managed schema",
+        );
+    }
+
+    #[test]
+    fn view_body_references_unmanaged_schema_silent_on_builtin_schemas() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.views.push(View {
+            qname: qn("app", "my_view"),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![
+                DepEdge {
+                    from: NodeId::View(qn("app", "my_view")),
+                    to: NodeId::Table(qn("pg_catalog", "pg_type")),
+                    source: DepSource::AstExtracted,
+                },
+                DepEdge {
+                    from: NodeId::View(qn("app", "my_view")),
+                    to: NodeId::Table(qn("information_schema", "columns")),
+                    source: DepSource::AstExtracted,
+                },
+            ],
+            security_barrier: None,
+            security_invoker: None,
+            check_option: None,
+            comment: None,
+            raw_body: String::new(),
+            owner: None,
+            grants: vec![],
+        });
+        let tree = empty_tree(c);
+        let findings = check(
+            &tree,
+            &ManagedConfig {
+                schemas: vec![id("app")],
+            },
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "view-body-references-unmanaged-schema"),
+            "rule must not fire for pg_catalog / information_schema references",
+        );
+    }
+
+    #[test]
+    fn view_body_references_unmanaged_schema_silent_when_managed_is_empty() {
+        let mut c = Catalog::empty();
+        c.views.push(View {
+            qname: qn("app", "my_view"),
+            columns: vec![],
+            body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![DepEdge {
+                from: NodeId::View(qn("app", "my_view")),
+                to: NodeId::Table(qn("anywhere", "stuff")),
+                source: DepSource::AstExtracted,
+            }],
+            security_barrier: None,
+            security_invoker: None,
+            check_option: None,
+            comment: None,
+            raw_body: String::new(),
+            owner: None,
+            grants: vec![],
+        });
+        let tree = empty_tree(c);
+        // Empty managed config — rule must stay silent (mirrors managed_schemas_match).
+        let findings = check(&tree, &ManagedConfig::default());
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "view-body-references-unmanaged-schema"),
+            "rule must be silent when [managed].schemas is empty",
+        );
+    }
+}

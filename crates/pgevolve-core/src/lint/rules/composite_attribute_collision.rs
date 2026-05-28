@@ -34,3 +34,96 @@ pub fn check(tree: &SourceTree) -> Vec<Finding> {
 
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::catalog::Catalog;
+    use crate::ir::column_type::ColumnType;
+    use crate::ir::schema::Schema;
+    use crate::ir::user_type::{CompositeAttribute, UserType, UserTypeKind};
+    use crate::lint::test_helpers::{empty_tree, id, qn};
+
+    #[test]
+    fn composite_attribute_collision_fires() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.types.push(UserType {
+            qname: qn("app", "address"),
+            kind: UserTypeKind::Composite {
+                attributes: vec![
+                    CompositeAttribute {
+                        name: id("street"),
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                    CompositeAttribute {
+                        name: id("street"), // duplicate attribute
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                    CompositeAttribute {
+                        name: id("city"),
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                ],
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        });
+        let tree = empty_tree(c);
+        let findings = check(&tree);
+        let count = findings
+            .iter()
+            .filter(|f| f.rule == "composite-attribute-collision")
+            .count();
+        assert_eq!(
+            count, 1,
+            "expected exactly one composite-attribute-collision finding"
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f.rule == "composite-attribute-collision")
+                .unwrap()
+                .severity,
+            crate::lint::Severity::Error,
+        );
+    }
+
+    #[test]
+    fn composite_attribute_collision_silent_on_distinct_attributes() {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.types.push(UserType {
+            qname: qn("app", "address"),
+            kind: UserTypeKind::Composite {
+                attributes: vec![
+                    CompositeAttribute {
+                        name: id("street"),
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                    CompositeAttribute {
+                        name: id("city"),
+                        ty: ColumnType::Text,
+                        collation: None,
+                    },
+                ],
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        });
+        let tree = empty_tree(c);
+        let findings = check(&tree);
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.rule != "composite-attribute-collision"),
+            "composite-attribute-collision must not fire on distinct attributes",
+        );
+    }
+}
