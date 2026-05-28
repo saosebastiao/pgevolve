@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
+use crate::ir::collation::BUILTIN_COLLATIONS;
 use crate::ir::column_type::ColumnType;
 use crate::ir::constraint::ConstraintKind;
 use crate::ir::default_expr::DefaultExpr;
@@ -76,6 +77,20 @@ pub enum NodeId {
     /// domain / range / composite-attribute → collation) are added in a
     /// follow-up stage.
     Collation(QualifiedName),
+}
+
+/// Returns `true` iff `qname` refers to a managed collation in `catalog` —
+/// i.e., a collation we should emit a dependency edge for. Built-in
+/// `pg_catalog` collations (`C`, `POSIX`, `und-x-icu`, …) are skipped.
+fn should_add_collation_edge(qname: &QualifiedName, catalog: &Catalog) -> bool {
+    if qname.schema.as_str() == "pg_catalog" {
+        return false;
+    }
+    let name = qname.name.as_str();
+    if BUILTIN_COLLATIONS.contains(&name) {
+        return false;
+    }
+    catalog.collations.iter().any(|c| &c.qname == qname)
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.
@@ -200,6 +215,11 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
         g.add_node(stat_node.clone());
         g.add_edge(stat_node, NodeId::Table(s.target.clone()));
     }
+    // Register collations. Edges (table/type → collation) are added below in
+    // the column / domain / range / composite-attribute loops.
+    for c in &catalog.collations {
+        g.add_node(NodeId::Collation(c.qname.clone()));
+    }
 
     // Phase 1b.0: type → schema edges. Every user-defined type lives inside
     // a schema and must be created after CREATE SCHEMA emits.
@@ -236,21 +256,39 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
                             NodeId::Type(dep_qname.clone()),
                         );
                     }
+                    if let Some(coll_qname) = &attr.collation
+                        && should_add_collation_edge(coll_qname, catalog)
+                    {
+                        g.add_edge(
+                            NodeId::Type(ut.qname.clone()),
+                            NodeId::Collation(coll_qname.clone()),
+                        );
+                    }
                 }
             }
             UserTypeKind::Domain {
-                base: ColumnType::UserDefined(base_qname),
-                ..
+                base, collation, ..
             } => {
-                g.add_edge(
-                    NodeId::Type(ut.qname.clone()),
-                    NodeId::Type(base_qname.clone()),
-                );
+                if let ColumnType::UserDefined(base_qname) = base {
+                    g.add_edge(
+                        NodeId::Type(ut.qname.clone()),
+                        NodeId::Type(base_qname.clone()),
+                    );
+                }
+                if let Some(coll_qname) = collation
+                    && should_add_collation_edge(coll_qname, catalog)
+                {
+                    g.add_edge(
+                        NodeId::Type(ut.qname.clone()),
+                        NodeId::Collation(coll_qname.clone()),
+                    );
+                }
             }
             UserTypeKind::Range {
                 subtype,
                 canonical,
                 subtype_diff,
+                collation,
                 ..
             } => {
                 // Skip built-in subtypes (pg_catalog.* are not user-managed).
@@ -278,19 +316,37 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
                         NodeId::Function(f.qname.clone(), f.arg_types_normalized.clone()),
                     );
                 }
+                if let Some(coll_qname) = collation
+                    && should_add_collation_edge(coll_qname, catalog)
+                {
+                    g.add_edge(
+                        NodeId::Type(ut.qname.clone()),
+                        NodeId::Collation(coll_qname.clone()),
+                    );
+                }
             }
-            _ => {}
+            UserTypeKind::Enum { .. } => {}
         }
     }
 
     // Phase 1c: table → type edges from columns with user-defined types.
     // Tables that reference a user-defined type must be created after the type.
+    // The same loop emits table → collation edges for columns with an explicit
+    // `COLLATE` clause that points at a managed collation.
     for t in &catalog.tables {
         for col in &t.columns {
             if let ColumnType::UserDefined(type_qname) = &col.ty {
                 g.add_edge(
                     NodeId::Table(t.qname.clone()),
                     NodeId::Type(type_qname.clone()),
+                );
+            }
+            if let Some(coll_qname) = &col.collation
+                && should_add_collation_edge(coll_qname, catalog)
+            {
+                g.add_edge(
+                    NodeId::Table(t.qname.clone()),
+                    NodeId::Collation(coll_qname.clone()),
                 );
             }
         }
@@ -1371,6 +1427,318 @@ mod tests {
             .dependencies_of(&NodeId::Type(qn("app", "myrange")))
             .collect();
         assert_eq!(deps, vec![&NodeId::Schema(id("app"))]);
+    }
+
+    // ── Collation edge tests ─────────────────────────────────────────────────
+
+    use crate::ir::collation::{Collation, CollationProvider};
+
+    fn make_collation(schema: &str, name: &str) -> Collation {
+        Collation {
+            qname: qn(schema, name),
+            provider: CollationProvider::Libc,
+            lc_collate: "C".into(),
+            lc_ctype: "C".into(),
+            deterministic: true,
+            version: None,
+            owner: None,
+            comment: None,
+        }
+    }
+
+    fn make_table_empty(schema: &str, name: &str) -> Table {
+        Table {
+            qname: qn(schema, name),
+            columns: vec![],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: None,
+            grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
+        }
+    }
+
+    fn col_text_with_collation(name: &str, collation: QualifiedName) -> Column {
+        Column {
+            name: id(name),
+            ty: ColumnType::Text,
+            nullable: true,
+            default: None,
+            identity: None,
+            generated: None,
+            collation: Some(collation),
+            storage: None,
+            compression: None,
+            comment: None,
+        }
+    }
+
+    fn make_domain_with_collation(schema: &str, name: &str, collation: QualifiedName) -> UserType {
+        UserType {
+            qname: qn(schema, name),
+            kind: UserTypeKind::Domain {
+                base: ColumnType::Text,
+                nullable: true,
+                default: None,
+                check_constraints: vec![],
+                collation: Some(collation),
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        }
+    }
+
+    fn make_range_with_collation(
+        schema: &str,
+        name: &str,
+        subtype: QualifiedName,
+        collation: QualifiedName,
+    ) -> UserType {
+        UserType {
+            qname: qn(schema, name),
+            kind: UserTypeKind::Range {
+                subtype,
+                subtype_opclass: None,
+                collation: Some(collation),
+                canonical: None,
+                subtype_diff: None,
+                multirange_type_name: None,
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        }
+    }
+
+    fn make_composite_with_collated_attr(
+        schema: &str,
+        name: &str,
+        collation: QualifiedName,
+    ) -> UserType {
+        UserType {
+            qname: qn(schema, name),
+            kind: UserTypeKind::Composite {
+                attributes: vec![CompositeAttribute {
+                    name: id("val"),
+                    ty: ColumnType::Text,
+                    collation: Some(collation),
+                }],
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        }
+    }
+
+    #[test]
+    fn collation_node_registered() {
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        c.collations.push(make_collation("app", "ci"));
+        let g = build_create_graph(&c);
+        // schema + collation nodes; no edges.
+        assert_eq!(g.node_count(), 2);
+    }
+
+    #[test]
+    fn column_with_managed_collation_adds_edge() {
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        cat.collations.push(make_collation("app", "ci"));
+        let mut t = make_table_empty("app", "users");
+        t.columns
+            .push(col_text_with_collation("email", qn("app", "ci")));
+        cat.tables.push(t);
+        let g = build_create_graph(&cat);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Table(qn("app", "users")),
+                &NodeId::Collation(qn("app", "ci")),
+            ),
+            "table must depend on its column's managed collation"
+        );
+    }
+
+    #[test]
+    fn column_with_pg_catalog_collation_no_edge() {
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        let mut t = make_table_empty("app", "users");
+        t.columns
+            .push(col_text_with_collation("email", qn("pg_catalog", "C")));
+        cat.tables.push(t);
+        let g = build_create_graph(&cat);
+        assert!(
+            !g.edges().any(|(_, to)| matches!(to, NodeId::Collation(_))),
+            "no collation edge should be added for pg_catalog.C"
+        );
+    }
+
+    #[test]
+    fn column_with_builtin_shortname_collation_no_edge() {
+        // Even with no schema (or any schema), the builtin shortname `POSIX`
+        // should be skipped because it's in BUILTIN_COLLATIONS.
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        let mut t = make_table_empty("app", "users");
+        t.columns
+            .push(col_text_with_collation("email", qn("app", "POSIX")));
+        cat.tables.push(t);
+        let g = build_create_graph(&cat);
+        assert!(!g.edges().any(|(_, to)| matches!(to, NodeId::Collation(_))),);
+    }
+
+    #[test]
+    fn column_with_unmanaged_collation_no_edge() {
+        // Source references a collation that isn't in catalog.collations →
+        // no edge (the lint rule surfaces the drift; here we just don't add
+        // a phantom edge to a node that doesn't exist).
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        let mut t = make_table_empty("app", "users");
+        t.columns
+            .push(col_text_with_collation("email", qn("app", "unmanaged")));
+        cat.tables.push(t);
+        let g = build_create_graph(&cat);
+        assert!(!g.edges().any(|(_, to)| matches!(to, NodeId::Collation(_))),);
+    }
+
+    #[test]
+    fn domain_with_managed_collation_adds_edge() {
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        cat.collations.push(make_collation("app", "ci"));
+        cat.types.push(make_domain_with_collation(
+            "app",
+            "email_t",
+            qn("app", "ci"),
+        ));
+        let g = build_create_graph(&cat);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Type(qn("app", "email_t")),
+                &NodeId::Collation(qn("app", "ci")),
+            ),
+            "domain must depend on its managed collation"
+        );
+    }
+
+    #[test]
+    fn domain_with_pg_catalog_collation_no_edge() {
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        cat.types.push(make_domain_with_collation(
+            "app",
+            "email_t",
+            qn("pg_catalog", "C"),
+        ));
+        let g = build_create_graph(&cat);
+        assert!(!g.edges().any(|(_, to)| matches!(to, NodeId::Collation(_))),);
+    }
+
+    #[test]
+    fn range_with_managed_collation_adds_edge() {
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        cat.collations.push(make_collation("app", "ci"));
+        cat.types.push(make_range_with_collation(
+            "app",
+            "textrange",
+            qn("pg_catalog", "text"),
+            qn("app", "ci"),
+        ));
+        let g = build_create_graph(&cat);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Type(qn("app", "textrange")),
+                &NodeId::Collation(qn("app", "ci")),
+            ),
+            "range type must depend on its managed collation"
+        );
+    }
+
+    #[test]
+    fn range_with_pg_catalog_collation_no_edge() {
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        cat.types.push(make_range_with_collation(
+            "app",
+            "textrange",
+            qn("pg_catalog", "text"),
+            qn("pg_catalog", "C"),
+        ));
+        let g = build_create_graph(&cat);
+        assert!(!g.edges().any(|(_, to)| matches!(to, NodeId::Collation(_))),);
+    }
+
+    #[test]
+    fn composite_attribute_with_managed_collation_adds_edge() {
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        cat.collations.push(make_collation("app", "ci"));
+        cat.types.push(make_composite_with_collated_attr(
+            "app",
+            "addr_t",
+            qn("app", "ci"),
+        ));
+        let g = build_create_graph(&cat);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Type(qn("app", "addr_t")),
+                &NodeId::Collation(qn("app", "ci")),
+            ),
+            "composite type must depend on collation of a collated attribute"
+        );
+    }
+
+    #[test]
+    fn composite_attribute_with_pg_catalog_collation_no_edge() {
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        cat.types.push(make_composite_with_collated_attr(
+            "app",
+            "addr_t",
+            qn("pg_catalog", "C"),
+        ));
+        let g = build_create_graph(&cat);
+        assert!(!g.edges().any(|(_, to)| matches!(to, NodeId::Collation(_))),);
+    }
+
+    #[test]
+    fn collation_ordered_before_table_using_it() {
+        // Topological sort must place the collation before the table that
+        // references it (since the edge is Table → Collation).
+        let mut cat = Catalog::empty();
+        cat.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        cat.collations.push(make_collation("app", "ci"));
+        let mut t = make_table_empty("app", "users");
+        t.columns
+            .push(col_text_with_collation("email", qn("app", "ci")));
+        cat.tables.push(t);
+        let g = build_create_graph(&cat);
+        let order = g.topological_sort().expect("no cycle");
+        let coll_pos = order
+            .iter()
+            .position(|n| n == &NodeId::Collation(qn("app", "ci")))
+            .expect("collation in order");
+        let table_pos = order
+            .iter()
+            .position(|n| n == &NodeId::Table(qn("app", "users")))
+            .expect("table in order");
+        assert!(
+            coll_pos < table_pos,
+            "collation must be created before the table that uses it"
+        );
     }
 
     #[test]
