@@ -18,13 +18,12 @@ the stub is promoted to a dated plan when brainstorming begins.
 | v0.3.5 | `SUBSCRIPTION` | [`2026-05-26-subscriptions.md`](../superpowers/plans/2026-05-26-subscriptions.md) |
 | v0.3.6 | PG 18 catalog support | [`2026-05-26-postgres-18-support.md`](../superpowers/plans/2026-05-26-postgres-18-support.md) |
 | v0.3.7 | `STATISTICS` + `VIEW ... WITH CHECK OPTION` | [`2026-05-27-statistics-and-check-option.md`](../superpowers/plans/2026-05-27-statistics-and-check-option.md) |
+| v0.3.8 | `CREATE COLLATION` + `RANGE TYPE` | [`2026-05-28-collation-and-range-type.md`](../superpowers/plans/2026-05-28-collation-and-range-type.md) |
 
 ## Active matrix
 
 | Target | Object / sub-feature | Plan | Notes |
 |---|---|---|---|
-| v0.3.8 | `CREATE COLLATION` | [`_skeleton/create-collation.md`](../superpowers/plans/_skeleton/create-collation.md) | Unblocks text-search |
-| v0.3.8 | `RANGE TYPE` | [`_skeleton/range-type.md`](../superpowers/plans/_skeleton/range-type.md) | Adds a `UserType` variant |
 | v0.4.0 | `EVENT TRIGGER` | [`_skeleton/event-trigger.md`](../superpowers/plans/_skeleton/event-trigger.md) | Independent surface |
 | v0.4.0 | Per-partition `TABLESPACE` | [`_skeleton/per-partition-tablespace.md`](../superpowers/plans/_skeleton/per-partition-tablespace.md) | `tablespace` override on partition children |
 | v0.4.0 | `TABLE ... USING <access method>` | [`_skeleton/table-access-method.md`](../superpowers/plans/_skeleton/table-access-method.md) | New `access_method` field on `Table` |

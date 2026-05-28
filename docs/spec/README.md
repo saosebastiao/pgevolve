@@ -38,6 +38,7 @@ mixes states (e.g., FK constraints are supported as a kind, but the
 | [`publications.md`](./publications.md) | Logical-replication source-side metadata: all 5 `PUBLICATION` forms, `publish` bitset, `publish_via_partition_root`, 11 step kinds, 4 lint rules, PG-version gating |
 | [`statistics.md`](./statistics.md) | Multi-column statistics (`CREATE STATISTICS`): ndistinct/dependencies/mcv kinds + PG 14+ expression statistics, granular differ, `unmanaged-statistic` lint, 5 step kinds, 9 conformance fixtures |
 | [`subscriptions.md`](./subscriptions.md) | Logical-replication subscriber-side metadata: `SUBSCRIPTION` with per-field lenient options, `${VAR}` env-var interpolation in CONNECTION strings, 8 step kinds, 4 lint rules, PG-version gating |
+| [`collations.md`](./collations.md) | `CREATE COLLATION` as a first-class IR object: libc / ICU / PG 17+ builtin providers, deterministic toggle, 5 step kinds, 5 lint rules; `BUILTIN_COLLATIONS` shortname allow-list |
 | [`pipeline.md`](./pipeline.md) | The internal pipeline: parser → IR → diff → planner → rewrite → group → execute |
 | [`cli.md`](./cli.md) | CLI command surface, global flags, output formats, exit codes, `pgevolve.toml` schema |
 | [`lint-and-layout.md`](./lint-and-layout.md) | Universal lint rules, built-in and custom layout profiles |
@@ -54,11 +55,11 @@ mixes states (e.g., FK constraints are supported as a kind, but the
   (v0.3.3). Entries marked 📋 name the target version when known.
 - **"v0.3.4–v0.3.5"** added replication metadata: `PUBLICATION`
   (v0.3.4) and `SUBSCRIPTION` (v0.3.5).
-- **"v0.3.6–v0.3.7"** continued v0.3 with PG 18 support (v0.3.6) and
-  `STATISTICS` + `VIEW ... WITH CHECK OPTION` (v0.3.7).
-- **"v0.3.8+"** is the active roadmap: `CREATE COLLATION` + `RANGE
-  TYPE` (v0.3.8) and beyond. See [`roadmap.md`](./roadmap.md) for the
-  full per-version plan.
+- **"v0.3.6–v0.3.8"** continued v0.3 with PG 18 support (v0.3.6),
+  `STATISTICS` + `VIEW ... WITH CHECK OPTION` (v0.3.7), and
+  `CREATE COLLATION` + `RANGE TYPE` (v0.3.8).
+- **"v0.4.0+"** is the active roadmap. See [`roadmap.md`](./roadmap.md)
+  for the full per-version plan.
 - **"Future"** is anything past the current release with no firm version.
 
 ## How to update this directory

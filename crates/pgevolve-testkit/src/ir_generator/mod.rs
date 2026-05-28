@@ -51,6 +51,13 @@
 //! target table's actual column list so generated statistics always reference
 //! real columns.
 //!
+//! v0.3.8 additions: `arb_collations_for_schemas` (libc-only, deterministic,
+//! safe locale pool — keeps PG-version gating out of the property soak) and
+//! `arb_user_types_for_schemas` (Enum / Composite / Range mix at ~10 % Range
+//! weight, covering the new `UserTypeKind::Range` variant). Both produce 0–2
+//! objects per managed schema and feed into `arbitrary_catalog` before
+//! canonicalization so generated catalogs always reference real schemas.
+//!
 //! Richer coverage (CHECK constraints, multi-column UNIQUE, generated
 //! columns, identity sequences, partial indexes, the full `ColumnType`
 //! matrix) is deferred to v0.1.x.
@@ -70,6 +77,9 @@
 //!   [`arb_statistic`].
 //! - [`publication`] — publication strategies.
 //! - [`subscription`] — subscription strategies.
+//! - [`collation`] — collation strategies (v0.3.8).
+//! - [`user_type`] — user-type strategies covering Enum / Composite / Range
+//!   (v0.3.8).
 //! - [`cluster`] — cluster-level role + [`arbitrary_cluster_catalog`].
 
 // Proptest closures and `prop_map`/`prop_flat_map` chains in this module
@@ -95,6 +105,7 @@ use pgevolve_core::parse::normalize_body::NormalizedBody;
 use pgevolve_core::plan::edges::{DepEdge, DepSource, NodeId};
 
 pub mod cluster;
+pub mod collation;
 pub mod grants;
 pub mod index;
 pub mod policy;
@@ -105,6 +116,7 @@ pub mod sequence;
 pub mod statistic;
 pub mod subscription;
 pub mod table;
+pub mod user_type;
 
 pub use cluster::{arbitrary_cluster_catalog, arbitrary_role_attributes};
 pub use grants::arbitrary_default_privileges;
@@ -114,6 +126,7 @@ pub use table::arbitrary_column_type;
 // Internal re-exports for in-module use.
 pub(crate) use index::is_btree_indexable;
 
+use collation::arb_collations_for_schemas;
 use grants::{SEQUENCE_PRIVS, TABLE_PRIVS, arb_object_grants, arb_owner, arb_table_grants};
 use index::arbitrary_indexes_for_table;
 use publication::arb_publications;
@@ -122,6 +135,7 @@ use sequence::stand_alone_sequence;
 use statistic::arb_statistics_for_tables;
 use subscription::arb_subscriptions;
 use table::arbitrary_tables_for_schema;
+use user_type::arb_user_types_for_schemas;
 
 /// Knobs controlling [`arbitrary_catalog`] output.
 #[derive(Debug, Clone)]
@@ -202,12 +216,21 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
             // Statistics drawing from the catalog's actual tables + columns.
             let statistics_strategy = arb_statistics_for_tables(&tables);
 
+            // Collations and user types — generated once per schema-set so
+            // they share the same name pool and are available before
+            // canonicalization.
+            let schema_names: Vec<Identifier> = schemas.iter().map(|s| s.name.clone()).collect();
+            let collations_strategy = arb_collations_for_schemas(&schema_names);
+            let user_types_strategy = arb_user_types_for_schemas(&schema_names);
+
             (
                 index_strategies,
                 seq_owner_grant_strategies,
                 default_privs_strategy,
                 publications_strategy,
                 statistics_strategy,
+                collations_strategy,
+                user_types_strategy,
             )
                 .prop_flat_map(
                     move |(
@@ -216,6 +239,8 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
                         default_privileges,
                         publications,
                         statistics,
+                        collations,
+                        user_types,
                     )| {
                         // Build the publication-name pool for subscription generation
                         // from the publications just generated for this catalog.
@@ -252,6 +277,12 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
                             catalog.subscriptions = subscriptions;
                             // Attach 0–1 statistics per table (deduped by qname in canon).
                             catalog.statistics = statistics.clone();
+                            // Attach 0–2 collations per schema (libc-only,
+                            // deterministic, safe locale pool).
+                            catalog.collations = collations.clone();
+                            // Attach 0–2 user types per schema (Enum /
+                            // Composite / Range mix at ~10 % Range weight).
+                            catalog.types = user_types.clone();
                             catalog
                                 .canonicalize()
                                 .expect("generator produced invalid catalog")
