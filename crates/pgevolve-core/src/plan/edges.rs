@@ -69,6 +69,13 @@ pub enum NodeId {
     Subscription(Identifier),
     /// A statistics object (`CREATE STATISTICS schema.name`).
     Statistic(QualifiedName),
+    /// A user-defined collation (`CREATE COLLATION schema.name`).
+    ///
+    /// The variant lands in v0.3.8 so `ordering::change_node` can route
+    /// collation changes correctly; the actual graph *edges* (column /
+    /// domain / range / composite-attribute → collation) are added in a
+    /// follow-up stage.
+    Collation(QualifiedName),
 }
 
 /// Build the dependency graph for `catalog`, used for create/modify ordering.

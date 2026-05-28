@@ -16,6 +16,7 @@
 #![allow(clippy::needless_pass_by_value)]
 
 pub mod check_not_valid_validate;
+pub mod collations;
 pub mod concurrent_index;
 pub mod emit;
 pub mod extensions;
@@ -36,7 +37,7 @@ pub mod types;
 pub mod views;
 
 use crate::diff::change::{
-    Change, ChangeEntry, PublicationChange, StatisticChange, SubscriptionChange,
+    Change, ChangeEntry, CollationChange, PublicationChange, StatisticChange, SubscriptionChange,
 };
 use crate::diff::destructiveness::Destructiveness;
 use crate::identifier::QualifiedName;
@@ -745,11 +746,98 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
-        // Collation changes: Stage 6 wires real SQL helpers + StepKinds.
-        // Stub arms let the workspace compile; real emit lands in Stage 6.
-        Change::Collation(_) => {
-            // Stage 6 will replace this with real SQL rendering.
-        }
+        // Collation changes: each variant maps to one or two RawSteps.
+        // `Replace` decomposes into DROP + CREATE because PG has no in-place
+        // ALTER for provider / locale / deterministic; the audit log keeps
+        // the two halves distinct via separate `StepKind`s.
+        Change::Collation(cc) => match cc {
+            CollationChange::Create(c) => {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: crate::plan::raw_step::StepKind::CreateCollation,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![c.qname.clone()],
+                    sql: collations::create_collation(&c),
+                    transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                });
+                // Follow-up COMMENT if present on the IR.
+                if let Some(comment) = &c.comment {
+                    out.push(RawStep {
+                        step_no: 0,
+                        kind: crate::plan::raw_step::StepKind::CommentOnCollation,
+                        destructive: false,
+                        destructive_reason: None,
+                        intent_id: None,
+                        targets: vec![c.qname.clone()],
+                        sql: collations::comment_on_collation(&c.qname, Some(comment)),
+                        transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                    });
+                }
+            }
+            CollationChange::Drop { qname } => {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: crate::plan::raw_step::StepKind::DropCollation,
+                    destructive,
+                    destructive_reason,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: collations::drop_collation(&qname),
+                    transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                });
+            }
+            CollationChange::Rename { from, to } => {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: crate::plan::raw_step::StepKind::RenameCollation,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![from.clone()],
+                    sql: collations::rename_collation(&from, &to),
+                    transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                });
+            }
+            CollationChange::Replace { from, to } => {
+                // Two-step decomposition: DROP old, then CREATE new. The
+                // drop step inherits the entry-level destructive flag; the
+                // create step is always safe.
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: crate::plan::raw_step::StepKind::DropCollation,
+                    destructive,
+                    destructive_reason,
+                    intent_id: None,
+                    targets: vec![from.qname.clone()],
+                    sql: collations::drop_collation(&from.qname),
+                    transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                });
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: crate::plan::raw_step::StepKind::CreateCollation,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![to.qname.clone()],
+                    sql: collations::create_collation(&to),
+                    transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                });
+            }
+            CollationChange::CommentOn { qname, comment } => {
+                out.push(RawStep {
+                    step_no: 0,
+                    kind: crate::plan::raw_step::StepKind::CommentOnCollation,
+                    destructive: false,
+                    destructive_reason: None,
+                    intent_id: None,
+                    targets: vec![qname.clone()],
+                    sql: collations::comment_on_collation(&qname, comment.as_deref()),
+                    transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                });
+            }
+        },
 
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {

@@ -279,6 +279,18 @@ pub enum StepKind {
     AlterStatisticSetTarget,
     /// `COMMENT ON STATISTICS s IS '...'`.
     CommentOnStatistic,
+
+    // --- v0.3.8 collation step kinds ---
+    /// `CREATE COLLATION qname (...)`.
+    CreateCollation,
+    /// `DROP COLLATION qname` — destructive.
+    DropCollation,
+    /// `ALTER COLLATION qname RENAME TO new_name`.
+    RenameCollation,
+    /// `DROP COLLATION old; CREATE COLLATION new;` — structural change.
+    ReplaceCollation,
+    /// `COMMENT ON COLLATION qname IS '...'`.
+    CommentOnCollation,
 }
 
 /// One unit of work the executor will attempt.
@@ -428,6 +440,11 @@ mod tests {
             StepKind::ReplaceStatistic,
             StepKind::AlterStatisticSetTarget,
             StepKind::CommentOnStatistic,
+            StepKind::CreateCollation,
+            StepKind::DropCollation,
+            StepKind::RenameCollation,
+            StepKind::ReplaceCollation,
+            StepKind::CommentOnCollation,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

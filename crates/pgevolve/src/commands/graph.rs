@@ -148,6 +148,7 @@ fn node_label(n: &NodeId) -> String {
         NodeId::Publication(n) => format!("publication:{}", n.as_str()),
         NodeId::Subscription(n) => format!("subscription:{}", n.as_str()),
         NodeId::Statistic(q) => format!("statistic:{q}"),
+        NodeId::Collation(q) => format!("collation:{q}"),
     }
 }
 

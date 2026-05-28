@@ -241,7 +241,6 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::Publication(PublicationChange::Create(_))
             | Change::Subscription(SubscriptionChange::Create(_))
             | Change::Statistic(StatisticChange::Create(_))
-            // Stage 6+7 wires real NodeId::Collation; for now piggybacks creates bucket.
             | Change::Collation(CollationChange::Create(_)) => creates.push(entry),
             // Drops: ordered by reverse-dependency (deepest dependents first).
             Change::DropSchema(_)
@@ -254,7 +253,6 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::Statistic(
                 StatisticChange::Drop { .. } | StatisticChange::Replace { .. },
             )
-            // Stage 6+7 wires real NodeId::Collation; for now piggybacks drops bucket.
             | Change::Collation(
                 CollationChange::Drop { .. } | CollationChange::Replace { .. },
             ) => drops.push(entry),
@@ -374,7 +372,6 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::Statistic(
                 StatisticChange::AlterSetTarget { .. } | StatisticChange::CommentOn { .. },
             )
-            // Collation scalar diffs: Stage 6+7 wires real NodeId::Collation.
             | Change::Collation(
                 CollationChange::Rename { .. } | CollationChange::CommentOn { .. },
             ) => {
@@ -579,19 +576,20 @@ fn change_node(change: &Change) -> NodeId {
             | StatisticChange::AlterSetTarget { qname, .. }
             | StatisticChange::CommentOn { qname, .. },
         ) => NodeId::Statistic(qname.clone()),
-        // Collation changes: Stage 7 wires real NodeId::Collation. For now use
-        // NodeId::Statistic with the collation's qname as a placeholder so
-        // ordering compiles; collations have no managed-side dep edges yet.
-        Change::Collation(CollationChange::Create(c)) => NodeId::Statistic(c.qname.clone()),
+        // Collation changes: route to the dedicated NodeId::Collation
+        // variant. Graph edges (column / domain / range / composite-attribute
+        // → collation) are wired in a follow-up stage; the node already
+        // exists so future edges have a stable identity to attach to.
+        Change::Collation(CollationChange::Create(c)) => NodeId::Collation(c.qname.clone()),
         Change::Collation(CollationChange::Replace { to, .. }) => {
-            NodeId::Statistic(to.qname.clone())
+            NodeId::Collation(to.qname.clone())
         }
         Change::Collation(CollationChange::Rename { from: qname, .. }) => {
-            NodeId::Statistic(qname.clone())
+            NodeId::Collation(qname.clone())
         }
         Change::Collation(
             CollationChange::Drop { qname } | CollationChange::CommentOn { qname, .. },
-        ) => NodeId::Statistic(qname.clone()),
+        ) => NodeId::Collation(qname.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")
@@ -711,6 +709,7 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Publication(name) => format!("publication:{name}"),
         NodeId::Subscription(name) => format!("subscription:{name}"),
         NodeId::Statistic(q) => format!("statistic:{q}"),
+        NodeId::Collation(q) => format!("collation:{q}"),
         NodeId::Function(q, args) => format!(
             "function:{}({})",
             q,

@@ -428,6 +428,11 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::ReplaceStatistic => "replace_statistic",
         K::AlterStatisticSetTarget => "alter_statistic_set_target",
         K::CommentOnStatistic => "comment_on_statistic",
+        K::CreateCollation => "create_collation",
+        K::DropCollation => "drop_collation",
+        K::RenameCollation => "rename_collation",
+        K::ReplaceCollation => "replace_collation",
+        K::CommentOnCollation => "comment_on_collation",
     }
 }
 
@@ -543,6 +548,11 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "replace_statistic" => K::ReplaceStatistic,
         "alter_statistic_set_target" => K::AlterStatisticSetTarget,
         "comment_on_statistic" => K::CommentOnStatistic,
+        "create_collation" => K::CreateCollation,
+        "drop_collation" => K::DropCollation,
+        "rename_collation" => K::RenameCollation,
+        "replace_collation" => K::ReplaceCollation,
+        "comment_on_collation" => K::CommentOnCollation,
         _ => return None,
     })
 }
