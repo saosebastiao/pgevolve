@@ -13,7 +13,7 @@ publish      = false  # internal use only; revisit before public release
 workspace = true
 
 [dependencies]
-pgevolve-core = { path = "../pgevolve-core" }
+pgevolve-core = { path = "../pgevolve-core", features = ["tokio-postgres-querier"] }
 
 anyhow         = { workspace = true }
 proptest       = { workspace = true }

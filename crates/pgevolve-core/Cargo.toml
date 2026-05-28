@@ -31,6 +31,18 @@ time        = { workspace = true }
 walkdir     = { workspace = true }
 glob        = "0.3"
 
+# Optional: enables the `pg_querier` module — a `tokio_postgres::Client`-backed
+# `CatalogQuerier` adapter. Used by the `pgevolve` CLI and the `pgevolve-testkit`
+# tier-3 fixture runner. Library consumers that build their own `CatalogQuerier`
+# (e.g. from a different async PG driver) can omit this feature to avoid the
+# tokio + tokio-postgres deps.
+tokio          = { workspace = true, optional = true }
+tokio-postgres = { workspace = true, optional = true }
+
+[features]
+default = []
+tokio-postgres-querier = ["dep:tokio", "dep:tokio-postgres"]
+
 [dev-dependencies]
 pgevolve-testkit  = { path = "../pgevolve-testkit" }
 

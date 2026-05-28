@@ -13,6 +13,8 @@
 pub mod cluster;
 pub mod error;
 pub mod filter;
+#[cfg(feature = "tokio-postgres-querier")]
+pub mod pg_querier;
 pub mod queries;
 pub mod rows;
 pub mod version;
