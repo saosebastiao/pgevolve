@@ -9,8 +9,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
 use crate::diff::change::{
-    Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, PublicationChange,
-    StatisticChange, SubscriptionChange, TableChange, TriggerChange, UserTypeChange, ViewChange,
+    Change, ChangeEntry, CollationChange, FunctionChange, MvChange, ProcedureChange,
+    PublicationChange, StatisticChange, SubscriptionChange, TableChange, TriggerChange,
+    UserTypeChange, ViewChange,
 };
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::TableOp;
@@ -239,7 +240,9 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::Mv(MvChange::Create(_))
             | Change::Publication(PublicationChange::Create(_))
             | Change::Subscription(SubscriptionChange::Create(_))
-            | Change::Statistic(StatisticChange::Create(_)) => creates.push(entry),
+            | Change::Statistic(StatisticChange::Create(_))
+            // Stage 6+7 wires real NodeId::Collation; for now piggybacks creates bucket.
+            | Change::Collation(CollationChange::Create(_)) => creates.push(entry),
             // Drops: ordered by reverse-dependency (deepest dependents first).
             Change::DropSchema(_)
             | Change::DropTable { .. }
@@ -250,6 +253,10 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::Subscription(SubscriptionChange::Drop { .. })
             | Change::Statistic(
                 StatisticChange::Drop { .. } | StatisticChange::Replace { .. },
+            )
+            // Stage 6+7 wires real NodeId::Collation; for now piggybacks drops bucket.
+            | Change::Collation(
+                CollationChange::Drop { .. } | CollationChange::Replace { .. },
             ) => drops.push(entry),
             // Modifies: ALTER / REPLACE / COMMENT / drift-recovery / grant / owner.
             Change::AlterTable { .. }
@@ -366,6 +373,10 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             )
             | Change::Statistic(
                 StatisticChange::AlterSetTarget { .. } | StatisticChange::CommentOn { .. },
+            )
+            // Collation scalar diffs: Stage 6+7 wires real NodeId::Collation.
+            | Change::Collation(
+                CollationChange::Rename { .. } | CollationChange::CommentOn { .. },
             ) => {
                 modifies.push(entry);
             }
@@ -567,6 +578,19 @@ fn change_node(change: &Change) -> NodeId {
             StatisticChange::Drop { qname }
             | StatisticChange::AlterSetTarget { qname, .. }
             | StatisticChange::CommentOn { qname, .. },
+        ) => NodeId::Statistic(qname.clone()),
+        // Collation changes: Stage 7 wires real NodeId::Collation. For now use
+        // NodeId::Statistic with the collation's qname as a placeholder so
+        // ordering compiles; collations have no managed-side dep edges yet.
+        Change::Collation(CollationChange::Create(c)) => NodeId::Statistic(c.qname.clone()),
+        Change::Collation(CollationChange::Replace { to, .. }) => {
+            NodeId::Statistic(to.qname.clone())
+        }
+        Change::Collation(CollationChange::Rename { from: qname, .. }) => {
+            NodeId::Statistic(qname.clone())
+        }
+        Change::Collation(
+            CollationChange::Drop { qname } | CollationChange::CommentOn { qname, .. },
         ) => NodeId::Statistic(qname.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {

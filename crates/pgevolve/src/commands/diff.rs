@@ -535,6 +535,30 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            pgevolve_core::diff::change::Change::Collation(cc) => {
+                use pgevolve_core::diff::change::CollationChange;
+                match cc {
+                    CollationChange::Create(c) => {
+                        println!("      + CREATE COLLATION {}", c.qname);
+                    }
+                    CollationChange::Drop { qname } => {
+                        println!("      - DROP COLLATION {qname}");
+                    }
+                    CollationChange::Rename { from, to } => {
+                        println!("      ~ ALTER COLLATION {from} RENAME TO {to}");
+                    }
+                    CollationChange::Replace { from, .. } => {
+                        println!("      ~ REPLACE COLLATION {} (DROP + CREATE)", from.qname);
+                    }
+                    CollationChange::CommentOn { qname, comment } => {
+                        if comment.is_some() {
+                            println!("      ~ COMMENT ON COLLATION {qname}");
+                        } else {
+                            println!("      ~ COMMENT ON COLLATION {qname} IS NULL");
+                        }
+                    }
+                }
+            }
             pgevolve_core::diff::change::Change::Subscription(sc) => {
                 use pgevolve_core::diff::change::SubscriptionChange;
                 match sc {
@@ -624,7 +648,8 @@ fn print_sql(changes: &pgevolve_core::diff::ChangeSet) {
 #[allow(clippy::too_many_lines)] // one arm per Change variant returning its name; mechanical enumeration, not logic.
 const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static str {
     use pgevolve_core::diff::change::{
-        Change, MvChange, PublicationChange, StatisticChange, SubscriptionChange, ViewChange,
+        Change, CollationChange, MvChange, PublicationChange, StatisticChange, SubscriptionChange,
+        ViewChange,
     };
     match c {
         Change::CreateSchema(_) => "CreateSchema",
@@ -790,5 +815,10 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
             "alter_subscription_set_options"
         }
         Change::Subscription(SubscriptionChange::CommentOn { .. }) => "comment_on_subscription",
+        Change::Collation(CollationChange::Create(_)) => "create_collation",
+        Change::Collation(CollationChange::Drop { .. }) => "drop_collation",
+        Change::Collation(CollationChange::Rename { .. }) => "rename_collation",
+        Change::Collation(CollationChange::Replace { .. }) => "replace_collation",
+        Change::Collation(CollationChange::CommentOn { .. }) => "comment_on_collation",
     }
 }

@@ -745,6 +745,12 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
+        // Collation changes: Stage 6 wires real SQL helpers + StepKinds.
+        // Stub arms let the workspace compile; real emit lands in Stage 6.
+        Change::Collation(_) => {
+            // Stage 6 will replace this with real SQL rendering.
+        }
+
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach the rewrite phase")

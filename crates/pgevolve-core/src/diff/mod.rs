@@ -14,6 +14,7 @@
 pub mod change;
 pub mod changeset;
 pub mod cluster;
+pub mod collations;
 pub mod columns;
 pub mod constraints;
 pub mod default_privileges;
@@ -38,8 +39,8 @@ pub mod types;
 pub mod views;
 
 pub use change::{
-    Change, ChangeEntry, ExtensionChange, FunctionChange, MvChange, ProcedureChange, TableChange,
-    TriggerChange, UserTypeChange, ViewChange,
+    Change, ChangeEntry, CollationChange, ExtensionChange, FunctionChange, MvChange,
+    ProcedureChange, TableChange, TriggerChange, UserTypeChange, ViewChange,
 };
 pub use changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 pub use cluster::{ClusterChange, ClusterChangeEntry, ClusterChangeSet, diff_cluster};
@@ -118,6 +119,7 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
     publications::diff_publications(target, source, &mut out);
     subscriptions::diff_subscriptions(target, source, &mut out);
     statistics::diff_statistics(target, source, &mut out);
+    collations::diff_collations(target, source, &mut out);
 
     // ---- default-privileges diff ----
     let dp_changes = default_privileges::diff_default_privileges(

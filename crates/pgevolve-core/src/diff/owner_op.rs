@@ -31,6 +31,8 @@ pub enum OwnerObjectKind {
     Subscription,
     /// `ALTER STATISTICS x OWNER TO`.
     Statistic,
+    /// `ALTER COLLATION x OWNER TO`.
+    Collation,
 }
 
 impl OwnerObjectKind {
@@ -49,6 +51,7 @@ impl OwnerObjectKind {
             Self::Publication => "PUBLICATION",
             Self::Subscription => "SUBSCRIPTION",
             Self::Statistic => "STATISTICS",
+            Self::Collation => "COLLATION",
         }
     }
 }
@@ -134,6 +137,7 @@ mod tests {
         assert_eq!(OwnerObjectKind::Publication.sql_keyword(), "PUBLICATION");
         assert_eq!(OwnerObjectKind::Subscription.sql_keyword(), "SUBSCRIPTION");
         assert_eq!(OwnerObjectKind::Statistic.sql_keyword(), "STATISTICS");
+        assert_eq!(OwnerObjectKind::Collation.sql_keyword(), "COLLATION");
     }
 
     #[test]

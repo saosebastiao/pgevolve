@@ -11,6 +11,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::collation::Collation;
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::default_privileges::DefaultPrivObjectType;
@@ -294,6 +295,8 @@ pub enum Change {
     Subscription(SubscriptionChange),
     /// A nested change to a single statistic. See [`StatisticChange`].
     Statistic(StatisticChange),
+    /// A nested change to a single collation. See [`CollationChange`].
+    Collation(CollationChange),
 
     /// A change that cannot be performed in-place.
     ///
@@ -809,6 +812,51 @@ pub enum StatisticChange {
         /// Schema-qualified statistic name.
         qname: QualifiedName,
         /// New comment value (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// A structural change to a single collation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum CollationChange {
+    /// `CREATE COLLATION ...`
+    Create(Collation),
+    /// `DROP COLLATION qname` — destructive.
+    ///
+    /// Not emitted by the differ: collations are lenient like other v0.3.x
+    /// managed kinds (no auto-drop; unmanaged drift surfaces via the
+    /// `unmanaged-collation` lint). This variant exists for the parser and
+    /// future explicit-drop use cases.
+    Drop {
+        /// Schema-qualified collation name.
+        qname: QualifiedName,
+    },
+    /// `ALTER COLLATION qname RENAME TO new_name`.
+    ///
+    /// Not emitted by the differ: rename intent is not structurally derivable
+    /// from name-mismatched-but-same-shape collations (the user could equally
+    /// have meant drop-old + create-new). This variant exists for the parser
+    /// and future explicit-rename use cases.
+    Rename {
+        /// Existing qname.
+        from: QualifiedName,
+        /// New unqualified name (same schema).
+        to: Identifier,
+    },
+    /// `DROP COLLATION old; CREATE COLLATION new;` — PG has no in-place
+    /// ALTER for provider / locale / deterministic.
+    Replace {
+        /// The collation as it exists in the target.
+        from: Collation,
+        /// The collation as it should exist in the source.
+        to: Collation,
+    },
+    /// `COMMENT ON COLLATION qname IS '...'`.
+    CommentOn {
+        /// Schema-qualified collation name.
+        qname: QualifiedName,
+        /// New comment (`None` clears).
         comment: Option<String>,
     },
 }
