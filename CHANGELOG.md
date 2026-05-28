@@ -7,6 +7,38 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.9] — 2026-05-28
+
+Patch for the broken v0.3.8 — no new features.
+
+### Fixed
+
+- **Collation catalog reader on PG 15 and PG 16.** v0.3.8 shipped with
+  SQL that used `pg_collation.colllocale` for "PG 16+" — but
+  `colllocale` was introduced in PG 17, not PG 16. PG 15 added
+  `colliculocale` (ICU-only) and PG 17 renamed it to `colllocale`
+  (generic, since the new `builtin` provider also uses it). ICU rows
+  on PG 15 and PG 16 left `collcollate` NULL, so `pgevolve` returned
+  empty `lc_collate` strings and either crashed on decode or
+  triggered a "column c.colllocale does not exist" SQL error.
+  Three-way per-version SQL: PG 14 (legacy `collcollate`), PG 15/16
+  (`colliculocale`), PG 17/18 (`colllocale`). Commits `09cd563`
+  + `a30d7f3`.
+- **Tier-3 catalog round-trip snapshots re-blessed.** Stage 2 of the
+  v0.3.8 plan added `Catalog::collations: Vec<Collation>` but
+  the JSON snapshot fixtures under
+  `crates/pgevolve-core/tests/fixtures/catalog/pg{14,15,16,17}/`
+  were never re-blessed for the new field. Stage 11's pre-release
+  verify ran the conformance suite (`-p pgevolve-conformance`)
+  rather than the tier-3 round-trip in `pgevolve-core`, so the gap
+  surfaced only in CI on the v0.3.8 push. All 28 snapshots
+  re-blessed via `cargo xtask bless`. Commit `09cd563`.
+
+### Yanked
+
+- v0.3.8 yanked from crates.io. ICU collation reads against PG 15 or
+  PG 16 fail; users should upgrade to v0.3.9.
+
 ## [0.3.8] — 2026-05-28
 
 ### Added
