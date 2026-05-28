@@ -92,10 +92,10 @@ use pgevolve_core::ir::reloptions::{
 };
 use pgevolve_core::ir::schema::Schema;
 use pgevolve_core::ir::sequence::Sequence;
+use pgevolve_core::ir::statistic::{Statistic, StatisticColumn, StatisticKinds};
 use pgevolve_core::ir::subscription::{
     OriginMode, StreamingMode, Subscription, SubscriptionOptions,
 };
-use pgevolve_core::ir::statistic::{Statistic, StatisticColumn, StatisticKinds};
 use pgevolve_core::ir::table::Table;
 use pgevolve_core::ir::view::{CheckOption, View};
 use pgevolve_core::parse::normalize_body::NormalizedBody;
@@ -188,7 +188,13 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
                 statistics_strategy,
             )
                 .prop_flat_map(
-                    move |(idx_per_table, seq_owner_grants, default_privileges, publications, statistics)| {
+                    move |(
+                        idx_per_table,
+                        seq_owner_grants,
+                        default_privileges,
+                        publications,
+                        statistics,
+                    )| {
                         // Build the publication-name pool for subscription generation
                         // from the publications just generated for this catalog.
                         let pub_name_pool: Vec<Identifier> =
@@ -1205,45 +1211,47 @@ pub fn arb_statistic(
     // Need at least 2 columns (PG requires >= 2 for CREATE STATISTICS).
     let max_cols = col_pool.len().max(2);
     let col_count = 2usize..=max_cols;
-    (arb_statistic_kinds(), col_count, any::<u64>()).prop_map(
-        move |(kinds, n_cols, seed)| {
-            // Deterministically pick `n_cols` from the pool using the seed.
-            let chosen: Vec<StatisticColumn> = col_pool
+    (arb_statistic_kinds(), col_count, any::<u64>()).prop_map(move |(kinds, n_cols, seed)| {
+        // Deterministically pick `n_cols` from the pool using the seed.
+        let chosen: Vec<StatisticColumn> = col_pool
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                // XOR-shift to spread bits evenly.
+                let bit = (seed >> (*i % 64)) & 1;
+                bit == 1
+            })
+            .take(n_cols)
+            .map(|(_, id)| StatisticColumn::Column(id.clone()))
+            .collect();
+        // If the filter yielded fewer than 2, fall back to first n_cols.
+        let columns: Vec<StatisticColumn> = if chosen.len() >= 2 {
+            chosen
+        } else {
+            col_pool
                 .iter()
-                .enumerate()
-                .filter(|(i, _)| {
-                    // XOR-shift to spread bits evenly.
-                    let bit = (seed >> (*i % 64)) & 1;
-                    bit == 1
-                })
                 .take(n_cols)
-                .map(|(_, id)| StatisticColumn::Column(id.clone()))
-                .collect();
-            // If the filter yielded fewer than 2, fall back to first n_cols.
-            let columns: Vec<StatisticColumn> = if chosen.len() >= 2 {
-                chosen
-            } else {
-                col_pool
-                    .iter()
-                    .take(n_cols)
-                    .map(|id| StatisticColumn::Column(id.clone()))
-                    .collect()
-            };
-            let stat_name = format!("{}_{}", target_c.name.as_str(), STAT_NAMES[stat_idx % STAT_NAMES.len()]);
-            Statistic {
-                qname: QualifiedName::new(
-                    schema.clone(),
-                    Identifier::from_unquoted(&stat_name).unwrap(),
-                ),
-                target: target_c.clone(),
-                kinds,
-                columns,
-                statistics_target: None,
-                owner: None,
-                comment: None,
-            }
-        },
-    )
+                .map(|id| StatisticColumn::Column(id.clone()))
+                .collect()
+        };
+        let stat_name = format!(
+            "{}_{}",
+            target_c.name.as_str(),
+            STAT_NAMES[stat_idx % STAT_NAMES.len()]
+        );
+        Statistic {
+            qname: QualifiedName::new(
+                schema.clone(),
+                Identifier::from_unquoted(&stat_name).unwrap(),
+            ),
+            target: target_c.clone(),
+            kinds,
+            columns,
+            statistics_target: None,
+            owner: None,
+            comment: None,
+        }
+    })
 }
 
 /// Generate 0–1 statistics per table, drawing columns from the table's actual
@@ -1253,11 +1261,7 @@ fn arb_statistics_for_tables(tables: &[Table]) -> BoxedStrategy<Vec<Statistic>> 
     let eligible: Vec<(QualifiedName, Vec<Identifier>)> = tables
         .iter()
         .filter_map(|t| {
-            let non_pk_cols: Vec<Identifier> = t
-                .columns
-                .iter()
-                .map(|c| c.name.clone())
-                .collect();
+            let non_pk_cols: Vec<Identifier> = t.columns.iter().map(|c| c.name.clone()).collect();
             if non_pk_cols.len() >= 2 {
                 Some((t.qname.clone(), non_pk_cols))
             } else {
@@ -1275,11 +1279,7 @@ fn arb_statistics_for_tables(tables: &[Table]) -> BoxedStrategy<Vec<Statistic>> 
         .into_iter()
         .enumerate()
         .map(|(idx, (qname, cols))| {
-            prop_oneof![
-                Just(None),
-                arb_statistic(idx, qname, cols).prop_map(Some),
-            ]
-            .boxed()
+            prop_oneof![Just(None), arb_statistic(idx, qname, cols).prop_map(Some),].boxed()
         })
         .collect();
 

@@ -32,7 +32,7 @@ manage. See [`../README.md`](./README.md) for the status legend.
 | `MATERIALIZED VIEW` | ✅ Implemented | Physically-stored view. `WITH NO DATA` initial state honored. `REFRESH MATERIALIZED VIEW` step kind lands with the planner; upgraded to `REFRESH MATERIALIZED VIEW CONCURRENTLY` under online strategy when the MV has a unique index (`refresh_mv_concurrently = true`).<br>**Tests:** tier-1: `crates/pgevolve-core/src/parse/builder/create_materialized_view_stmt.rs::tests`, `plan/rewrite/refresh_mv_concurrently.rs::tests`; tier-C: `objects/materialized_views/create-simple`, `index-on-mv`, `refresh-concurrently`, `replace-body`, `with-no-data-override` |
 | `security_barrier` reloption | ✅ Implemented | Modeled as `View::security_barrier: Option<bool>`. Emitted as `ALTER VIEW … SET (security_barrier = …)` via the `alter_view_set_reloption` step kind.<br>**Tests:** tier-C: `objects/views/security-barrier-toggle` |
 | `security_invoker` reloption | ✅ Implemented | Modeled as `View::security_invoker: Option<bool>`. Same step kind as `security_barrier`.<br>**Tests:** tier-C: `objects/views/security-invoker-toggle` |
-| `CREATE VIEW ... WITH CHECK OPTION` | 📋 Planned, v0.3.7 | Plumbed alongside views; defaults off. See [`roadmap.md`](./roadmap.md). |
+| `CREATE VIEW ... WITH CHECK OPTION` | ✅ Supported | Per-view `check_option: Option<CheckOption>` (`Local` / `Cascaded`). Both source forms parsed (SQL clause + WITH-options). Diff emits `CREATE OR REPLACE VIEW`. change_kinds: [alter_view_set_check_option] |
 | Recursive views (`WITH RECURSIVE`) | 🔮 Future | Requires cycle-aware dep-graph handling. |
 
 ## Functions, procedures, triggers
@@ -289,7 +289,7 @@ The edge is `DepSource::Structural`. It ensures that when both a parent and a ch
 
 | Object | Status | Notes |
 |---|---|---|
-| `STATISTICS` (`CREATE STATISTICS`) | 📋 Planned, v0.3.7 | Multi-column statistics objects (`ndistinct`, `dependencies`, `mcv`). See [`roadmap.md`](./roadmap.md). |
+| `STATISTICS` (`CREATE STATISTICS`) | ✅ Supported | Multi-column statistics objects (ndistinct, dependencies, mcv) + PG14+ expression statistics. Explicit names required (no anonymous form). Granular differ — `ALTER SET STATISTICS` for target, `ReplaceStatistic` for any other change. `unmanaged-statistic` lint. change_kinds: [create_statistic, drop_statistic, replace_statistic, alter_statistic_set_target, comment_on_statistic] |
 | `RULE` | ⛔ Not planned | Largely superseded by triggers; pg_query already discourages new rules. |
 | `SERVER` (FDW server) | 📋 Planned, v0.5.0 | Lands with FDWs. See [`roadmap.md`](./roadmap.md). |
 | `USER MAPPING` | 📋 Planned, v0.5.0 | Lands with FDWs. See [`roadmap.md`](./roadmap.md). |

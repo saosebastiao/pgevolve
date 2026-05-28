@@ -7,6 +7,33 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.7] — 2026-05-27
+
+### Added
+
+- **`CREATE STATISTICS`** — multi-column statistics objects (ndistinct,
+  dependencies, mcv) with PG 14+ expression statistics. Explicit names
+  required (anonymous form rejected, mirroring index-naming policy).
+  Granular differ: `AlterStatisticSetTarget` for the cheap `SET STATISTICS n`
+  path; `ReplaceStatistic` (DROP + CREATE) for any other change since PG
+  has no in-place ALTER for column lists or kinds.
+- **`CREATE VIEW … WITH CHECK OPTION`** — per-view `check_option:
+  Option<CheckOption>` (`Local` | `Cascaded`). Parser folds both SQL-clause
+  and WITH-options forms; differ emits `CREATE OR REPLACE VIEW`.
+- **5 new StepKind variants for STATISTICS** + **1 for views**:
+  `CreateStatistic`, `DropStatistic`, `ReplaceStatistic`,
+  `AlterStatisticSetTarget`, `CommentOnStatistic`,
+  `AlterViewSetCheckOption`.
+- **`unmanaged-statistic` lint** (Warning, waivable) — standard v0.3.x
+  lenient-drift surface.
+- **9 conformance fixtures** (3 views + 6 statistics).
+
+### Closes
+
+Third and fourth items from the post-v0.3.3 agreed roadmap
+(`STATISTICS` was 📋 Planned in `objects.md`; `CREATE VIEW … WITH
+CHECK OPTION` was 🔮 Future).
+
 ## [0.3.6] — 2026-05-27
 
 ### Added

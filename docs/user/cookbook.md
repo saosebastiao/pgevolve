@@ -889,3 +889,139 @@ pgevolve apply plans/2026-05-11-abc1234567890123 --db staging \
 This is **intentionally explicit**. The much safer pattern is to plan
 twice (once per environment) and review both plans — drift between
 environments will show up as a plan difference.
+
+## Multi-column statistics for correlated columns
+
+When two or more columns are strongly correlated (e.g., `status` and `region`
+always appear together), Postgres tends to drastically underestimate the
+selectivity of combined predicates. `CREATE STATISTICS` teaches the planner
+about these correlations.
+
+### Declare the statistic
+
+```sql
+-- schema/app/tables.sql
+CREATE TABLE app.orders (
+    id       bigint NOT NULL,
+    status   text   NOT NULL,
+    region   text   NOT NULL,
+    amount   numeric NOT NULL,
+    CONSTRAINT orders_pkey PRIMARY KEY (id)
+);
+
+-- schema/app/statistics.sql
+CREATE STATISTICS app.orders_status_region
+    ON (status, region)
+    FROM app.orders;
+```
+
+`pgevolve plan --db dev` →
+
+```sql
+-- @pgevolve group id=1 transactional=true
+BEGIN;
+-- @pgevolve step=1 kind=create_statistic destructive=false targets=app.orders_status_region
+CREATE STATISTICS app.orders_status_region ON (status, region) FROM app.orders;
+-- @pgevolve step=2 kind=create_statistic destructive=false targets=app.orders_status_region
+ANALYZE app.orders;
+COMMIT;
+```
+
+No intent required.
+
+### Limit to specific kinds
+
+If you only want functional dependency tracking (the cheapest kind):
+
+```sql
+CREATE STATISTICS app.orders_dep
+    (dependencies)
+    ON (status, region)
+    FROM app.orders;
+```
+
+The kinds clause accepts any non-empty subset of `ndistinct`, `dependencies`,
+`mcv`. Omitting the clause enables all three (Postgres default).
+
+### Raise the analyze target for fine-grained estimates
+
+The `statistics_target` controls how many rows the analyzer samples when
+building the statistic. The Postgres default is `-1` (inherit the column
+setting, usually 100). Raising it to 500 gives much more accurate estimates
+for skewed distributions:
+
+```sql
+-- Before (no target override)
+CREATE STATISTICS app.orders_status_region
+    ON (status, region)
+    FROM app.orders;
+
+-- After (raise target)
+CREATE STATISTICS app.orders_status_region
+    ON (status, region)
+    FROM app.orders;
+ALTER STATISTICS app.orders_status_region SET STATISTICS 500;
+```
+
+`pgevolve plan --db dev` →
+
+```sql
+-- @pgevolve group id=1 transactional=true
+BEGIN;
+-- @pgevolve step=1 kind=alter_statistic_set_target destructive=false targets=app.orders_status_region
+ALTER STATISTICS app.orders_status_region SET STATISTICS 500;
+COMMIT;
+```
+
+This uses the cheap `AlterStatisticSetTarget` path — no DROP + CREATE needed.
+
+### What triggers a destructive ReplaceStatistic
+
+Changing the column list or the kinds requires a `DROP STATISTICS` + `CREATE
+STATISTICS` because Postgres has no in-place `ALTER` for those fields:
+
+```sql
+-- Before
+CREATE STATISTICS app.orders_status_region
+    ON (status, region) FROM app.orders;
+
+-- After — add amount column
+CREATE STATISTICS app.orders_status_region
+    ON (status, region, amount) FROM app.orders;
+```
+
+`pgevolve plan --db dev` →
+
+```sql
+-- @pgevolve group id=1 transactional=false
+-- @pgevolve step=1 kind=replace_statistic destructive=true targets=app.orders_status_region intent=required
+DROP STATISTICS app.orders_status_region;
+CREATE STATISTICS app.orders_status_region ON (status, region, amount) FROM app.orders;
+```
+
+`intent=required` means you must acknowledge the destructive step in
+`pgevolve.toml` or pass `--intent` on the CLI before the plan can be applied.
+
+### Lint: unmanaged statistics
+
+If a statistic exists in the live database but is not declared in source,
+pgevolve emits an `unmanaged-statistic` warning (severity Warning, waivable):
+
+```
+WARN unmanaged-statistic: statistics app.orders_status_region exists in the
+     catalog but is not declared in source. Add it to source or waive this
+     lint in pgevolve.toml.
+```
+
+To waive it:
+
+```toml
+# pgevolve.toml
+[[lint.waive]]
+rule = "unmanaged-statistic"
+target = "app.orders_status_region"
+reason = "Legacy statistic, managed out-of-band."
+```
+
+See [`docs/spec/statistics.md`](../spec/statistics.md) for the full surface,
+step-kind matrix, and catalog reader notes.
