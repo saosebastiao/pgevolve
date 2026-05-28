@@ -5,6 +5,7 @@
 //! per-version submodules; [`query_for`] dispatches.
 
 pub mod cluster;
+pub mod collations;
 pub mod default_privileges;
 pub mod extensions;
 pub mod functions;
@@ -72,6 +73,7 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::Statistics) => shared::STATISTICS_QUERY,
         (_, CatalogQuery::StatisticAttributes) => shared::STATISTIC_ATTRIBUTES_QUERY,
         (_, CatalogQuery::StatisticExpressions) => shared::STATISTIC_EXPRESSIONS_QUERY,
+        (_, CatalogQuery::Collations) => collations::SELECT_COLLATIONS,
     }
 }
 

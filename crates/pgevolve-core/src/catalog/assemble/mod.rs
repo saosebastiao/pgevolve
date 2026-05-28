@@ -16,6 +16,7 @@
 //!   `Sequence.owned_by` and the column-side `Identity`/`Default::Sequence`
 //!   linkage so source-IR and catalog-IR converge on the same shape.
 
+pub(in crate::catalog) mod collations;
 pub(super) mod default_privileges;
 mod functions;
 mod partitions;

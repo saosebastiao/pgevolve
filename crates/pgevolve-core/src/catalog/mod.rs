@@ -25,6 +25,7 @@ pub use rows::{Row, Value};
 pub use version::PgVersion;
 
 mod assemble;
+pub(crate) mod collations;
 pub(crate) mod grants;
 pub(crate) mod publications;
 pub(crate) mod reloptions;
@@ -178,6 +179,10 @@ pub enum CatalogQuery {
     /// columns `(stat_oid, expr_index, expr_sql)`. Takes `$1::text[]`
     /// (managed schema names).
     StatisticExpressions,
+    /// `pg_collation` rows for managed schemas — user-defined collations only
+    /// (built-in and extension-owned collations are filtered out at the SQL
+    /// layer). Takes `$1::text[]` (managed schema names).
+    Collations,
 }
 
 impl CatalogQuery {
@@ -288,6 +293,10 @@ pub fn read_catalog(
     let statistic_attributes_rows = querier.fetch(CatalogQuery::StatisticAttributes, &managed)?;
     let statistic_expressions_rows = querier.fetch(CatalogQuery::StatisticExpressions, &managed)?;
 
+    // Collations — schema-scoped. User-defined only; built-ins and extension-
+    // owned collations filtered at the SQL layer.
+    let collations_rows = querier.fetch(CatalogQuery::Collations, &managed)?;
+
     let raw = assemble::RawRows {
         version,
         schemas: schemas_rows,
@@ -327,6 +336,9 @@ pub fn read_catalog(
         &statistic_attributes_rows,
         &statistic_expressions_rows,
     )?;
+
+    // Assemble collations from the bulk-fetched rows.
+    catalog.collations = assemble::collations::build_collations(&collations_rows)?;
 
     Ok((catalog.canonicalize()?, drift))
 }
