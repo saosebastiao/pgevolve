@@ -76,8 +76,9 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (PgVersion::Pg14 | PgVersion::Pg15, CatalogQuery::Collations) => {
             collations::SELECT_COLLATIONS_PG14_15
         }
-        (PgVersion::Pg16 | PgVersion::Pg17 | PgVersion::Pg18, CatalogQuery::Collations) => {
-            collations::SELECT_COLLATIONS_PG16_PLUS
+        (PgVersion::Pg16, CatalogQuery::Collations) => collations::SELECT_COLLATIONS_PG16,
+        (PgVersion::Pg17 | PgVersion::Pg18, CatalogQuery::Collations) => {
+            collations::SELECT_COLLATIONS_PG17_PLUS
         }
     }
 }
@@ -114,8 +115,16 @@ mod tests {
     }
 
     #[test]
-    fn pg16_plus_collations_query_coalesces_colllocale() {
-        for v in [PgVersion::Pg16, PgVersion::Pg17, PgVersion::Pg18] {
+    fn pg16_collations_query_coalesces_colliculocale() {
+        let q = query_for(PgVersion::Pg16, CatalogQuery::Collations);
+        assert!(q.contains("colliculocale"));
+        assert!(!q.contains("colllocale")); // PG 16 doesn't have the generic colllocale yet
+        assert!(q.contains("COALESCE"));
+    }
+
+    #[test]
+    fn pg17_plus_collations_query_coalesces_colllocale() {
+        for v in [PgVersion::Pg17, PgVersion::Pg18] {
             let q = query_for(v, CatalogQuery::Collations);
             assert!(q.contains("colllocale"));
             assert!(q.contains("COALESCE"));
