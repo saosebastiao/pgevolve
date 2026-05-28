@@ -73,10 +73,10 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::Statistics) => shared::STATISTICS_QUERY,
         (_, CatalogQuery::StatisticAttributes) => shared::STATISTIC_ATTRIBUTES_QUERY,
         (_, CatalogQuery::StatisticExpressions) => shared::STATISTIC_EXPRESSIONS_QUERY,
-        (PgVersion::Pg14 | PgVersion::Pg15, CatalogQuery::Collations) => {
-            collations::SELECT_COLLATIONS_PG14_15
+        (PgVersion::Pg14, CatalogQuery::Collations) => collations::SELECT_COLLATIONS_PG14,
+        (PgVersion::Pg15 | PgVersion::Pg16, CatalogQuery::Collations) => {
+            collations::SELECT_COLLATIONS_PG15_16
         }
-        (PgVersion::Pg16, CatalogQuery::Collations) => collations::SELECT_COLLATIONS_PG16,
         (PgVersion::Pg17 | PgVersion::Pg18, CatalogQuery::Collations) => {
             collations::SELECT_COLLATIONS_PG17_PLUS
         }
@@ -106,20 +106,21 @@ mod tests {
     }
 
     #[test]
-    fn pg14_15_collations_query_uses_legacy_columns_only() {
-        for v in [PgVersion::Pg14, PgVersion::Pg15] {
-            let q = query_for(v, CatalogQuery::Collations);
-            assert!(!q.contains("colllocale"));
-            assert!(q.contains("collcollate"));
-        }
+    fn pg14_collations_query_uses_legacy_columns_only() {
+        let q = query_for(PgVersion::Pg14, CatalogQuery::Collations);
+        assert!(!q.contains("colllocale"));
+        assert!(!q.contains("colliculocale"));
+        assert!(q.contains("collcollate"));
     }
 
     #[test]
-    fn pg16_collations_query_coalesces_colliculocale() {
-        let q = query_for(PgVersion::Pg16, CatalogQuery::Collations);
-        assert!(q.contains("colliculocale"));
-        assert!(!q.contains("colllocale")); // PG 16 doesn't have the generic colllocale yet
-        assert!(q.contains("COALESCE"));
+    fn pg15_16_collations_query_coalesces_colliculocale() {
+        for v in [PgVersion::Pg15, PgVersion::Pg16] {
+            let q = query_for(v, CatalogQuery::Collations);
+            assert!(q.contains("colliculocale"));
+            assert!(!q.contains("c.colllocale")); // qualified — make sure substring of colliculocale doesn't match
+            assert!(q.contains("COALESCE"));
+        }
     }
 
     #[test]
@@ -127,6 +128,7 @@ mod tests {
         for v in [PgVersion::Pg17, PgVersion::Pg18] {
             let q = query_for(v, CatalogQuery::Collations);
             assert!(q.contains("colllocale"));
+            assert!(!q.contains("colliculocale"));
             assert!(q.contains("COALESCE"));
         }
     }

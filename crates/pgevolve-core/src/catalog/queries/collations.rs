@@ -5,26 +5,26 @@
 //! user-created collations surface. Extension ownership is detected via the
 //! `pg_depend.deptype = 'e'` subquery.
 //!
-//! PG 16 introduced `pg_collation.colliculocale` (ICU-only) for ICU
-//! collations: ICU rows on PG 16 store their locale in `colliculocale` and
-//! leave `collcollate` / `collctype` NULL. PG 17 added the `builtin` provider
-//! and renamed `colliculocale` → `colllocale` (generic, since `builtin` rows
-//! also use it). PG ≤15 has neither column and uses `collcollate` / `collctype`
-//! for every provider.
+//! PG 15 introduced `pg_collation.colliculocale` (ICU-only) for ICU
+//! collations: ICU rows on PG 15/16 store their locale in `colliculocale`
+//! and leave `collcollate` / `collctype` NULL. PG 17 added the `builtin`
+//! provider and renamed `colliculocale` → `colllocale` (generic, since
+//! `builtin` rows also use it). PG 14 has neither column and stores ICU
+//! locale data directly in `collcollate`.
 //!
 //! Three per-version SQL strings keep the dispatch simple:
-//! - PG 14/15 query the legacy columns directly.
-//! - PG 16 COALESCEs through `colliculocale`.
+//! - PG 14 queries the legacy columns directly.
+//! - PG 15/16 COALESCE through `colliculocale`.
 //! - PG 17/18 COALESCE through `colllocale`.
 
-/// Per-managed-schema query for `pg_collation` on PG 14 and 15.
+/// Per-managed-schema query for `pg_collation` on PG 14.
 ///
 /// Takes a single `text[]` parameter listing managed-schema names.
 /// Returns one row per user-defined collation, ordered by `(schema, name)`.
 ///
-/// Neither PG 14 nor PG 15 has the `colllocale` column, so we read
-/// `collcollate` / `collctype` directly.
-pub const SELECT_COLLATIONS_PG14_15: &str = "\
+/// PG 14 has neither `colliculocale` nor `colllocale`; ICU rows store
+/// their locale directly in `collcollate` like libc rows.
+pub const SELECT_COLLATIONS_PG14: &str = "\
 SELECT \
     n.nspname::text AS schema, \
     c.collname::text AS name, \
@@ -48,13 +48,13 @@ WHERE n.nspname <> 'pg_catalog' \
   AND n.nspname = ANY($1::text[]) \
 ORDER BY n.nspname, c.collname";
 
-/// Per-managed-schema query for `pg_collation` on PG 16.
+/// Per-managed-schema query for `pg_collation` on PG 15 and 16.
 ///
-/// PG 16 added `colliculocale` (ICU-only) to hold the ICU locale string; for
-/// ICU rows `collcollate` / `collctype` are NULL and the real locale lives in
-/// `colliculocale`. We `COALESCE` so a single text column surfaces for every
-/// provider.
-pub const SELECT_COLLATIONS_PG16: &str = "\
+/// PG 15 added `colliculocale` (ICU-only) to hold the ICU locale string;
+/// for ICU rows `collcollate` / `collctype` are NULL and the real locale
+/// lives in `colliculocale`. PG 16 kept the same column name. We `COALESCE`
+/// so a single text column surfaces for every provider.
+pub const SELECT_COLLATIONS_PG15_16: &str = "\
 SELECT \
     n.nspname::text AS schema, \
     c.collname::text AS name, \
