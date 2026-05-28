@@ -9,8 +9,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
 use crate::diff::change::{
-    Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, TableChange, TriggerChange,
-    UserTypeChange, ViewChange,
+    Change, ChangeEntry, FunctionChange, MvChange, ProcedureChange, PublicationChange,
+    StatisticChange, SubscriptionChange, TableChange, TriggerChange, UserTypeChange, ViewChange,
 };
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::TableOp;
@@ -237,9 +237,9 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::CreateSequence(_)
             | Change::View(ViewChange::Create(_))
             | Change::Mv(MvChange::Create(_))
-            | Change::CreatePublication(_)
-            | Change::CreateSubscription(_)
-            | Change::CreateStatistic(_) => creates.push(entry),
+            | Change::Publication(PublicationChange::Create(_))
+            | Change::Subscription(SubscriptionChange::Create(_))
+            | Change::Statistic(StatisticChange::Create(_)) => creates.push(entry),
             // Drops: ordered by reverse-dependency (deepest dependents first).
             Change::DropSchema(_)
             | Change::DropTable { .. }
@@ -247,9 +247,10 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::DropSequence(_)
             | Change::View(ViewChange::Drop(_))
             | Change::Mv(MvChange::Drop(_))
-            | Change::DropSubscription { .. }
-            | Change::DropStatistic { .. }
-            | Change::ReplaceStatistic { .. } => drops.push(entry),
+            | Change::Subscription(SubscriptionChange::Drop { .. })
+            | Change::Statistic(
+                StatisticChange::Drop { .. } | StatisticChange::Replace { .. },
+            ) => drops.push(entry),
             // Modifies: ALTER / REPLACE / COMMENT / drift-recovery / grant / owner.
             Change::AlterTable { .. }
             | Change::AlterSchema { .. }
@@ -346,25 +347,32 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::AlterViewSetCheckOption { .. }
             // Publication alter/comment changes: metadata-only, always modifies.
             // Subscription alter/comment changes: same bucket.
-            | Change::AlterPublicationAddTable { .. }
-            | Change::AlterPublicationDropTable { .. }
-            | Change::AlterPublicationSetTable { .. }
-            | Change::AlterPublicationAddSchema { .. }
-            | Change::AlterPublicationDropSchema { .. }
-            | Change::AlterPublicationSetPublish { .. }
-            | Change::AlterPublicationSetViaRoot { .. }
-            | Change::CommentOnPublication { .. }
-            | Change::AlterSubscriptionConnection { .. }
-            | Change::AlterSubscriptionAddPublication { .. }
-            | Change::AlterSubscriptionDropPublication { .. }
-            | Change::AlterSubscriptionSetOptions { .. }
-            | Change::CommentOnSubscription { .. }
-            | Change::AlterStatisticSetTarget { .. }
-            | Change::CommentOnStatistic { .. } => {
+            | Change::Publication(
+                PublicationChange::AddTable { .. }
+                | PublicationChange::DropTable { .. }
+                | PublicationChange::SetTable { .. }
+                | PublicationChange::AddSchema { .. }
+                | PublicationChange::DropSchema { .. }
+                | PublicationChange::SetPublish { .. }
+                | PublicationChange::SetViaRoot { .. }
+                | PublicationChange::CommentOn { .. },
+            )
+            | Change::Subscription(
+                SubscriptionChange::AlterConnection { .. }
+                | SubscriptionChange::AddPublication { .. }
+                | SubscriptionChange::DropPublication { .. }
+                | SubscriptionChange::SetOptions { .. }
+                | SubscriptionChange::CommentOn { .. },
+            )
+            | Change::Statistic(
+                StatisticChange::AlterSetTarget { .. } | StatisticChange::CommentOn { .. },
+            ) => {
                 modifies.push(entry);
             }
             // Publication drops/replaces: destructive, goes in drops bucket.
-            Change::DropPublication { .. } | Change::ReplacePublication { .. } => {
+            Change::Publication(
+                PublicationChange::Drop { .. } | PublicationChange::Replace { .. },
+            ) => {
                 drops.push(entry);
             }
             // UnsupportedDiff: abort the plan immediately.
@@ -507,38 +515,50 @@ fn change_node(change: &Change) -> NodeId {
         Change::SetIndexStorage { qname, .. } => NodeId::Index(qname.clone()),
         Change::SetMaterializedViewStorage { qname, .. } => NodeId::Mv(qname.clone()),
         // Publication changes: use NodeId::Publication keyed by publication name.
-        Change::CreatePublication(p) => NodeId::Publication(p.name.clone()),
-        Change::DropPublication { name } | Change::CommentOnPublication { name, .. } => {
-            NodeId::Publication(name.clone())
+        Change::Publication(PublicationChange::Create(p)) => NodeId::Publication(p.name.clone()),
+        Change::Publication(
+            PublicationChange::Drop { name } | PublicationChange::CommentOn { name, .. },
+        ) => NodeId::Publication(name.clone()),
+        Change::Publication(PublicationChange::Replace { to, .. }) => {
+            NodeId::Publication(to.name.clone())
         }
-        Change::ReplacePublication { to, .. } => NodeId::Publication(to.name.clone()),
-        Change::AlterPublicationAddTable { publication, .. }
-        | Change::AlterPublicationDropTable { publication, .. }
-        | Change::AlterPublicationSetTable { publication, .. }
-        | Change::AlterPublicationAddSchema { publication, .. }
-        | Change::AlterPublicationDropSchema { publication, .. }
-        | Change::AlterPublicationSetPublish { publication, .. }
-        | Change::AlterPublicationSetViaRoot { publication, .. } => {
-            NodeId::Publication(publication.clone())
-        }
+        Change::Publication(
+            PublicationChange::AddTable { publication, .. }
+            | PublicationChange::DropTable { publication, .. }
+            | PublicationChange::SetTable { publication, .. }
+            | PublicationChange::AddSchema { publication, .. }
+            | PublicationChange::DropSchema { publication, .. }
+            | PublicationChange::SetPublish { publication, .. }
+            | PublicationChange::SetViaRoot { publication, .. },
+        ) => NodeId::Publication(publication.clone()),
         // Subscription changes: use NodeId::Subscription keyed by subscription name.
         // Subscriptions have no local dep edges (they cross-reference a remote cluster);
         // the tier rule in `order` schedules them create-last, drop-first.
-        Change::CreateSubscription(s) => NodeId::Subscription(s.name.clone()),
-        Change::DropSubscription { name } => NodeId::Subscription(name.clone()),
-        Change::AlterSubscriptionConnection { name, .. }
-        | Change::AlterSubscriptionAddPublication { name, .. }
-        | Change::AlterSubscriptionDropPublication { name, .. }
-        | Change::AlterSubscriptionSetOptions { name, .. }
-        | Change::CommentOnSubscription { name, .. } => NodeId::Subscription(name.clone()),
+        Change::Subscription(SubscriptionChange::Create(s)) => {
+            NodeId::Subscription(s.name.clone())
+        }
+        Change::Subscription(SubscriptionChange::Drop { name }) => {
+            NodeId::Subscription(name.clone())
+        }
+        Change::Subscription(
+            SubscriptionChange::AlterConnection { name, .. }
+            | SubscriptionChange::AddPublication { name, .. }
+            | SubscriptionChange::DropPublication { name, .. }
+            | SubscriptionChange::SetOptions { name, .. }
+            | SubscriptionChange::CommentOn { name, .. },
+        ) => NodeId::Subscription(name.clone()),
         // Statistic changes: use NodeId::Statistic for correct topological ordering.
         // Statistics depend on their target table, so they are created after it and
         // dropped before it.
-        Change::CreateStatistic(s) => NodeId::Statistic(s.qname.clone()),
-        Change::ReplaceStatistic { to, .. } => NodeId::Statistic(to.qname.clone()),
-        Change::DropStatistic { qname }
-        | Change::AlterStatisticSetTarget { qname, .. }
-        | Change::CommentOnStatistic { qname, .. } => NodeId::Statistic(qname.clone()),
+        Change::Statistic(StatisticChange::Create(s)) => NodeId::Statistic(s.qname.clone()),
+        Change::Statistic(StatisticChange::Replace { to, .. }) => {
+            NodeId::Statistic(to.qname.clone())
+        }
+        Change::Statistic(
+            StatisticChange::Drop { qname }
+            | StatisticChange::AlterSetTarget { qname, .. }
+            | StatisticChange::CommentOn { qname, .. },
+        ) => NodeId::Statistic(qname.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")
@@ -554,7 +574,7 @@ fn change_node(change: &Change) -> NodeId {
 fn tier_subscriptions_last(entries: Vec<ChangeEntry>) -> Vec<ChangeEntry> {
     let (mut rest, mut subs): (Vec<_>, Vec<_>) = entries
         .into_iter()
-        .partition(|e| !matches!(e.change, Change::CreateSubscription(_)));
+        .partition(|e| !matches!(e.change, Change::Subscription(SubscriptionChange::Create(_))));
     rest.append(&mut subs);
     rest
 }
@@ -567,7 +587,7 @@ fn tier_subscriptions_last(entries: Vec<ChangeEntry>) -> Vec<ChangeEntry> {
 fn tier_subscriptions_first(entries: Vec<ChangeEntry>) -> Vec<ChangeEntry> {
     let (mut subs, mut rest): (Vec<_>, Vec<_>) = entries
         .into_iter()
-        .partition(|e| matches!(e.change, Change::DropSubscription { .. }));
+        .partition(|e| matches!(e.change, Change::Subscription(SubscriptionChange::Drop { .. })));
     subs.append(&mut rest);
     subs
 }

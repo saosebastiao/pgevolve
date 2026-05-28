@@ -288,153 +288,12 @@ pub enum Change {
         options: crate::ir::reloptions::TableStorageOptions,
     },
 
-    /// `CREATE PUBLICATION ...`
-    CreatePublication(crate::ir::publication::Publication),
-    /// `DROP PUBLICATION ...` — destructive.
-    DropPublication {
-        /// Publication name.
-        name: crate::identifier::Identifier,
-    },
-    /// `DROP PUBLICATION old; CREATE PUBLICATION new;` — destructive; used
-    /// when the publication's scope mode switches (`AllTables` ↔ `Selective`).
-    ReplacePublication {
-        /// The publication as it exists in the target.
-        from: crate::ir::publication::Publication,
-        /// The publication as it should exist in the source.
-        to: crate::ir::publication::Publication,
-    },
-    /// `ALTER PUBLICATION p ADD TABLE x [(cols)] [WHERE (filter)]`
-    AlterPublicationAddTable {
-        /// Publication name.
-        publication: crate::identifier::Identifier,
-        /// The table entry to add.
-        table: crate::ir::publication::PublishedTable,
-    },
-    /// `ALTER PUBLICATION p DROP TABLE x`
-    AlterPublicationDropTable {
-        /// Publication name.
-        publication: crate::identifier::Identifier,
-        /// Qualified name of the table to drop.
-        qname: crate::identifier::QualifiedName,
-    },
-    /// `ALTER PUBLICATION p SET TABLE x (cols) WHERE (filter)`
-    AlterPublicationSetTable {
-        /// Publication name.
-        publication: crate::identifier::Identifier,
-        /// The desired table entry state.
-        table: crate::ir::publication::PublishedTable,
-    },
-    /// `ALTER PUBLICATION p ADD TABLES IN SCHEMA s` (PG15+)
-    AlterPublicationAddSchema {
-        /// Publication name.
-        publication: crate::identifier::Identifier,
-        /// Schema to add.
-        schema: crate::identifier::Identifier,
-    },
-    /// `ALTER PUBLICATION p DROP TABLES IN SCHEMA s` (PG15+)
-    AlterPublicationDropSchema {
-        /// Publication name.
-        publication: crate::identifier::Identifier,
-        /// Schema to drop.
-        schema: crate::identifier::Identifier,
-    },
-    /// `ALTER PUBLICATION p SET (publish = '...')`
-    AlterPublicationSetPublish {
-        /// Publication name.
-        publication: crate::identifier::Identifier,
-        /// Desired publish-kinds bitset.
-        kinds: crate::ir::publication::PublishKinds,
-    },
-    /// `ALTER PUBLICATION p SET (publish_via_partition_root = ...)`
-    AlterPublicationSetViaRoot {
-        /// Publication name.
-        publication: crate::identifier::Identifier,
-        /// Desired value.
-        value: bool,
-    },
-    /// `COMMENT ON PUBLICATION p IS '...'`
-    CommentOnPublication {
-        /// Publication name.
-        name: crate::identifier::Identifier,
-        /// New comment value (`None` clears the comment).
-        comment: Option<String>,
-    },
-
-    /// `CREATE STATISTICS ...`
-    CreateStatistic(crate::ir::statistic::Statistic),
-    /// `DROP STATISTICS ...` — destructive.
-    DropStatistic {
-        /// Schema-qualified statistic name.
-        qname: crate::identifier::QualifiedName,
-    },
-    /// `DROP STATISTICS old; CREATE STATISTICS new;` — destructive; used
-    /// when columns / kinds / target table differ (PG has no in-place ALTER
-    /// for those fields).
-    ReplaceStatistic {
-        /// The statistic as it exists in the target.
-        from: crate::ir::statistic::Statistic,
-        /// The statistic as it should exist in the source.
-        to: crate::ir::statistic::Statistic,
-    },
-    /// `ALTER STATISTICS s SET STATISTICS n` — analyze target.
-    AlterStatisticSetTarget {
-        /// Schema-qualified statistic name.
-        qname: crate::identifier::QualifiedName,
-        /// New statistics target value.
-        value: i32,
-    },
-    /// `COMMENT ON STATISTICS s IS '...'`
-    CommentOnStatistic {
-        /// Schema-qualified statistic name.
-        qname: crate::identifier::QualifiedName,
-        /// New comment value (`None` clears the comment).
-        comment: Option<String>,
-    },
-
-    /// `CREATE SUBSCRIPTION ...`
-    CreateSubscription(crate::ir::subscription::Subscription),
-    /// `DROP SUBSCRIPTION ...` — destructive.
-    DropSubscription {
-        /// Subscription name.
-        name: crate::identifier::Identifier,
-    },
-    /// `ALTER SUBSCRIPTION s CONNECTION '...'`
-    AlterSubscriptionConnection {
-        /// Subscription name.
-        name: crate::identifier::Identifier,
-        /// New connection string (may contain `${VAR}` placeholders).
-        new_connection: String,
-    },
-    /// `ALTER SUBSCRIPTION s ADD PUBLICATION p`
-    AlterSubscriptionAddPublication {
-        /// Subscription name.
-        name: crate::identifier::Identifier,
-        /// Publication to add.
-        publication: crate::identifier::Identifier,
-    },
-    /// `ALTER SUBSCRIPTION s DROP PUBLICATION p`
-    AlterSubscriptionDropPublication {
-        /// Subscription name.
-        name: crate::identifier::Identifier,
-        /// Publication to drop.
-        publication: crate::identifier::Identifier,
-    },
-    /// `ALTER SUBSCRIPTION s SET (option = value, ...)` — sparse-delta.
-    ///
-    /// `create_slot` and `copy_data` are NEVER included (CREATE-only PG options).
-    AlterSubscriptionSetOptions {
-        /// Subscription name.
-        name: crate::identifier::Identifier,
-        /// Sparse options delta — only changed fields are `Some`.
-        options: crate::ir::subscription::SubscriptionOptions,
-    },
-    /// `COMMENT ON SUBSCRIPTION s IS '...'`
-    CommentOnSubscription {
-        /// Subscription name.
-        name: crate::identifier::Identifier,
-        /// New comment value (`None` clears the comment).
-        comment: Option<String>,
-    },
+    /// A nested change to a single publication. See [`PublicationChange`].
+    Publication(PublicationChange),
+    /// A nested change to a single subscription. See [`SubscriptionChange`].
+    Subscription(SubscriptionChange),
+    /// A nested change to a single statistic. See [`StatisticChange`].
+    Statistic(StatisticChange),
 
     /// A change that cannot be performed in-place.
     ///
@@ -796,6 +655,169 @@ pub enum TableChange {
         parent: QualifiedName,
         /// The child table being detached.
         child: QualifiedName,
+    },
+}
+
+/// A structural change to a single publication.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum PublicationChange {
+    /// `CREATE PUBLICATION ...`
+    Create(crate::ir::publication::Publication),
+    /// `DROP PUBLICATION ...` — destructive.
+    Drop {
+        /// Publication name.
+        name: Identifier,
+    },
+    /// `DROP PUBLICATION old; CREATE PUBLICATION new;` — destructive; used
+    /// when the publication's scope mode switches (`AllTables` ↔ `Selective`).
+    Replace {
+        /// The publication as it exists in the target.
+        from: crate::ir::publication::Publication,
+        /// The publication as it should exist in the source.
+        to: crate::ir::publication::Publication,
+    },
+    /// `ALTER PUBLICATION p ADD TABLE x [(cols)] [WHERE (filter)]`
+    AddTable {
+        /// Publication name.
+        publication: Identifier,
+        /// The table entry to add.
+        table: crate::ir::publication::PublishedTable,
+    },
+    /// `ALTER PUBLICATION p DROP TABLE x`
+    DropTable {
+        /// Publication name.
+        publication: Identifier,
+        /// Qualified name of the table to drop.
+        qname: QualifiedName,
+    },
+    /// `ALTER PUBLICATION p SET TABLE x (cols) WHERE (filter)`
+    SetTable {
+        /// Publication name.
+        publication: Identifier,
+        /// The desired table entry state.
+        table: crate::ir::publication::PublishedTable,
+    },
+    /// `ALTER PUBLICATION p ADD TABLES IN SCHEMA s` (PG15+)
+    AddSchema {
+        /// Publication name.
+        publication: Identifier,
+        /// Schema to add.
+        schema: Identifier,
+    },
+    /// `ALTER PUBLICATION p DROP TABLES IN SCHEMA s` (PG15+)
+    DropSchema {
+        /// Publication name.
+        publication: Identifier,
+        /// Schema to drop.
+        schema: Identifier,
+    },
+    /// `ALTER PUBLICATION p SET (publish = '...')`
+    SetPublish {
+        /// Publication name.
+        publication: Identifier,
+        /// Desired publish-kinds bitset.
+        kinds: crate::ir::publication::PublishKinds,
+    },
+    /// `ALTER PUBLICATION p SET (publish_via_partition_root = ...)`
+    SetViaRoot {
+        /// Publication name.
+        publication: Identifier,
+        /// Desired value.
+        value: bool,
+    },
+    /// `COMMENT ON PUBLICATION p IS '...'`
+    CommentOn {
+        /// Publication name.
+        name: Identifier,
+        /// New comment value (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// A structural change to a single subscription.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum SubscriptionChange {
+    /// `CREATE SUBSCRIPTION ...`
+    Create(crate::ir::subscription::Subscription),
+    /// `DROP SUBSCRIPTION ...` — destructive.
+    Drop {
+        /// Subscription name.
+        name: Identifier,
+    },
+    /// `ALTER SUBSCRIPTION s CONNECTION '...'`
+    AlterConnection {
+        /// Subscription name.
+        name: Identifier,
+        /// New connection string (may contain `${VAR}` placeholders).
+        new_connection: String,
+    },
+    /// `ALTER SUBSCRIPTION s ADD PUBLICATION p`
+    AddPublication {
+        /// Subscription name.
+        name: Identifier,
+        /// Publication to add.
+        publication: Identifier,
+    },
+    /// `ALTER SUBSCRIPTION s DROP PUBLICATION p`
+    DropPublication {
+        /// Subscription name.
+        name: Identifier,
+        /// Publication to drop.
+        publication: Identifier,
+    },
+    /// `ALTER SUBSCRIPTION s SET (option = value, ...)` — sparse-delta.
+    ///
+    /// `create_slot` and `copy_data` are NEVER included (CREATE-only PG options).
+    SetOptions {
+        /// Subscription name.
+        name: Identifier,
+        /// Sparse options delta — only changed fields are `Some`.
+        options: crate::ir::subscription::SubscriptionOptions,
+    },
+    /// `COMMENT ON SUBSCRIPTION s IS '...'`
+    CommentOn {
+        /// Subscription name.
+        name: Identifier,
+        /// New comment value (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// A structural change to a single statistic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum StatisticChange {
+    /// `CREATE STATISTICS ...`
+    Create(crate::ir::statistic::Statistic),
+    /// `DROP STATISTICS ...` — destructive.
+    Drop {
+        /// Schema-qualified statistic name.
+        qname: QualifiedName,
+    },
+    /// `DROP STATISTICS old; CREATE STATISTICS new;` — destructive; used
+    /// when columns / kinds / target table differ (PG has no in-place ALTER
+    /// for those fields).
+    Replace {
+        /// The statistic as it exists in the target.
+        from: crate::ir::statistic::Statistic,
+        /// The statistic as it should exist in the source.
+        to: crate::ir::statistic::Statistic,
+    },
+    /// `ALTER STATISTICS s SET STATISTICS n` — analyze target.
+    AlterSetTarget {
+        /// Schema-qualified statistic name.
+        qname: QualifiedName,
+        /// New statistics target value.
+        value: i32,
+    },
+    /// `COMMENT ON STATISTICS s IS '...'`
+    CommentOn {
+        /// Schema-qualified statistic name.
+        qname: QualifiedName,
+        /// New comment value (`None` clears the comment).
+        comment: Option<String>,
     },
 }
 

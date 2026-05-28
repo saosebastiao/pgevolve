@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::diff::change::Change;
+use crate::diff::change::{Change, PublicationChange};
 use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::owner_op::{AlterObjectOwner, OwnerObjectKind};
@@ -33,7 +33,7 @@ pub fn diff_publications(target: &Catalog, source: &Catalog, out: &mut ChangeSet
     for (name, src) in &source_map {
         if !target_map.contains_key(name) {
             out.push(
-                Change::CreatePublication((*src).clone()),
+                Change::Publication(PublicationChange::Create((*src).clone())),
                 Destructiveness::Safe,
             );
         }
@@ -63,10 +63,10 @@ fn diff_one_publication(target: &Publication, source: &Publication, out: &mut Ch
     let source_mode = std::mem::discriminant(&source.scope);
     if target_mode != source_mode {
         out.push(
-            Change::ReplacePublication {
+            Change::Publication(PublicationChange::Replace {
                 from: target.clone(),
                 to: source.clone(),
-            },
+            }),
             Destructiveness::RequiresApproval {
                 reason: format!(
                     "publication {} mode swap (AllTables ↔ Selective)",
@@ -98,28 +98,28 @@ fn diff_one_publication(target: &Publication, source: &Publication, out: &mut Ch
     // Per-publication scalar diffs.
     if target.publish != source.publish {
         out.push(
-            Change::AlterPublicationSetPublish {
+            Change::Publication(PublicationChange::SetPublish {
                 publication: source.name.clone(),
                 kinds: source.publish,
-            },
+            }),
             Destructiveness::Safe,
         );
     }
     if target.publish_via_partition_root != source.publish_via_partition_root {
         out.push(
-            Change::AlterPublicationSetViaRoot {
+            Change::Publication(PublicationChange::SetViaRoot {
                 publication: source.name.clone(),
                 value: source.publish_via_partition_root,
-            },
+            }),
             Destructiveness::Safe,
         );
     }
     if target.comment != source.comment {
         out.push(
-            Change::CommentOnPublication {
+            Change::Publication(PublicationChange::CommentOn {
                 name: source.name.clone(),
                 comment: source.comment.clone(),
-            },
+            }),
             Destructiveness::Safe,
         );
     }
@@ -167,10 +167,10 @@ fn diff_selective_tables(
     for (qname, t) in &s_map {
         if !t_map.contains_key(qname) {
             out.push(
-                Change::AlterPublicationAddTable {
+                Change::Publication(PublicationChange::AddTable {
                     publication: pub_name.clone(),
                     table: (*t).clone(),
-                },
+                }),
                 Destructiveness::Safe,
             );
         }
@@ -180,10 +180,10 @@ fn diff_selective_tables(
     for qname in t_map.keys() {
         if !s_map.contains_key(qname) {
             out.push(
-                Change::AlterPublicationDropTable {
+                Change::Publication(PublicationChange::DropTable {
                     publication: pub_name.clone(),
                     qname: (*qname).clone(),
-                },
+                }),
                 Destructiveness::Safe,
             );
         }
@@ -196,10 +196,10 @@ fn diff_selective_tables(
         };
         if tgt_table.row_filter != src_table.row_filter || tgt_table.columns != src_table.columns {
             out.push(
-                Change::AlterPublicationSetTable {
+                Change::Publication(PublicationChange::SetTable {
                     publication: pub_name.clone(),
                     table: (*src_table).clone(),
-                },
+                }),
                 Destructiveness::Safe,
             );
         }
@@ -215,10 +215,10 @@ fn diff_selective_schemas(
     // Added schemas: in source but not in target.
     for s in source_schemas.difference(target_schemas) {
         out.push(
-            Change::AlterPublicationAddSchema {
+            Change::Publication(PublicationChange::AddSchema {
                 publication: pub_name.clone(),
                 schema: s.clone(),
-            },
+            }),
             Destructiveness::Safe,
         );
     }
@@ -226,10 +226,10 @@ fn diff_selective_schemas(
     // Dropped schemas: in target but not in source.
     for s in target_schemas.difference(source_schemas) {
         out.push(
-            Change::AlterPublicationDropSchema {
+            Change::Publication(PublicationChange::DropSchema {
                 publication: pub_name.clone(),
                 schema: s.clone(),
-            },
+            }),
             Destructiveness::Safe,
         );
     }
@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::CreatePublication(_)
+            Change::Publication(PublicationChange::Create(_))
         ));
     }
 
@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         let entry = changes.iter().next().unwrap();
         assert!(
-            matches!(entry.change, Change::ReplacePublication { .. }),
+            matches!(entry.change, Change::Publication(PublicationChange::Replace { .. })),
             "expected ReplacePublication, got {:?}",
             entry.change
         );
@@ -369,7 +369,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterPublicationAddTable { .. }
+            Change::Publication(PublicationChange::AddTable { .. })
         ));
     }
 
@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterPublicationDropTable { .. }
+            Change::Publication(PublicationChange::DropTable { .. })
         ));
     }
 
@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterPublicationSetTable { .. }
+            Change::Publication(PublicationChange::SetTable { .. })
         ));
     }
 
@@ -440,7 +440,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterPublicationAddSchema { .. }
+            Change::Publication(PublicationChange::AddSchema { .. })
         ));
     }
 
@@ -474,7 +474,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterPublicationDropSchema { .. }
+            Change::Publication(PublicationChange::DropSchema { .. })
         ));
     }
 
@@ -495,7 +495,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterPublicationSetPublish { .. }
+            Change::Publication(PublicationChange::SetPublish { .. })
         ));
     }
 
@@ -509,7 +509,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterPublicationSetViaRoot { value: true, .. }
+            Change::Publication(PublicationChange::SetViaRoot { value: true, .. })
         ));
     }
 
@@ -523,7 +523,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::CommentOnPublication { .. }
+            Change::Publication(PublicationChange::CommentOn { .. })
         ));
     }
 

@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::diff::change::Change;
+use crate::diff::change::{Change, StatisticChange};
 use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::owner_op::{AlterObjectOwner, OwnerObjectKind};
@@ -31,7 +31,7 @@ pub fn diff_statistics(target: &Catalog, source: &Catalog, out: &mut ChangeSet) 
     for (qname, src) in &source_map {
         if !target_map.contains_key(qname) {
             out.push(
-                Change::CreateStatistic((*src).clone()),
+                Change::Statistic(StatisticChange::Create((*src).clone())),
                 Destructiveness::Safe,
             );
         }
@@ -56,10 +56,10 @@ fn diff_one(target: &Statistic, source: &Statistic, out: &mut ChangeSet) {
         || target.target != source.target
     {
         out.push(
-            Change::ReplaceStatistic {
+            Change::Statistic(StatisticChange::Replace {
                 from: target.clone(),
                 to: source.clone(),
-            },
+            }),
             Destructiveness::RequiresApproval {
                 reason: format!(
                     "structural change to statistic {} requires DROP + CREATE (PG has no in-place ALTER for columns/kinds/target)",
@@ -75,10 +75,10 @@ fn diff_one(target: &Statistic, source: &Statistic, out: &mut ChangeSet) {
         && target.statistics_target != Some(s_target)
     {
         out.push(
-            Change::AlterStatisticSetTarget {
+            Change::Statistic(StatisticChange::AlterSetTarget {
                 qname: source.qname.clone(),
                 value: s_target,
-            },
+            }),
             Destructiveness::Safe,
         );
     }
@@ -107,10 +107,10 @@ fn diff_one(target: &Statistic, source: &Statistic, out: &mut ChangeSet) {
     // Comment.
     if target.comment != source.comment {
         out.push(
-            Change::CommentOnStatistic {
+            Change::Statistic(StatisticChange::CommentOn {
                 qname: source.qname.clone(),
                 comment: source.comment.clone(),
-            },
+            }),
             Destructiveness::Safe,
         );
     }
@@ -119,7 +119,7 @@ fn diff_one(target: &Statistic, source: &Statistic, out: &mut ChangeSet) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diff::change::Change;
+    use crate::diff::change::{Change, StatisticChange};
     use crate::identifier::{Identifier, QualifiedName};
     use crate::ir::catalog::Catalog;
     use crate::ir::statistic::{Statistic, StatisticColumn, StatisticKinds};
@@ -169,7 +169,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::CreateStatistic(_)
+            Change::Statistic(StatisticChange::Create(_))
         ));
     }
 
@@ -219,7 +219,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         let entry = changes.iter().next().unwrap();
         assert!(
-            matches!(entry.change, Change::ReplaceStatistic { .. }),
+            matches!(entry.change, Change::Statistic(StatisticChange::Replace { .. })),
             "expected ReplaceStatistic, got {:?}",
             entry.change
         );
@@ -243,7 +243,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::ReplaceStatistic { .. }
+            Change::Statistic(StatisticChange::Replace { .. })
         ));
     }
 
@@ -257,7 +257,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::ReplaceStatistic { .. }
+            Change::Statistic(StatisticChange::Replace { .. })
         ));
     }
 
@@ -285,7 +285,7 @@ mod tests {
         );
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::ReplaceStatistic { .. }
+            Change::Statistic(StatisticChange::Replace { .. })
         ));
     }
 
@@ -301,7 +301,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterStatisticSetTarget { value: 500, .. }
+            Change::Statistic(StatisticChange::AlterSetTarget { value: 500, .. })
         ));
     }
 
@@ -368,7 +368,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::CommentOnStatistic { .. }
+            Change::Statistic(StatisticChange::CommentOn { .. })
         ));
     }
 
@@ -382,7 +382,7 @@ mod tests {
         let changes = run_diff(&target, &source);
         assert_eq!(changes.len(), 1);
         let entry = changes.iter().next().unwrap();
-        if let Change::CommentOnStatistic { comment, .. } = &entry.change {
+        if let Change::Statistic(StatisticChange::CommentOn { comment, .. }) = &entry.change {
             assert!(comment.is_none());
         } else {
             panic!("expected CommentOnStatistic, got {:?}", entry.change);
@@ -401,25 +401,17 @@ mod tests {
         let source = catalog_with(vec![src_stat]);
         let changes = run_diff(&target, &source);
         assert_eq!(changes.len(), 2);
-        let kinds: Vec<_> = changes
-            .iter()
-            .map(|e| std::mem::discriminant(&e.change))
-            .collect();
         assert!(
-            kinds.iter().any(|d| *d
-                == std::mem::discriminant(&Change::AlterStatisticSetTarget {
-                    qname: qn("x", "y"),
-                    value: 0
-                })),
-            "expected AlterStatisticSetTarget in changes"
+            changes
+                .iter()
+                .any(|e| matches!(&e.change, Change::Statistic(StatisticChange::AlterSetTarget { .. }))),
+            "expected StatisticChange::AlterSetTarget in changes"
         );
         assert!(
-            kinds.iter().any(|d| *d
-                == std::mem::discriminant(&Change::CommentOnStatistic {
-                    qname: qn("x", "y"),
-                    comment: None
-                })),
-            "expected CommentOnStatistic in changes"
+            changes
+                .iter()
+                .any(|e| matches!(&e.change, Change::Statistic(StatisticChange::CommentOn { .. }))),
+            "expected StatisticChange::CommentOn in changes"
         );
     }
 }

@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::diff::change::Change;
+use crate::diff::change::{Change, SubscriptionChange};
 use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::owner_op::{AlterObjectOwner, OwnerObjectKind};
@@ -28,7 +28,7 @@ pub fn diff_subscriptions(target: &Catalog, source: &Catalog, out: &mut ChangeSe
     for (name, src) in &source_map {
         if !target_map.contains_key(name) {
             out.push(
-                Change::CreateSubscription((*src).clone()),
+                Change::Subscription(SubscriptionChange::Create((*src).clone())),
                 Destructiveness::Safe,
             );
         }
@@ -50,10 +50,10 @@ fn diff_one(target: &Subscription, source: &Subscription, out: &mut ChangeSet) {
     // CONNECTION (modulo password).
     if connection_differs_ignoring_password(&target.connection, &source.connection) {
         out.push(
-            Change::AlterSubscriptionConnection {
+            Change::Subscription(SubscriptionChange::AlterConnection {
                 name: source.name.clone(),
                 new_connection: source.connection.clone(),
-            },
+            }),
             Destructiveness::Safe,
         );
     }
@@ -63,19 +63,19 @@ fn diff_one(target: &Subscription, source: &Subscription, out: &mut ChangeSet) {
     let s_pubs: std::collections::BTreeSet<_> = source.publications.iter().collect();
     for added in s_pubs.difference(&t_pubs) {
         out.push(
-            Change::AlterSubscriptionAddPublication {
+            Change::Subscription(SubscriptionChange::AddPublication {
                 name: source.name.clone(),
                 publication: (*added).clone(),
-            },
+            }),
             Destructiveness::Safe,
         );
     }
     for dropped in t_pubs.difference(&s_pubs) {
         out.push(
-            Change::AlterSubscriptionDropPublication {
+            Change::Subscription(SubscriptionChange::DropPublication {
                 name: source.name.clone(),
                 publication: (*dropped).clone(),
-            },
+            }),
             Destructiveness::Safe,
         );
     }
@@ -84,10 +84,10 @@ fn diff_one(target: &Subscription, source: &Subscription, out: &mut ChangeSet) {
     let opts_delta = options_delta(&target.options, &source.options);
     if !options_delta_is_empty(&opts_delta) {
         out.push(
-            Change::AlterSubscriptionSetOptions {
+            Change::Subscription(SubscriptionChange::SetOptions {
                 name: source.name.clone(),
                 options: opts_delta,
-            },
+            }),
             Destructiveness::Safe,
         );
     }
@@ -123,10 +123,10 @@ fn diff_one(target: &Subscription, source: &Subscription, out: &mut ChangeSet) {
     // Comment.
     if target.comment != source.comment {
         out.push(
-            Change::CommentOnSubscription {
+            Change::Subscription(SubscriptionChange::CommentOn {
                 name: source.name.clone(),
                 comment: source.comment.clone(),
-            },
+            }),
             Destructiveness::Safe,
         );
     }
@@ -259,7 +259,7 @@ const fn options_delta_is_empty(d: &SubscriptionOptions) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diff::change::Change;
+    use crate::diff::change::{Change, SubscriptionChange};
     use crate::identifier::Identifier;
     use crate::ir::catalog::Catalog;
     use crate::ir::subscription::{OriginMode, StreamingMode, Subscription, SubscriptionOptions};
@@ -336,7 +336,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::CreateSubscription(_)
+            Change::Subscription(SubscriptionChange::Create(_))
         ));
     }
 
@@ -374,7 +374,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterSubscriptionConnection { .. }
+            Change::Subscription(SubscriptionChange::AlterConnection { .. })
         ));
     }
 
@@ -403,7 +403,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterSubscriptionAddPublication { .. }
+            Change::Subscription(SubscriptionChange::AddPublication { .. })
         ));
     }
 
@@ -417,7 +417,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::AlterSubscriptionDropPublication { .. }
+            Change::Subscription(SubscriptionChange::DropPublication { .. })
         ));
     }
 
@@ -431,7 +431,7 @@ mod tests {
         let changes = run_diff(&catalog_with(vec![tgt]), &catalog_with(vec![src]));
         assert_eq!(changes.len(), 1);
         let entry = changes.iter().next().unwrap();
-        if let Change::AlterSubscriptionSetOptions { options, .. } = &entry.change {
+        if let Change::Subscription(SubscriptionChange::SetOptions { options, .. }) = &entry.change {
             assert_eq!(options.binary, Some(true));
             // Other fields must be None (sparse delta).
             assert!(options.enabled.is_none());
@@ -523,7 +523,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(matches!(
             changes.iter().next().unwrap().change,
-            Change::CommentOnSubscription { .. }
+            Change::Subscription(SubscriptionChange::CommentOn { .. })
         ));
     }
 
@@ -538,7 +538,7 @@ mod tests {
         src.options.origin = Some(OriginMode::None);
         let changes = run_diff(&catalog_with(vec![tgt]), &catalog_with(vec![src]));
         assert_eq!(changes.len(), 1);
-        if let Change::AlterSubscriptionSetOptions { options, .. } =
+        if let Change::Subscription(SubscriptionChange::SetOptions { options, .. }) =
             &changes.iter().next().unwrap().change
         {
             assert_eq!(options.binary, Some(true));

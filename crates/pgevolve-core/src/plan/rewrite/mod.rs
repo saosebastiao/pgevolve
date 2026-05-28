@@ -35,7 +35,9 @@ pub mod triggers;
 pub mod types;
 pub mod views;
 
-use crate::diff::change::{Change, ChangeEntry};
+use crate::diff::change::{
+    Change, ChangeEntry, PublicationChange, StatisticChange, SubscriptionChange,
+};
 use crate::diff::destructiveness::Destructiveness;
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
@@ -404,7 +406,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
-        Change::CreatePublication(p) => {
+        Change::Publication(PublicationChange::Create(p)) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::CreatePublication,
@@ -429,7 +431,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 });
             }
         }
-        Change::DropPublication { name } => {
+        Change::Publication(PublicationChange::Drop { name }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::DropPublication,
@@ -441,7 +443,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::ReplacePublication { from, to } => {
+        Change::Publication(PublicationChange::Replace { from, to }) => {
             let [drop_sql, create_sql] = publications::replace_publication(&from, &to);
             out.push(RawStep {
                 step_no: 0,
@@ -454,7 +456,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterPublicationAddTable { publication, table } => {
+        Change::Publication(PublicationChange::AddTable { publication, table }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterPublicationAddTable,
@@ -466,7 +468,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterPublicationDropTable { publication, qname } => {
+        Change::Publication(PublicationChange::DropTable { publication, qname }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterPublicationDropTable,
@@ -478,7 +480,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterPublicationSetTable { publication, table } => {
+        Change::Publication(PublicationChange::SetTable { publication, table }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterPublicationSetTable,
@@ -490,10 +492,10 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterPublicationAddSchema {
+        Change::Publication(PublicationChange::AddSchema {
             publication,
             schema,
-        } => {
+        }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterPublicationAddSchema,
@@ -505,10 +507,10 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterPublicationDropSchema {
+        Change::Publication(PublicationChange::DropSchema {
             publication,
             schema,
-        } => {
+        }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterPublicationDropSchema,
@@ -520,7 +522,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterPublicationSetPublish { publication, kinds } => {
+        Change::Publication(PublicationChange::SetPublish { publication, kinds }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterPublicationSetPublish,
@@ -532,7 +534,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterPublicationSetViaRoot { publication, value } => {
+        Change::Publication(PublicationChange::SetViaRoot { publication, value }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterPublicationSetViaRoot,
@@ -544,7 +546,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::CommentOnPublication { name, comment } => {
+        Change::Publication(PublicationChange::CommentOn { name, comment }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::CommentOnPublication,
@@ -557,7 +559,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
-        Change::CreateSubscription(s) => {
+        Change::Subscription(SubscriptionChange::Create(s)) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::CreateSubscription,
@@ -582,7 +584,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 });
             }
         }
-        Change::DropSubscription { name } => {
+        Change::Subscription(SubscriptionChange::Drop { name }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::DropSubscription,
@@ -594,10 +596,10 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterSubscriptionConnection {
+        Change::Subscription(SubscriptionChange::AlterConnection {
             name,
             new_connection,
-        } => {
+        }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterSubscriptionConnection,
@@ -609,7 +611,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterSubscriptionAddPublication { name, publication } => {
+        Change::Subscription(SubscriptionChange::AddPublication { name, publication }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterSubscriptionAddPublication,
@@ -621,7 +623,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterSubscriptionDropPublication { name, publication } => {
+        Change::Subscription(SubscriptionChange::DropPublication { name, publication }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterSubscriptionDropPublication,
@@ -633,7 +635,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterSubscriptionSetOptions { name, options } => {
+        Change::Subscription(SubscriptionChange::SetOptions { name, options }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterSubscriptionSetOptions,
@@ -645,7 +647,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::CommentOnSubscription { name, comment } => {
+        Change::Subscription(SubscriptionChange::CommentOn { name, comment }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::CommentOnSubscription,
@@ -658,7 +660,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             });
         }
 
-        Change::CreateStatistic(s) => {
+        Change::Statistic(StatisticChange::Create(s)) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::CreateStatistic,
@@ -683,7 +685,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 });
             }
         }
-        Change::DropStatistic { qname } => {
+        Change::Statistic(StatisticChange::Drop { qname }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::DropStatistic,
@@ -695,7 +697,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::ReplaceStatistic { from, to } => {
+        Change::Statistic(StatisticChange::Replace { from, to }) => {
             let [drop_sql, create_sql] = statistics::replace_statistic(&from, &to);
             out.push(RawStep {
                 step_no: 0,
@@ -708,7 +710,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::AlterStatisticSetTarget { qname, value } => {
+        Change::Statistic(StatisticChange::AlterSetTarget { qname, value }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterStatisticSetTarget,
@@ -720,7 +722,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::CommentOnStatistic { qname, comment } => {
+        Change::Statistic(StatisticChange::CommentOn { qname, comment }) => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::CommentOnStatistic,

@@ -446,120 +446,112 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
             pgevolve_core::diff::change::Change::UnsupportedDiff { reason } => {
                 println!("      unsupported diff: {reason}");
             }
-            pgevolve_core::diff::change::Change::CreatePublication(p) => {
-                println!("      + CREATE PUBLICATION {}", p.name);
-            }
-            pgevolve_core::diff::change::Change::DropPublication { name } => {
-                println!("      - DROP PUBLICATION {name}");
-            }
-            pgevolve_core::diff::change::Change::ReplacePublication { from, to } => {
-                println!(
-                    "      ~ REPLACE PUBLICATION {} (mode {} -> {})",
-                    from.name,
-                    scope_name(&from.scope),
-                    scope_name(&to.scope),
-                );
-            }
-            pgevolve_core::diff::change::Change::AlterPublicationAddTable {
-                publication,
-                table,
-            } => {
-                println!(
-                    "      ~ ALTER PUBLICATION {publication} ADD TABLE {}",
-                    table.qname
-                );
-            }
-            pgevolve_core::diff::change::Change::AlterPublicationDropTable {
-                publication,
-                qname,
-            } => {
-                println!("      ~ ALTER PUBLICATION {publication} DROP TABLE {qname}");
-            }
-            pgevolve_core::diff::change::Change::AlterPublicationSetTable {
-                publication,
-                table,
-            } => {
-                println!(
-                    "      ~ ALTER PUBLICATION {publication} SET TABLE {}",
-                    table.qname
-                );
-            }
-            pgevolve_core::diff::change::Change::AlterPublicationAddSchema {
-                publication,
-                schema,
-            } => {
-                println!("      ~ ALTER PUBLICATION {publication} ADD TABLES IN SCHEMA {schema}");
-            }
-            pgevolve_core::diff::change::Change::AlterPublicationDropSchema {
-                publication,
-                schema,
-            } => {
-                println!("      ~ ALTER PUBLICATION {publication} DROP TABLES IN SCHEMA {schema}");
-            }
-            pgevolve_core::diff::change::Change::AlterPublicationSetPublish {
-                publication, ..
-            } => {
-                println!("      ~ ALTER PUBLICATION {publication} SET (publish = ...)");
-            }
-            pgevolve_core::diff::change::Change::AlterPublicationSetViaRoot {
-                publication,
-                value,
-            } => {
-                println!(
-                    "      ~ ALTER PUBLICATION {publication} SET (publish_via_partition_root = {value})"
-                );
-            }
-            pgevolve_core::diff::change::Change::CommentOnPublication { name, .. } => {
-                println!("      ~ COMMENT ON PUBLICATION {name}");
-            }
-            // Statistic changes: Stage 8 will wire real display.
-            pgevolve_core::diff::change::Change::CreateStatistic(s) => {
-                println!("      + CREATE STATISTICS {}", s.qname);
-            }
-            pgevolve_core::diff::change::Change::DropStatistic { qname } => {
-                println!("      - DROP STATISTICS {qname}");
-            }
-            pgevolve_core::diff::change::Change::ReplaceStatistic { from, to } => {
-                println!("      ~ REPLACE STATISTICS {} (DROP + CREATE)", from.qname);
-                let _ = to;
-            }
-            pgevolve_core::diff::change::Change::AlterStatisticSetTarget { qname, value } => {
-                println!("      ~ ALTER STATISTICS {qname} SET STATISTICS {value}");
-            }
-            pgevolve_core::diff::change::Change::CommentOnStatistic { qname, comment } => {
-                if comment.is_some() {
-                    println!("      ~ COMMENT ON STATISTICS {qname}");
-                } else {
-                    println!("      ~ COMMENT ON STATISTICS {qname} IS NULL");
+            pgevolve_core::diff::change::Change::Publication(pc) => {
+                use pgevolve_core::diff::change::PublicationChange;
+                match pc {
+                    PublicationChange::Create(p) => {
+                        println!("      + CREATE PUBLICATION {}", p.name);
+                    }
+                    PublicationChange::Drop { name } => {
+                        println!("      - DROP PUBLICATION {name}");
+                    }
+                    PublicationChange::Replace { from, to } => {
+                        println!(
+                            "      ~ REPLACE PUBLICATION {} (mode {} -> {})",
+                            from.name,
+                            scope_name(&from.scope),
+                            scope_name(&to.scope),
+                        );
+                    }
+                    PublicationChange::AddTable { publication, table } => {
+                        println!(
+                            "      ~ ALTER PUBLICATION {publication} ADD TABLE {}",
+                            table.qname
+                        );
+                    }
+                    PublicationChange::DropTable { publication, qname } => {
+                        println!("      ~ ALTER PUBLICATION {publication} DROP TABLE {qname}");
+                    }
+                    PublicationChange::SetTable { publication, table } => {
+                        println!(
+                            "      ~ ALTER PUBLICATION {publication} SET TABLE {}",
+                            table.qname
+                        );
+                    }
+                    PublicationChange::AddSchema { publication, schema } => {
+                        println!(
+                            "      ~ ALTER PUBLICATION {publication} ADD TABLES IN SCHEMA {schema}"
+                        );
+                    }
+                    PublicationChange::DropSchema { publication, schema } => {
+                        println!(
+                            "      ~ ALTER PUBLICATION {publication} DROP TABLES IN SCHEMA {schema}"
+                        );
+                    }
+                    PublicationChange::SetPublish { publication, .. } => {
+                        println!("      ~ ALTER PUBLICATION {publication} SET (publish = ...)");
+                    }
+                    PublicationChange::SetViaRoot { publication, value } => {
+                        println!(
+                            "      ~ ALTER PUBLICATION {publication} SET (publish_via_partition_root = {value})"
+                        );
+                    }
+                    PublicationChange::CommentOn { name, .. } => {
+                        println!("      ~ COMMENT ON PUBLICATION {name}");
+                    }
                 }
             }
-            // Subscription changes: Stage 8 will wire real display.
-            pgevolve_core::diff::change::Change::CreateSubscription(s) => {
-                println!("      + CREATE SUBSCRIPTION {}", s.name);
+            pgevolve_core::diff::change::Change::Statistic(sc) => {
+                use pgevolve_core::diff::change::StatisticChange;
+                match sc {
+                    StatisticChange::Create(s) => {
+                        println!("      + CREATE STATISTICS {}", s.qname);
+                    }
+                    StatisticChange::Drop { qname } => {
+                        println!("      - DROP STATISTICS {qname}");
+                    }
+                    StatisticChange::Replace { from, .. } => {
+                        println!("      ~ REPLACE STATISTICS {} (DROP + CREATE)", from.qname);
+                    }
+                    StatisticChange::AlterSetTarget { qname, value } => {
+                        println!("      ~ ALTER STATISTICS {qname} SET STATISTICS {value}");
+                    }
+                    StatisticChange::CommentOn { qname, comment } => {
+                        if comment.is_some() {
+                            println!("      ~ COMMENT ON STATISTICS {qname}");
+                        } else {
+                            println!("      ~ COMMENT ON STATISTICS {qname} IS NULL");
+                        }
+                    }
+                }
             }
-            pgevolve_core::diff::change::Change::DropSubscription { name } => {
-                println!("      - DROP SUBSCRIPTION {name}");
-            }
-            pgevolve_core::diff::change::Change::AlterSubscriptionConnection { name, .. } => {
-                println!("      ~ ALTER SUBSCRIPTION {name} CONNECTION ...");
-            }
-            pgevolve_core::diff::change::Change::AlterSubscriptionAddPublication {
-                name,
-                publication,
-            } => {
-                println!("      ~ ALTER SUBSCRIPTION {name} ADD PUBLICATION {publication}");
-            }
-            pgevolve_core::diff::change::Change::AlterSubscriptionDropPublication {
-                name,
-                publication,
-            } => {
-                println!("      ~ ALTER SUBSCRIPTION {name} DROP PUBLICATION {publication}");
-            }
-            pgevolve_core::diff::change::Change::AlterSubscriptionSetOptions { name, .. } => {
-                println!("      ~ ALTER SUBSCRIPTION {name} SET (...)");
-            }
-            pgevolve_core::diff::change::Change::CommentOnSubscription { name, .. } => {
-                println!("      ~ COMMENT ON SUBSCRIPTION {name}");
+            pgevolve_core::diff::change::Change::Subscription(sc) => {
+                use pgevolve_core::diff::change::SubscriptionChange;
+                match sc {
+                    SubscriptionChange::Create(s) => {
+                        println!("      + CREATE SUBSCRIPTION {}", s.name);
+                    }
+                    SubscriptionChange::Drop { name } => {
+                        println!("      - DROP SUBSCRIPTION {name}");
+                    }
+                    SubscriptionChange::AlterConnection { name, .. } => {
+                        println!("      ~ ALTER SUBSCRIPTION {name} CONNECTION ...");
+                    }
+                    SubscriptionChange::AddPublication { name, publication } => {
+                        println!("      ~ ALTER SUBSCRIPTION {name} ADD PUBLICATION {publication}");
+                    }
+                    SubscriptionChange::DropPublication { name, publication } => {
+                        println!(
+                            "      ~ ALTER SUBSCRIPTION {name} DROP PUBLICATION {publication}"
+                        );
+                    }
+                    SubscriptionChange::SetOptions { name, .. } => {
+                        println!("      ~ ALTER SUBSCRIPTION {name} SET (...)");
+                    }
+                    SubscriptionChange::CommentOn { name, .. } => {
+                        println!("      ~ COMMENT ON SUBSCRIPTION {name}");
+                    }
+                }
             }
         }
     }
@@ -621,7 +613,9 @@ fn print_sql(changes: &pgevolve_core::diff::ChangeSet) {
 
 #[allow(clippy::too_many_lines)] // one arm per Change variant returning its name; mechanical enumeration, not logic.
 const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static str {
-    use pgevolve_core::diff::change::{Change, MvChange, ViewChange};
+    use pgevolve_core::diff::change::{
+        Change, MvChange, PublicationChange, StatisticChange, SubscriptionChange, ViewChange,
+    };
     match c {
         Change::CreateSchema(_) => "CreateSchema",
         Change::DropSchema(_) => "DropSchema",
@@ -749,28 +743,74 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::SetIndexStorage { .. } => "SetIndexStorage",
         Change::SetMaterializedViewStorage { .. } => "SetMaterializedViewStorage",
         Change::UnsupportedDiff { .. } => "UnsupportedDiff",
-        Change::CreatePublication(_) => "create_publication",
-        Change::DropPublication { .. } => "drop_publication",
-        Change::ReplacePublication { .. } => "replace_publication",
-        Change::AlterPublicationAddTable { .. } => "alter_publication_add_table",
-        Change::AlterPublicationDropTable { .. } => "alter_publication_drop_table",
-        Change::AlterPublicationSetTable { .. } => "alter_publication_set_table",
-        Change::AlterPublicationAddSchema { .. } => "alter_publication_add_schema",
-        Change::AlterPublicationDropSchema { .. } => "alter_publication_drop_schema",
-        Change::AlterPublicationSetPublish { .. } => "alter_publication_set_publish",
-        Change::AlterPublicationSetViaRoot { .. } => "alter_publication_set_via_root",
-        Change::CommentOnPublication { .. } => "comment_on_publication",
-        Change::CreateStatistic(_) => "create_statistic",
-        Change::DropStatistic { .. } => "drop_statistic",
-        Change::ReplaceStatistic { .. } => "replace_statistic",
-        Change::AlterStatisticSetTarget { .. } => "alter_statistic_set_target",
-        Change::CommentOnStatistic { .. } => "comment_on_statistic",
-        Change::CreateSubscription(_) => "create_subscription",
-        Change::DropSubscription { .. } => "drop_subscription",
-        Change::AlterSubscriptionConnection { .. } => "alter_subscription_connection",
-        Change::AlterSubscriptionAddPublication { .. } => "alter_subscription_add_publication",
-        Change::AlterSubscriptionDropPublication { .. } => "alter_subscription_drop_publication",
-        Change::AlterSubscriptionSetOptions { .. } => "alter_subscription_set_options",
-        Change::CommentOnSubscription { .. } => "comment_on_subscription",
+        Change::Publication(PublicationChange::Create(_)) => {
+            "create_publication"
+        }
+        Change::Publication(PublicationChange::Drop { .. }) => {
+            "drop_publication"
+        }
+        Change::Publication(PublicationChange::Replace { .. }) => {
+            "replace_publication"
+        }
+        Change::Publication(PublicationChange::AddTable { .. }) => {
+            "alter_publication_add_table"
+        }
+        Change::Publication(PublicationChange::DropTable { .. }) => {
+            "alter_publication_drop_table"
+        }
+        Change::Publication(PublicationChange::SetTable { .. }) => {
+            "alter_publication_set_table"
+        }
+        Change::Publication(PublicationChange::AddSchema { .. }) => {
+            "alter_publication_add_schema"
+        }
+        Change::Publication(PublicationChange::DropSchema { .. }) => {
+            "alter_publication_drop_schema"
+        }
+        Change::Publication(PublicationChange::SetPublish { .. }) => {
+            "alter_publication_set_publish"
+        }
+        Change::Publication(PublicationChange::SetViaRoot { .. }) => {
+            "alter_publication_set_via_root"
+        }
+        Change::Publication(PublicationChange::CommentOn { .. }) => {
+            "comment_on_publication"
+        }
+        Change::Statistic(StatisticChange::Create(_)) => {
+            "create_statistic"
+        }
+        Change::Statistic(StatisticChange::Drop { .. }) => {
+            "drop_statistic"
+        }
+        Change::Statistic(StatisticChange::Replace { .. }) => {
+            "replace_statistic"
+        }
+        Change::Statistic(StatisticChange::AlterSetTarget { .. }) => {
+            "alter_statistic_set_target"
+        }
+        Change::Statistic(StatisticChange::CommentOn { .. }) => {
+            "comment_on_statistic"
+        }
+        Change::Subscription(SubscriptionChange::Create(_)) => {
+            "create_subscription"
+        }
+        Change::Subscription(SubscriptionChange::Drop { .. }) => {
+            "drop_subscription"
+        }
+        Change::Subscription(
+            SubscriptionChange::AlterConnection { .. },
+        ) => "alter_subscription_connection",
+        Change::Subscription(
+            SubscriptionChange::AddPublication { .. },
+        ) => "alter_subscription_add_publication",
+        Change::Subscription(
+            SubscriptionChange::DropPublication { .. },
+        ) => "alter_subscription_drop_publication",
+        Change::Subscription(
+            SubscriptionChange::SetOptions { .. },
+        ) => "alter_subscription_set_options",
+        Change::Subscription(
+            SubscriptionChange::CommentOn { .. },
+        ) => "comment_on_subscription",
     }
 }
