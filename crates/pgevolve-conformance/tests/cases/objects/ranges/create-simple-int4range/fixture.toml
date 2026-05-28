@@ -7,14 +7,6 @@ spec_refs = ["types.range.create"]
 min = 14
 max = 18
 
-# Apply disabled: the Stage 1 catalog reader for ranges rehydrates the
-# resolved subtype_opclass (e.g. pg_catalog.int4_ops) even when the source
-# said None, causing post-apply IR divergence. Tracked as a Stage 1 follow-up
-# (see Stage 9 sibling range fixtures for the same note). Parse + diff +
-# plan + dep-graph are still exercised.
-[fixture]
-apply = false
-
 [expect.diff]
 contains = [
   "types.app.int_window",

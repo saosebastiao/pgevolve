@@ -7,13 +7,6 @@ spec_refs = ["types.range.create", "tables.create"]
 min = 14
 max = 18
 
-# Apply disabled: in addition to the Stage 1 range catalog-reader
-# limitations (default opclass + auto-multirange resurfacing on read), the
-# column reader currently renders a user-defined range type as
-# ColumnType::Other instead of UserDefined. Tracked as Stage 1 follow-up.
-[fixture]
-apply = false
-
 [expect.plan]
 steps = 2
 order = [

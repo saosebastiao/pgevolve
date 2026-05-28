@@ -511,11 +511,35 @@ fn diff_domain(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
 // Range diffing
 // ---------------------------------------------------------------------------
 
+/// Lenient optional-field compare for the range differ.
+///
+/// Returns `true` (i.e. "changed") only when the source declared a value and
+/// the catalog disagrees. A source `None` is read as "don't compare this
+/// field" — the catalog reader cannot reliably distinguish PG-auto-defaulted
+/// values from explicitly-declared ones, so trusting source-`None` avoids
+/// spurious `ReplaceWithCascade`. Matches the v0.3.x cross-cutting state
+/// pattern used for owner and similar fields elsewhere in the differ.
+fn lenient_ne<T: PartialEq>(catalog: Option<&T>, source: Option<&T>) -> bool {
+    source.is_some_and(|s| catalog != Some(s))
+}
+
 /// Diff two range types and emit a `ReplaceWithCascade` if any structural
 /// field differs. PG has no in-place ALTER for the structural fields, so any
 /// change requires DROP TYPE … CASCADE + CREATE TYPE.
 ///
 /// Comment-only diffs are handled by `diff_same_qname` via `SetComment`.
+///
+/// # Lenient optional-field comparison (v0.3.x cross-cutting pattern)
+///
+/// PG auto-fills several range fields when the source omits them: it picks a
+/// default opclass per subtype, a default collation for collatable subtypes,
+/// and names the multirange `<range>_multirange`. When the source says `None`
+/// for any of these, the catalog reader has no robust way to tell whether the
+/// user wrote nothing or wrote an explicit value that happens to equal PG's
+/// default. To avoid spurious `ReplaceWithCascade` on every plan, source-`None`
+/// means "don't compare this field"; source-`Some(x)` means "catalog must
+/// match exactly". This matches the lenient pattern used elsewhere in v0.3.x
+/// for owner and other cross-cutting state. Subtype itself is always compared.
 fn diff_range(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
     let (
         UserTypeKind::Range {
@@ -541,11 +565,11 @@ fn diff_range(catalog: &UserType, source: &UserType, out: &mut ChangeSet) {
     };
 
     let structural_changed = cat_subtype != src_subtype
-        || cat_opclass != src_opclass
-        || cat_collation != src_collation
-        || cat_canonical != src_canonical
-        || cat_diff != src_diff
-        || cat_mrtn != src_mrtn;
+        || lenient_ne(cat_opclass.as_ref(), src_opclass.as_ref())
+        || lenient_ne(cat_collation.as_ref(), src_collation.as_ref())
+        || lenient_ne(cat_canonical.as_ref(), src_canonical.as_ref())
+        || lenient_ne(cat_diff.as_ref(), src_diff.as_ref())
+        || lenient_ne(cat_mrtn.as_ref(), src_mrtn.as_ref());
 
     if structural_changed {
         out.push(
@@ -1062,6 +1086,36 @@ mod tests {
             &changes[0],
             Change::UserType(UserTypeChange::ReplaceWithCascade { .. })
         ));
+    }
+
+    // ---- Range: catalog has Some(default) but source has None → lenient, no change ----
+
+    #[test]
+    fn range_catalog_some_default_source_none_is_no_change() {
+        // Models the post-apply state where PG has auto-picked an opclass /
+        // collation / multirange_type_name and the catalog reader returns
+        // Some(...) while the source still says None. The lenient diff must
+        // not emit a ReplaceWithCascade for these.
+        let cat = UserType {
+            qname: qn("app", "ir"),
+            kind: UserTypeKind::Range {
+                subtype: qn("pg_catalog", "int4"),
+                subtype_opclass: Some(qn("pg_catalog", "int4_ops")),
+                collation: Some(qn("pg_catalog", "default")),
+                canonical: None,
+                subtype_diff: None,
+                multirange_type_name: Some(id("ir_multirange")),
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        };
+        let src = make_range(qn("app", "ir"), qn("pg_catalog", "int4"));
+        let changes = run(&[cat], &[src]);
+        assert!(
+            changes.is_empty(),
+            "lenient diff must accept catalog Some(default) vs source None; got {changes:?}"
+        );
     }
 
     // ---- Range: comment-only change → SetComment (no cascade) ----

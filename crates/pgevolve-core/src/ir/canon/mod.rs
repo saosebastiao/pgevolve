@@ -11,13 +11,18 @@
 //! 1. [`filter_pg_defaults`] — values that equal PG's documented
 //!    defaults become `None` (sequence min/max, function cost/rows,
 //!    column collation `pg_catalog.default`).
-//! 2. [`sentinel_view_columns`] — view/MV column types collapse to the
+//! 2. [`resolve_user_defined_types`] — promote
+//!    `ColumnType::Other { raw: "schema.name" }` to
+//!    `ColumnType::UserDefined(qname)` when the qname matches a managed
+//!    user-defined type. Symmetrises catalog reads with source parses,
+//!    which already produce `UserDefined` directly.
+//! 3. [`sentinel_view_columns`] — view/MV column types collapse to the
 //!    `view_column` sentinel.
-//! 3. [`renumber_enum_sort_orders`] — every enum's `sort_order` values
+//! 4. [`renumber_enum_sort_orders`] — every enum's `sort_order` values
 //!    are re-indexed to `1.0, 2.0, 3.0, …` in current order.
-//! 4. [`reloptions`] — canonicalize reloption fields (currently a no-op;
+//! 5. [`reloptions`] — canonicalize reloption fields (currently a no-op;
 //!    `extra` is `BTreeMap` so keys are already ordered).
-//! 5. [`sort_and_dedupe`] — every collection is sorted by its canonical
+//! 6. [`sort_and_dedupe`] — every collection is sorted by its canonical
 //!    key and duplicates raise [`IrError`]. Runs last so duplicate
 //!    detection sees post-normalization values.
 //!
@@ -32,6 +37,7 @@ pub mod policies;
 pub mod publications;
 pub mod reloptions;
 pub mod renumber_enum_sort_orders;
+pub mod resolve_user_defined_types;
 pub mod sentinel_view_columns;
 pub mod sort_and_dedupe;
 pub mod statistics;
@@ -46,6 +52,7 @@ use crate::ir::catalog::Catalog;
 /// passes mutate in place and cannot fail.
 pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
     filter_pg_defaults::run(cat);
+    resolve_user_defined_types::run(cat);
     sentinel_view_columns::run(cat);
     renumber_enum_sort_orders::run(cat);
     for s in &mut cat.schemas {

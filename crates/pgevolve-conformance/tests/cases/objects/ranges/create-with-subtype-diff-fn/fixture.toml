@@ -15,12 +15,5 @@ spec_refs = ["types.range.create"]
 min = 14
 max = 18
 
-# Apply disabled: same Stage 1 catalog-reader limitation as
-# create-with-opclass — the reader rehydrates a resolved subtype_opclass and
-# the auto-generated multirange typname instead of preserving the source's
-# None / None. Parse + diff + plan + dep-graph are still exercised.
-[fixture]
-apply = false
-
 [expect.plan]
 steps = 2
