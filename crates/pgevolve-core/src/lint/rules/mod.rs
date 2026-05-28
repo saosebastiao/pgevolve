@@ -45,9 +45,47 @@ pub mod view_shadows_table;
 
 // ── shared helpers ─────────────────────────────────────────────────────────────
 
+use crate::lint::finding::{Finding, Severity};
+use std::fmt::Display;
+
 /// Built-in `PostgreSQL` schemas that are never managed by pgevolve but are
 /// always valid targets for cross-schema references.
 pub const BUILTIN_SCHEMAS: &[&str] = &["pg_catalog", "information_schema"];
+
+/// Shared helper for "unmanaged-X" lint rules.
+///
+/// Per the lenient drift policy, pgevolve does not auto-drop catalog
+/// objects that source doesn't declare. This helper emits one Warning
+/// per target-only object so operators can decide to bring it under
+/// management or accept the drift.
+///
+/// Used by [`unmanaged_publication`], [`unmanaged_subscription`],
+/// [`unmanaged_statistic`].
+pub fn check_unmanaged_objects<T, K, F>(
+    target: &[T],
+    source: &[T],
+    key: F,
+    rule_id: &'static str,
+    noun: &str,
+) -> Vec<Finding>
+where
+    K: PartialEq + Display,
+    F: Fn(&T) -> &K,
+{
+    target
+        .iter()
+        .filter(|t| !source.iter().any(|s| key(s) == key(t)))
+        .map(|t| Finding {
+            rule: rule_id,
+            severity: Severity::Warning,
+            message: format!(
+                "{noun} {}: catalog has a {noun} not declared in source",
+                key(t),
+            ),
+            location: None,
+        })
+        .collect()
+}
 
 /// Extract all `schema.name` qualified-identifier pairs from a SQL expression
 /// text. Returns `(schema, name)` pairs for any token sequence of the form

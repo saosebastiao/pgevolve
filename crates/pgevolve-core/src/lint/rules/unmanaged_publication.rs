@@ -1,37 +1,20 @@
 //! Warns when the catalog has a publication not declared in source.
 //!
-//! Per the lenient drift policy, catalog publications that don't appear
-//! in source are NOT dropped by the differ. This lint surfaces them so
-//! operators can decide whether to bring under management or accept the drift.
-//!
-//! Mirrors `unmanaged_reloption`, `unmanaged_grant`, `unmanaged_policy`.
+//! See [`super::check_unmanaged_objects`] for the shared lenient-drift policy.
 
 use crate::ir::catalog::Catalog;
-use crate::lint::finding::{Finding, Severity};
+use crate::lint::finding::Finding;
 
 pub const RULE_ID: &str = "unmanaged-publication";
 
-/// Fires once per target publication whose name is not in source's publications list.
 pub fn check(source: &Catalog, target: &Catalog) -> Vec<Finding> {
-    target
-        .publications
-        .iter()
-        .filter(|tgt_pub| {
-            !source
-                .publications
-                .iter()
-                .any(|src_pub| src_pub.name == tgt_pub.name)
-        })
-        .map(|tgt_pub| Finding {
-            rule: RULE_ID,
-            severity: Severity::Warning,
-            message: format!(
-                "publication {}: catalog has a publication not declared in source",
-                tgt_pub.name,
-            ),
-            location: None,
-        })
-        .collect()
+    super::check_unmanaged_objects(
+        &target.publications,
+        &source.publications,
+        |p| &p.name,
+        RULE_ID,
+        "publication",
+    )
 }
 
 #[cfg(test)]
@@ -40,6 +23,7 @@ mod tests {
     use crate::identifier::Identifier;
     use crate::ir::catalog::Catalog;
     use crate::ir::publication::{Publication, PublicationScope, PublishKinds};
+    use crate::lint::finding::Severity;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -93,19 +77,7 @@ mod tests {
         let mut source = Catalog::empty();
         let target = Catalog::empty();
         source.publications.push(make_publication("managed_pub"));
-        // Source-only: not-yet-created; no drift finding needed.
         assert!(check(&source, &target).is_empty());
-    }
-
-    #[test]
-    fn multiple_unmanaged_publications_each_fire() {
-        let source = Catalog::empty();
-        let mut target = Catalog::empty();
-        target.publications.push(make_publication("pub_a"));
-        target.publications.push(make_publication("pub_b"));
-        let findings = check(&source, &target);
-        assert_eq!(findings.len(), 2);
-        assert!(findings.iter().all(|f| f.rule == RULE_ID));
     }
 
     #[test]

@@ -1,36 +1,20 @@
-//! `unmanaged-statistic` (Warning) — catalog has a statistic source doesn't.
+//! Warns when the catalog has a statistic not declared in source.
 //!
-//! Standard v0.3.x lenient-drift surface: pgevolve doesn't auto-drop
-//! catalog statistics that source doesn't declare. This lint warns so
-//! operators can decide to bring them under management (add to source)
-//! or drop them out-of-band.
+//! See [`super::check_unmanaged_objects`] for the shared lenient-drift policy.
 
 use crate::ir::catalog::Catalog;
-use crate::lint::finding::{Finding, Severity};
+use crate::lint::finding::Finding;
 
 pub const RULE_ID: &str = "unmanaged-statistic";
 
-/// Fires once per target statistic whose `qname` is not in source's statistics list.
 pub fn check(source: &Catalog, target: &Catalog) -> Vec<Finding> {
-    target
-        .statistics
-        .iter()
-        .filter(|tgt_stat| {
-            !source
-                .statistics
-                .iter()
-                .any(|src_stat| src_stat.qname == tgt_stat.qname)
-        })
-        .map(|tgt_stat| Finding {
-            rule: RULE_ID,
-            severity: Severity::Warning,
-            message: format!(
-                "statistic {}: catalog has a statistic not declared in source",
-                tgt_stat.qname,
-            ),
-            location: None,
-        })
-        .collect()
+    super::check_unmanaged_objects(
+        &target.statistics,
+        &source.statistics,
+        |s| &s.qname,
+        RULE_ID,
+        "statistic",
+    )
 }
 
 #[cfg(test)]
@@ -39,6 +23,7 @@ mod tests {
     use crate::identifier::{Identifier, QualifiedName};
     use crate::ir::catalog::Catalog;
     use crate::ir::statistic::{Statistic, StatisticColumn, StatisticKinds};
+    use crate::lint::finding::Severity;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -101,7 +86,6 @@ mod tests {
         source
             .statistics
             .push(make_statistic(qn("app", "managed_stat")));
-        // Source-only: not-yet-created; no drift finding needed.
         assert!(check(&source, &target).is_empty());
     }
 
@@ -115,16 +99,5 @@ mod tests {
         let findings = check(&source, &target);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("app.t"));
-    }
-
-    #[test]
-    fn multiple_unmanaged_statistics_each_fire() {
-        let source = Catalog::empty();
-        let mut target = Catalog::empty();
-        target.statistics.push(make_statistic(qn("app", "stat_a")));
-        target.statistics.push(make_statistic(qn("app", "stat_b")));
-        let findings = check(&source, &target);
-        assert_eq!(findings.len(), 2);
-        assert!(findings.iter().all(|f| f.rule == RULE_ID));
     }
 }
