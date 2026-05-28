@@ -10,14 +10,19 @@ Version numbers may slip; the **order** does not. Each row links to a
 plan stub under [`../superpowers/plans/_skeleton/`](../superpowers/plans/_skeleton/);
 the stub is promoted to a dated plan when brainstorming begins.
 
+## Shipped
+
+| Released | Object / sub-feature | Plan |
+|---|---|---|
+| v0.3.4 | `PUBLICATION` | [`2026-05-26-publications.md`](../superpowers/plans/2026-05-26-publications.md) |
+| v0.3.5 | `SUBSCRIPTION` | [`2026-05-26-subscriptions.md`](../superpowers/plans/2026-05-26-subscriptions.md) |
+| v0.3.6 | PG 18 catalog support | [`2026-05-26-postgres-18-support.md`](../superpowers/plans/2026-05-26-postgres-18-support.md) |
+| v0.3.7 | `STATISTICS` + `VIEW ... WITH CHECK OPTION` | [`2026-05-27-statistics-and-check-option.md`](../superpowers/plans/2026-05-27-statistics-and-check-option.md) |
+
 ## Active matrix
 
 | Target | Object / sub-feature | Plan | Notes |
 |---|---|---|---|
-| v0.3.5 | `SUBSCRIPTION` | [`2026-05-26-subscriptions.md`](../superpowers/plans/2026-05-26-subscriptions.md) | In flight |
-| v0.3.6 | PG 18 catalog support | [`2026-05-26-postgres-18-support.md`](../superpowers/plans/2026-05-26-postgres-18-support.md) | Catalog read + conformance only; new IR features deferred |
-| v0.3.7 | `STATISTICS` | [`_skeleton/statistics.md`](../superpowers/plans/_skeleton/statistics.md) | Promoted from 📋 v0.3 |
-| v0.3.7 | `VIEW ... WITH CHECK OPTION` | [`_skeleton/view-with-check-option.md`](../superpowers/plans/_skeleton/view-with-check-option.md) | Trivial extension of `View` IR |
 | v0.3.8 | `CREATE COLLATION` | [`_skeleton/create-collation.md`](../superpowers/plans/_skeleton/create-collation.md) | Unblocks text-search |
 | v0.3.8 | `RANGE TYPE` | [`_skeleton/range-type.md`](../superpowers/plans/_skeleton/range-type.md) | Adds a `UserType` variant |
 | v0.4.0 | `EVENT TRIGGER` | [`_skeleton/event-trigger.md`](../superpowers/plans/_skeleton/event-trigger.md) | Independent surface |

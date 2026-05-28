@@ -54,9 +54,10 @@ mixes states (e.g., FK constraints are supported as a kind, but the
   (v0.3.3). Entries marked 📋 name the target version when known.
 - **"v0.3.4–v0.3.5"** added replication metadata: `PUBLICATION`
   (v0.3.4) and `SUBSCRIPTION` (v0.3.5).
-- **"v0.3.6+"** continues v0.3 with PG 18 support (v0.3.6),
-  `STATISTICS` + `WITH CHECK OPTION` (v0.3.7), `CREATE COLLATION`
-  + `RANGE TYPE` (v0.3.8). See [`roadmap.md`](./roadmap.md) for the
+- **"v0.3.6–v0.3.7"** continued v0.3 with PG 18 support (v0.3.6) and
+  `STATISTICS` + `VIEW ... WITH CHECK OPTION` (v0.3.7).
+- **"v0.3.8+"** is the active roadmap: `CREATE COLLATION` + `RANGE
+  TYPE` (v0.3.8) and beyond. See [`roadmap.md`](./roadmap.md) for the
   full per-version plan.
 - **"Future"** is anything past the current release with no firm version.
 
