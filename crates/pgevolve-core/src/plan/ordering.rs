@@ -545,9 +545,7 @@ fn change_node(change: &Change) -> NodeId {
         // Subscription changes: use NodeId::Subscription keyed by subscription name.
         // Subscriptions have no local dep edges (they cross-reference a remote cluster);
         // the tier rule in `order` schedules them create-last, drop-first.
-        Change::Subscription(SubscriptionChange::Create(s)) => {
-            NodeId::Subscription(s.name.clone())
-        }
+        Change::Subscription(SubscriptionChange::Create(s)) => NodeId::Subscription(s.name.clone()),
         Change::Subscription(SubscriptionChange::Drop { name }) => {
             NodeId::Subscription(name.clone())
         }
@@ -583,9 +581,12 @@ fn change_node(change: &Change) -> NodeId {
 /// have already been created. (The remote-cluster pubs are beyond our control,
 /// but this minimizes the local-ref gap for same-cluster setups.)
 fn tier_subscriptions_last(entries: Vec<ChangeEntry>) -> Vec<ChangeEntry> {
-    let (mut rest, mut subs): (Vec<_>, Vec<_>) = entries
-        .into_iter()
-        .partition(|e| !matches!(e.change, Change::Subscription(SubscriptionChange::Create(_))));
+    let (mut rest, mut subs): (Vec<_>, Vec<_>) = entries.into_iter().partition(|e| {
+        !matches!(
+            e.change,
+            Change::Subscription(SubscriptionChange::Create(_))
+        )
+    });
     rest.append(&mut subs);
     rest
 }
@@ -596,9 +597,12 @@ fn tier_subscriptions_last(entries: Vec<ChangeEntry>) -> Vec<ChangeEntry> {
 /// (reducing the risk of network errors if a remote subscriber tries to read
 /// a publication we're about to drop).
 fn tier_subscriptions_first(entries: Vec<ChangeEntry>) -> Vec<ChangeEntry> {
-    let (mut subs, mut rest): (Vec<_>, Vec<_>) = entries
-        .into_iter()
-        .partition(|e| matches!(e.change, Change::Subscription(SubscriptionChange::Drop { .. })));
+    let (mut subs, mut rest): (Vec<_>, Vec<_>) = entries.into_iter().partition(|e| {
+        matches!(
+            e.change,
+            Change::Subscription(SubscriptionChange::Drop { .. })
+        )
+    });
     subs.append(&mut rest);
     subs
 }

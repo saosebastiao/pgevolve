@@ -321,7 +321,10 @@ mod tests {
         assert_eq!(changes.len(), 1);
         let entry = changes.iter().next().unwrap();
         assert!(
-            matches!(entry.change, Change::Publication(PublicationChange::Replace { .. })),
+            matches!(
+                entry.change,
+                Change::Publication(PublicationChange::Replace { .. })
+            ),
             "expected ReplacePublication, got {:?}",
             entry.change
         );

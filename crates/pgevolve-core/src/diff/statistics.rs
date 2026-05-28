@@ -215,7 +215,10 @@ mod tests {
         assert_eq!(changes.len(), 1);
         let entry = changes.iter().next().unwrap();
         assert!(
-            matches!(entry.change, Change::Statistic(StatisticChange::Replace { .. })),
+            matches!(
+                entry.change,
+                Change::Statistic(StatisticChange::Replace { .. })
+            ),
             "expected ReplaceStatistic, got {:?}",
             entry.change
         );
@@ -398,15 +401,17 @@ mod tests {
         let changes = run_diff(&target, &source);
         assert_eq!(changes.len(), 2);
         assert!(
-            changes
-                .iter()
-                .any(|e| matches!(&e.change, Change::Statistic(StatisticChange::AlterSetTarget { .. }))),
+            changes.iter().any(|e| matches!(
+                &e.change,
+                Change::Statistic(StatisticChange::AlterSetTarget { .. })
+            )),
             "expected StatisticChange::AlterSetTarget in changes"
         );
         assert!(
-            changes
-                .iter()
-                .any(|e| matches!(&e.change, Change::Statistic(StatisticChange::CommentOn { .. }))),
+            changes.iter().any(|e| matches!(
+                &e.change,
+                Change::Statistic(StatisticChange::CommentOn { .. })
+            )),
             "expected StatisticChange::CommentOn in changes"
         );
     }

@@ -420,7 +420,8 @@ mod tests {
         let changes = run_diff(&catalog_with(vec![tgt]), &catalog_with(vec![src]));
         assert_eq!(changes.len(), 1);
         let entry = changes.iter().next().unwrap();
-        if let Change::Subscription(SubscriptionChange::SetOptions { options, .. }) = &entry.change {
+        if let Change::Subscription(SubscriptionChange::SetOptions { options, .. }) = &entry.change
+        {
             assert_eq!(options.binary, Some(true));
             // Other fields must be None (sparse delta).
             assert!(options.enabled.is_none());

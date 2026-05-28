@@ -482,12 +482,18 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                             table.qname
                         );
                     }
-                    PublicationChange::AddSchema { publication, schema } => {
+                    PublicationChange::AddSchema {
+                        publication,
+                        schema,
+                    } => {
                         println!(
                             "      ~ ALTER PUBLICATION {publication} ADD TABLES IN SCHEMA {schema}"
                         );
                     }
-                    PublicationChange::DropSchema { publication, schema } => {
+                    PublicationChange::DropSchema {
+                        publication,
+                        schema,
+                    } => {
                         println!(
                             "      ~ ALTER PUBLICATION {publication} DROP TABLES IN SCHEMA {schema}"
                         );
@@ -747,27 +753,13 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::SetIndexStorage { .. } => "SetIndexStorage",
         Change::SetMaterializedViewStorage { .. } => "SetMaterializedViewStorage",
         Change::UnsupportedDiff { .. } => "UnsupportedDiff",
-        Change::Publication(PublicationChange::Create(_)) => {
-            "create_publication"
-        }
-        Change::Publication(PublicationChange::Drop { .. }) => {
-            "drop_publication"
-        }
-        Change::Publication(PublicationChange::Replace { .. }) => {
-            "replace_publication"
-        }
-        Change::Publication(PublicationChange::AddTable { .. }) => {
-            "alter_publication_add_table"
-        }
-        Change::Publication(PublicationChange::DropTable { .. }) => {
-            "alter_publication_drop_table"
-        }
-        Change::Publication(PublicationChange::SetTable { .. }) => {
-            "alter_publication_set_table"
-        }
-        Change::Publication(PublicationChange::AddSchema { .. }) => {
-            "alter_publication_add_schema"
-        }
+        Change::Publication(PublicationChange::Create(_)) => "create_publication",
+        Change::Publication(PublicationChange::Drop { .. }) => "drop_publication",
+        Change::Publication(PublicationChange::Replace { .. }) => "replace_publication",
+        Change::Publication(PublicationChange::AddTable { .. }) => "alter_publication_add_table",
+        Change::Publication(PublicationChange::DropTable { .. }) => "alter_publication_drop_table",
+        Change::Publication(PublicationChange::SetTable { .. }) => "alter_publication_set_table",
+        Change::Publication(PublicationChange::AddSchema { .. }) => "alter_publication_add_schema",
         Change::Publication(PublicationChange::DropSchema { .. }) => {
             "alter_publication_drop_schema"
         }
@@ -777,44 +769,26 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Publication(PublicationChange::SetViaRoot { .. }) => {
             "alter_publication_set_via_root"
         }
-        Change::Publication(PublicationChange::CommentOn { .. }) => {
-            "comment_on_publication"
+        Change::Publication(PublicationChange::CommentOn { .. }) => "comment_on_publication",
+        Change::Statistic(StatisticChange::Create(_)) => "create_statistic",
+        Change::Statistic(StatisticChange::Drop { .. }) => "drop_statistic",
+        Change::Statistic(StatisticChange::Replace { .. }) => "replace_statistic",
+        Change::Statistic(StatisticChange::AlterSetTarget { .. }) => "alter_statistic_set_target",
+        Change::Statistic(StatisticChange::CommentOn { .. }) => "comment_on_statistic",
+        Change::Subscription(SubscriptionChange::Create(_)) => "create_subscription",
+        Change::Subscription(SubscriptionChange::Drop { .. }) => "drop_subscription",
+        Change::Subscription(SubscriptionChange::AlterConnection { .. }) => {
+            "alter_subscription_connection"
         }
-        Change::Statistic(StatisticChange::Create(_)) => {
-            "create_statistic"
+        Change::Subscription(SubscriptionChange::AddPublication { .. }) => {
+            "alter_subscription_add_publication"
         }
-        Change::Statistic(StatisticChange::Drop { .. }) => {
-            "drop_statistic"
+        Change::Subscription(SubscriptionChange::DropPublication { .. }) => {
+            "alter_subscription_drop_publication"
         }
-        Change::Statistic(StatisticChange::Replace { .. }) => {
-            "replace_statistic"
+        Change::Subscription(SubscriptionChange::SetOptions { .. }) => {
+            "alter_subscription_set_options"
         }
-        Change::Statistic(StatisticChange::AlterSetTarget { .. }) => {
-            "alter_statistic_set_target"
-        }
-        Change::Statistic(StatisticChange::CommentOn { .. }) => {
-            "comment_on_statistic"
-        }
-        Change::Subscription(SubscriptionChange::Create(_)) => {
-            "create_subscription"
-        }
-        Change::Subscription(SubscriptionChange::Drop { .. }) => {
-            "drop_subscription"
-        }
-        Change::Subscription(
-            SubscriptionChange::AlterConnection { .. },
-        ) => "alter_subscription_connection",
-        Change::Subscription(
-            SubscriptionChange::AddPublication { .. },
-        ) => "alter_subscription_add_publication",
-        Change::Subscription(
-            SubscriptionChange::DropPublication { .. },
-        ) => "alter_subscription_drop_publication",
-        Change::Subscription(
-            SubscriptionChange::SetOptions { .. },
-        ) => "alter_subscription_set_options",
-        Change::Subscription(
-            SubscriptionChange::CommentOn { .. },
-        ) => "comment_on_subscription",
+        Change::Subscription(SubscriptionChange::CommentOn { .. }) => "comment_on_subscription",
     }
 }
