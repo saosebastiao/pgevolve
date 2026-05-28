@@ -5,8 +5,10 @@
 //! This module is `pub(crate)` from `lint::` so all items are effectively
 //! crate-internal despite being marked `pub`.
 
+pub mod builtin_provider_requires_pg_17;
 pub mod closed_world_references;
 pub mod column_position_drift;
+pub mod column_references_unmanaged_collation;
 pub mod composite_attribute_collision;
 pub mod compression_change_not_retroactive;
 pub mod domain_check_references_unmanaged_type;
@@ -20,12 +22,14 @@ pub mod grants_to_unmanaged_role;
 pub mod managed_schemas_match;
 pub mod mv_no_unique_index;
 pub mod no_duplicate_qnames;
+pub mod nondeterministic_collation_requires_pg_12;
 pub mod partition_references_unmanaged_parent;
 pub mod pl_pgsql_dynamic_sql;
 pub mod procedure_contains_commit;
 pub mod publication_captures_unmanaged_table;
 pub mod publication_feature_requires_pg_version;
 pub mod publication_row_filter_references_unmanaged_column;
+pub mod range_type_references_unmanaged_subtype;
 pub mod revoke_from_owner;
 pub mod role_loses_superuser;
 pub mod role_membership_cycle;
@@ -36,6 +40,7 @@ pub mod subscription_references_undeclared_publication;
 pub mod trigger_references_unmanaged_function;
 pub mod trigger_references_unmanaged_table;
 pub mod type_shadows_table;
+pub mod unmanaged_collation;
 pub mod unmanaged_publication;
 pub mod unmanaged_reloption;
 pub mod unmanaged_statistic;

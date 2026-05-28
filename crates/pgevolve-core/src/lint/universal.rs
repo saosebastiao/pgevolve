@@ -43,10 +43,26 @@
 //!   uses a PG 15+ publication feature (`FOR TABLES IN SCHEMA`, row filters,
 //!   column lists) and `[managed].min_pg_version < 15`. Run via
 //!   [`check_plan_time_catalog`].
+//! - **`column-references-unmanaged-collation`** — fires (Warning) when a
+//!   column, domain, range, or composite attribute references a collation that
+//!   is neither a Postgres built-in nor declared in `source.collations`. Run
+//!   via [`check_plan_time_catalog`].
+//! - **`range-type-references-unmanaged-subtype`** — fires (Warning) when a
+//!   `CREATE TYPE … AS RANGE` declares a subtype that is neither a known
+//!   built-in scalar nor a managed user-defined type. Run via
+//!   [`check_plan_time_catalog`].
+//! - **`nondeterministic-collation-requires-pg-12`** — fires (Error) when a
+//!   source collation has `deterministic = false` and
+//!   `[managed].min_pg_version < 12`. Run via [`check_plan_time_catalog`].
+//! - **`builtin-provider-requires-pg-17`** — fires (Error) when a source
+//!   collation uses `provider = builtin` and `[managed].min_pg_version < 17`.
+//!   Run via [`check_plan_time_catalog`].
 //!
 //! Drift-detection rules (comparing source vs live catalog, run via [`run_drift_lints`]):
 //!
 //! - **`unmanaged-publication`** — catalog reports a publication source doesn't
+//!   declare. Standard v0.3.x lenient-drift pattern.
+//! - **`unmanaged-collation`** — catalog reports a collation source doesn't
 //!   declare. Standard v0.3.x lenient-drift pattern.
 //! - **`publication-captures-unmanaged-table`** — a `FOR ALL TABLES` or
 //!   `FOR TABLES IN SCHEMA` publication implicitly captures tables not in source.
@@ -148,6 +164,7 @@ pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
     out.extend(rules::publication_row_filter_references_unmanaged_column::check(source));
     out.extend(rules::unmanaged_statistic::check(source, target));
     out.extend(rules::unmanaged_subscription::check(source, target));
+    out.extend(rules::unmanaged_collation::check(source, target));
     out
 }
 
@@ -189,6 +206,16 @@ pub fn check_changeset(cs: &ChangeSet) -> Vec<Finding> {
 /// - **`subscription-password-in-source`** — fires (Error) when a source
 ///   subscription CONNECTION contains a plaintext `password=` value instead of
 ///   a `${ENV_VAR}` reference.
+/// - **`column-references-unmanaged-collation`** — fires (Warning) when a
+///   column / domain / range / composite-attribute references a collation that
+///   is neither a Postgres built-in nor declared in source.
+/// - **`range-type-references-unmanaged-subtype`** — fires (Warning) when a
+///   `CREATE TYPE … AS RANGE` declares a subtype that is neither a known
+///   Postgres built-in scalar nor a managed user-defined type.
+/// - **`nondeterministic-collation-requires-pg-12`** — fires (Error) when a
+///   source collation has `deterministic = false` and `min_pg_version < 12`.
+/// - **`builtin-provider-requires-pg-17`** — fires (Error) when a source
+///   collation uses `provider = builtin` and `min_pg_version < 17`.
 pub fn check_plan_time_catalog(source: &Catalog, min_pg_version: u32) -> Vec<Finding> {
     let mut out = rules::force_rls_without_policies::check(source);
     out.extend(rules::publication_feature_requires_pg_version::check(
@@ -201,6 +228,18 @@ pub fn check_plan_time_catalog(source: &Catalog, min_pg_version: u32) -> Vec<Fin
         min_pg_version,
     ));
     out.extend(rules::subscription_password_in_source::check(source));
+    out.extend(rules::column_references_unmanaged_collation::check(source));
+    out.extend(rules::range_type_references_unmanaged_subtype::check(
+        source,
+    ));
+    out.extend(rules::nondeterministic_collation_requires_pg_12::check(
+        source,
+        min_pg_version,
+    ));
+    out.extend(rules::builtin_provider_requires_pg_17::check(
+        source,
+        min_pg_version,
+    ));
     out
 }
 
