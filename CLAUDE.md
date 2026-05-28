@@ -45,6 +45,8 @@ These are not new principles, they're how to apply the constitution to in-sessio
     Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
     ```
 
+11. **Never `cargo publish` until CI is green.** The release ceremony order is: `git push origin main` → signed tag → `git push origin <tag>` → **wait for the push CI run to finish ✅ across all 5 PG majors** → `cargo publish -p pgevolve-core` → wait ~30s for index sync → `cargo publish -p pgevolve`. If CI fails between the tag push and publish, fix forward on `main` (re-tag or roll the version forward to a new patch). Reason: on 2026-05-28 v0.3.8 was published immediately after the tag push while CI was still mid-run; CI then failed on PG 15 and PG 16 (broken ICU collation reader), forcing a same-day yank + v0.3.9 patch release. Anyone who installed v0.3.8 in the brief window got a broken reader.
+
 ## Project layout pointers
 
 - `crates/pgevolve-core` — library: parser, IR, diff, planner, render, lint.
