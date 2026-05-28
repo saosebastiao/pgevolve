@@ -3,8 +3,8 @@
 //! PG keywords are uppercase per the established sql.rs convention.
 //! Identifiers go through `Identifier::render_sql` / `QualifiedName::render_sql`.
 //! Schemas (and other single-component qnames) use `qname.name` directly to
-//! avoid the `"name"."name"` double-qualification artifact left from
-//! Stage 8's placeholder.
+//! avoid the `"name"."name"` double-qualification artifact that
+//! `QualifiedName::render_sql` would produce for a single-component name.
 
 use crate::diff::owner_op::OwnerObjectKind;
 use crate::identifier::{Identifier, QualifiedName};
@@ -217,8 +217,9 @@ mod tests {
 
     #[test]
     fn alter_owner_schema_no_double_qualify() {
-        // Schema qnames are stored as QualifiedName::new(name, name) in Stage 8.
-        // The renderer must use qname.name only, not qname.render_sql().
+        // Schema qnames are stored as QualifiedName::new(name, name).
+        // The renderer must use qname.name only, not qname.render_sql(),
+        // to avoid emitting "name"."name".
         let sql = alter_object_owner(OwnerObjectKind::Schema, &qn("app", "app"), "", &id("alice"));
         assert_eq!(sql, "ALTER SCHEMA app OWNER TO alice;");
     }

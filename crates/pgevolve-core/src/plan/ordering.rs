@@ -231,7 +231,6 @@ fn partition(changes: ChangeSet) -> PartitionResult {
     for entry in changes.entries {
         match &entry.change {
             // Creates: structural objects that need to be ordered dependencies-first.
-            // Views and MVs are included here; T7 will wire their dep edges.
             Change::CreateSchema(_)
             | Change::CreateTable(_)
             | Change::CreateIndex(_)
@@ -239,9 +238,7 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::View(ViewChange::Create(_))
             | Change::Mv(MvChange::Create(_))
             | Change::CreatePublication(_)
-            // Stage 8 wires real NodeId::Subscription; for now piggybacks creates bucket.
             | Change::CreateSubscription(_)
-            // Stage 8 wires real NodeId::Statistic; for now piggybacks creates bucket.
             | Change::CreateStatistic(_) => creates.push(entry),
             // Drops: ordered by reverse-dependency (deepest dependents first).
             Change::DropSchema(_)
@@ -250,9 +247,7 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::DropSequence(_)
             | Change::View(ViewChange::Drop(_))
             | Change::Mv(MvChange::Drop(_))
-            // Stage 8 wires real NodeId::Subscription; for now piggybacks drops bucket.
             | Change::DropSubscription { .. }
-            // Stage 8 wires real NodeId::Statistic; for now piggybacks drops bucket.
             | Change::DropStatistic { .. }
             | Change::ReplaceStatistic { .. } => drops.push(entry),
             // Modifies: ALTER / REPLACE / COMMENT / drift-recovery / grant / owner.
@@ -335,7 +330,6 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             },
             // Partition changes: alter partition membership, not the table's existence.
             // Policy + RLS changes: metadata-only, always non-destructive modifications.
-            // Stage 6 will emit real SQL for the policy variants; for now they land in modifies.
             // Storage reloption changes: ALTER TABLE/INDEX/MV SET (...) — always modifies.
             Change::Table(
                 TableChange::AttachPartition { .. } | TableChange::DetachPartition { .. },
@@ -366,7 +360,6 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             | Change::AlterSubscriptionSetPublication { .. }
             | Change::AlterSubscriptionSetOptions { .. }
             | Change::CommentOnSubscription { .. }
-            // Statistic scalar diffs: Stage 8 wires real NodeId::Statistic.
             | Change::AlterStatisticSetTarget { .. }
             | Change::CommentOnStatistic { .. } => {
                 modifies.push(entry);
