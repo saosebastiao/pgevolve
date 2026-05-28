@@ -98,15 +98,12 @@ pub fn diff_sequences(
                 if let Some(source_owner) = &source_seq.owner
                     && target_seq.owner.as_ref() != Some(source_owner)
                 {
-                    let from = target_seq.owner.clone().unwrap_or_else(|| {
-                        Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
-                    });
                     out.push(
                         Change::AlterObjectOwner(AlterObjectOwner {
                             kind: OwnerObjectKind::Sequence,
-                            qname: (*qname).clone(),
+                            id: crate::diff::owner_op::OwnedObjectId::Qualified((*qname).clone()),
                             signature: String::new(),
-                            from,
+                            from: target_seq.owner.clone(),
                             to: source_owner.clone(),
                         }),
                         Destructiveness::Safe,

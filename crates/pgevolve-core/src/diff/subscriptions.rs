@@ -12,7 +12,7 @@ use crate::diff::change::{Change, SubscriptionChange};
 use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::owner_op::{AlterObjectOwner, OwnerObjectKind};
-use crate::identifier::{Identifier, QualifiedName};
+use crate::identifier::Identifier;
 use crate::ir::catalog::Catalog;
 use crate::ir::subscription::{Subscription, SubscriptionOptions};
 
@@ -97,23 +97,12 @@ fn diff_one(target: &Subscription, source: &Subscription, out: &mut ChangeSet) {
     if let Some(s_owner) = &source.owner
         && target.owner.as_ref() != Some(s_owner)
     {
-        let from = target.owner.clone().unwrap_or_else(|| {
-            Identifier::from_unquoted("__unknown_owner__")
-                .expect("literal is always a valid unquoted identifier")
-        });
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
                 kind: OwnerObjectKind::Subscription,
-                // Subscriptions are not schema-qualified. Use a synthetic
-                // QualifiedName with `__cluster__` as the schema component to
-                // satisfy the `QualifiedName` type (same convention as publications).
-                qname: QualifiedName::new(
-                    Identifier::from_unquoted("__cluster__")
-                        .expect("literal is always a valid unquoted identifier"),
-                    source.name.clone(),
-                ),
+                id: crate::diff::owner_op::OwnedObjectId::Cluster(source.name.clone()),
                 signature: String::new(),
-                from,
+                from: target.owner.clone(),
                 to: s_owner.clone(),
             }),
             Destructiveness::Safe,

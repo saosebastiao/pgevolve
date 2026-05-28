@@ -1,35 +1,26 @@
 //! SQL rendering for object grants + ownership + default privileges.
 //!
 //! PG keywords are uppercase per the established sql.rs convention.
-//! Identifiers go through `Identifier::render_sql` / `QualifiedName::render_sql`.
-//! Schemas (and other single-component qnames) use `qname.name` directly to
-//! avoid the `"name"."name"` double-qualification artifact that
-//! `QualifiedName::render_sql` would produce for a single-component name.
+//! Identifiers go through `Identifier::render_sql` / `QualifiedName::render_sql`
+//! / `OwnedObjectId::render_sql` (the last picks the right shape per object).
 
-use crate::diff::owner_op::OwnerObjectKind;
+use crate::diff::owner_op::{OwnedObjectId, OwnerObjectKind};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_privileges::DefaultPrivObjectType;
 use crate::ir::grant::{Grant, GrantTarget};
 
-/// `ALTER <objkind> qname OWNER TO new_owner;`
+/// `ALTER <objkind> <id>[<signature>] OWNER TO <new_owner>;`
 #[must_use]
 pub fn alter_object_owner(
     kind: OwnerObjectKind,
-    qname: &QualifiedName,
+    id: &OwnedObjectId,
     signature: &str,
     new_owner: &Identifier,
 ) -> String {
-    if matches!(kind, OwnerObjectKind::Schema) {
-        return format!(
-            "ALTER SCHEMA {} OWNER TO {};",
-            qname.name.render_sql(),
-            new_owner.render_sql(),
-        );
-    }
-    let objkind_token = kind.sql_keyword();
     format!(
-        "ALTER {objkind_token} {}{} OWNER TO {};",
-        qname.render_sql(),
+        "ALTER {} {}{} OWNER TO {};",
+        kind.sql_keyword(),
+        id.render_sql(),
         signature,
         new_owner.render_sql(),
     )
@@ -208,7 +199,7 @@ mod tests {
     fn alter_owner_table() {
         let sql = alter_object_owner(
             OwnerObjectKind::Table,
-            &qn("app", "users"),
+            &OwnedObjectId::Qualified(qn("app", "users")),
             "",
             &id("alice"),
         );
@@ -217,18 +208,31 @@ mod tests {
 
     #[test]
     fn alter_owner_schema_no_double_qualify() {
-        // Schema qnames are stored as QualifiedName::new(name, name).
-        // The renderer must use qname.name only, not qname.render_sql(),
-        // to avoid emitting "name"."name".
-        let sql = alter_object_owner(OwnerObjectKind::Schema, &qn("app", "app"), "", &id("alice"));
+        let sql = alter_object_owner(
+            OwnerObjectKind::Schema,
+            &OwnedObjectId::Schema(id("app")),
+            "",
+            &id("alice"),
+        );
         assert_eq!(sql, "ALTER SCHEMA app OWNER TO alice;");
+    }
+
+    #[test]
+    fn alter_owner_publication_no_schema_qualifier() {
+        let sql = alter_object_owner(
+            OwnerObjectKind::Publication,
+            &OwnedObjectId::Cluster(id("my_pub")),
+            "",
+            &id("alice"),
+        );
+        assert_eq!(sql, "ALTER PUBLICATION my_pub OWNER TO alice;");
     }
 
     #[test]
     fn alter_owner_function_with_signature() {
         let sql = alter_object_owner(
             OwnerObjectKind::Function,
-            &qn("app", "do_thing"),
+            &OwnedObjectId::Qualified(qn("app", "do_thing")),
             "(integer, text)",
             &id("alice"),
         );

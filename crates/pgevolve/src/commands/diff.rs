@@ -395,9 +395,13 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                 );
             }
             pgevolve_core::diff::change::Change::AlterObjectOwner(op) => {
+                let from = op
+                    .from
+                    .as_ref()
+                    .map_or_else(|| "<unknown>".to_string(), ToString::to_string);
                 println!(
-                    "      alter owner of {:?} {} from {} to {}",
-                    op.kind, op.qname, op.from, op.to
+                    "      alter owner of {:?} {} from {from} to {}",
+                    op.kind, op.id, op.to
                 );
             }
             pgevolve_core::diff::change::Change::AlterDefaultPrivileges {

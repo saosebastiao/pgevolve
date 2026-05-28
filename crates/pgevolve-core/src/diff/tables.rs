@@ -109,15 +109,12 @@ pub fn diff_tables(
                 if let Some(source_owner) = &source_table.owner
                     && target_table.owner.as_ref() != Some(source_owner)
                 {
-                    let from = target_table.owner.clone().unwrap_or_else(|| {
-                        Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
-                    });
                     out.push(
                         Change::AlterObjectOwner(AlterObjectOwner {
                             kind: OwnerObjectKind::Table,
-                            qname: (*qname).clone(),
+                            id: crate::diff::owner_op::OwnedObjectId::Qualified((*qname).clone()),
                             signature: String::new(),
-                            from,
+                            from: target_table.owner.clone(),
                             to: source_owner.clone(),
                         }),
                         Destructiveness::Safe,

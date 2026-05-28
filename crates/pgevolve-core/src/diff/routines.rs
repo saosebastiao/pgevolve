@@ -99,15 +99,12 @@ fn diff_function_owner_grants(
     if let Some(source_owner) = &source.owner
         && catalog.owner.as_ref() != Some(source_owner)
     {
-        let from = catalog.owner.clone().unwrap_or_else(|| {
-            Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
-        });
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
                 kind: OwnerObjectKind::Function,
-                qname: source.qname.clone(),
+                id: crate::diff::owner_op::OwnedObjectId::Qualified(source.qname.clone()),
                 signature: signature.clone(),
-                from,
+                from: catalog.owner.clone(),
                 to: source_owner.clone(),
             }),
             Destructiveness::Safe,
@@ -334,15 +331,12 @@ fn diff_procedure_owner_grants(
     if let Some(source_owner) = &source.owner
         && catalog.owner.as_ref() != Some(source_owner)
     {
-        let from = catalog.owner.clone().unwrap_or_else(|| {
-            Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
-        });
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
                 kind: OwnerObjectKind::Procedure,
-                qname: source.qname.clone(),
+                id: crate::diff::owner_op::OwnedObjectId::Qualified(source.qname.clone()),
                 signature: signature.clone(),
-                from,
+                from: catalog.owner.clone(),
                 to: source_owner.clone(),
             }),
             Destructiveness::Safe,

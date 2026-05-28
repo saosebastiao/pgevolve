@@ -15,7 +15,7 @@ use crate::diff::change::{Change, StatisticChange};
 use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::owner_op::{AlterObjectOwner, OwnerObjectKind};
-use crate::identifier::{Identifier, QualifiedName};
+use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
 use crate::ir::statistic::Statistic;
 
@@ -88,16 +88,12 @@ fn diff_one(target: &Statistic, source: &Statistic, out: &mut ChangeSet) {
     if let Some(s_owner) = &source.owner
         && target.owner.as_ref() != Some(s_owner)
     {
-        let from = target.owner.clone().unwrap_or_else(|| {
-            Identifier::from_unquoted("__unknown_owner__")
-                .expect("literal is always a valid unquoted identifier")
-        });
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
                 kind: OwnerObjectKind::Statistic,
-                qname: source.qname.clone(),
+                id: crate::diff::owner_op::OwnedObjectId::Qualified(source.qname.clone()),
                 signature: String::new(),
-                from,
+                from: target.owner.clone(),
                 to: s_owner.clone(),
             }),
             Destructiveness::Safe,

@@ -129,24 +129,12 @@ fn diff_one_publication(target: &Publication, source: &Publication, out: &mut Ch
     if let Some(s_owner) = &source.owner
         && target.owner.as_ref() != Some(s_owner)
     {
-        let from = target.owner.clone().unwrap_or_else(|| {
-            Identifier::from_unquoted("__unknown_owner__")
-                .expect("literal is always a valid unquoted identifier")
-        });
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
                 kind: OwnerObjectKind::Publication,
-                // Publications are not schema-qualified. We use a synthetic
-                // QualifiedName with `__cluster__` as the schema component to
-                // satisfy the `QualifiedName` type (same convention as cluster
-                // ops in plan/cluster_rewrite/emit.rs).
-                qname: crate::identifier::QualifiedName::new(
-                    Identifier::from_unquoted("__cluster__")
-                        .expect("literal is always a valid unquoted identifier"),
-                    source.name.clone(),
-                ),
+                id: crate::diff::owner_op::OwnedObjectId::Cluster(source.name.clone()),
                 signature: String::new(),
-                from,
+                from: target.owner.clone(),
                 to: s_owner.clone(),
             }),
             Destructiveness::Safe,

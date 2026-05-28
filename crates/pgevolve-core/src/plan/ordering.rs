@@ -498,7 +498,18 @@ fn change_node(change: &Change) -> NodeId {
         | Change::RevokeObjectPrivilege { qname, .. }
         | Change::GrantColumnPrivilege { qname, .. }
         | Change::RevokeColumnPrivilege { qname, .. } => NodeId::Table(qname.clone()),
-        Change::AlterObjectOwner(op) => NodeId::Table(op.qname.clone()),
+        Change::AlterObjectOwner(op) => match &op.id {
+            crate::diff::owner_op::OwnedObjectId::Qualified(q) => NodeId::Table(q.clone()),
+            crate::diff::owner_op::OwnedObjectId::Schema(name) => NodeId::Schema(name.clone()),
+            crate::diff::owner_op::OwnedObjectId::Cluster(name) => {
+                use crate::diff::owner_op::OwnerObjectKind;
+                match op.kind {
+                    OwnerObjectKind::Publication => NodeId::Publication(name.clone()),
+                    OwnerObjectKind::Subscription => NodeId::Subscription(name.clone()),
+                    _ => NodeId::Table(QualifiedName::new(name.clone(), name.clone())),
+                }
+            }
+        },
         Change::AlterDefaultPrivileges { target_role, .. } => {
             // Default-privilege changes have no natural node; use a Schema node
             // keyed by the target_role name as a stable ordering anchor.

@@ -159,15 +159,12 @@ pub fn diff_views(
         if let Some(source_owner) = &src.owner
             && tgt.owner.as_ref() != Some(source_owner)
         {
-            let from = tgt.owner.clone().unwrap_or_else(|| {
-                Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
-            });
             out.push(
                 Change::AlterObjectOwner(AlterObjectOwner {
                     kind: OwnerObjectKind::View,
-                    qname: (*qname).clone(),
+                    id: crate::diff::owner_op::OwnedObjectId::Qualified((*qname).clone()),
                     signature: String::new(),
-                    from,
+                    from: tgt.owner.clone(),
                     to: source_owner.clone(),
                 }),
                 Destructiveness::Safe,
@@ -334,15 +331,12 @@ pub fn diff_materialized_views(
         if let Some(source_owner) = &src.owner
             && tgt.owner.as_ref() != Some(source_owner)
         {
-            let from = tgt.owner.clone().unwrap_or_else(|| {
-                Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
-            });
             out.push(
                 Change::AlterObjectOwner(AlterObjectOwner {
                     kind: OwnerObjectKind::MaterializedView,
-                    qname: (*qname).clone(),
+                    id: crate::diff::owner_op::OwnedObjectId::Qualified((*qname).clone()),
                     signature: String::new(),
-                    from,
+                    from: tgt.owner.clone(),
                     to: source_owner.clone(),
                 }),
                 Destructiveness::Safe,

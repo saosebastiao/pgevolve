@@ -63,15 +63,12 @@ fn diff_type_owner_grants(
     if let Some(source_owner) = &source.owner
         && catalog.owner.as_ref() != Some(source_owner)
     {
-        let from = catalog.owner.clone().unwrap_or_else(|| {
-            Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
-        });
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
                 kind: OwnerObjectKind::UserType,
-                qname: source.qname.clone(),
+                id: crate::diff::owner_op::OwnedObjectId::Qualified(source.qname.clone()),
                 signature: String::new(),
-                from,
+                from: catalog.owner.clone(),
                 to: source_owner.clone(),
             }),
             Destructiveness::Safe,

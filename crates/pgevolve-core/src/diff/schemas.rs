@@ -63,18 +63,12 @@ pub fn diff_schemas(
                 if let Some(source_owner) = &source_schema.owner
                     && target_schema.owner.as_ref() != Some(source_owner)
                 {
-                    let from = target_schema.owner.clone().unwrap_or_else(|| {
-                        Identifier::from_unquoted("__unknown_owner__").expect("literal is valid")
-                    });
                     out.push(
                         Change::AlterObjectOwner(AlterObjectOwner {
                             kind: OwnerObjectKind::Schema,
-                            qname: crate::identifier::QualifiedName::new(
-                                (*name).clone(),
-                                (*name).clone(),
-                            ),
+                            id: crate::diff::owner_op::OwnedObjectId::Schema((*name).clone()),
                             signature: String::new(),
-                            from,
+                            from: target_schema.owner.clone(),
                             to: source_owner.clone(),
                         }),
                         Destructiveness::Safe,

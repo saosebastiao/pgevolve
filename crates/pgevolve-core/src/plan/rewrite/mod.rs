@@ -212,14 +212,24 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             }
         }
         Change::AlterObjectOwner(op) => {
+            // Audit `targets` historically carried the QualifiedName; for
+            // cluster-level (publication/subscription) and schema owners we
+            // synthesize a QualifiedName for tracking only.
+            let target_qname = match &op.id {
+                crate::diff::owner_op::OwnedObjectId::Qualified(q) => q.clone(),
+                crate::diff::owner_op::OwnedObjectId::Schema(name)
+                | crate::diff::owner_op::OwnedObjectId::Cluster(name) => {
+                    QualifiedName::new(name.clone(), name.clone())
+                }
+            };
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterObjectOwner,
                 destructive: false,
                 destructive_reason: None,
                 intent_id: None,
-                targets: vec![op.qname.clone()],
-                sql: grants::alter_object_owner(op.kind, &op.qname, &op.signature, &op.to),
+                targets: vec![target_qname],
+                sql: grants::alter_object_owner(op.kind, &op.id, &op.signature, &op.to),
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
