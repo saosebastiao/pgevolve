@@ -7,6 +7,7 @@
 pub mod canon;
 pub mod catalog;
 pub mod cluster;
+pub mod collation;
 pub mod column;
 pub mod column_type;
 pub mod constraint;
@@ -88,4 +89,13 @@ pub enum IrError {
     /// A `Statistic.columns` was empty.
     #[error("statistic {0}: empty column list")]
     EmptyStatisticColumns(crate::identifier::QualifiedName),
+
+    /// A `Collation` failed canon validation (e.g. nondeterministic libc).
+    #[error("collation {qname}: invalid — {reason}")]
+    InvalidCollation {
+        /// Schema-qualified collation name.
+        qname: crate::identifier::QualifiedName,
+        /// Why the collation is invalid.
+        reason: String,
+    },
 }

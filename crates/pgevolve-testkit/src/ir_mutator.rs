@@ -525,6 +525,7 @@ mod tests {
             publications: vec![],
             statistics: vec![],
             subscriptions: vec![],
+            collations: vec![],
             default_privileges: vec![],
         };
 

@@ -50,6 +50,8 @@ pub struct Catalog {
     pub statistics: Vec<crate::ir::statistic::Statistic>,
     /// Subscriptions (logical-replication subscriber-side metadata).
     pub subscriptions: Vec<crate::ir::subscription::Subscription>,
+    /// User-defined collations (v0.3.8+).
+    pub collations: Vec<crate::ir::collation::Collation>,
     /// `ALTER DEFAULT PRIVILEGES` rules. Canonicalized.
     pub default_privileges: Vec<crate::ir::default_privileges::DefaultPrivilegeRule>,
 }
@@ -73,6 +75,7 @@ impl Catalog {
             publications: Vec::new(),
             statistics: Vec::new(),
             subscriptions: Vec::new(),
+            collations: Vec::new(),
             default_privileges: Vec::new(),
         }
     }
