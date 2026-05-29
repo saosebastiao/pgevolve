@@ -18,6 +18,8 @@ data unless explicitly authorized in a per-plan intent file.
 Current release: **v0.3.9** (Postgres 14–18). See
 [`CHANGELOG.md`](./CHANGELOG.md) for per-release detail.
 
+**Documentation:** <https://saosebastiao.github.io/pgevolve/>
+
 ## Install
 
 From [crates.io](https://crates.io/crates/pgevolve) (recommended):
