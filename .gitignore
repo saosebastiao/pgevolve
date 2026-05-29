@@ -7,3 +7,6 @@
 .vscode/
 prompts/
 .claude/scheduled_tasks.lock
+
+# mdBook build output
+/book/
