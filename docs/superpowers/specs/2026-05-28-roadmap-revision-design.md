@@ -154,12 +154,6 @@ No code, no tests beyond the standard "everything still builds" gate.
 
 ## §4. What this design does NOT do
 
-- Touch `docs/spec/objects.md`. The `RANGE TYPE` row in objects.md
-  was flipped to ✅ when v0.3.8 shipped; the recursive-views row
-  there is still `🔮 Future` — that flips to `📋 Planned, v0.5.3`
-  alongside the roadmap edit, but it's a one-line tweak inside the
-  roadmap commit (not a separate sub-project). Including it for
-  completeness.
 - Touch the v1.0 charter (`docs/v1.md`). The charter §4 table already
   lists v0.5.3 recursive views; the roadmap edit just brings the
   source-of-truth document into alignment.
