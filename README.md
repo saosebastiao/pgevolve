@@ -5,7 +5,9 @@ Postgres-specific declarative schema management.
 [![crates.io](https://img.shields.io/crates/v/pgevolve.svg)](https://crates.io/crates/pgevolve)
 [![docs.rs](https://img.shields.io/docsrs/pgevolve-core)](https://docs.rs/pgevolve-core)
 [![CI](https://github.com/saosebastiao/pgevolve/actions/workflows/ci.yml/badge.svg)](https://github.com/saosebastiao/pgevolve/actions/workflows/ci.yml)
+[![Soak](https://github.com/saosebastiao/pgevolve/actions/workflows/soak.yml/badge.svg)](https://github.com/saosebastiao/pgevolve/actions/workflows/soak.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![MSRV: 1.95+](https://img.shields.io/badge/MSRV-1.95+-blue.svg)](#install)
 
 `pgevolve` treats a directory of `CREATE`-style SQL files as the source of
 truth for one or more Postgres schemas, introspects a live database to
