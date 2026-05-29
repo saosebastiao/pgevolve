@@ -1,6 +1,27 @@
 # Releasing pgevolve
 
-This runbook applies the [Constitution §9](./CONSTITUTION.md#9-cicd-and-release-discipline) release discipline.
+This runbook applies the [Constitution §9](./CONSTITUTION.md#9-cicd-and-release-discipline)
+release discipline + the [CLAUDE.md §11](../CLAUDE.md) "never `cargo
+publish` until CI is green" rule (added 2026-05-28 after the v0.3.8
+disaster).
+
+## Canonical executable form
+
+For a normal release, run:
+
+```sh
+scripts/release.sh X.Y.Z
+```
+
+The script walks every step below, gates on the pre-flight verify,
+waits for CI green on both the push and the tag, and prompts before
+each irreversible action (publish, push, tag). If you bail at any
+prompt, nothing irrecoverable has happened.
+
+The prose runbook below documents what the script is doing, for
+when something goes wrong and you need to step through manually.
+
+---
 
 ## Pre-flight
 
@@ -39,6 +60,28 @@ Before starting the release commit, the following must be true:
    git commit -m "release: vX.Y.Z"
    ```
 
+## Push main + WAIT FOR CI GREEN
+
+Push the release commit:
+```sh
+git push origin main
+```
+
+Then **wait for the per-push CI run to finish green across all 5 PG
+majors**. Per CLAUDE.md §11, this is non-negotiable — today's v0.3.8
+disaster happened because the maintainer published immediately after
+the tag push while CI was still running. CI then failed on PG 15 + 16
+(broken ICU SQL); the buggy v0.3.8 was already on crates.io.
+
+```sh
+COMMIT=$(git rev-parse HEAD)
+RUN_ID=$(gh run list --branch main --commit "$COMMIT" --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run watch "$RUN_ID" --exit-status
+```
+
+`--exit-status` makes the command return non-zero if any job fails;
+do not proceed past this step until it returns 0.
+
 ## Tag
 
 **Tags must be signed.** Per Constitution §9, an unsigned release tag is not a valid release.
@@ -65,16 +108,19 @@ git config commit.gpgsign true
 git config tag.gpgsign true
 ```
 
-## Push
+## Push tag
 
 ```sh
-git push origin main
 git push origin vX.Y.Z
 ```
 
-CI will run on `main`. The tag does not trigger CI by itself in the current workflow setup.
+The tag push does not trigger CI by itself in the current workflow
+setup — CI already ran on the underlying commit when you pushed
+main above. If for some reason the tag is on a different commit
+than main's HEAD, wait for CI green on that commit too before
+publishing.
 
-## Publish to crates.io (optional)
+## Publish to crates.io
 
 When the release is ready for crates.io, publish in dependency order:
 
@@ -101,16 +147,29 @@ cargo publish --dry-run -p pgevolve-core
 cargo publish --dry-run -p pgevolve
 ```
 
+## Yank a prior version (if shipping a fix)
+
+If the version you just published replaces a buggy prior version
+(v0.3.9 replacing the broken v0.3.8 is the canonical example), yank
+the prior so cargo prefers the new version:
+
+```sh
+cargo yank --version <prior> pgevolve-core
+cargo yank --version <prior> pgevolve
+```
+
+The CHANGELOG entry for the fix release should call out the yank
+explicitly in a `### Yanked` section. Yanking does not remove the
+prior version from crates.io — cargo can still resolve it if pinned —
+but it stops new installs from picking it up.
+
 ## Post-release
 
-1. Open a new `[Unreleased]` section at the top of `CHANGELOG.md`.
-2. Optionally bump the workspace version to `X.(Y+1).0-dev` to make accidental crates.io uploads of a stale version impossible.
-3. Create a GitHub release from the new tag with the CHANGELOG section as the body.
-
-## Historical notes
-
-- **v0.1.0 (`adb0177` parent commit)** and **v0.2.0 (`3087a5b`)** were tagged with annotated, **unsigned** tags. The 2026-05-21 constitution audit flagged this as a §9 violation. From v0.3.0 onward, every release tag is signed; the two historical tags are documented as exceptions and will not be re-signed because rewriting tag history breaks any consumer who has already fetched them.
-
-## Why this exists
-
-Constitution §9 mandates: "Release tags are signed. The `[workspace.package].version` field and the `CHANGELOG.md` entry must agree at the time of tagging." This file is the operational checklist that makes those guarantees mechanical.
+- Push the tag (already done above; this is the reminder bullet).
+- Verify the badge updates: README's `[![crates.io]` and `[![Soak]`
+  badges refresh within a few minutes.
+- If this release closes a v1.0-checklist row (per
+  [`v1.md`](./v1.md) §4), flip the row's status in
+  [`spec/objects.md`](./spec/objects.md) and remove it from
+  [`spec/roadmap.md`](./spec/roadmap.md)'s Active matrix in a
+  follow-up docs commit.
