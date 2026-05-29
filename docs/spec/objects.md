@@ -33,7 +33,7 @@ manage. See [`../README.md`](./README.md) for the status legend.
 | `security_barrier` reloption | ✅ Implemented | Modeled as `View::security_barrier: Option<bool>`. Emitted as `ALTER VIEW … SET (security_barrier = …)` via the `alter_view_set_reloption` step kind.<br>**Tests:** tier-C: `objects/views/security-barrier-toggle` |
 | `security_invoker` reloption | ✅ Implemented | Modeled as `View::security_invoker: Option<bool>`. Same step kind as `security_barrier`.<br>**Tests:** tier-C: `objects/views/security-invoker-toggle` |
 | `CREATE VIEW ... WITH CHECK OPTION` | ✅ Supported | Per-view `check_option: Option<CheckOption>` (`Local` / `Cascaded`). Both source forms parsed (SQL clause + WITH-options). Diff emits `CREATE OR REPLACE VIEW`. change_kinds: [alter_view_set_check_option] |
-| Recursive views (`WITH RECURSIVE`) | 🔮 Future | Requires cycle-aware dep-graph handling. |
+| Recursive views (`WITH RECURSIVE`) | 📋 Planned, v0.5.3 | Requires cycle-aware dep-graph handling. See [`roadmap.md`](./roadmap.md). |
 
 ## Functions, procedures, triggers
 

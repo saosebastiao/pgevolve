@@ -27,25 +27,29 @@ the charter is the meaning of "done".
 
 ## Active matrix
 
+**The 1.0 cut happens when this matrix is empty.** See
+[`../v1.md`](../v1.md) §4 for the full v1.0 feature checklist (this
+matrix is the source of truth; the charter restates it).
+
 | Target | Object / sub-feature | Plan | Notes |
 |---|---|---|---|
 | v0.4.0 | `EVENT TRIGGER` | [`_skeleton/event-trigger.md`](../superpowers/plans/_skeleton/event-trigger.md) | Independent surface |
-| v0.4.0 | Per-partition `TABLESPACE` | [`_skeleton/per-partition-tablespace.md`](../superpowers/plans/_skeleton/per-partition-tablespace.md) | `tablespace` override on partition children |
-| v0.4.0 | `TABLE ... USING <access method>` | [`_skeleton/table-access-method.md`](../superpowers/plans/_skeleton/table-access-method.md) | New `access_method` field on `Table` |
-| v0.4.1 | `AGGREGATE` (SQL/plpgsql state) | [`_skeleton/aggregate.md`](../superpowers/plans/_skeleton/aggregate.md) | Constrained: rejects non-readable state-function languages |
-| v0.4.1 | PG 18 virtual generated columns | [`_skeleton/virtual-generated-columns.md`](../superpowers/plans/_skeleton/virtual-generated-columns.md) | New `GeneratedKind` variant |
-| v0.4.2 | `TABLESPACE` (cluster object) | [`_skeleton/cluster-tablespace.md`](../superpowers/plans/_skeleton/cluster-tablespace.md) | Reverses the "out of scope" stance in `objects.md`; see design doc |
-| v0.4.2 | PL-language wiring → non-SQL `FUNCTION` bodies | [`_skeleton/pl-language-wiring.md`](../superpowers/plans/_skeleton/pl-language-wiring.md) | Enables PL/Python, PL/Perl, etc. |
-| v0.4.3 | `TEXT SEARCH` family | [`_skeleton/text-search.md`](../superpowers/plans/_skeleton/text-search.md) | Configuration / dictionary / parser / template |
-| v0.5.0 | FDW family | [`_skeleton/fdw-family.md`](../superpowers/plans/_skeleton/fdw-family.md) | `FDW`, `SERVER`, `USER MAPPING`, `FOREIGN TABLE`, `IMPORT FOREIGN SCHEMA`; includes secrets handling |
-| v0.5.1 | `OPERATOR` / `OPERATOR CLASS` / `OPERATOR FAMILY` | [`_skeleton/operator-family.md`](../superpowers/plans/_skeleton/operator-family.md) | Heavy admin surface |
-| v0.5.2 | `CAST` | [`_skeleton/cast.md`](../superpowers/plans/_skeleton/cast.md) | Depends on custom types + functions |
+| v0.4.0 | `TABLESPACE` (cluster object) | [`_skeleton/cluster-tablespace.md`](../superpowers/plans/_skeleton/cluster-tablespace.md) | Reverses the "out of scope" stance in `objects.md`; see design doc. Independent (no internal deps). |
+| v0.4.0 | `TABLE ... USING <access method>` | [`_skeleton/table-access-method.md`](../superpowers/plans/_skeleton/table-access-method.md) | New `access_method` field on `Table`. Independent (no internal deps). |
+| v0.4.1 | `AGGREGATE` (SQL/plpgsql state) | [`_skeleton/aggregate.md`](../superpowers/plans/_skeleton/aggregate.md) | Constrained: v0.4.1 rejects non-readable state-function languages. Soft dep on PL-language wiring (v0.4.2) — non-SQL state-function support lands in a v0.4.2 follow-up. |
+| v0.4.1 | PG 18 virtual generated columns | [`_skeleton/virtual-generated-columns.md`](../superpowers/plans/_skeleton/virtual-generated-columns.md) | New `GeneratedKind` variant. Depends on: PG 18 catalog support (shipped v0.3.6). |
+| v0.4.2 | Per-partition `TABLESPACE` | [`_skeleton/per-partition-tablespace.md`](../superpowers/plans/_skeleton/per-partition-tablespace.md) | `tablespace` override on partition children. Depends on: `TABLESPACE` (cluster object), shipped v0.4.0. |
+| v0.4.2 | PL-language wiring → non-SQL `FUNCTION` bodies | [`_skeleton/pl-language-wiring.md`](../superpowers/plans/_skeleton/pl-language-wiring.md) | Enables PL/Python, PL/Perl, etc. Depends on: `CREATE EXTENSION` (shipped v0.2.x) for the language extension. |
+| v0.4.3 | `TEXT SEARCH` family | [`_skeleton/text-search.md`](../superpowers/plans/_skeleton/text-search.md) | Configuration / dictionary / parser / template. Depends on: `CREATE COLLATION` (shipped v0.3.8). |
+| v0.5.0 | FDW family | [`_skeleton/fdw-family.md`](../superpowers/plans/_skeleton/fdw-family.md) | `FDW`, `SERVER`, `USER MAPPING`, `FOREIGN TABLE`, `IMPORT FOREIGN SCHEMA`; includes secrets handling. Internal slot order within v0.5.0: FDW → SERVER → USER MAPPING → FOREIGN TABLE → IMPORT FOREIGN SCHEMA. |
+| v0.5.1 | `OPERATOR` / `OPERATOR CLASS` / `OPERATOR FAMILY` | [`_skeleton/operator-family.md`](../superpowers/plans/_skeleton/operator-family.md) | Heavy admin surface. Depends on: functions + custom types (both shipped v0.2.x). |
+| v0.5.2 | `CAST` | [`_skeleton/cast.md`](../superpowers/plans/_skeleton/cast.md) | Depends on: custom types + functions (both shipped v0.2.x). |
+| v0.5.3 | Recursive views (`WITH RECURSIVE`) | [`_skeleton/recursive-views.md`](../superpowers/plans/_skeleton/recursive-views.md) | Depends on: planner cycle-aware dep-graph work (internal, no roadmap row). |
 
 ## Future (no version commitment)
 
 | Object / feature | Why deferred |
 |---|---|
-| Recursive views (`WITH RECURSIVE`) | Requires cycle-aware dep-graph handling |
 | Partition pruning at plan time | Optimization, not correctness |
 | `SECURITY LABEL` integration | Used primarily by SE-Linux; low demand |
 | Security-barrier / leakproof per-function flag review | Lands alongside finer-grained policy review |
