@@ -1,11 +1,12 @@
-name: soak
+name: soak (nightly)
 
-# Long-running property-test sweep at high case counts. Manual-trigger
-# only by default; the scheduled run is weekly to catch slow regressions.
+# Tier-5 property-test soak at high case counts. Runs nightly on the
+# main branch; the streak of consecutive-clean runs feeds the v1.0
+# release gate (see docs/v1.md §3 and `cargo xtask soak-streak`).
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 4 * * 0'  # Sunday 04:00 UTC
+    - cron: '0 4 * * *'   # Daily 04:00 UTC
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,19 +14,42 @@ env:
 
 jobs:
   soak:
-    name: soak (tier 5 @ 5000 cases)
+    name: soak (pg ${{ matrix.pg }}) @ 5000 cases
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         pg: ["14", "15", "16", "17", "18"]
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v6
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          swap-storage: false
+          docker-images: false
       - uses: dtolnay/rust-toolchain@stable
         with: { toolchain: 1.95 }
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --tests --release
+      - name: soak (tier 5 @ 5000 cases)
+        run: cargo test --workspace --tests --release -- --ignored
         env:
           PGEVOLVE_TEST_PG_VERSION: ${{ matrix.pg }}
-          PROPTEST_CASES: 5000
-        timeout-minutes: 240
+          PROPTEST_CASES: "5000"
+      - name: Auto-capture property-test failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          for regr in crates/*/proptest-regressions/*.txt; do
+            [ -f "$regr" ] || continue
+            seed=$(head -1 "$regr" | awk '{print $1}')
+            [ -n "$seed" ] || continue
+            echo "::warning::Property-test failure with seed $seed — run 'cargo xtask capture-regression --seed $seed --issue <n>' to capture"
+          done

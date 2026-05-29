@@ -114,6 +114,16 @@ jobs:
         pg: ["14", "15", "16", "17", "18"]
     steps:
       - uses: actions/checkout@v6
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          swap-storage: false
+          docker-images: false
       - uses: dtolnay/rust-toolchain@stable
         with: { toolchain: 1.95 }
       - uses: Swatinem/rust-cache@v2
