@@ -17,6 +17,9 @@
 //!   branch (proving the bug it captures is still present).
 //! - `property-status [--max-age-days N]` — list open property-test GitHub
 //!   issues; fail if any exceed the age threshold.
+//! - `soak-streak [--days N]` — report the consecutive-clean-day streak
+//!   across `ci.yml` and `soak.yml` on main. Used pre-1.0 to decide
+//!   whether the release gate in `docs/v1.md` §3 is met. Default --days 30.
 //! - `diagnose-pg-version <fixture-dir> --pg-major N` — run a fixture against
 //!   a specific PG major and report suggested fixture.toml edits.
 
@@ -28,6 +31,7 @@ mod coverage;
 mod diagnose_pg_version;
 mod fixture_cost;
 mod property_status;
+mod soak_streak;
 mod verify_regression;
 
 use std::path::{Path, PathBuf};
@@ -84,6 +88,13 @@ async fn main() -> Result<()> {
                 .unwrap_or(30);
             property_status::run(max_age_days)
         }
+        "soak-streak" => {
+            let args: Vec<String> = std::env::args().collect();
+            let days: u32 = flag_value(&args, "--days")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30);
+            soak_streak::run(days)
+        }
         "diagnose-pg-version" => {
             let fixture_dir = std::env::args()
                 .nth(2)
@@ -102,6 +113,7 @@ async fn main() -> Result<()> {
                  \t capture-regression --seed <hex> --issue <n> |\n\
                  \t verify-regression <fixture-dir> |\n\
                  \t property-status [--max-age-days N] |\n\
+                 \t soak-streak [--days N] |\n\
                  \t diagnose-pg-version <fixture-dir> --pg-major N>"
             );
             Ok(())
