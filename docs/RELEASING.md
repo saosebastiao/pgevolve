@@ -125,26 +125,37 @@ publishing.
 When the release is ready for crates.io, publish in dependency order:
 
 ```sh
-cargo publish -p pgevolve-core-macros
-# Wait ~30 seconds for the index to sync, then:
 cargo publish -p pgevolve-core
-# Wait ~30 seconds again, then:
+# Wait ~30 seconds for the index to sync, then:
 cargo publish -p pgevolve
 ```
 
-`pgevolve-core-macros` is a proc-macro crate that's only published so
-`pgevolve-core` resolves on crates.io — it's not a stable public API.
-Bumping its version follows the same workspace-bump cadence; lock it
-in lockstep with `pgevolve-core` to avoid version-skew surprises.
+`pgevolve-core-macros` is a proc-macro crate that's only published when
+its own version actually changes (it has its own `[package].version`
+literal, not workspace-inherited). In practice that's rare: the macros
+crate has stayed at 0.2.1 since v0.2.x while the rest of the workspace
+has bumped through v0.3.x. Only publish it when the literal version in
+`crates/pgevolve-core-macros/Cargo.toml` changed in the release commit:
+
+```sh
+# Only if pgevolve-core-macros version was bumped this release:
+cargo publish -p pgevolve-core-macros
+# Then wait ~30s for the index, then publish pgevolve-core, then pgevolve.
+```
+
+`scripts/release.sh` deliberately omits the macros publish — running it
+after a macros bump means manually publishing macros first, before
+re-running the script's publish step. (If macros bumps become more
+frequent, the script should grow a conditional check.)
 
 `pgevolve-conformance`, `pgevolve-testkit`, and `xtask` are all
 `publish = false` and stay local.
 
 For pre-publish sanity:
 ```sh
-cargo publish --dry-run -p pgevolve-core-macros
 cargo publish --dry-run -p pgevolve-core
 cargo publish --dry-run -p pgevolve
+# Add macros to the dry-run set if its version was bumped this release.
 ```
 
 ## Yank a prior version (if shipping a fix)
@@ -168,8 +179,32 @@ but it stops new installs from picking it up.
 - Push the tag (already done above; this is the reminder bullet).
 - Verify the badge updates: README's `[![crates.io]` and `[![Soak]`
   badges refresh within a few minutes.
+- Open a new `[Unreleased]` section at the top of `CHANGELOG.md` so
+  future commits have a place to land. Single line:
+  `## [Unreleased]`. Stays empty until the next release lands work
+  in it.
+- Optionally bump the workspace version to `X.(Y+1).0-dev` to make
+  accidental crates.io uploads of a stale `X.Y.Z` version impossible.
+  (Cargo rejects publishes with `-dev` pre-release tags by default
+  without `--allow-dirty`-style overrides.)
+- Create a [GitHub release](https://github.com/saosebastiao/pgevolve/releases/new)
+  from the new tag with the CHANGELOG section as the body. Surfaces
+  the release in GitHub's release feed + RSS + API.
 - If this release closes a v1.0-checklist row (per
   [`v1.md`](./v1.md) §4), flip the row's status in
   [`spec/objects.md`](./spec/objects.md) and remove it from
   [`spec/roadmap.md`](./spec/roadmap.md)'s Active matrix in a
   follow-up docs commit.
+
+## Historical notes
+
+The v0.1.0 (commit `adb0177`) and v0.2.0 (commit `3087a5b`) tags
+predate the Constitution §9 "release tags are signed" mandate and
+are annotated-but-unsigned. The 2026-05-21 constitution audit flagged
+them; the maintainer decided NOT to re-sign retroactively because
+rewriting historical tags would break consumers who reference them
+(e.g., `Cargo.lock` git deps). Every tag from v0.2.1 onward is signed.
+
+Future audits: `for t in $(git tag); do git verify-tag "$t" 2>&1 |
+head -1; done` should show every tag from v0.2.1 forward returning
+`Good "git" signature`.
