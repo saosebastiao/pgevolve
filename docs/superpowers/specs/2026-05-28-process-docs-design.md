@@ -2,14 +2,19 @@
 status: design
 target: v1.0
 sub_project: F (development process docs)
+amended: 2026-05-29 — CoC deferred to a follow-up; scope reduced to a single file. See §1, §3.
 ---
 
 # Development process docs — design
 
-Sub-project **F** of the v1.0 path. Two new files in `.github/` that
-make pgevolve's contribution model legible to outsiders: a
-medium-depth CONTRIBUTING.md with a discuss-first tone, and the
-Contributor Covenant v2.1 as CODE_OF_CONDUCT.md.
+Sub-project **F** of the v1.0 path. One new file in `.github/` that
+makes pgevolve's contribution model legible to outsiders: a
+medium-depth CONTRIBUTING.md with a discuss-first tone.
+
+A Code of Conduct was originally part of this sub-project but was
+deferred during plan-writing (2026-05-29) — see §3 — because the
+project does not yet have a working CoC-enforcement contact channel,
+and a CoC with a broken contact is worse than no CoC.
 
 These complement the existing process knowledge already in
 [`docs/CONSTITUTION.md`](../../CONSTITUTION.md),
@@ -30,13 +35,16 @@ solo-maintained pre-v1.0 project. Issue/PR templates are
 | Path | Purpose | Source |
 |---|---|---|
 | `.github/CONTRIBUTING.md` | Onboarding doc for external contributors. Sets the discuss-first expectation, points at canonical docs, sketches the brainstorm → spec → plan → implement workflow. | Hand-written; ~150 lines. |
-| `.github/CODE_OF_CONDUCT.md` | Contributor Covenant v2.1 boilerplate. Contact email filled in. | Verbatim from [contributor-covenant.org/version/2/1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/); ~130 lines. |
 
 Placement in `.github/` matches the existing convention:
 `.github/SECURITY.md`, `.github/CODEOWNERS` are already there. GitHub
-auto-detects both files: CONTRIBUTING.md surfaces when contributors
-open issues/PRs; CODE_OF_CONDUCT.md surfaces in the repo's
-Community Standards checklist.
+auto-detects CONTRIBUTING.md and surfaces it when contributors open
+issues/PRs.
+
+**CODE_OF_CONDUCT.md is not in this sub-project** (see §3 / §4) — it
+will land in a follow-up after a working enforcement contact channel
+is set up. Until then, CONTRIBUTING.md's §8 documents the interim
+expectation honestly and points reports at GitHub Issues.
 
 ## §2. `.github/CONTRIBUTING.md` outline
 
@@ -70,18 +78,36 @@ Voice / tone:
 - Imperative but friendly: "please open an issue first", not "you
   must open an issue first".
 
-## §3. `.github/CODE_OF_CONDUCT.md`
+## §3. CODE_OF_CONDUCT.md — deferred (was originally in this sub-project)
 
-Standard Contributor Covenant v2.1 verbatim. Only customization:
-the Enforcement section's contact-info line gets the maintainer's
-preferred contact address. Default: the maintainer's GitHub public
-email (`daniel.toone@gmail.com` per the existing commit trailers),
-swappable to a noreply alias if preferred.
+**Status: deferred to a follow-up sub-project, not in F's deliverable.**
 
-Why Contributor Covenant: industry-standard for OSS projects,
-recognized by GitHub Community Standards, low controversy. Other
-options (Citizen Code of Conduct, ad-hoc) carry more risk: less
-recognized, easier to write yourself into a corner.
+Original intent: ship Contributor Covenant v2.1 verbatim with the
+Enforcement section's contact-info line filled in.
+
+What changed (2026-05-29, during plan-writing): the contact-info
+question surfaced a real constraint — the address shipped in a CoC's
+Enforcement section must actually receive email. Available options
+were judged worse than deferral:
+
+- `daniel.toone@gmail.com` — works, but permanently bakes a personal
+  address into git history; rotation is impossible once shipped.
+- `*@users.noreply.github.com` — *does not receive incoming email*;
+  using one would silently drop reports.
+- Custom domain alias (e.g., `conduct@pgevolve.dev`) — requires
+  domain registration + forwarding setup the maintainer hasn't done.
+
+Decision: defer the CoC file entirely until a real receiving channel
+exists. CONTRIBUTING.md's §8 covers the interim posture honestly:
+"a formal CoC will land once the project has a private reporting
+channel; until then, concerns can be raised via GitHub Issues."
+
+Tracking: a follow-up issue is filed once CONTRIBUTING.md ships
+(manual step in the implementation plan's post-task notes).
+
+Why still Contributor Covenant when we do ship it: industry-standard
+for OSS projects, recognized by GitHub Community Standards, low
+controversy. That choice survives the deferral.
 
 ## §4. Out of scope (deferred)
 
@@ -112,6 +138,11 @@ recognized, easier to write yourself into a corner.
 
 ## §5. What this design produces
 
-One commit, two files added under `.github/`. Pure markdown. No
-verify-gate Rust implications; the standard `cargo fmt --check`,
-`clippy`, `cargo doc` gates still pass trivially.
+One commit, **one file** added under `.github/`
+(`.github/CONTRIBUTING.md`). Pure markdown. No verify-gate Rust
+implications; the standard `cargo fmt --check`, `clippy`, `cargo doc`
+gates still pass trivially.
+
+Post-task manual step (out of commit): file a GitHub issue titled
+"Add CODE_OF_CONDUCT.md once contact channel exists" linking back to
+§3 of this spec.
