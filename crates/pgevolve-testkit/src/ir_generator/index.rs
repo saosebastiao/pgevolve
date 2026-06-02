@@ -33,12 +33,14 @@ pub(super) fn arbitrary_indexes_for_table(
     // Generate up to 3 (pick, storage) pairs — one per candidate index slot.
     // The strategy generates a fixed-length array of 3 pairs and the pick
     // vector selects up to 3 of them; extra pairs are simply unused.
+    // All generated indexes use B-tree; pass the method so storage options are
+    // gated to only those valid for B-tree (fillfactor and deduplicate_items).
     (
         proptest_vec(0usize..columns.len().max(1), 0..3),
         [
-            arb_index_storage(),
-            arb_index_storage(),
-            arb_index_storage(),
+            arb_index_storage(IndexMethod::BTree),
+            arb_index_storage(IndexMethod::BTree),
+            arb_index_storage(IndexMethod::BTree),
         ],
     )
         .prop_map(move |(picks, storages)| {
