@@ -571,6 +571,14 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
         }
 
         Change::Subscription(SubscriptionChange::Create(s)) => {
+            // PG error 25001: CREATE SUBSCRIPTION ... WITH (create_slot = true)
+            // cannot run inside a transaction block. The PG default is true, so
+            // the only case where InTransaction is safe is `create_slot = Some(false)`.
+            let create_tx = if s.options.create_slot == Some(false) {
+                crate::plan::raw_step::TransactionConstraint::InTransaction
+            } else {
+                crate::plan::raw_step::TransactionConstraint::OutsideTransaction
+            };
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::CreateSubscription,
@@ -579,7 +587,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 intent_id: None,
                 targets: vec![],
                 sql: subscriptions::create_subscription(&s),
-                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                transactional: create_tx,
             });
             // Follow-up COMMENT step if a comment is present.
             if let Some(c) = &s.comment {

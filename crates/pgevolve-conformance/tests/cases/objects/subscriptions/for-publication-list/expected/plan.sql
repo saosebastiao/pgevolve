@@ -6,7 +6,9 @@
 BEGIN;
 -- @pgevolve step=1 kind=create_publication destructive=false targets=
 CREATE PUBLICATION p FOR ALL TABLES;
+COMMIT;
+
+-- @pgevolve group id=2 transactional=false
 -- @pgevolve step=2 kind=create_subscription destructive=false targets=
 CREATE SUBSCRIPTION s CONNECTION 'host=replica.example.com dbname=app user=repl password=${REPL_PWD}' PUBLICATION p;
-COMMIT;
 

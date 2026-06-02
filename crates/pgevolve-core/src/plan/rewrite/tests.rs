@@ -1446,3 +1446,70 @@ fn emits_detach_partition_step() {
     assert_eq!(steps[0].targets, vec![qn("app", "orders_2024")]);
     assert_eq!(steps[0].transactional, TransactionConstraint::InTransaction);
 }
+
+// ---- CREATE SUBSCRIPTION transaction-constraint (issue #11) ----
+
+fn minimal_subscription(create_slot: Option<bool>) -> crate::ir::subscription::Subscription {
+    use crate::ir::subscription::{Subscription, SubscriptionOptions};
+    Subscription {
+        name: id("mysub"),
+        connection: "host=db.example.com dbname=app".to_string(),
+        publications: vec![id("mypub")],
+        options: SubscriptionOptions {
+            create_slot,
+            ..SubscriptionOptions::default()
+        },
+        owner: None,
+        comment: None,
+    }
+}
+
+fn create_subscription_changeset(sub: crate::ir::subscription::Subscription) -> Vec<RawStep> {
+    let mut cs = crate::diff::changeset::ChangeSet::new();
+    cs.push(
+        Change::Subscription(crate::diff::change::SubscriptionChange::Create(sub)),
+        crate::diff::destructiveness::Destructiveness::Safe,
+    );
+    rewrite_changeset_only(cs)
+}
+
+/// `create_slot = None` means PG default (true) — must run outside transaction.
+#[test]
+fn create_subscription_create_slot_none_is_outside_transaction() {
+    let sub = minimal_subscription(None);
+    let steps = create_subscription_changeset(sub);
+    assert_eq!(steps[0].kind, StepKind::CreateSubscription);
+    assert_eq!(
+        steps[0].transactional,
+        TransactionConstraint::OutsideTransaction,
+        "create_slot=None means PG default true → must run outside transaction"
+    );
+}
+
+/// `create_slot = Some(true)` — explicitly requesting slot creation — must run
+/// outside transaction.
+#[test]
+fn create_subscription_create_slot_true_is_outside_transaction() {
+    let sub = minimal_subscription(Some(true));
+    let steps = create_subscription_changeset(sub);
+    assert_eq!(steps[0].kind, StepKind::CreateSubscription);
+    assert_eq!(
+        steps[0].transactional,
+        TransactionConstraint::OutsideTransaction,
+        "create_slot=Some(true) → must run outside transaction"
+    );
+}
+
+/// `create_slot = Some(false)` — no slot creation — may run inside a
+/// transaction.
+#[test]
+fn create_subscription_create_slot_false_is_in_transaction() {
+    let sub = minimal_subscription(Some(false));
+    let steps = create_subscription_changeset(sub);
+    assert_eq!(steps[0].kind, StepKind::CreateSubscription);
+    assert_eq!(
+        steps[0].transactional,
+        TransactionConstraint::InTransaction,
+        "create_slot=Some(false) → safe to run inside transaction"
+    );
+}
