@@ -25,7 +25,6 @@ use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
 use super::sequence_op::{SequenceOp, SequenceOpEntry};
 
 /// Diff sequences in `target` against `source`, appending entries to `out`.
-#[allow(clippy::too_many_lines)] // exhaustive per-sequence-attribute diff; extraction would fragment a single conceptual pass.
 pub fn diff_sequences(
     target: &Catalog,
     source: &Catalog,
@@ -52,6 +51,24 @@ pub fn diff_sequences(
                 Change::CreateSequence((*source_seq).clone()),
                 Destructiveness::Safe,
             );
+            // Synthesize an empty target so the attribute helper can diff
+            // source attributes against "nothing" and emit the appropriate
+            // follow-up Changes (owner, grants).
+            let empty_target = Sequence {
+                qname: source_seq.qname.clone(),
+                data_type: source_seq.data_type.clone(),
+                start: source_seq.start,
+                increment: source_seq.increment,
+                min_value: source_seq.min_value,
+                max_value: source_seq.max_value,
+                cache: source_seq.cache,
+                cycle: source_seq.cycle,
+                owned_by: source_seq.owned_by.clone(),
+                comment: source_seq.comment.clone(),
+                owner: None,
+                grants: vec![],
+            };
+            emit_sequence_attribute_changes(&empty_target, source_seq, managed_roles, out);
         }
     }
 
@@ -94,67 +111,90 @@ pub fn diff_sequences(
                     );
                 }
 
-                // ---- owner diff ----
-                if let Some(source_owner) = &source_seq.owner
-                    && target_seq.owner.as_ref() != Some(source_owner)
-                {
-                    out.push(
-                        Change::AlterObjectOwner(AlterObjectOwner {
-                            kind: OwnerObjectKind::Sequence,
-                            id: crate::diff::owner_op::OwnedObjectId::Qualified((*qname).clone()),
-                            signature: String::new(),
-                            from: target_seq.owner.clone(),
-                            to: source_owner.clone(),
-                        }),
-                        Destructiveness::Safe,
-                    );
-                }
+                // ---- owner / grants diffs ----
+                emit_sequence_attribute_changes(target_seq, source_seq, managed_roles, out);
+            }
+        }
+    }
+}
 
-                // ---- grant diff ----
-                {
-                    let object_label = format!("sequence {qname}");
-                    let (to_add, to_revoke, unmanaged) =
-                        diff_grants(&target_seq.grants, &source_seq.grants, managed_roles);
-                    for g in to_add {
-                        out.push(
-                            Change::GrantObjectPrivilege {
-                                qname: (*qname).clone(),
-                                kind: OwnerObjectKind::Sequence,
-                                signature: String::new(),
-                                grant: g,
-                            },
-                            Destructiveness::Safe,
-                        );
-                    }
-                    for g in to_revoke {
-                        if let Some(source_owner) = &source_seq.owner {
-                            out.revokes_with_owner.push(RevokeWithOwnerObservation {
-                                object_label: object_label.clone(),
-                                privilege_label: g.privilege.sql_keyword().into(),
-                                grantee: g.grantee.clone(),
-                                owner: source_owner.clone(),
-                            });
-                        }
-                        out.push(
-                            Change::RevokeObjectPrivilege {
-                                qname: (*qname).clone(),
-                                kind: OwnerObjectKind::Sequence,
-                                signature: String::new(),
-                                grant: g,
-                            },
-                            Destructiveness::Safe,
-                        );
-                    }
-                    for g in unmanaged {
-                        if let GrantTarget::Role(role_name) = &g.grantee {
-                            out.unmanaged_grants.push(UnmanagedGrantObservation {
-                                object_label: object_label.clone(),
-                                privilege_label: g.privilege.sql_keyword().into(),
-                                role_name: role_name.clone(),
-                            });
-                        }
-                    }
-                }
+/// Emit per-attribute diff changes (owner, grants) for one sequence pair.
+///
+/// Called from two sites:
+/// - "both catalogs have the sequence" branch — with the real target sequence.
+/// - "new sequence" branch — with a synthesized empty target so the diff
+///   against "nothing" produces one `Change` per non-default attribute the
+///   source has.
+///
+/// Intentionally excludes structural fields (`start`, `increment`, `min_value`,
+/// `max_value`, `cache`, `cycle`, `data_type`, `owned_by`) — those are handled
+/// by `diff_sequence_fields` and the `AlterSequence` / drop+create paths above.
+fn emit_sequence_attribute_changes(
+    target_seq: &Sequence,
+    source_seq: &Sequence,
+    managed_roles: &BTreeSet<Identifier>,
+    out: &mut ChangeSet,
+) {
+    let qname = &source_seq.qname;
+
+    // ---- owner diff ----
+    if let Some(source_owner) = &source_seq.owner
+        && target_seq.owner.as_ref() != Some(source_owner)
+    {
+        out.push(
+            Change::AlterObjectOwner(AlterObjectOwner {
+                kind: OwnerObjectKind::Sequence,
+                id: crate::diff::owner_op::OwnedObjectId::Qualified(qname.clone()),
+                signature: String::new(),
+                from: target_seq.owner.clone(),
+                to: source_owner.clone(),
+            }),
+            Destructiveness::Safe,
+        );
+    }
+
+    // ---- grant diff ----
+    {
+        let object_label = format!("sequence {qname}");
+        let (to_add, to_revoke, unmanaged) =
+            diff_grants(&target_seq.grants, &source_seq.grants, managed_roles);
+        for g in to_add {
+            out.push(
+                Change::GrantObjectPrivilege {
+                    qname: qname.clone(),
+                    kind: OwnerObjectKind::Sequence,
+                    signature: String::new(),
+                    grant: g,
+                },
+                Destructiveness::Safe,
+            );
+        }
+        for g in to_revoke {
+            if let Some(source_owner) = &source_seq.owner {
+                out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                    object_label: object_label.clone(),
+                    privilege_label: g.privilege.sql_keyword().into(),
+                    grantee: g.grantee.clone(),
+                    owner: source_owner.clone(),
+                });
+            }
+            out.push(
+                Change::RevokeObjectPrivilege {
+                    qname: qname.clone(),
+                    kind: OwnerObjectKind::Sequence,
+                    signature: String::new(),
+                    grant: g,
+                },
+                Destructiveness::Safe,
+            );
+        }
+        for g in unmanaged {
+            if let GrantTarget::Role(role_name) = &g.grantee {
+                out.unmanaged_grants.push(UnmanagedGrantObservation {
+                    object_label: object_label.clone(),
+                    privilege_label: g.privilege.sql_keyword().into(),
+                    role_name: role_name.clone(),
+                });
             }
         }
     }
@@ -390,5 +430,52 @@ mod tests {
         let mut cs = ChangeSet::new();
         diff_sequences(&target, &source, &mut cs, &BTreeSet::new());
         assert!(cs.is_empty());
+    }
+
+    /// New sequence with owner + grant must emit `CreateSequence`, `AlterObjectOwner`,
+    /// and `GrantObjectPrivilege` — not just `CreateSequence`.
+    #[test]
+    fn new_sequence_emits_owner_and_grant() {
+        use crate::ir::grant::{Grant, GrantTarget, Privilege};
+
+        let target = Catalog::empty();
+        let mut source = Catalog::empty();
+        let app_role = id("app");
+        source.sequences.push(Sequence {
+            owner: Some(app_role.clone()),
+            grants: vec![Grant {
+                grantee: GrantTarget::Role(app_role.clone()),
+                privilege: Privilege::Usage,
+                with_grant_option: false,
+                columns: None,
+            }],
+            ..seq("seq1")
+        });
+
+        let managed = {
+            let mut s = BTreeSet::new();
+            s.insert(app_role);
+            s
+        };
+
+        let mut cs = ChangeSet::new();
+        diff_sequences(&target, &source, &mut cs, &managed);
+
+        let has_create = cs
+            .entries
+            .iter()
+            .any(|e| matches!(&e.change, Change::CreateSequence(_)));
+        let has_owner = cs
+            .entries
+            .iter()
+            .any(|e| matches!(&e.change, Change::AlterObjectOwner(_)));
+        let has_grant = cs
+            .entries
+            .iter()
+            .any(|e| matches!(&e.change, Change::GrantObjectPrivilege { .. }));
+
+        assert!(has_create, "expected CreateSequence");
+        assert!(has_owner, "expected AlterObjectOwner");
+        assert!(has_grant, "expected GrantObjectPrivilege");
     }
 }
