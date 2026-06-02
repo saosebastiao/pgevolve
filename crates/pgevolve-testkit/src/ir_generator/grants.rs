@@ -124,6 +124,9 @@ fn arb_grant_from(privileges: &'static [Privilege], with_columns: bool) -> Boxed
                 ) => Some(cols),
                 _ => None,
             };
+            // PG rejects `GRANT ... TO PUBLIC WITH GRANT OPTION` (error 0LP01).
+            // Force the flag off for PUBLIC grantees.
+            let with_grant_option = with_grant_option && grantee != GrantTarget::Public;
             Grant {
                 grantee,
                 privilege,
@@ -258,4 +261,32 @@ pub fn arbitrary_default_privileges() -> impl Strategy<Value = Vec<DefaultPrivil
         (rule_strategy.clone(), rule_strategy.clone(), rule_strategy)
             .prop_map(|(a, b, c)| vec![a, b, c]),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+    use proptest::test_runner::Config;
+
+    use pgevolve_core::ir::grant::GrantTarget;
+
+    use super::{TABLE_PRIVS, arb_object_grants};
+
+    proptest! {
+        #![proptest_config(Config { cases: 256, ..Config::default() })]
+
+        /// PG rejects `GRANT ... TO PUBLIC WITH GRANT OPTION` (error 0LP01).
+        /// Assert that the generator never produces that combination.
+        #[test]
+        fn public_grant_never_has_with_grant_option(grants in arb_object_grants(TABLE_PRIVS)) {
+            for grant in &grants {
+                if grant.grantee == GrantTarget::Public {
+                    prop_assert!(
+                        !grant.with_grant_option,
+                        "with_grant_option must be false for PUBLIC grantee (PG error 0LP01)"
+                    );
+                }
+            }
+        }
+    }
 }
