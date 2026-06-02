@@ -41,6 +41,24 @@ pub fn diff_tables(
                 Change::CreateTable((*source_table).clone()),
                 Destructiveness::Safe,
             );
+            // Synthesize an empty target so the attribute helper can diff
+            // source attributes against "nothing" and emit the appropriate
+            // follow-up Changes (owner, grants, policies, storage).
+            let empty_target = Table {
+                qname: source_table.qname.clone(),
+                columns: vec![],
+                constraints: vec![],
+                partition_by: None,
+                partition_of: None,
+                comment: None,
+                owner: None,
+                grants: vec![],
+                rls_enabled: false,
+                rls_forced: false,
+                policies: vec![],
+                storage: crate::ir::reloptions::TableStorageOptions::default(),
+            };
+            emit_table_attribute_changes(&empty_target, source_table, managed_roles, out);
         }
     }
 
@@ -103,90 +121,6 @@ pub fn diff_tables(
                         },
                         Destructiveness::Safe,
                     );
-                }
-
-                // ---- owner diff ----
-                if let Some(source_owner) = &source_table.owner
-                    && target_table.owner.as_ref() != Some(source_owner)
-                {
-                    out.push(
-                        Change::AlterObjectOwner(AlterObjectOwner {
-                            kind: OwnerObjectKind::Table,
-                            id: crate::diff::owner_op::OwnedObjectId::Qualified((*qname).clone()),
-                            signature: String::new(),
-                            from: target_table.owner.clone(),
-                            to: source_owner.clone(),
-                        }),
-                        Destructiveness::Safe,
-                    );
-                }
-
-                // ---- grant diff ----
-                {
-                    let object_label = format!("table {qname}");
-                    let (to_add, to_revoke, unmanaged) =
-                        diff_grants(&target_table.grants, &source_table.grants, managed_roles);
-                    for g in to_add {
-                        let is_column_level = g.columns.is_some();
-                        if is_column_level {
-                            out.push(
-                                Change::GrantColumnPrivilege {
-                                    qname: (*qname).clone(),
-                                    grant: g,
-                                },
-                                Destructiveness::Safe,
-                            );
-                        } else {
-                            out.push(
-                                Change::GrantObjectPrivilege {
-                                    qname: (*qname).clone(),
-                                    kind: OwnerObjectKind::Table,
-                                    signature: String::new(),
-                                    grant: g,
-                                },
-                                Destructiveness::Safe,
-                            );
-                        }
-                    }
-                    for g in to_revoke {
-                        if let Some(source_owner) = &source_table.owner {
-                            out.revokes_with_owner.push(RevokeWithOwnerObservation {
-                                object_label: object_label.clone(),
-                                privilege_label: g.privilege.sql_keyword().into(),
-                                grantee: g.grantee.clone(),
-                                owner: source_owner.clone(),
-                            });
-                        }
-                        let is_column_level = g.columns.is_some();
-                        if is_column_level {
-                            out.push(
-                                Change::RevokeColumnPrivilege {
-                                    qname: (*qname).clone(),
-                                    grant: g,
-                                },
-                                Destructiveness::Safe,
-                            );
-                        } else {
-                            out.push(
-                                Change::RevokeObjectPrivilege {
-                                    qname: (*qname).clone(),
-                                    kind: OwnerObjectKind::Table,
-                                    signature: String::new(),
-                                    grant: g,
-                                },
-                                Destructiveness::Safe,
-                            );
-                        }
-                    }
-                    for g in unmanaged {
-                        if let GrantTarget::Role(role_name) = &g.grantee {
-                            out.unmanaged_grants.push(UnmanagedGrantObservation {
-                                object_label: object_label.clone(),
-                                privilege_label: g.privilege.sql_keyword().into(),
-                                role_name: role_name.clone(),
-                            });
-                        }
-                    }
                 }
 
                 // ---- partition_by diff (parent partitioning configuration) ----
@@ -293,29 +227,133 @@ pub fn diff_tables(
                     }
                 }
 
-                // ---- policy diff (RLS toggles + per-policy changes) ----
-                let mut policy_changes: Vec<Change> = Vec::new();
-                super::policies::diff_policies(target_table, source_table, &mut policy_changes);
-                for c in policy_changes {
-                    out.push(c, Destructiveness::Safe);
-                }
-
-                // ---- storage reloptions diff ----
-                let delta = crate::diff::reloptions::table_delta(
-                    &target_table.storage,
-                    &source_table.storage,
-                );
-                if !delta.is_empty() {
-                    out.push(
-                        Change::SetTableStorage {
-                            qname: (*qname).clone(),
-                            options: delta,
-                        },
-                        Destructiveness::Safe,
-                    );
-                }
+                // ---- owner / grants / policies / storage diffs ----
+                emit_table_attribute_changes(target_table, source_table, managed_roles, out);
             }
         }
+    }
+}
+
+/// Emit per-attribute diff changes (owner, grants, policies, storage) for
+/// one table pair.
+///
+/// Called from two sites:
+/// - "both catalogs have the table" branch — with the real target table.
+/// - "new table" branch — with a synthesized empty target so the diff against
+///   "nothing" produces one `Change` per non-default attribute the source has.
+///
+/// Intentionally excludes: column/constraint diffs (handled by the ALTER TABLE
+/// ops block), `partition_by`/`partition_of` (structural, inline-with-create),
+/// and comment (rides in the ALTER TABLE ops block above).
+fn emit_table_attribute_changes(
+    target_table: &Table,
+    source_table: &Table,
+    managed_roles: &BTreeSet<Identifier>,
+    out: &mut ChangeSet,
+) {
+    let qname = &source_table.qname;
+
+    // ---- owner diff ----
+    if let Some(source_owner) = &source_table.owner
+        && target_table.owner.as_ref() != Some(source_owner)
+    {
+        out.push(
+            Change::AlterObjectOwner(AlterObjectOwner {
+                kind: OwnerObjectKind::Table,
+                id: crate::diff::owner_op::OwnedObjectId::Qualified(qname.clone()),
+                signature: String::new(),
+                from: target_table.owner.clone(),
+                to: source_owner.clone(),
+            }),
+            Destructiveness::Safe,
+        );
+    }
+
+    // ---- grant diff ----
+    {
+        let object_label = format!("table {qname}");
+        let (to_add, to_revoke, unmanaged) =
+            diff_grants(&target_table.grants, &source_table.grants, managed_roles);
+        for g in to_add {
+            let is_column_level = g.columns.is_some();
+            if is_column_level {
+                out.push(
+                    Change::GrantColumnPrivilege {
+                        qname: qname.clone(),
+                        grant: g,
+                    },
+                    Destructiveness::Safe,
+                );
+            } else {
+                out.push(
+                    Change::GrantObjectPrivilege {
+                        qname: qname.clone(),
+                        kind: OwnerObjectKind::Table,
+                        signature: String::new(),
+                        grant: g,
+                    },
+                    Destructiveness::Safe,
+                );
+            }
+        }
+        for g in to_revoke {
+            if let Some(source_owner) = &source_table.owner {
+                out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                    object_label: object_label.clone(),
+                    privilege_label: g.privilege.sql_keyword().into(),
+                    grantee: g.grantee.clone(),
+                    owner: source_owner.clone(),
+                });
+            }
+            let is_column_level = g.columns.is_some();
+            if is_column_level {
+                out.push(
+                    Change::RevokeColumnPrivilege {
+                        qname: qname.clone(),
+                        grant: g,
+                    },
+                    Destructiveness::Safe,
+                );
+            } else {
+                out.push(
+                    Change::RevokeObjectPrivilege {
+                        qname: qname.clone(),
+                        kind: OwnerObjectKind::Table,
+                        signature: String::new(),
+                        grant: g,
+                    },
+                    Destructiveness::Safe,
+                );
+            }
+        }
+        for g in unmanaged {
+            if let GrantTarget::Role(role_name) = &g.grantee {
+                out.unmanaged_grants.push(UnmanagedGrantObservation {
+                    object_label: object_label.clone(),
+                    privilege_label: g.privilege.sql_keyword().into(),
+                    role_name: role_name.clone(),
+                });
+            }
+        }
+    }
+
+    // ---- policy diff (RLS toggles + per-policy changes) ----
+    let mut policy_changes: Vec<Change> = Vec::new();
+    super::policies::diff_policies(target_table, source_table, &mut policy_changes);
+    for c in policy_changes {
+        out.push(c, Destructiveness::Safe);
+    }
+
+    // ---- storage reloptions diff ----
+    let delta = crate::diff::reloptions::table_delta(&target_table.storage, &source_table.storage);
+    if !delta.is_empty() {
+        out.push(
+            Change::SetTableStorage {
+                qname: qname.clone(),
+                options: delta,
+            },
+            Destructiveness::Safe,
+        );
     }
 }
 
@@ -327,10 +365,13 @@ mod tests {
     use crate::identifier::Identifier;
     use crate::ir::column::Column;
     use crate::ir::column_type::ColumnType;
+    use crate::ir::grant::{Grant, GrantTarget, Privilege};
     use crate::ir::partition::{
         BoundDatum, PartitionBounds, PartitionBy, PartitionColumn, PartitionColumnKind,
         PartitionOf, PartitionStrategy,
     };
+    use crate::ir::policy::{Policy, PolicyCommand};
+    use crate::ir::reloptions::TableStorageOptions;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -383,6 +424,105 @@ mod tests {
         let entry = &cs.entries[0];
         assert!(matches!(entry.change, Change::CreateTable(_)));
         assert_eq!(entry.destructiveness, Destructiveness::Safe);
+    }
+
+    #[test]
+    fn new_table_with_attrs_emits_create_plus_attribute_changes() {
+        // A brand-new table (not in target) that carries owner, grants, a
+        // policy, rls_enabled, rls_forced, and non-default storage should emit
+        // one CreateTable *plus* one change per non-default attribute.
+        let target = Catalog::empty();
+        let mut source = Catalog::empty();
+
+        let app_role = id("app");
+        let reader_role = id("reader");
+        let managed_roles: BTreeSet<Identifier> = [app_role.clone(), reader_role.clone()]
+            .into_iter()
+            .collect();
+
+        let table = Table {
+            qname: qn("users"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: Some(app_role),
+            grants: vec![Grant {
+                grantee: GrantTarget::Role(reader_role),
+                privilege: Privilege::Select,
+                with_grant_option: false,
+                columns: None,
+            }],
+            rls_enabled: true,
+            rls_forced: true,
+            policies: vec![Policy {
+                name: id("tenant_isolation"),
+                permissive: true,
+                command: PolicyCommand::All,
+                roles: vec![GrantTarget::Public],
+                using: None,
+                with_check: None,
+            }],
+            storage: TableStorageOptions {
+                fillfactor: Some(70),
+                ..Default::default()
+            },
+        };
+        source.tables.push(table);
+
+        let mut cs = ChangeSet::new();
+        diff_tables(&target, &source, &mut cs, &managed_roles);
+
+        let changes: Vec<&Change> = cs.entries.iter().map(|e| &e.change).collect();
+
+        // Must have a CreateTable.
+        assert!(
+            changes.iter().any(|c| matches!(c, Change::CreateTable(_))),
+            "missing CreateTable; got: {changes:?}"
+        );
+        // Must have an AlterObjectOwner.
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, Change::AlterObjectOwner(_))),
+            "missing AlterObjectOwner; got: {changes:?}"
+        );
+        // Must have a GrantObjectPrivilege.
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, Change::GrantObjectPrivilege { .. })),
+            "missing GrantObjectPrivilege; got: {changes:?}"
+        );
+        // Must have a CreatePolicy.
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, Change::CreatePolicy { .. })),
+            "missing CreatePolicy; got: {changes:?}"
+        );
+        // Must have SetTableRowSecurity (rls_enabled = true).
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, Change::SetTableRowSecurity { enable: true, .. })),
+            "missing SetTableRowSecurity; got: {changes:?}"
+        );
+        // Must have SetTableForceRowSecurity (rls_forced = true).
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, Change::SetTableForceRowSecurity { force: true, .. })),
+            "missing SetTableForceRowSecurity; got: {changes:?}"
+        );
+        // Must have SetTableStorage.
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, Change::SetTableStorage { .. })),
+            "missing SetTableStorage; got: {changes:?}"
+        );
     }
 
     #[test]
