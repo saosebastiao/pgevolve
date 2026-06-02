@@ -59,7 +59,7 @@ fn render_table_options(opts: &TableStorageOptions) -> String {
     parts.join(", ")
 }
 
-fn render_index_options(opts: &IndexStorageOptions) -> String {
+pub(crate) fn render_index_options(opts: &IndexStorageOptions) -> String {
     let mut parts = Vec::new();
     if let Some(v) = opts.fillfactor {
         parts.push(format!("fillfactor = {v}"));

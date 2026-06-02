@@ -8,6 +8,7 @@
 //! names) so that two equal IR inputs produce byte-identical SQL — required by
 //! the plan-id hash in spec §6.6.
 
+use super::reloptions::render_index_options;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column::{
     Column, Compression, GeneratedKind, Identity, IdentityKind, SequenceOptions, StorageKind,
@@ -136,6 +137,11 @@ pub fn create_index(idx: &Index, concurrently: bool) -> String {
     }
     if idx.unique && idx.nulls_not_distinct {
         s.push_str(" NULLS NOT DISTINCT");
+    }
+    if !idx.storage.is_empty() {
+        s.push_str(" WITH (");
+        s.push_str(&render_index_options(&idx.storage));
+        s.push(')');
     }
     if let Some(ts) = &idx.tablespace {
         s.push_str(" TABLESPACE ");
@@ -1000,5 +1006,56 @@ mod tests {
         let s = column_def(&c);
         assert!(!s.contains("STORAGE"), "got: {s}");
         assert!(!s.contains("COMPRESSION"), "got: {s}");
+    }
+
+    // -----------------------------------------------------------------------
+    // create_index: WITH (...) storage clause
+    // -----------------------------------------------------------------------
+
+    fn simple_index() -> Index {
+        use crate::ir::index::{IndexColumn, IndexColumnExpr, IndexParent, NullsOrder, SortOrder};
+        Index {
+            qname: qn("app", "idx_test"),
+            on: IndexParent::Table(qn("app", "t")),
+            method: crate::ir::index::IndexMethod::BTree,
+            columns: vec![IndexColumn {
+                expr: IndexColumnExpr::Column(id("col1")),
+                collation: None,
+                opclass: None,
+                sort_order: SortOrder::Asc,
+                nulls_order: NullsOrder::NullsLast,
+            }],
+            include: vec![],
+            unique: false,
+            nulls_not_distinct: false,
+            predicate: None,
+            tablespace: None,
+            comment: None,
+            storage: crate::ir::reloptions::IndexStorageOptions::default(),
+        }
+    }
+
+    #[test]
+    fn create_index_emits_with_clause_when_fillfactor_set() {
+        let mut idx = simple_index();
+        idx.storage = crate::ir::reloptions::IndexStorageOptions {
+            fillfactor: Some(80),
+            ..Default::default()
+        };
+        let sql = create_index(&idx, false);
+        assert!(
+            sql.contains("WITH (fillfactor = 80)"),
+            "expected WITH (fillfactor = 80) in SQL, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn create_index_no_with_clause_for_default_storage() {
+        let idx = simple_index();
+        let sql = create_index(&idx, false);
+        assert!(
+            !sql.contains("WITH ("),
+            "expected no WITH clause for default storage, got: {sql}"
+        );
     }
 }
