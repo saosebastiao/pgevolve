@@ -1,11 +1,14 @@
 [meta]
-title     = "CREATE TABLE with inline STORAGE EXTERNAL COMPRESSION lz4 — PG 16+ inline form, round-trips"
+title     = "CREATE TABLE with STORAGE EXTERNAL COMPRESSION lz4 — emits CREATE TABLE + separate SET STORAGE (works on PG 14+)"
 authoring = "objects"
 spec_refs = ["objects.column.storage", "objects.column.compression"]
 
 [pg]
-# Inline STORAGE in CREATE TABLE is a PG 16+ grammar feature.
-min = 16
+# Inline STORAGE in CREATE TABLE column definitions is PG 16+ syntax.
+# We always emit a separate ALTER TABLE … SET STORAGE step (supported on
+# all PG versions we target: 14–18) instead.  This fixture runs on PG 14–17
+# to verify the plan is executable on all supported versions.
+min = 14
 max = 17
 
 [expect.diff]
@@ -14,4 +17,5 @@ contains = [
 ]
 
 [expect.plan]
-steps = 1
+# step 1: CREATE TABLE; step 2: ALTER TABLE … SET STORAGE EXTERNAL
+steps = 2

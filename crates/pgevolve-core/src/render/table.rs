@@ -51,6 +51,21 @@ pub fn render_table(t: &Table) -> String {
     out.push_str(&rewrite_sql::create_table(&table_without_fks));
     out.push('\n');
 
+    // Inline STORAGE in CREATE TABLE is PG 16+ syntax.  Emit separate
+    // ALTER TABLE … SET STORAGE statements (supported on all PG versions
+    // we target — 14–18) for each column that carries an explicit storage
+    // strategy.
+    for col in &t.columns {
+        if let Some(storage) = col.storage {
+            out.push_str(&rewrite_sql::alter_column_set_storage(
+                &t.qname,
+                &col.name,
+                storage,
+            ));
+            out.push('\n');
+        }
+    }
+
     // Table comment.
     if let Some(comment) = &t.comment {
         out.push_str(&rewrite_sql::comment_on_table(
@@ -386,11 +401,15 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Inline STORAGE / COMPRESSION in CREATE TABLE
+    // STORAGE / COMPRESSION in render_table
+    //
+    // Inline STORAGE in CREATE TABLE is PG 16+ syntax.  render_table must
+    // never emit it inline; instead it must emit a separate
+    // ALTER TABLE … SET STORAGE statement after the CREATE TABLE.
     // -----------------------------------------------------------------------
 
     #[test]
-    fn renders_inline_storage_external() {
+    fn renders_storage_external_as_separate_alter_table() {
         use crate::ir::column::StorageKind;
         let mut c = col("doc", ColumnType::Text);
         c.storage = Some(StorageKind::External);
@@ -409,7 +428,16 @@ mod tests {
             storage: crate::ir::reloptions::TableStorageOptions::default(),
         };
         let sql = render_table(&t);
-        assert!(sql.contains("STORAGE EXTERNAL"), "got: {sql}");
+        // Must NOT appear inline in the CREATE TABLE body.
+        assert!(
+            !sql.contains("doc text STORAGE EXTERNAL"),
+            "STORAGE must not be inline in CREATE TABLE, got: {sql}"
+        );
+        // Must appear as a separate ALTER TABLE statement.
+        assert!(
+            sql.contains("ALTER TABLE app.users ALTER COLUMN doc SET STORAGE EXTERNAL"),
+            "expected separate SET STORAGE statement, got: {sql}"
+        );
         assert_pg_parseable(&sql);
     }
 

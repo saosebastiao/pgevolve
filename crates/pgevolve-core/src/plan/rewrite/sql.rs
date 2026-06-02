@@ -532,22 +532,19 @@ pub fn column_def(c: &Column) -> String {
         s.push_str(" COLLATE ");
         s.push_str(&coll.render_sql());
     }
-    // STORAGE and COMPRESSION must appear before column constraints (including
-    // NOT NULL) — that is the order the Postgres grammar requires and the order
-    // the pg_query deparser produces.  Inline STORAGE is a PG 16+ feature; on
-    // older targets the shadow apply will surface a clear PG error, which is
-    // the correct semantics — the user wrote unsupported syntax for their
-    // target.
-    if let Some(storage) = c.storage {
-        let kw = match storage {
-            StorageKind::Plain => "PLAIN",
-            StorageKind::External => "EXTERNAL",
-            StorageKind::Extended => "EXTENDED",
-            StorageKind::Main => "MAIN",
-        };
-        s.push_str(" STORAGE ");
-        s.push_str(kw);
-    }
+    // COMPRESSION must appear before column constraints (including NOT NULL) —
+    // that is the order the Postgres grammar requires.
+    //
+    // NOTE: Inline `STORAGE` in `CREATE TABLE` / `ALTER TABLE ADD COLUMN` is a
+    // PG 16+ feature (added in PostgreSQL 16).  PG 14 and PG 15 only accept
+    // `ALTER TABLE … ALTER COLUMN … SET STORAGE …` (a separate post-CREATE
+    // statement).  We therefore never emit inline STORAGE here; callers that
+    // produce `CREATE TABLE` or `ADD COLUMN` steps must follow up with
+    // `alter_column_set_storage` for any column whose `storage` field is
+    // `Some(…)`.  See `emit::table::create` and `emit::table::op` for where
+    // those follow-up steps are emitted.
+    //
+    // Inline COMPRESSION is fine on all supported targets (PG 14+).
     if let Some(compression) = c.compression {
         let kw = match compression {
             Compression::Pglz => "pglz",
@@ -981,15 +978,29 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // column_def: inline STORAGE / COMPRESSION
+    // column_def: inline COMPRESSION only (no inline STORAGE — PG 14/15 do
+    // not support inline STORAGE; callers emit a separate SET STORAGE step)
     // -----------------------------------------------------------------------
 
     #[test]
-    fn column_def_renders_storage_external() {
-        let mut c = simple_col("doc");
-        c.storage = Some(StorageKind::External);
-        let s = column_def(&c);
-        assert!(s.contains("STORAGE EXTERNAL"), "got: {s}");
+    fn column_def_never_renders_inline_storage() {
+        // Even when `storage` is set, `column_def` must NOT emit an inline
+        // STORAGE clause.  Callers (`create_table`, `add_column`) are
+        // responsible for emitting a separate ALTER TABLE … SET STORAGE step.
+        for storage in [
+            StorageKind::Plain,
+            StorageKind::External,
+            StorageKind::Extended,
+            StorageKind::Main,
+        ] {
+            let mut c = simple_col("doc");
+            c.storage = Some(storage);
+            let s = column_def(&c);
+            assert!(
+                !s.contains("STORAGE"),
+                "column_def must not emit inline STORAGE (PG 14/15 do not support it), got: {s}"
+            );
+        }
     }
 
     #[test]

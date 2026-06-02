@@ -3,6 +3,7 @@
 
 use crate::diff::table_op::{TableOp, TableOpEntry};
 use crate::identifier::QualifiedName;
+use crate::ir::column::Column;
 use crate::ir::table::Table;
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 use crate::plan::rewrite::{
@@ -10,6 +11,30 @@ use crate::plan::rewrite::{
 };
 
 use super::super::destructive_reason;
+
+/// Emit a `SET STORAGE` step for a column that has an explicit storage
+/// strategy.  `column_def` deliberately omits inline `STORAGE` because
+/// that syntax is PG 16+ only; we always follow up with this separate
+/// `ALTER TABLE … SET STORAGE` statement which is supported on all PG
+/// versions we target (14–18).
+fn push_set_storage_if_needed(
+    qname: &QualifiedName,
+    col: &Column,
+    out: &mut Vec<RawStep>,
+) {
+    if let Some(storage) = col.storage {
+        out.push(RawStep {
+            step_no: 0,
+            kind: StepKind::SetColumnStorage,
+            destructive: false,
+            destructive_reason: None,
+            intent_id: None,
+            targets: vec![qname.clone()],
+            sql: sql::alter_column_set_storage(qname, &col.name, storage),
+            transactional: TransactionConstraint::InTransaction,
+        });
+    }
+}
 
 pub fn create(
     t: Table,
@@ -28,6 +53,12 @@ pub fn create(
         sql: sql::create_table(&t),
         transactional: TransactionConstraint::InTransaction,
     });
+    // Inline STORAGE in CREATE TABLE is PG 16+ syntax; emit separate
+    // ALTER TABLE … SET STORAGE steps (supported on all PG versions) for
+    // every column that carries an explicit storage strategy.
+    for col in &t.columns {
+        push_set_storage_if_needed(&qname, col, out);
+    }
     if let Some(c) = &t.comment {
         out.push(RawStep {
             step_no: 0,
@@ -109,16 +140,21 @@ pub fn op(
     let destructive = entry.destructiveness.requires_approval();
     let destructive_reason = destructive_reason(&entry.destructiveness);
     match entry.op {
-        TableOp::AddColumn(c) => out.push(RawStep {
-            step_no: 0,
-            kind: StepKind::AddColumn,
-            destructive,
-            destructive_reason,
-            intent_id: None,
-            targets: vec![qname.clone()],
-            sql: sql::alter_table_add_column(qname, &c),
-            transactional: TransactionConstraint::InTransaction,
-        }),
+        TableOp::AddColumn(c) => {
+            out.push(RawStep {
+                step_no: 0,
+                kind: StepKind::AddColumn,
+                destructive,
+                destructive_reason,
+                intent_id: None,
+                targets: vec![qname.clone()],
+                sql: sql::alter_table_add_column(qname, &c),
+                transactional: TransactionConstraint::InTransaction,
+            });
+            // Inline STORAGE in ALTER TABLE ADD COLUMN is PG 16+ syntax; emit
+            // a separate SET STORAGE step for all supported PG versions (14+).
+            push_set_storage_if_needed(qname, &c, out);
+        }
         TableOp::DropColumn { name, .. } => out.push(RawStep {
             step_no: 0,
             kind: StepKind::DropColumn,
