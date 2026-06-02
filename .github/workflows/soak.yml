@@ -41,6 +41,13 @@ jobs:
         env:
           PGEVOLVE_TEST_PG_VERSION: ${{ matrix.pg }}
           PROPTEST_CASES: "5000"
+          # Dummy value to satisfy the env-var preflight for subscriptions
+          # generated with `password=${TEST_PWD}` (see
+          # crates/pgevolve-testkit/src/ir_generator/subscription.rs). The
+          # value is never used at runtime — the synthetic DSN points at a
+          # non-existent host and `create_slot` is left None, so PG only
+          # stores the connection string.
+          TEST_PWD: "soak_dummy_password"
       - name: Auto-capture property-test failure
         if: failure()
         env:
