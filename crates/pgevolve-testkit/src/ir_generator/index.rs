@@ -80,16 +80,17 @@ pub(super) fn arbitrary_indexes_for_table(
         })
 }
 
-/// Type whitelist for btree-default indexability. `json` is the notable
-/// exclusion (use `jsonb` instead); arrays and a few exotic types are also
-/// not indexable with the default operator class.
+/// Type whitelist for btree-default indexability.
+///
+/// Delegates to [`ColumnType::has_default_btree_opclass`]: any type that lacks
+/// a default btree opclass cannot be used in a B-tree index without an explicit
+/// opclass clause, and PG rejects such DDL with error 42704.
 ///
 /// Used by the IR generator (when seeding new indexes) AND the IR mutator
 /// (when adding indexes via `add_index`). Keeping the two in sync is
-/// essential — otherwise the mutator can produce btree indexes on `json`
-/// columns that PG rejects with error 42704 ("data type json has no default
-/// operator class for access method 'btree'"). See
-/// `crates/pgevolve-testkit/src/ir_mutator.rs::add_index`.
+/// essential — otherwise the mutator can produce btree indexes on ineligible
+/// columns (`json`, `jsonb`, arrays, `bit`, user-defined types, …) that PG
+/// rejects. See `crates/pgevolve-testkit/src/ir_mutator.rs::add_index`.
 pub(crate) const fn is_btree_indexable(ty: &ColumnType) -> bool {
-    !matches!(ty, ColumnType::Json)
+    ty.has_default_btree_opclass()
 }

@@ -84,13 +84,20 @@ pub fn arb_statistic(
 /// Generate 0–1 statistics per table, drawing columns from the table's actual
 /// column list.  Returns a flat `Vec<Statistic>` for the whole catalog.
 pub(super) fn arb_statistics_for_tables(tables: &[Table]) -> BoxedStrategy<Vec<Statistic>> {
-    // Tables with fewer than 2 columns cannot have statistics.
+    // Tables with fewer than 2 btree-eligible columns cannot have statistics.
+    // PG rejects CREATE STATISTICS on columns whose type lacks a default btree
+    // opclass (json, jsonb, arrays, bit/varbit, user-defined, ...) with 0A000.
     let eligible: Vec<(QualifiedName, Vec<Identifier>)> = tables
         .iter()
         .filter_map(|t| {
-            let non_pk_cols: Vec<Identifier> = t.columns.iter().map(|c| c.name.clone()).collect();
-            if non_pk_cols.len() >= 2 {
-                Some((t.qname.clone(), non_pk_cols))
+            let eligible_cols: Vec<Identifier> = t
+                .columns
+                .iter()
+                .filter(|c| c.ty.has_default_btree_opclass())
+                .map(|c| c.name.clone())
+                .collect();
+            if eligible_cols.len() >= 2 {
+                Some((t.qname.clone(), eligible_cols))
             } else {
                 None
             }
@@ -113,4 +120,80 @@ pub(super) fn arb_statistics_for_tables(tables: &[Table]) -> BoxedStrategy<Vec<S
     strategies
         .prop_map(|opts| opts.into_iter().flatten().collect())
         .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use pgevolve_core::ir::statistic::StatisticColumn;
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::{Config, TestRunner};
+
+    use super::*;
+    use crate::ir_generator::IRGeneratorConfig;
+    use crate::ir_generator::schema::arbitrary_schemas;
+    use crate::ir_generator::table::arbitrary_tables_for_schema;
+
+    /// Every column referenced in a generated `Statistic` must have a type
+    /// that has a default btree opclass, or PG will reject the DDL with 0A000.
+    #[test]
+    fn statistics_only_reference_btree_eligible_columns() {
+        let mut runner = TestRunner::new(Config {
+            cases: 256,
+            ..Config::default()
+        });
+        let cfg = IRGeneratorConfig::default();
+
+        for _ in 0..256 {
+            // Build a table set then generate statistics from it.
+            let schema_tree = arbitrary_schemas(&cfg).new_tree(&mut runner).unwrap();
+            let schemas = schema_tree.current();
+            if schemas.is_empty() {
+                continue;
+            }
+            let schema = &schemas[0];
+            let table_tree = arbitrary_tables_for_schema(schema.name.clone(), &cfg)
+                .new_tree(&mut runner)
+                .unwrap();
+            let tables = table_tree.current();
+
+            // Build a name→type lookup for fast column-type resolution.
+            let col_type_map: std::collections::HashMap<_, _> = tables
+                .iter()
+                .flat_map(|t| {
+                    t.columns
+                        .iter()
+                        .map(|c| ((t.qname.clone(), c.name.clone()), c.ty.clone()))
+                })
+                .collect();
+
+            let stats_tree = arb_statistics_for_tables(&tables)
+                .new_tree(&mut runner)
+                .unwrap();
+            let stats = stats_tree.current();
+
+            for stat in &stats {
+                for col_ref in &stat.columns {
+                    if let StatisticColumn::Column(col_name) = col_ref {
+                        let ty = col_type_map
+                            .get(&(stat.target.clone(), col_name.clone()))
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "statistic '{}' references column '{}' not found in table '{}'",
+                                    stat.qname.render_sql(),
+                                    col_name.as_str(),
+                                    stat.target.render_sql()
+                                )
+                            });
+                        assert!(
+                            ty.has_default_btree_opclass(),
+                            "statistic '{}' references column '{}' of ineligible type {:?}",
+                            stat.qname.render_sql(),
+                            col_name.as_str(),
+                            ty
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

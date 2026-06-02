@@ -117,6 +117,46 @@ pub enum NetAddressKind {
 }
 
 impl ColumnType {
+    /// Returns `true` if this type has a default btree operator class in
+    /// Postgres, making it usable in `CREATE STATISTICS` and B-tree indexes
+    /// without an explicit `USING` opclass clause.
+    ///
+    /// Types that lack a default btree opclass (json, jsonb, arrays, bit/varbit,
+    /// user-defined composite/range types, and unknown `Other` types) return
+    /// `false`. PG rejects `CREATE STATISTICS` on such columns with error 0A000.
+    ///
+    /// # Notes
+    ///
+    /// - `UserDefined` is conservatively treated as **ineligible**: we cannot
+    ///   determine opclass availability without live catalog introspection.
+    ///   User-defined enums do get a btree opclass automatically, but we cannot
+    ///   distinguish enums from composites/ranges/domains at this level of the IR.
+    /// - `Array` types have no default btree opclass in any supported PG version.
+    /// - `Bit` / `bit varying` have no default btree opclass.
+    #[must_use]
+    pub const fn has_default_btree_opclass(&self) -> bool {
+        matches!(
+            self,
+            Self::Boolean
+                | Self::SmallInt
+                | Self::Integer
+                | Self::BigInt
+                | Self::Real
+                | Self::DoublePrecision
+                | Self::Numeric { .. }
+                | Self::Text
+                | Self::Varchar { .. }
+                | Self::Char { .. }
+                | Self::Bytea
+                | Self::Date
+                | Self::Time { .. }
+                | Self::Timestamp { .. }
+                | Self::Interval { .. }
+                | Self::Uuid
+                | Self::NetAddress(_)
+        )
+    }
+
     /// Render this type as canonical Postgres syntax.
     /// The output round-trips through [`Self::parse_from_pg_type_string`] back to `self`.
     #[allow(clippy::too_many_lines)] // exhaustive variant match by design
@@ -647,6 +687,99 @@ mod tests {
             ColumnType::parse_from_pg_type_string("   "),
             Err(ParseTypeError::Empty)
         ));
+    }
+
+    /// Exhaustive table-driven test: every `ColumnType` variant is listed and
+    /// its expected `has_default_btree_opclass()` value is asserted.
+    #[test]
+    fn has_default_btree_opclass_all_variants() {
+        // Eligible types — PG has a built-in default btree opclass.
+        let eligible: &[ColumnType] = &[
+            ColumnType::Boolean,
+            ColumnType::SmallInt,
+            ColumnType::Integer,
+            ColumnType::BigInt,
+            ColumnType::Real,
+            ColumnType::DoublePrecision,
+            ColumnType::Numeric {
+                precision: None,
+                scale: None,
+            },
+            ColumnType::Numeric {
+                precision: Some(10),
+                scale: Some(2),
+            },
+            ColumnType::Text,
+            ColumnType::Varchar { len: None },
+            ColumnType::Varchar { len: Some(50) },
+            ColumnType::Char { len: None },
+            ColumnType::Char { len: Some(8) },
+            ColumnType::Bytea,
+            ColumnType::Date,
+            ColumnType::Time {
+                precision: None,
+                with_tz: false,
+            },
+            ColumnType::Time {
+                precision: None,
+                with_tz: true,
+            },
+            ColumnType::Timestamp {
+                precision: None,
+                with_tz: false,
+            },
+            ColumnType::Timestamp {
+                precision: None,
+                with_tz: true,
+            },
+            ColumnType::Interval {
+                fields: None,
+                precision: None,
+            },
+            ColumnType::Uuid,
+            ColumnType::NetAddress(NetAddressKind::Inet),
+            ColumnType::NetAddress(NetAddressKind::Cidr),
+            ColumnType::NetAddress(NetAddressKind::MacAddr),
+            ColumnType::NetAddress(NetAddressKind::MacAddr8),
+        ];
+        for ty in eligible {
+            assert!(
+                ty.has_default_btree_opclass(),
+                "expected eligible but got ineligible: {ty:?}"
+            );
+        }
+
+        // Ineligible types — PG rejects CREATE STATISTICS / btree index without
+        // an explicit opclass.
+        let ineligible: &[ColumnType] = &[
+            ColumnType::Json,
+            ColumnType::Jsonb,
+            ColumnType::Bit {
+                len: 8,
+                varying: false,
+            },
+            ColumnType::Bit {
+                len: 8,
+                varying: true,
+            },
+            ColumnType::Array {
+                element: Box::new(ColumnType::Integer),
+                dims: 1,
+            },
+            ColumnType::UserDefined(crate::identifier::QualifiedName::new(
+                crate::identifier::Identifier::from_unquoted("public").unwrap(),
+                crate::identifier::Identifier::from_unquoted("my_enum").unwrap(),
+            )),
+            ColumnType::Other {
+                raw: "circle".into(),
+            },
+        ];
+        for ty in ineligible {
+            assert!(
+                !ty.has_default_btree_opclass(),
+                "expected ineligible but got eligible: {ty:?}"
+            );
+        }
     }
 
     #[test]
