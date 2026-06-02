@@ -205,11 +205,16 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
                 .map(|_| (arb_owner(), arb_object_grants(SEQUENCE_PRIVS)))
                 .collect();
 
-            // Default-privilege rules for the catalog.
-            let default_privs_strategy = arbitrary_default_privileges();
+            // Shared schema name pool used by several sub-strategies below.
+            let schema_names: Vec<Identifier> = schemas.iter().map(|s| s.name.clone()).collect();
+
+            // Default-privilege rules — restrict `IN SCHEMA y` to schemas that
+            // are actually declared in this catalog so the DDL never references
+            // a schema that does not exist (PG error 3F000).
+            let default_privs_strategy = arbitrary_default_privileges(&schema_names);
 
             // Publications drawing from the catalog's own schemas + tables.
-            let schema_pool: Vec<Identifier> = schemas.iter().map(|s| s.name.clone()).collect();
+            let schema_pool: Vec<Identifier> = schema_names.clone();
             let table_pool: Vec<QualifiedName> = tables.iter().map(|t| t.qname.clone()).collect();
             let publications_strategy = arb_publications(schema_pool, table_pool);
 
@@ -219,7 +224,6 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
             // Collations and user types — generated once per schema-set so
             // they share the same name pool and are available before
             // canonicalization.
-            let schema_names: Vec<Identifier> = schemas.iter().map(|s| s.name.clone()).collect();
             let collations_strategy = arb_collations_for_schemas(&schema_names);
             let user_types_strategy = arb_user_types_for_schemas(&schema_names);
 

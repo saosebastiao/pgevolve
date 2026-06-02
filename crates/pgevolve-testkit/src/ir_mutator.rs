@@ -311,6 +311,18 @@ fn drop_schema(c: &mut Catalog, seed: usize) {
                 .as_ref()
                 .is_some_and(|o| owned_table_qnames.contains(&o.table))
     });
+    // Cascade-drop schema-owned objects not handled by the original code.
+    // Without these, objects with qname.schema == dropped would remain in
+    // the catalog referencing a schema no longer in `c.schemas`, causing PG
+    // error 3F000 (schema does not exist) when the DDL is applied.
+    c.types.retain(|ty| ty.qname.schema != dropped);
+    c.collations.retain(|col| col.qname.schema != dropped);
+    c.statistics.retain(|s| s.qname.schema != dropped);
+    c.views.retain(|v| v.qname.schema != dropped);
+    c.materialized_views.retain(|m| m.qname.schema != dropped);
+    // Strip any default-privilege rules scoped to the dropped schema.
+    c.default_privileges
+        .retain(|r| r.schema.as_ref() != Some(&dropped));
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +444,75 @@ mod tests {
             diverged >= 50,
             "only {diverged} / 100 mutations diverged from seed",
         );
+    }
+
+    /// Regression for issue #13: `drop_schema` did not cascade-drop
+    /// `types`, `collations`, and `statistics` that belong to the dropped
+    /// schema, leaving orphaned schema-qualified references whose schema no
+    /// longer appeared in `catalog.schemas`. PG then rejects the DDL with
+    /// error 3F000 (schema does not exist) at apply time.
+    ///
+    /// Also covers the companion bug in `arbitrary_default_privileges` where
+    /// the rule could carry `IN SCHEMA "billing"` even when `billing` was
+    /// never declared — that fix is in `ir_generator/grants.rs` and validated
+    /// by the generator test.
+    ///
+    /// This test generates 256 mutated catalogs from random seeds and asserts
+    /// that every [`QualifiedName`] referenced in the mutated catalog has a
+    /// schema that is declared in `mutated.schemas`.
+    #[test]
+    fn all_qnames_reference_declared_schemas() {
+        use std::collections::BTreeSet;
+
+        let mut runner = TestRunner::default();
+        for _ in 0..256 {
+            let seed_tree = arbitrary_catalog(IRGeneratorConfig::default())
+                .new_tree(&mut runner)
+                .unwrap();
+            let seed = seed_tree.current();
+            let mutated_tree = arbitrary_mutation(seed.clone())
+                .new_tree(&mut runner)
+                .unwrap();
+            let mutated = mutated_tree.current();
+
+            let declared: BTreeSet<&Identifier> = mutated.schemas.iter().map(|s| &s.name).collect();
+
+            // Collect every schema-qualified name used across all catalog lists.
+            let mut referenced: Vec<(&str, &Identifier)> = Vec::new();
+            for t in &mutated.tables {
+                referenced.push(("table", &t.qname.schema));
+            }
+            for i in &mutated.indexes {
+                referenced.push(("index", &i.qname.schema));
+            }
+            for s in &mutated.sequences {
+                referenced.push(("sequence", &s.qname.schema));
+            }
+            for v in &mutated.views {
+                referenced.push(("view", &v.qname.schema));
+            }
+            for m in &mutated.materialized_views {
+                referenced.push(("materialized_view", &m.qname.schema));
+            }
+            for ty in &mutated.types {
+                referenced.push(("type", &ty.qname.schema));
+            }
+            for c in &mutated.collations {
+                referenced.push(("collation", &c.qname.schema));
+            }
+            for s in &mutated.statistics {
+                referenced.push(("statistic", &s.qname.schema));
+            }
+
+            for (kind, schema) in &referenced {
+                assert!(
+                    declared.contains(schema),
+                    "{kind} references undeclared schema '{}'  \
+                    (declared schemas: {declared:?})",
+                    schema.as_str(),
+                );
+            }
+        }
     }
 
     /// Regression for the property-test failure where `add_index` produced

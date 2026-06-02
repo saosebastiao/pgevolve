@@ -209,14 +209,31 @@ pub(super) const FUNCTION_PRIVS: &[Privilege] = &[Privilege::Execute];
 pub(super) const TYPE_PRIVS: &[Privilege] = &[Privilege::Usage];
 
 /// Generate 0–3 [`DefaultPrivilegeRule`]s for arbitrary catalog-level rules.
-pub fn arbitrary_default_privileges() -> impl Strategy<Value = Vec<DefaultPrivilegeRule>> {
+///
+/// `schema_pool` is the set of schemas declared in the target catalog. The
+/// `IN SCHEMA y` field of generated rules is restricted to `None` (meaning
+/// "all schemas owned by the target role") or a schema actually present in
+/// `schema_pool`, so the DDL never references a schema that does not exist.
+/// Pass an empty slice to always generate `None` (schema-agnostic rules only).
+pub fn arbitrary_default_privileges(
+    schema_pool: &[Identifier],
+) -> BoxedStrategy<Vec<DefaultPrivilegeRule>> {
+    // Build a per-rule schema strategy: None or one declared schema.
+    let schema_strategy: BoxedStrategy<Option<Identifier>> = if schema_pool.is_empty() {
+        Just(None).boxed()
+    } else {
+        let pool = schema_pool.to_vec();
+        prop_oneof![Just(None), proptest::sample::select(pool).prop_map(Some),].boxed()
+    };
+
+    // Build the rule strategy by pairing an independent schema pick with the
+    // other fields so that each generated rule carries its own schema choice.
     let rule_strategy = (
         // target_role
         prop_oneof![Just("app_owner"), Just("app"), Just("ops"),]
             .prop_map(|s| Identifier::from_unquoted(s).unwrap()),
-        // schema (None = all schemas)
-        prop_oneof![Just(None), Just(Some("app")), Just(Some("billing")),]
-            .prop_map(|s| s.map(|n| Identifier::from_unquoted(n).unwrap())),
+        // schema: None or a schema from the catalog's declared set.
+        schema_strategy,
         // object_type
         prop_oneof![
             Just(DefaultPrivObjectType::Tables),
@@ -261,6 +278,7 @@ pub fn arbitrary_default_privileges() -> impl Strategy<Value = Vec<DefaultPrivil
         (rule_strategy.clone(), rule_strategy.clone(), rule_strategy)
             .prop_map(|(a, b, c)| vec![a, b, c]),
     ]
+    .boxed()
 }
 
 #[cfg(test)]

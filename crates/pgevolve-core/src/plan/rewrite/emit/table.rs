@@ -17,11 +17,7 @@ use super::super::destructive_reason;
 /// that syntax is PG 16+ only; we always follow up with this separate
 /// `ALTER TABLE … SET STORAGE` statement which is supported on all PG
 /// versions we target (14–18).
-fn push_set_storage_if_needed(
-    qname: &QualifiedName,
-    col: &Column,
-    out: &mut Vec<RawStep>,
-) {
+fn push_set_storage_if_needed(qname: &QualifiedName, col: &Column, out: &mut Vec<RawStep>) {
     if let Some(storage) = col.storage {
         out.push(RawStep {
             step_no: 0,

@@ -58,9 +58,7 @@ pub fn render_table(t: &Table) -> String {
     for col in &t.columns {
         if let Some(storage) = col.storage {
             out.push_str(&rewrite_sql::alter_column_set_storage(
-                &t.qname,
-                &col.name,
-                storage,
+                &t.qname, &col.name, storage,
             ));
             out.push('\n');
         }
