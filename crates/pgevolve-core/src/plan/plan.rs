@@ -246,11 +246,25 @@ impl Plan {
     ///
     /// Returns `PlanError::Internal` if the source or target catalog cannot be
     /// serialized to JSON for hashing (see [`PlanId::compute`]).
+    /// Assemble a `Plan` from a step-grouped output of the rewrite pass,
+    /// with a caller-supplied `PlanId`.
+    ///
+    /// Used by cluster apply, which hashes `ClusterCatalog` (not per-DB
+    /// `Catalog`) for its plan id and so cannot use [`Plan::from_grouped`].
+    ///
+    /// `target_snapshot` is left empty — per-DB snapshots only serve the
+    /// per-DB drift recheck, which cluster apply does not perform (see
+    /// design doc §3.1).
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; the `Result` shape matches `from_grouped` for
+    /// future-proofing.
     #[allow(clippy::too_many_arguments)]
-    pub fn from_grouped(
+    #[allow(clippy::missing_const_for_fn)] // construct-only; never const-callable
+    pub fn from_grouped_with_id(
         mut groups: Vec<TransactionGroup>,
-        source: &Catalog,
-        target: &Catalog,
+        id: PlanId,
         target_identity: String,
         source_rev: Option<String>,
         pgevolve_version: &str,
@@ -280,13 +294,12 @@ impl Plan {
                 }
             }
         }
-        let id = PlanId::compute(source, target, pgevolve_version, planner_ruleset_version)?;
         let metadata = PlanMetadata {
             pgevolve_version: pgevolve_version.to_string(),
             planner_ruleset_version,
             source_rev,
             target_identity,
-            target_snapshot: target.clone(),
+            target_snapshot: Catalog::empty(),
             created_at: OffsetDateTime::now_utc(),
             lint_at_plan_findings: Vec::new(),
         };
@@ -299,6 +312,45 @@ impl Plan {
             metadata,
             advisory_findings: Vec::new(),
         })
+    }
+
+    /// Assemble a `Plan` from a step-grouped output of the rewrite pass.
+    ///
+    /// Walks `groups` in order to:
+    /// 1. Assign 1-indexed `step_no` to every step (continuous across groups).
+    /// 2. Allocate a `DestructiveIntent` (and `intent_id`) for every
+    ///    destructive step, in step order.
+    /// 3. Compute the deterministic `PlanId` over `(source, target, version,
+    ///    ruleset_version)`.
+    ///
+    /// `target_identity` is opaque to the planner — the executor binary
+    /// computes it from `(host, port, dbname, system_identifier)` at apply time.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PlanError::Internal` if the source or target catalog cannot be
+    /// serialized to JSON for hashing (see [`PlanId::compute`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_grouped(
+        groups: Vec<TransactionGroup>,
+        source: &Catalog,
+        target: &Catalog,
+        target_identity: String,
+        source_rev: Option<String>,
+        pgevolve_version: &str,
+        planner_ruleset_version: u32,
+    ) -> Result<Self, PlanError> {
+        let id = PlanId::compute(source, target, pgevolve_version, planner_ruleset_version)?;
+        let mut plan = Self::from_grouped_with_id(
+            groups,
+            id,
+            target_identity,
+            source_rev,
+            pgevolve_version,
+            planner_ruleset_version,
+        )?;
+        plan.metadata.target_snapshot = target.clone();
+        Ok(plan)
     }
 
     /// Mark every destructive intent as `approved = true`.
@@ -925,6 +977,61 @@ reason = "rewrite-table applied; PR #234"
         assert_eq!(doc.lint_waivers.len(), 1);
         assert_eq!(doc.lint_waivers[0].rule, "column-position-drift");
         assert_eq!(doc.lint_waivers[0].target, "app.users");
+    }
+
+    // ---- Plan::from_grouped_with_id (Task 1) ----
+
+    #[test]
+    fn from_grouped_with_id_uses_provided_plan_id() {
+        // PlanId::from_hex does not exist yet (deferred to Task 6).
+        // Fallback: compute a known id via PlanId::compute and verify
+        // round-trip equality through from_grouped_with_id.
+        let pre_id =
+            PlanId::compute(&Catalog::empty(), &Catalog::empty(), "0.0.0-test", 99).unwrap();
+        let plan = Plan::from_grouped_with_id(
+            vec![],
+            pre_id,
+            "test-cluster-id".into(),
+            None,
+            "0.0.0-test",
+            99,
+        )
+        .expect("build empty cluster-style plan");
+        assert_eq!(plan.id, pre_id);
+        assert_eq!(plan.metadata.target_identity, "test-cluster-id");
+        assert_eq!(plan.metadata.planner_ruleset_version, 99);
+        assert!(plan.groups.is_empty());
+        assert!(plan.intents.is_empty());
+    }
+
+    #[test]
+    fn from_grouped_with_id_target_snapshot_is_empty() {
+        // from_grouped_with_id should always leave target_snapshot empty;
+        // only from_grouped populates it (for per-DB drift recheck).
+        let pre_id =
+            PlanId::compute(&Catalog::empty(), &Catalog::empty(), "0.0.0-test", 0).unwrap();
+        let plan =
+            Plan::from_grouped_with_id(vec![], pre_id, "cluster:abc".into(), None, "0.0.0-test", 0)
+                .unwrap();
+        assert_eq!(plan.metadata.target_snapshot, Catalog::empty());
+    }
+
+    #[test]
+    fn from_grouped_still_populates_target_snapshot() {
+        // Regression guard: from_grouped must still override target_snapshot
+        // after delegating to from_grouped_with_id.
+        let target = cat_with_schema("legacy");
+        let plan = Plan::from_grouped(
+            Vec::new(),
+            &Catalog::empty(),
+            &target,
+            "tid".into(),
+            None,
+            "0.1.0",
+            1,
+        )
+        .unwrap();
+        assert_eq!(plan.metadata.target_snapshot, target);
     }
 
     #[test]
