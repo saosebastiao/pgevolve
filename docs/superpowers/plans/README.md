@@ -45,3 +45,4 @@ when brainstorming begins.
 | 2026-05-28 | [CI/CD maturation](./2026-05-28-cicd-maturation.md) |
 | 2026-05-28 | [Docs website](./2026-05-28-docs-website.md) |
 | 2026-05-29 | [Process docs](./2026-05-29-process-docs.md) |
+| 2026-06-02 | [Community surface](./2026-06-02-community-surface.md) |

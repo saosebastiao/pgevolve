@@ -19,10 +19,11 @@ We do not pursue legal action against good-faith security researchers acting in 
 
 ## Supported versions
 
-| Version | Supported          |
-|---------|--------------------|
-| 0.2.x   | ✅                 |
-| 0.1.x   | ❌ (please upgrade)|
+| Version | Supported                              |
+|---------|----------------------------------------|
+| 0.3.x   | ✅ Active                              |
+| 0.2.x   | ⚠️  Security fixes only (until v1.0)   |
+| 0.1.x   | ❌ Unsupported (please upgrade)        |
 
 ## Scope
 

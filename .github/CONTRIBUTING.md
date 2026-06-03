@@ -143,6 +143,20 @@ A few notes on the issue tracker:
 
 ---
 
+## What to expect after you file
+
+pgevolve is solo-maintained today. Issues typically get a first
+response within a week or so, but that's an expectation, not an
+SLA — vacation, day-job demands, and the occasional incident arc
+can stretch it. We don't auto-close stale issues; if something goes
+quiet you didn't do anything wrong.
+
+Security reports get the SLA promised in
+[`SECURITY.md`](./SECURITY.md): 7-day acknowledgment, 30-day fix
+for medium-severity, faster for critical.
+
+---
+
 ## License
 
 pgevolve is dual-licensed under **MIT OR Apache-2.0**. By submitting a
