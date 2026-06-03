@@ -10,6 +10,11 @@
 //! `connect` is always `Some(false)` so that generated subscriptions with
 //! synthetic DSNs (e.g. `replica.example.com`) never trigger a network dial
 //! at `CREATE SUBSCRIPTION` time (PG dials the publisher by default).
+//!
+//! `enabled` is always `Some(false)` to pair correctly with `connect =
+//! Some(false)`: PG rejects `connect = false` combined with `enabled = true`
+//! (error 42601 "connect = false and enabled = true are mutually exclusive
+//! options").
 
 #![allow(clippy::needless_pass_by_value)]
 
@@ -37,6 +42,11 @@ fn arb_streaming_mode() -> impl Strategy<Value = StreamingMode> {
 /// `connect` is always `Some(false)` — generated subscriptions use synthetic
 /// DSNs that must never be dialed at CREATE time.
 ///
+/// `enabled` is always `Some(false)` — PG rejects `connect = false` paired
+/// with `enabled = true` (error 42601 "mutually exclusive options"). Since
+/// `connect` is always `Some(false)`, `enabled` must be `None` or `Some(false)`;
+/// `Some(false)` is used here to keep the field explicit and lint-clean.
+///
 /// Other CREATE-only fields (`create_slot`, `copy_data`) and PG-version-gated
 /// fields (`password_required`, `run_as_owner`, `disable_on_error` (PG 15+),
 /// `two_phase` (PG 15+), `origin` (PG 16+), `failover` (PG 17+)) are left
@@ -44,13 +54,13 @@ fn arb_streaming_mode() -> impl Strategy<Value = StreamingMode> {
 /// also left `None` (free-form string; no bounded pool to sample from).
 fn arb_subscription_options() -> impl Strategy<Value = SubscriptionOptions> {
     (
-        prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // enabled
+        Just(Some(false)), // enabled — always false; Some(true) rejected by PG when connect=false (42601)
         prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // binary
         prop_oneof![Just(None), arb_streaming_mode().prop_map(Some)], // streaming
-        Just(None), // two_phase — PG 15+ only; leave None to stay version-agnostic
-        Just(None), // disable_on_error — PG 15+ only; leave None to stay version-agnostic
-        Just(None), // origin — PG 16+ only; leave None to stay version-agnostic
-        Just(None), // failover — PG 17+ only; leave None to stay version-agnostic
+        Just(None),        // two_phase — PG 15+ only; leave None to stay version-agnostic
+        Just(None),        // disable_on_error — PG 15+ only; leave None to stay version-agnostic
+        Just(None),        // origin — PG 16+ only; leave None to stay version-agnostic
+        Just(None),        // failover — PG 17+ only; leave None to stay version-agnostic
     )
         .prop_map(
             |(enabled, binary, streaming, two_phase, disable_on_error, origin, failover)| {
@@ -146,6 +156,30 @@ mod tests {
     use super::arb_subscription_options;
 
     use pgevolve_core::ir::subscription::StreamingMode;
+
+    /// `enabled` must never be `Some(true)` in generated subscriptions.
+    ///
+    /// PG rejects `connect = false` paired with `enabled = true` with error
+    /// 42601 ("mutually exclusive options"). The testkit always sets
+    /// `connect = Some(false)` for offline-replica safety, so `enabled` must
+    /// also be constrained: only `None` or `Some(false)` are valid.
+    #[test]
+    fn subscription_options_enabled_is_never_some_true() {
+        let mut runner = TestRunner::default();
+        for _ in 0..256 {
+            let tree = arb_subscription_options()
+                .new_tree(&mut runner)
+                .expect("strategy construction failed");
+            let opts = tree.current();
+            assert_ne!(
+                opts.enabled,
+                Some(true),
+                "enabled must never be Some(true) when connect=Some(false) \
+                 (PG 42601 — mutually exclusive options), got {:?}",
+                opts.enabled,
+            );
+        }
+    }
 
     /// `connect` must always be `Some(false)` in generated subscriptions.
     /// Generated subscriptions use synthetic DSNs (e.g. `replica.example.com`)
