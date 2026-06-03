@@ -41,8 +41,16 @@ pub(super) fn arb_owner() -> impl Strategy<Value = Option<Identifier>> {
 /// Generate a single [`Grant`] for an object-level privilege.
 ///
 /// `privileges` must be the slice of privileges valid for the target object
-/// kind. `with_columns` controls whether column restrictions may appear.
-fn arb_grant_from(privileges: &'static [Privilege], with_columns: bool) -> BoxedStrategy<Grant> {
+/// kind. `col_pool` is the set of columns that may appear in column-level
+/// grants; pass an empty slice to suppress column restrictions entirely.
+/// Column-restricted grants are only generated when the pool contains at
+/// least one column, ensuring generated grants never reference columns that
+/// do not exist on the target table (avoids `column "X" of relation "Y"
+/// does not exist` at apply time — see issue #19).
+fn arb_grant_from(
+    privileges: &'static [Privilege],
+    col_pool: Vec<Identifier>,
+) -> BoxedStrategy<Grant> {
     let grantee_strategy = prop_oneof![
         Just(GrantTarget::Public),
         prop_oneof![
@@ -84,27 +92,37 @@ fn arb_grant_from(privileges: &'static [Privilege], with_columns: bool) -> Boxed
         }
     };
 
-    // Optional column restriction (only meaningful for table/view/mv).
-    let col_strategy: BoxedStrategy<Option<Vec<Identifier>>> = if with_columns {
+    // Optional column restriction: only generate column lists drawn from the
+    // table's actual `col_pool`. An empty pool means no column restriction is
+    // generated, which is correct for non-table objects (schemas, sequences,
+    // functions) and for table grants where no column pool is available.
+    let col_strategy: BoxedStrategy<Option<Vec<Identifier>>> = if col_pool.is_empty() {
+        Just(None).boxed()
+    } else {
+        // Clone for single-column arm; pool is moved into the two-column arm.
+        let pool_for_single = col_pool.clone();
         prop_oneof![
             Just(None),
-            prop_oneof![
-                Just(vec!["id"]),
-                Just(vec!["name"]),
-                Just(vec!["email"]),
-                Just(vec!["id", "name"]),
-            ]
-            .prop_map(|cols| {
-                Some(
-                    cols.into_iter()
-                        .map(|c| Identifier::from_unquoted(c).unwrap())
-                        .collect(),
-                )
+            // Pick a single column from the pool.
+            proptest::sample::select(pool_for_single).prop_map(|c| Some(vec![c])),
+            // Pick two distinct columns from the pool when it has ≥ 2 entries;
+            // otherwise fall back to a single-column list.
+            any::<usize>().prop_map(move |seed| {
+                let p = &col_pool;
+                if p.len() >= 2 {
+                    let a = &p[seed % p.len()];
+                    let b = &p[(seed.wrapping_add(1)) % p.len()];
+                    Some(if a == b {
+                        vec![a.clone()]
+                    } else {
+                        vec![a.clone(), b.clone()]
+                    })
+                } else {
+                    Some(vec![p[0].clone()])
+                }
             }),
         ]
         .boxed()
-    } else {
-        Just(None).boxed()
     };
 
     (grantee_strategy, priv_strategy, any::<bool>(), col_strategy)
@@ -141,40 +159,41 @@ fn arb_grant_from(privileges: &'static [Privilege], with_columns: bool) -> Boxed
 pub(super) fn arb_object_grants(
     privileges: &'static [Privilege],
 ) -> impl Strategy<Value = Vec<Grant>> {
-    prop_oneof![
-        Just(vec![]),
-        arb_grant_from(privileges, false).prop_map(|g| vec![g]),
-        (
-            arb_grant_from(privileges, false),
-            arb_grant_from(privileges, false)
-        )
-            .prop_map(|(a, b)| vec![a, b]),
-        (
-            arb_grant_from(privileges, false),
-            arb_grant_from(privileges, false),
-            arb_grant_from(privileges, false)
-        )
-            .prop_map(|(a, b, c)| vec![a, b, c]),
-    ]
+    // Empty col_pool → no column-restricted grants generated.
+    arb_grants_inner(privileges, vec![])
 }
 
-/// Generate a `Vec<Grant>` of 0–3 grants for table/view/mv (may include
-/// column restrictions).
+/// Generate a `Vec<Grant>` of 0–3 grants for a table, restricting any
+/// column-level grants to columns drawn from `col_pool`.
+///
+/// Pass the table's actual column list as `col_pool` so the generator never
+/// produces a grant that references a column that doesn't exist on the table
+/// (fixes issue #19: `column "X" of relation "Y" does not exist` at apply
+/// time). An empty `col_pool` suppresses column restrictions entirely.
 pub(super) fn arb_table_grants(
     privileges: &'static [Privilege],
+    col_pool: Vec<Identifier>,
+) -> impl Strategy<Value = Vec<Grant>> {
+    arb_grants_inner(privileges, col_pool)
+}
+
+/// Shared implementation for [`arb_object_grants`] and [`arb_table_grants`].
+fn arb_grants_inner(
+    privileges: &'static [Privilege],
+    col_pool: Vec<Identifier>,
 ) -> impl Strategy<Value = Vec<Grant>> {
     prop_oneof![
         Just(vec![]),
-        arb_grant_from(privileges, true).prop_map(|g| vec![g]),
+        arb_grant_from(privileges, col_pool.clone()).prop_map(|g| vec![g]),
         (
-            arb_grant_from(privileges, true),
-            arb_grant_from(privileges, true)
+            arb_grant_from(privileges, col_pool.clone()),
+            arb_grant_from(privileges, col_pool.clone()),
         )
             .prop_map(|(a, b)| vec![a, b]),
         (
-            arb_grant_from(privileges, true),
-            arb_grant_from(privileges, true),
-            arb_grant_from(privileges, true)
+            arb_grant_from(privileges, col_pool.clone()),
+            arb_grant_from(privileges, col_pool.clone()),
+            arb_grant_from(privileges, col_pool),
         )
             .prop_map(|(a, b, c)| vec![a, b, c]),
     ]

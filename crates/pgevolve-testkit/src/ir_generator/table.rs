@@ -61,72 +61,86 @@ fn arbitrary_table(
 ) -> impl Strategy<Value = Table> + use<> {
     let cfg = cfg.clone();
     let col_count = SizeRange::from(cfg.columns_per_table_range.0..=cfg.columns_per_table_range.1);
-    (
-        proptest_vec(arbitrary_non_pk_column(), col_count),
-        arb_owner(),
-        arb_table_grants(TABLE_PRIVS),
-        any::<bool>(),                    // rls_enabled
-        any::<bool>(),                    // rls_forced
-        proptest_vec(arb_policy(), 0..3), // policies
-        arb_table_storage(),              // reloptions
-    )
-        .prop_map(
-            move |(non_pk_cols, owner, grants, rls_enabled, rls_forced, mut policies, storage)| {
-                let qname = QualifiedName::new(schema.clone(), name.clone());
-                // Always include an `id bigint NOT NULL` PK column first.
-                let id_col = Column {
-                    name: Identifier::from_unquoted("id").unwrap(),
-                    ty: ColumnType::BigInt,
-                    nullable: false,
-                    default: None,
-                    identity: None,
-                    generated: None,
-                    collation: None,
-                    storage: None,
-                    compression: None,
-                    comment: None,
-                };
-                // Avoid name collisions with id.
-                let mut seen = std::collections::BTreeSet::new();
-                seen.insert("id".to_string());
-                let mut cols = vec![id_col];
-                for c in non_pk_cols {
-                    if seen.insert(c.name.as_str().to_string()) {
-                        cols.push(c);
-                    }
-                }
-                let pk = Constraint {
-                    qname: QualifiedName::new(
-                        schema.clone(),
-                        Identifier::from_unquoted(&format!("{name}_pkey")).unwrap(),
-                    ),
-                    kind: ConstraintKind::PrimaryKey {
-                        columns: vec![Identifier::from_unquoted("id").unwrap()],
-                        include: vec![],
-                    },
-                    deferrable: Deferrable::NotDeferrable,
-                    comment: None,
-                };
-                // Deduplicate policy names (proptest may generate duplicates across
-                // the 0..3 vector; canon requires unique names per table).
-                let mut policy_names_seen = std::collections::BTreeSet::new();
-                policies.retain(|p| policy_names_seen.insert(p.name.as_str().to_string()));
-                Table {
-                    qname,
-                    columns: cols,
-                    constraints: vec![pk],
-                    partition_by: None,
-                    partition_of: None,
-                    comment: None,
-                    owner,
-                    grants,
-                    rls_enabled,
-                    rls_forced,
-                    policies,
-                    storage,
-                }
-            },
+    // Generate the non-PK columns first so the grant strategy can restrict
+    // column-level grants to columns that actually exist on the table.
+    // Without this, the grant generator used a hardcoded pool (["name",
+    // "email", ...]) regardless of the table's actual columns, producing
+    // grants that referenced non-existent columns and triggering PG error
+    // `column "X" of relation "Y" does not exist` at apply time (issue #19).
+    proptest_vec(arbitrary_non_pk_column(), col_count).prop_flat_map(move |non_pk_cols| {
+        let schema = schema.clone();
+        let name = name.clone();
+
+        // Build the column list upfront (de-duplicating `id` collisions) so
+        // we can pass the actual column names to the grant generator.
+        let mut seen = std::collections::BTreeSet::new();
+        seen.insert("id".to_string());
+        let mut cols: Vec<Column> = vec![Column {
+            name: Identifier::from_unquoted("id").unwrap(),
+            ty: ColumnType::BigInt,
+            nullable: false,
+            default: None,
+            identity: None,
+            generated: None,
+            collation: None,
+            storage: None,
+            compression: None,
+            comment: None,
+        }];
+        for c in non_pk_cols {
+            if seen.insert(c.name.as_str().to_string()) {
+                cols.push(c);
+            }
+        }
+
+        // Column pool for column-level grants: all column names in this table.
+        let col_pool: Vec<Identifier> = cols.iter().map(|c| c.name.clone()).collect();
+
+        (
+            Just(cols),
+            arb_owner(),
+            arb_table_grants(TABLE_PRIVS, col_pool), // restricted to real columns
+            any::<bool>(),                           // rls_enabled
+            any::<bool>(),                           // rls_forced
+            proptest_vec(arb_policy(), 0..3),        // policies
+            arb_table_storage(),                     // reloptions
         )
+            .prop_map(
+                move |(cols, owner, grants, rls_enabled, rls_forced, mut policies, storage)| {
+                    let qname = QualifiedName::new(schema.clone(), name.clone());
+                    let pk = Constraint {
+                        qname: QualifiedName::new(
+                            schema.clone(),
+                            Identifier::from_unquoted(&format!("{name}_pkey")).unwrap(),
+                        ),
+                        kind: ConstraintKind::PrimaryKey {
+                            columns: vec![Identifier::from_unquoted("id").unwrap()],
+                            include: vec![],
+                        },
+                        deferrable: Deferrable::NotDeferrable,
+                        comment: None,
+                    };
+                    // Deduplicate policy names (proptest may generate duplicates
+                    // across the 0..3 vector; canon requires unique names per table).
+                    let mut policy_names_seen = std::collections::BTreeSet::new();
+                    policies.retain(|p| policy_names_seen.insert(p.name.as_str().to_string()));
+                    Table {
+                        qname,
+                        columns: cols,
+                        constraints: vec![pk],
+                        partition_by: None,
+                        partition_of: None,
+                        comment: None,
+                        owner,
+                        grants,
+                        rls_enabled,
+                        rls_forced,
+                        policies,
+                        storage,
+                    }
+                },
+            )
+    })
 }
 
 fn arbitrary_non_pk_column() -> impl Strategy<Value = Column> {

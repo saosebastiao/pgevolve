@@ -447,7 +447,11 @@ pub fn arbitrary_view_catalog() -> impl Strategy<Value = Catalog> {
                     let n = views.len();
                     let owner_strategies: Vec<_> = (0..n).map(|_| arb_owner()).collect();
                     let grant_strategies: Vec<_> =
-                        (0..n).map(|_| arb_table_grants(TABLE_PRIVS)).collect();
+                        // Views don't have a tracked column list in the IR, so
+                        // pass an empty column pool → no column-restricted grants.
+                        (0..n)
+                            .map(|_| arb_table_grants(TABLE_PRIVS, vec![]))
+                            .collect();
                     let check_option_strategies: Vec<_> =
                         (0..n).map(|_| arb_check_option()).collect();
                     (owner_strategies, grant_strategies, check_option_strategies).prop_map(

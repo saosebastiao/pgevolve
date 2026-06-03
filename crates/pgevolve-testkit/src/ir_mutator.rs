@@ -131,6 +131,27 @@ fn drop_non_pk_column(c: &mut Catalog, seed: usize) {
     let pick = droppable[seed % droppable.len()];
     let dropped_name = table.columns[pick].name.clone();
     table.columns.remove(pick);
+
+    // Cascade-drop non-PK constraints that reference the dropped column.
+    // PrimaryKey is excluded (the column was checked non-PK above).
+    // Unique, ForeignKey, and Check constraints that name the column are dropped.
+    table
+        .constraints
+        .retain(|con| !constraint_references_column(&con.kind, &dropped_name));
+
+    // Cascade-clean column-level grants: strip the dropped column from each
+    // grant's column list; remove grants whose column list becomes empty
+    // (an empty column-restriction list is invalid — the grant would target no
+    // columns).
+    for grant in &mut table.grants {
+        if let Some(cols) = &mut grant.columns {
+            cols.retain(|c| c != &dropped_name);
+        }
+    }
+    table
+        .grants
+        .retain(|g| g.columns.as_ref().is_none_or(|cols| !cols.is_empty()));
+
     let qname = table.qname.clone();
     // Cascade-drop indexes that reference the dropped column.
     c.indexes.retain(|idx| {
@@ -141,6 +162,46 @@ fn drop_non_pk_column(c: &mut Catalog, seed: usize) {
             .iter()
             .any(|ic| matches!(&ic.expr, IndexColumnExpr::Column(name) if name == &dropped_name))
     });
+    // Cascade-clean statistics that reference the dropped column:
+    //   1. Remove the dropped column from each statistic's column list.
+    //   2. Drop statistics whose column list falls below 2 (PG requires >= 2
+    //      for CREATE STATISTICS).
+    for stat in &mut c.statistics {
+        if stat.target == qname {
+            stat.columns.retain(|sc| {
+                !matches!(sc, pgevolve_core::ir::statistic::StatisticColumn::Column(n) if n == &dropped_name)
+            });
+        }
+    }
+    c.statistics.retain(|stat| {
+        if stat.target != qname {
+            return true;
+        }
+        stat.columns.len() >= 2
+    });
+}
+
+/// Returns `true` if `kind` explicitly names `col` in its column lists.
+/// Used by `drop_non_pk_column` to cascade-drop dependent constraints.
+fn constraint_references_column(
+    kind: &pgevolve_core::ir::constraint::ConstraintKind,
+    col: &pgevolve_core::identifier::Identifier,
+) -> bool {
+    use pgevolve_core::ir::constraint::ConstraintKind;
+    match kind {
+        ConstraintKind::PrimaryKey { columns, include } => {
+            columns.contains(col) || include.contains(col)
+        }
+        ConstraintKind::Unique {
+            columns, include, ..
+        } => columns.contains(col) || include.contains(col),
+        ConstraintKind::ForeignKey(fk) => fk.columns.contains(col),
+        // CHECK expressions are stored as normalized text; we cannot cheaply
+        // parse them for column references. In practice the generator only
+        // produces `true` as the CHECK body (see `policy.rs`), so there are
+        // no column references to clean up here.
+        ConstraintKind::Check { .. } => false,
+    }
 }
 
 fn toggle_nullable(c: &mut Catalog, seed: usize) {
@@ -444,6 +505,130 @@ mod tests {
             diverged >= 50,
             "only {diverged} / 100 mutations diverged from seed",
         );
+    }
+
+    /// Regression for issue #19: `drop_column` mutation did not cascade-drop
+    /// constraints, grants, and statistics that reference the dropped column,
+    /// leaving dangling column-name references in the mutated catalog. PG
+    /// then rejects the DDL with `column "X" of relation "Y" does not exist`
+    /// across every PG major and every property in the soak matrix.
+    ///
+    /// This test generates 256 mutated catalogs from random seeds and asserts
+    /// that every column name referenced anywhere in a mutated catalog
+    /// (constraints, grants, statistics) actually exists in that table's
+    /// column list.
+    #[test]
+    fn drop_column_cleans_all_dependent_references() {
+        use std::collections::BTreeSet;
+
+        let mut runner = TestRunner::default();
+        for _ in 0..256 {
+            let seed_tree = arbitrary_catalog(IRGeneratorConfig::default())
+                .new_tree(&mut runner)
+                .unwrap();
+            let seed = seed_tree.current();
+            let mutated_tree = arbitrary_mutation(seed.clone())
+                .new_tree(&mut runner)
+                .unwrap();
+            let mutated = mutated_tree.current();
+
+            for table in &mutated.tables {
+                let col_names: BTreeSet<&Identifier> =
+                    table.columns.iter().map(|c| &c.name).collect();
+
+                // Constraints must only reference declared columns.
+                for con in &table.constraints {
+                    use pgevolve_core::ir::constraint::ConstraintKind;
+                    match &con.kind {
+                        ConstraintKind::PrimaryKey { columns, include } => {
+                            for col in columns.iter().chain(include.iter()) {
+                                assert!(
+                                    col_names.contains(col),
+                                    "table '{}' constraint '{}' references undeclared column '{}'",
+                                    table.qname.render_sql(),
+                                    con.qname.render_sql(),
+                                    col.as_str(),
+                                );
+                            }
+                        }
+                        ConstraintKind::Unique {
+                            columns, include, ..
+                        } => {
+                            for col in columns.iter().chain(include.iter()) {
+                                assert!(
+                                    col_names.contains(col),
+                                    "table '{}' UNIQUE constraint '{}' references undeclared column '{}'",
+                                    table.qname.render_sql(),
+                                    con.qname.render_sql(),
+                                    col.as_str(),
+                                );
+                            }
+                        }
+                        ConstraintKind::ForeignKey(fk) => {
+                            for col in &fk.columns {
+                                assert!(
+                                    col_names.contains(col),
+                                    "table '{}' FK constraint '{}' references undeclared column '{}'",
+                                    table.qname.render_sql(),
+                                    con.qname.render_sql(),
+                                    col.as_str(),
+                                );
+                            }
+                        }
+                        ConstraintKind::Check { .. } => {}
+                    }
+                }
+
+                // Column-level grants must only reference declared columns.
+                for grant in &table.grants {
+                    if let Some(cols) = &grant.columns {
+                        assert!(
+                            !cols.is_empty(),
+                            "table '{}' has a grant with an empty column list (invalid)",
+                            table.qname.render_sql(),
+                        );
+                        for col in cols {
+                            assert!(
+                                col_names.contains(col),
+                                "table '{}' grant references undeclared column '{}'",
+                                table.qname.render_sql(),
+                                col.as_str(),
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Statistics must only reference columns that exist in their target table.
+            for stat in &mutated.statistics {
+                // Find the target table.
+                let Some(target_table) = mutated.tables.iter().find(|t| t.qname == stat.target)
+                else {
+                    continue; // table was dropped — covered by the schema cascade test
+                };
+                let col_names: BTreeSet<&Identifier> =
+                    target_table.columns.iter().map(|c| &c.name).collect();
+                let mut col_count = 0usize;
+                for sc in &stat.columns {
+                    if let pgevolve_core::ir::statistic::StatisticColumn::Column(col) = sc {
+                        assert!(
+                            col_names.contains(col),
+                            "statistic '{}' references undeclared column '{}' on table '{}'",
+                            stat.qname.render_sql(),
+                            col.as_str(),
+                            stat.target.render_sql(),
+                        );
+                        col_count += 1;
+                    }
+                }
+                // PG requires at least 2 column entries for CREATE STATISTICS.
+                assert!(
+                    col_count >= 2,
+                    "statistic '{}' has fewer than 2 column references (col_count={col_count})",
+                    stat.qname.render_sql(),
+                );
+            }
+        }
     }
 
     /// Regression for issue #13: `drop_schema` did not cascade-drop
