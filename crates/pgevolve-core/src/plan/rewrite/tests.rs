@@ -1513,3 +1513,40 @@ fn create_subscription_create_slot_false_is_in_transaction() {
         "create_slot=Some(false) → safe to run inside transaction"
     );
 }
+
+// ---- DROP SUBSCRIPTION transaction-constraint (issue #26) ----
+
+/// `DROP SUBSCRIPTION` must always run outside a transaction block.
+///
+/// PG error 25001: when the subscription has an attached replication slot
+/// the server rejects DROP SUBSCRIPTION inside a transaction. The IR cannot
+/// determine at diff time whether the live subscription has a slot, so the
+/// conservative path is always `OutsideTransaction`.
+///
+/// Companion of `4d8ec92` (#11 — CREATE SUBSCRIPTION).
+#[test]
+fn drop_subscription_is_always_outside_transaction() {
+    let mut cs = crate::diff::changeset::ChangeSet::new();
+    cs.push(
+        Change::Subscription(crate::diff::change::SubscriptionChange::Drop { name: id("mysub") }),
+        crate::diff::destructiveness::Destructiveness::RequiresApproval {
+            reason: "drop subscription".into(),
+        },
+    );
+    let steps = rewrite(
+        OrderedChangeSet {
+            drops: cs.entries,
+            ..Default::default()
+        },
+        &Catalog::empty(),
+        &PlannerPolicy::default(),
+    );
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].kind, StepKind::DropSubscription);
+    assert_eq!(
+        steps[0].transactional,
+        TransactionConstraint::OutsideTransaction,
+        "DROP SUBSCRIPTION must always run outside transaction (PG error 25001 when slot is attached)"
+    );
+    assert_eq!(steps[0].sql, "DROP SUBSCRIPTION mysub;");
+}

@@ -604,6 +604,16 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             }
         }
         Change::Subscription(SubscriptionChange::Drop { name }) => {
+            // PG error 25001: DROP SUBSCRIPTION cannot run inside a transaction
+            // block when the subscription has an attached replication slot. The
+            // IR cannot determine at diff time whether the live subscription has
+            // a slot (that is runtime state in pg_subscription_rel), so the
+            // conservative path is to always run OutsideTransaction.
+            //
+            // Trade-off: each DROP SUBSCRIPTION becomes its own transaction
+            // group. Acceptable cost for correctness.
+            //
+            // Companion of 4d8ec92 (#11 — CREATE SUBSCRIPTION). Closes #26.
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::DropSubscription,
@@ -612,7 +622,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 intent_id: None,
                 targets: vec![],
                 sql: subscriptions::drop_subscription(&name),
-                transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
+                transactional: crate::plan::raw_step::TransactionConstraint::OutsideTransaction,
             });
         }
         Change::Subscription(SubscriptionChange::AlterConnection {
