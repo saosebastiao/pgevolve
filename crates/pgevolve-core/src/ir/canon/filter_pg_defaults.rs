@@ -4,18 +4,22 @@
 //! Why: PG stores explicit values for things the user often didn't
 //! declare (e.g., `MINVALUE`/`MAXVALUE` derived from the sequence's
 //! type; `COST 100` for SQL/PLpgSQL functions; the implicit
-//! `pg_catalog.default` collation for every text column). The source
-//! parser uses `None` to mean "no explicit clause." This pass
-//! normalizes both sides so a function declared without `COST` and the
-//! catalog reading of the same function are byte-equal.
+//! `pg_catalog.default` collation for every text column; the
+//! `<subtype>_ops` opclass that PG resolves when `SUBTYPE_OPCLASS` is
+//! omitted from `CREATE TYPE … AS RANGE`). The source parser uses `None`
+//! to mean "no explicit clause." This pass normalizes both sides so a
+//! function declared without `COST` and the catalog reading of the same
+//! function are byte-equal.
 //!
 //! Rules are order-insensitive — each runs over disjoint IR fields.
 
+use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
 use crate::ir::column::StorageKind;
 use crate::ir::column_type::ColumnType;
 use crate::ir::function::Function;
 use crate::ir::sequence::Sequence;
+use crate::ir::user_type::{UserType, UserTypeKind};
 
 /// Run every default-elision rule.
 pub fn run(cat: &mut Catalog) {
@@ -30,6 +34,9 @@ pub fn run(cat: &mut Catalog) {
     }
     for f in &mut cat.functions {
         normalize_function_defaults(f);
+    }
+    for ut in &mut cat.types {
+        normalize_range_defaults(ut);
     }
 }
 
@@ -153,6 +160,88 @@ fn normalize_column_storage(col: &mut crate::ir::column::Column) {
     {
         col.storage = None;
     }
+}
+
+/// Strip `subtype_opclass` and `collation` on a Range type when they match
+/// PG's resolved defaults.
+///
+/// When `CREATE TYPE … AS RANGE` omits `SUBTYPE_OPCLASS`, PG resolves the
+/// default B-tree opclass for the subtype and stores it in `pg_range`. The
+/// catalog reader therefore returns the resolved opclass; the source parser
+/// leaves the field `None`. Keeping the resolved value in the IR creates a
+/// spurious divergence during round-trip comparison.
+///
+/// Similarly, when `COLLATION` is omitted, PG records `pg_catalog.default`;
+/// the source parser leaves the field `None`.
+///
+/// Canon rule:
+/// * Strip `subtype_opclass` to `None` when it equals the subtype's
+///   well-known default opclass (hard-coded table of PG built-in types).
+/// * Strip `collation` to `None` when it equals `pg_catalog.default`.
+///
+/// Non-Range variants are left unchanged.
+fn normalize_range_defaults(ut: &mut UserType) {
+    let UserTypeKind::Range {
+        subtype,
+        subtype_opclass,
+        collation,
+        ..
+    } = &mut ut.kind
+    else {
+        return;
+    };
+
+    // Strip collation when it equals the universal default.
+    if let Some(col) = collation.as_ref()
+        && col.schema.as_str() == "pg_catalog"
+        && col.name.as_str() == "default"
+    {
+        *collation = None;
+    }
+
+    // Strip subtype_opclass when it matches the subtype's default B-tree opclass.
+    if let Some(opc) = subtype_opclass.as_ref()
+        && opc.schema.as_str() == "pg_catalog"
+        && is_default_opclass_for_subtype(subtype, opc)
+    {
+        *subtype_opclass = None;
+    }
+}
+
+/// Return `true` if `opclass` is the PG-resolved default B-tree opclass for
+/// `subtype`.
+///
+/// The mapping is derived from `pg_opclass` for built-in types. Only types
+/// that actually appear in `CREATE TYPE … AS RANGE` definitions in practice
+/// are listed; the function is intentionally conservative (unknown subtype →
+/// `false`, so the opclass is kept rather than incorrectly stripped).
+fn is_default_opclass_for_subtype(subtype: &QualifiedName, opclass: &QualifiedName) -> bool {
+    if subtype.schema.as_str() != "pg_catalog" {
+        // User-defined subtypes have user-defined opclasses — never strip.
+        return false;
+    }
+    let expected_ops = match subtype.name.as_str() {
+        // Temporal types
+        "timestamptz" | "timestamp with time zone" => "timestamptz_ops",
+        "timestamp" | "timestamp without time zone" => "timestamp_ops",
+        "date" => "date_ops",
+        // Exact numeric
+        "numeric" | "decimal" => "numeric_ops",
+        // Integer types (all map to <typename>_ops under their canonical name)
+        "int4" | "integer" | "int" => "int4_ops",
+        "int8" | "bigint" => "int8_ops",
+        "int2" | "smallint" => "int2_ops",
+        // Floating point
+        "float4" | "real" => "float4_ops",
+        "float8" | "double precision" => "float8_ops",
+        // Text-like — varchar inherits text's B-tree opclass.
+        "text" | "varchar" | "character varying" => "text_ops",
+        // Other common range subtypes
+        "uuid" => "uuid_ops",
+        "inet" => "inet_ops",
+        _ => return false,
+    };
+    opclass.name.as_str() == expected_ops
 }
 
 #[cfg(test)]
@@ -438,5 +527,238 @@ mod tests {
             Some(Compression::Pglz),
             "canon does not touch compression"
         );
+    }
+
+    // ── normalize_range_defaults tests ───────────────────────────────────────
+
+    use crate::ir::user_type::{UserType, UserTypeKind};
+
+    fn range_type(
+        subtype_schema: &str,
+        subtype_name: &str,
+        subtype_opclass: Option<(&str, &str)>,
+        collation: Option<(&str, &str)>,
+    ) -> UserType {
+        UserType {
+            qname: qn("app", "myrange"),
+            kind: UserTypeKind::Range {
+                subtype: QualifiedName::new(id(subtype_schema), id(subtype_name)),
+                subtype_opclass: subtype_opclass.map(|(s, n)| QualifiedName::new(id(s), id(n))),
+                collation: collation.map(|(s, n)| QualifiedName::new(id(s), id(n))),
+                canonical: None,
+                subtype_diff: None,
+                multirange_type_name: None,
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        }
+    }
+
+    fn range_subtype_opclass(ut: &UserType) -> Option<String> {
+        let UserTypeKind::Range {
+            subtype_opclass, ..
+        } = &ut.kind
+        else {
+            panic!("not a range");
+        };
+        subtype_opclass.as_ref().map(ToString::to_string)
+    }
+
+    fn range_collation(ut: &UserType) -> Option<String> {
+        let UserTypeKind::Range { collation, .. } = &ut.kind else {
+            panic!("not a range");
+        };
+        collation.as_ref().map(ToString::to_string)
+    }
+
+    /// Regression for issue #35.
+    ///
+    /// PG resolves `timestamptz_ops` as the default opclass for a `timestamptz`
+    /// range when `SUBTYPE_OPCLASS` is omitted from `CREATE TYPE … AS RANGE`.
+    /// The catalog reader returns the resolved opclass; the source parser leaves
+    /// it `None`. Canon must strip the resolved value to `None` so both sides
+    /// converge.
+    #[test]
+    fn strips_default_opclass_for_timestamptz() {
+        let mut cat = Catalog::empty();
+        cat.types.push(range_type(
+            "pg_catalog",
+            "timestamptz",
+            Some(("pg_catalog", "timestamptz_ops")),
+            None,
+        ));
+        run(&mut cat);
+        assert_eq!(
+            range_subtype_opclass(&cat.types[0]),
+            None,
+            "timestamptz_ops is the default for timestamptz — should be stripped"
+        );
+    }
+
+    #[test]
+    fn strips_default_opclass_for_int4() {
+        let mut cat = Catalog::empty();
+        cat.types.push(range_type(
+            "pg_catalog",
+            "int4",
+            Some(("pg_catalog", "int4_ops")),
+            None,
+        ));
+        run(&mut cat);
+        assert_eq!(range_subtype_opclass(&cat.types[0]), None);
+    }
+
+    #[test]
+    fn strips_default_opclass_for_text() {
+        let mut cat = Catalog::empty();
+        cat.types.push(range_type(
+            "pg_catalog",
+            "text",
+            Some(("pg_catalog", "text_ops")),
+            None,
+        ));
+        run(&mut cat);
+        assert_eq!(range_subtype_opclass(&cat.types[0]), None);
+    }
+
+    #[test]
+    fn strips_default_opclass_for_varchar_via_text_ops() {
+        // varchar inherits text's B-tree opclass.
+        let mut cat = Catalog::empty();
+        cat.types.push(range_type(
+            "pg_catalog",
+            "varchar",
+            Some(("pg_catalog", "text_ops")),
+            None,
+        ));
+        run(&mut cat);
+        assert_eq!(range_subtype_opclass(&cat.types[0]), None);
+    }
+
+    /// A non-default opclass (e.g. a custom one) must not be stripped.
+    #[test]
+    fn keeps_custom_opclass() {
+        let mut cat = Catalog::empty();
+        cat.types.push(range_type(
+            "pg_catalog",
+            "timestamptz",
+            Some(("app", "custom_ops")),
+            None,
+        ));
+        run(&mut cat);
+        assert_eq!(
+            range_subtype_opclass(&cat.types[0]),
+            Some("app.custom_ops".into()),
+            "custom opclass must be preserved"
+        );
+    }
+
+    /// `subtype_opclass: None` must stay `None` (idempotent / no-op).
+    #[test]
+    fn already_none_opclass_unchanged() {
+        let mut cat = Catalog::empty();
+        cat.types
+            .push(range_type("pg_catalog", "timestamptz", None, None));
+        run(&mut cat);
+        assert_eq!(range_subtype_opclass(&cat.types[0]), None);
+    }
+
+    /// A range with a user-defined subtype — opclass must not be stripped
+    /// even if the name looks like a default opclass name.
+    #[test]
+    fn keeps_opclass_for_user_defined_subtype() {
+        let mut cat = Catalog::empty();
+        // Subtype lives in "app" schema, not "pg_catalog".
+        cat.types.push(range_type(
+            "app",
+            "mytype",
+            Some(("pg_catalog", "timestamptz_ops")),
+            None,
+        ));
+        run(&mut cat);
+        assert_eq!(
+            range_subtype_opclass(&cat.types[0]),
+            Some("pg_catalog.timestamptz_ops".into()),
+            "opclass for user-defined subtype must be preserved"
+        );
+    }
+
+    /// Regression for PG 18 round-trip: `pg_catalog.default` collation on a
+    /// text range should be stripped to `None`.
+    #[test]
+    fn strips_pg_catalog_default_collation_on_range() {
+        let mut cat = Catalog::empty();
+        cat.types.push(range_type(
+            "pg_catalog",
+            "text",
+            None,
+            Some(("pg_catalog", "default")),
+        ));
+        run(&mut cat);
+        assert_eq!(
+            range_collation(&cat.types[0]),
+            None,
+            "pg_catalog.default collation must be stripped"
+        );
+    }
+
+    /// A non-default explicit collation must be preserved.
+    #[test]
+    fn keeps_explicit_collation_on_range() {
+        let mut cat = Catalog::empty();
+        // "C" is lowercased to "c" by Identifier::from_unquoted (PG folds unquoted names).
+        cat.types.push(range_type(
+            "pg_catalog",
+            "text",
+            None,
+            Some(("pg_catalog", "c")),
+        ));
+        run(&mut cat);
+        assert_eq!(
+            range_collation(&cat.types[0]),
+            Some("pg_catalog.c".into()),
+            "explicit non-default collation must be preserved"
+        );
+    }
+
+    /// Non-range user types must not be touched.
+    #[test]
+    fn non_range_types_unaffected() {
+        use crate::ir::user_type::EnumValue;
+        let mut cat = Catalog::empty();
+        cat.types.push(UserType {
+            qname: qn("app", "status"),
+            kind: UserTypeKind::Enum {
+                values: vec![EnumValue {
+                    name: "active".into(),
+                    sort_order: 1.0,
+                }],
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        });
+        let before = format!("{:?}", cat.types[0]);
+        run(&mut cat);
+        let after = format!("{:?}", cat.types[0]);
+        assert_eq!(before, after, "non-range types must not be mutated");
+    }
+
+    /// Run is idempotent: applying canon twice yields the same result.
+    #[test]
+    fn range_normalize_is_idempotent() {
+        let mut cat = Catalog::empty();
+        cat.types.push(range_type(
+            "pg_catalog",
+            "timestamptz",
+            Some(("pg_catalog", "timestamptz_ops")),
+            Some(("pg_catalog", "default")),
+        ));
+        run(&mut cat);
+        let snap1 = format!("{:?}", cat.types[0]);
+        run(&mut cat);
+        let snap2 = format!("{:?}", cat.types[0]);
+        assert_eq!(snap1, snap2, "normalize_range_defaults must be idempotent");
     }
 }
