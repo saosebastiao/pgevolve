@@ -30,26 +30,29 @@ fn arb_publish_kinds() -> impl Strategy<Value = PublishKinds> {
 ///
 /// The `schema_pool` and `table_pool` are the catalog's actual schemas and
 /// tables so that generated publications always reference real objects.
+///
+/// # PG version compatibility
+///
+/// `FOR TABLES IN SCHEMA` (i.e. non-empty `schemas` in
+/// `PublicationScope::Selective`) was added in PG 15. The testkit must run
+/// against all supported versions including PG 14, so the `schemas` field is
+/// always kept empty here. Coverage of `FOR TABLES IN SCHEMA` lives in the
+/// conformance suite, where each fixture pins its own `min_pg_version`. See
+/// <https://github.com/saosebastiao/pgevolve/issues/18>.
 fn arb_publication_scope(
-    schema_pool: Vec<Identifier>,
+    _schema_pool: Vec<Identifier>,
     table_pool: Vec<QualifiedName>,
 ) -> BoxedStrategy<PublicationScope> {
-    if schema_pool.is_empty() && table_pool.is_empty() {
-        // Degenerate: no objects to reference — fall back to AllTables.
+    if table_pool.is_empty() {
+        // Degenerate: no tables to reference — fall back to AllTables.
         return Just(PublicationScope::AllTables).boxed();
     }
-    let sp = schema_pool.clone();
     let tp = table_pool.clone();
     prop_oneof![
         Just(PublicationScope::AllTables),
-        (
-            proptest::sample::subsequence(sp, 0..=(schema_pool.len())),
-            proptest::sample::subsequence(tp, 0..=(table_pool.len())),
-        )
-            .prop_filter("non-empty Selective", |(s, t)| !s.is_empty()
-                || !t.is_empty())
-            .prop_map(|(schemas, tables)| {
-                let schemas = schemas.into_iter().collect();
+        proptest::sample::subsequence(tp, 0..=(table_pool.len()))
+            .prop_filter("non-empty Selective", |t| !t.is_empty())
+            .prop_map(|tables| {
                 let tables = tables
                     .into_iter()
                     .map(|qname| PublishedTable {
@@ -58,7 +61,12 @@ fn arb_publication_scope(
                         columns: None,
                     })
                     .collect();
-                PublicationScope::Selective { schemas, tables }
+                // schemas is always empty: FOR TABLES IN SCHEMA is PG 15+ only.
+                // PG 14 compat — see issue #18.
+                PublicationScope::Selective {
+                    schemas: std::collections::BTreeSet::new(),
+                    tables,
+                }
             })
     ]
     .boxed()
@@ -116,4 +124,46 @@ pub(super) fn arb_publications(
                 })
         })
         .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::strategy::{Strategy, ValueTree};
+    use proptest::test_runner::TestRunner;
+
+    use pgevolve_core::identifier::{Identifier, QualifiedName};
+    use pgevolve_core::ir::publication::PublicationScope;
+
+    use super::arb_publication_scope;
+
+    fn id(s: &str) -> Identifier {
+        Identifier::from_unquoted(s).unwrap()
+    }
+
+    fn qn(schema: &str, name: &str) -> QualifiedName {
+        QualifiedName::new(id(schema), id(name))
+    }
+
+    /// `FOR TABLES IN SCHEMA` (non-empty `schemas` in `PublicationScope::Selective`)
+    /// was added in PG 15. The testkit covers PG 14–18, so generated scopes must
+    /// never contain schema-scoped entries. See <https://github.com/saosebastiao/pgevolve/issues/18>.
+    #[test]
+    fn publication_scope_never_contains_schema_scope() {
+        let schema_pool = vec![id("app"), id("public")];
+        let table_pool = vec![qn("app", "orders"), qn("app", "users")];
+        let strategy = arb_publication_scope(schema_pool, table_pool);
+        let mut runner = TestRunner::default();
+        for _ in 0..256 {
+            let tree = strategy
+                .new_tree(&mut runner)
+                .expect("strategy construction failed");
+            let scope = tree.current();
+            if let PublicationScope::Selective { schemas, .. } = &scope {
+                assert!(
+                    schemas.is_empty(),
+                    "FOR TABLES IN SCHEMA is PG 15+ only; generated scope must not use schema scope, got schemas = {schemas:?}",
+                );
+            }
+        }
+    }
 }
