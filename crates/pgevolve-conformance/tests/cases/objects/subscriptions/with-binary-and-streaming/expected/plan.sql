@@ -10,5 +10,5 @@ COMMIT;
 
 -- @pgevolve group id=2 transactional=false
 -- @pgevolve step=2 kind=create_subscription destructive=false targets=
-CREATE SUBSCRIPTION s CONNECTION 'host=replica.example.com dbname=app user=repl password=${REPL_PWD}' PUBLICATION p WITH (binary = true, streaming = on);
+CREATE SUBSCRIPTION s CONNECTION 'host=replica.example.com dbname=app user=repl password=${REPL_PWD}' PUBLICATION p WITH (binary = true, streaming = true);
 

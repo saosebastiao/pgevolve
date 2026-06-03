@@ -168,10 +168,17 @@ fn push_alterable_options(opts: &SubscriptionOptions, parts: &mut Vec<String>) {
     }
 }
 
+/// Returns the SQL literal for a `streaming` option value.
+///
+/// PG ≤15 only accepts boolean literals (`false` / `true`); the `parallel`
+/// string form was added in PG 16. `Off` and `On` therefore render as the
+/// corresponding boolean literal so they are accepted across the PG 14–18
+/// support window. `Parallel` keeps its text form (gated to PG 16+ at the
+/// generator level; see `crates/pgevolve-testkit`).
 const fn streaming_keyword(m: StreamingMode) -> &'static str {
     match m {
-        StreamingMode::Off => "off",
-        StreamingMode::On => "on",
+        StreamingMode::Off => "false",
+        StreamingMode::On => "true",
         StreamingMode::Parallel => "parallel",
     }
 }
@@ -347,9 +354,62 @@ mod tests {
 
     #[test]
     fn streaming_keyword_round_trip() {
-        assert_eq!(streaming_keyword(StreamingMode::Off), "off");
-        assert_eq!(streaming_keyword(StreamingMode::On), "on");
+        // Off/On use boolean literals for PG ≤15 compatibility.
+        assert_eq!(streaming_keyword(StreamingMode::Off), "false");
+        assert_eq!(streaming_keyword(StreamingMode::On), "true");
+        // Parallel keeps its text form (PG 16+; generator never emits it).
         assert_eq!(streaming_keyword(StreamingMode::Parallel), "parallel");
+    }
+
+    /// PG ≤15 only accepts boolean literals for the `streaming` option:
+    ///   `streaming = false`  (Off)
+    ///   `streaming = true`   (On)
+    /// The string forms `'off'` / `'on'` are rejected by PG ≤15.
+    #[test]
+    fn streaming_off_emits_boolean_false() {
+        let opts = SubscriptionOptions {
+            streaming: Some(StreamingMode::Off),
+            ..Default::default()
+        };
+        let sql = alter_subscription_set_options(&id("mysub"), &opts);
+        assert!(
+            sql.contains("streaming = false"),
+            "Off must emit boolean false for PG ≤15 compat, got: {sql}"
+        );
+        assert!(
+            !sql.contains("streaming = 'off'") && !sql.contains("streaming = off"),
+            "Off must not emit string 'off' or bare off, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn streaming_on_emits_boolean_true() {
+        let opts = SubscriptionOptions {
+            streaming: Some(StreamingMode::On),
+            ..Default::default()
+        };
+        let sql = alter_subscription_set_options(&id("mysub"), &opts);
+        assert!(
+            sql.contains("streaming = true"),
+            "On must emit boolean true for PG ≤15 compat, got: {sql}"
+        );
+        assert!(
+            !sql.contains("streaming = 'on'") && !sql.contains("streaming = on"),
+            "On must not emit string 'on' or bare on, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn streaming_parallel_emits_parallel_keyword() {
+        let opts = SubscriptionOptions {
+            streaming: Some(StreamingMode::Parallel),
+            ..Default::default()
+        };
+        let sql = alter_subscription_set_options(&id("mysub"), &opts);
+        assert!(
+            sql.contains("streaming = parallel"),
+            "Parallel must still emit parallel keyword (PG 16+), got: {sql}"
+        );
     }
 
     #[test]
@@ -377,7 +437,7 @@ mod tests {
         assert!(sql.contains("enabled = true"));
         assert!(sql.contains("synchronous_commit = 'off'"));
         assert!(sql.contains("binary = true"));
-        assert!(sql.contains("streaming = on"));
+        assert!(sql.contains("streaming = true")); // On renders as boolean true (PG ≤15 compat)
         assert!(sql.contains("two_phase = false"));
         assert!(sql.contains("disable_on_error = true"));
         assert!(sql.contains("password_required = false"));

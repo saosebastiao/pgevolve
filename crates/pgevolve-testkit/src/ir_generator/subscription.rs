@@ -17,13 +17,15 @@ use pgevolve_core::ir::subscription::{StreamingMode, Subscription, SubscriptionO
 /// Small fixed pool of subscription names (SQL-safe, short, distinct).
 const SUB_NAMES: &[&str] = &["sub_a", "sub_b", "sub_c"];
 
-/// Generate a random [`StreamingMode`].
+/// Generate a random [`StreamingMode`] accepted by all supported PG versions.
+///
+/// `Parallel` is deliberately excluded: the `parallel` string form was
+/// introduced in PG 16; PG ≤15 only accepts `true` / `false` for the
+/// `streaming` option. The testkit targets PG 14–18, so it must stay within
+/// the common subset. Coverage of `Parallel` is provided by hand-crafted
+/// conformance fixtures that target PG 16+ explicitly.
 fn arb_streaming_mode() -> impl Strategy<Value = StreamingMode> {
-    prop_oneof![
-        Just(StreamingMode::Off),
-        Just(StreamingMode::On),
-        Just(StreamingMode::Parallel),
-    ]
+    prop_oneof![Just(StreamingMode::Off), Just(StreamingMode::On),]
 }
 
 /// Generate random [`SubscriptionOptions`] with selected fields set.
@@ -135,6 +137,8 @@ mod tests {
 
     use super::arb_subscription_options;
 
+    use pgevolve_core::ir::subscription::StreamingMode;
+
     /// `failover` (PG 17+), `origin` (PG 16+), `two_phase` (PG 15+), and
     /// `disable_on_error` (PG 15+) must always be `None` so that generated
     /// subscriptions are valid on every PG version the soak matrix covers
@@ -166,6 +170,29 @@ mod tests {
                 opts.disable_on_error.is_none(),
                 "disable_on_error must be None (PG 15+ only), got {:?}",
                 opts.disable_on_error,
+            );
+        }
+    }
+
+    /// `streaming = parallel` is only valid on PG 16+. The testkit generator
+    /// must never emit `StreamingMode::Parallel` so that generated catalogs
+    /// are valid across the full PG 14–18 support window.
+    ///
+    /// Coverage gap deliberately accepted: `Parallel` is not exercise by the
+    /// proptest soak; it is covered by hand-crafted conformance fixtures
+    /// targeting PG 16+.
+    #[test]
+    fn streaming_is_never_parallel() {
+        let mut runner = TestRunner::default();
+        for _ in 0..256 {
+            let tree = arb_subscription_options()
+                .new_tree(&mut runner)
+                .expect("strategy construction failed");
+            let opts = tree.current();
+            assert!(
+                opts.streaming != Some(StreamingMode::Parallel),
+                "streaming must never be Parallel (PG 16+ only), got {:?}",
+                opts.streaming,
             );
         }
     }
