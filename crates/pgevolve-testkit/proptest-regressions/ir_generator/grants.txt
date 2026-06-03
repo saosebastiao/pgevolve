@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 69988273a561a924427d06bbccc6098f61bbcf6e87e15d6b575aac6deca07e0e # shrinks to rules = [DefaultPrivilegeRule { target_role: Identifier("app_owner"), schema: None, object_type: Tables, grants: [] }, DefaultPrivilegeRule { target_role: Identifier("app_owner"), schema: None, object_type: Tables, grants: [] }, DefaultPrivilegeRule { target_role: Identifier("app_owner"), schema: Some(Identifier("pub_schema")), object_type: Schemas, grants: [] }]

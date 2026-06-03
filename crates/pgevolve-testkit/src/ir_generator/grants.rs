@@ -280,6 +280,15 @@ pub fn arbitrary_default_privileges(
         ],
     )
         .prop_flat_map(move |(target_role, schema, object_type)| {
+            // PG forbids ALTER DEFAULT PRIVILEGES IN SCHEMA x GRANT ... ON SCHEMAS
+            // (error 0LP01): ON SCHEMAS default privileges are database-wide and
+            // cannot be scoped to an existing schema. Force schema=None for that case.
+            let schema = if object_type == DefaultPrivObjectType::Schemas {
+                None
+            } else {
+                schema
+            };
+
             // Per-object-type valid privilege sets (PG 14-17).
             // MAINTAIN (PG 17+) omitted to avoid version gating.
             let privilege_strategy: BoxedStrategy<Privilege> = match object_type {
@@ -411,6 +420,29 @@ mod tests {
                         "invalid privilege {:?} for object type {:?} (PG error 0LP01)",
                         grant.privilege,
                         rule.object_type,
+                    );
+                }
+            }
+        }
+
+        /// PG rejects `ALTER DEFAULT PRIVILEGES IN SCHEMA x GRANT ... ON SCHEMAS`
+        /// (error 0LP01): ON SCHEMAS default privileges are database-wide and
+        /// cannot be scoped to an existing schema. Assert the generator never
+        /// produces that combination.
+        #[test]
+        fn schemas_object_type_never_has_in_schema(
+            rules in arbitrary_default_privileges(
+                &[pgevolve_core::identifier::Identifier::from_unquoted("pub_schema").unwrap()]
+            )
+        ) {
+            use pgevolve_core::ir::default_privileges::DefaultPrivObjectType;
+            for rule in &rules {
+                if rule.object_type == DefaultPrivObjectType::Schemas {
+                    prop_assert!(
+                        rule.schema.is_none(),
+                        "ON SCHEMAS default privilege must not have IN SCHEMA (PG error 0LP01); \
+                         got schema={:?}",
+                        rule.schema,
                     );
                 }
             }
