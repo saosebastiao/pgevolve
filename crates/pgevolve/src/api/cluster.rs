@@ -59,6 +59,41 @@ pub enum ClusterPlanError {
     Connection(String),
 }
 
+impl ClusterPlan {
+    /// Materialize a serializable `Plan` from this cluster plan.
+    ///
+    /// `plan_id` is computed externally (cluster plan ids hash
+    /// `ClusterCatalog`, not per-DB `Catalog` — see the existing
+    /// `compute_cluster_plan_id` in `commands/cluster/plan.rs`).
+    ///
+    /// `target_identity` should be the cluster identity returned by
+    /// [`crate::target_identity::compute_cluster_target_identity`].
+    ///
+    /// The resulting `Plan` can be written via
+    /// `pgevolve_core::plan::write_plan_dir` and read back via
+    /// `pgevolve_core::plan::read_plan_dir`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from
+    /// [`pgevolve_core::plan::Plan::from_grouped_with_id`].
+    pub fn to_plan(
+        self,
+        plan_id: pgevolve_core::plan::PlanId,
+        target_identity: String,
+    ) -> Result<pgevolve_core::plan::Plan, pgevolve_core::plan::PlanError> {
+        let groups = pgevolve_core::plan::group_steps(self.steps);
+        pgevolve_core::plan::Plan::from_grouped_with_id(
+            groups,
+            plan_id,
+            target_identity,
+            None, // source_rev: cluster plans don't currently carry source_rev
+            pgevolve_core::VERSION,
+            pgevolve_core::plan::PlannerPolicy::default().planner_ruleset_version,
+        )
+    }
+}
+
 /// Build a cluster plan: parse `roles/`, read live cluster, diff, lint, emit.
 ///
 /// Steps:
@@ -123,4 +158,101 @@ pub async fn build_cluster_plan(
         changes,
         advisory_findings,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pgevolve_core::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
+
+    fn synthetic_create_role(name: &str) -> RawStep {
+        RawStep {
+            step_no: 0,
+            kind: StepKind::CreateRole,
+            destructive: false,
+            destructive_reason: None,
+            intent_id: None,
+            targets: vec![],
+            sql: format!("CREATE ROLE {name};"),
+            transactional: TransactionConstraint::InTransaction,
+        }
+    }
+
+    fn synthetic_drop_role(name: &str) -> RawStep {
+        RawStep {
+            step_no: 0,
+            kind: StepKind::DropRole,
+            destructive: true,
+            destructive_reason: Some(format!("drops role {name} (may orphan objects)")),
+            intent_id: None,
+            targets: vec![],
+            sql: format!("DROP ROLE {name};"),
+            transactional: TransactionConstraint::InTransaction,
+        }
+    }
+
+    fn empty_changes() -> pgevolve_core::diff::cluster::ClusterChangeSet {
+        pgevolve_core::diff::cluster::ClusterChangeSet::default()
+    }
+
+    fn empty_plan_id() -> pgevolve_core::plan::PlanId {
+        // Build via PlanId::compute against empty catalogs as a deterministic
+        // placeholder for unit tests.
+        pgevolve_core::plan::PlanId::compute(
+            &pgevolve_core::ir::catalog::Catalog::empty(),
+            &pgevolve_core::ir::catalog::Catalog::empty(),
+            "0.0.0-test",
+            0,
+        )
+        .expect("compute placeholder id")
+    }
+
+    #[test]
+    fn to_plan_assigns_step_numbers_and_intents() {
+        let plan = ClusterPlan {
+            steps: vec![synthetic_create_role("a"), synthetic_drop_role("b")],
+            source: ClusterCatalog::empty(),
+            target: ClusterCatalog::empty(),
+            changes: empty_changes(),
+            advisory_findings: vec![],
+        };
+
+        let core_plan = plan
+            .to_plan(empty_plan_id(), "cluster:0000000000003039".into())
+            .expect("to_plan ok");
+
+        // One group with both steps (InTransaction).
+        assert_eq!(core_plan.groups.len(), 1);
+        assert_eq!(core_plan.groups[0].steps.len(), 2);
+        // Step numbers assigned in emission order.
+        assert_eq!(core_plan.groups[0].steps[0].step_no, 1);
+        assert_eq!(core_plan.groups[0].steps[1].step_no, 2);
+        // One intent for the drop.
+        assert_eq!(core_plan.intents.len(), 1);
+        assert_eq!(core_plan.intents[0].step, 2);
+        assert!(!core_plan.intents[0].approved);
+        // target_identity passed through.
+        assert_eq!(
+            core_plan.metadata.target_identity,
+            "cluster:0000000000003039"
+        );
+    }
+
+    #[test]
+    fn to_plan_empty_steps_produces_empty_plan() {
+        let plan = ClusterPlan {
+            steps: vec![],
+            source: ClusterCatalog::empty(),
+            target: ClusterCatalog::empty(),
+            changes: empty_changes(),
+            advisory_findings: vec![],
+        };
+
+        let core_plan = plan
+            .to_plan(empty_plan_id(), "cluster:empty".into())
+            .expect("empty to_plan ok");
+
+        assert!(core_plan.groups.is_empty());
+        assert!(core_plan.intents.is_empty());
+    }
 }
