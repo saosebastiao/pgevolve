@@ -1,28 +1,15 @@
-//! `pgevolve cluster plan` — write `cluster-plans/<plan_id>/` directory.
-//!
-//! The directory layout mirrors per-DB plans but lives under `cluster-plans/`
-//! to make it unambiguous which pipeline produced the plan:
-//!
-//! ```text
-//! cluster-plans/<id>/
-//!   plan.sql        — DDL steps in emission order
-//!   intent.toml     — destructive steps requiring approval
-//!   manifest.toml   — plan id + project name
-//! ```
-//!
-//! The plan id is a BLAKE3 hash of the serialized source + target catalogs
-//! using the domain-separator `pgevolve-cluster-plan-id-v1`, distinct from
-//! the per-DB domain separator to avoid cross-type collisions.
+//! `pgevolve cluster plan` — write `cluster-plans/<plan_id>/` directory
+//! using the canonical Plan + 3-file serializer.
 
-use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use pgevolve_core::plan::kind_name;
+use pgevolve_core::plan::write_plan_dir;
 
 use crate::api::cluster::build_cluster_plan;
 use crate::cluster_config::ClusterConfig;
+use crate::target_identity::compute_cluster_target_identity;
 
 /// Run `pgevolve cluster plan`.
 pub async fn run(project_root: &Path, cfg: &ClusterConfig) -> Result<i32> {
@@ -36,34 +23,55 @@ pub async fn run(project_root: &Path, cfg: &ClusterConfig) -> Result<i32> {
     }
 
     let plan_id = compute_cluster_plan_id(&plan.source, &plan.target)?;
+
+    // Compute target_identity by opening a fresh connection. Don't reuse the
+    // catalog connection — it was consumed by build_cluster_plan via
+    // spawn_blocking.
+    let (client, connection) = tokio_postgres::connect(&cfg.connection.dsn, tokio_postgres::NoTls)
+        .await
+        .context("connecting to cluster for target_identity")?;
+    tokio::spawn(async move {
+        if let Err(err) = connection.await {
+            tracing::debug!(?err, "cluster plan target_identity connection ended");
+        }
+    });
+    let target_identity = compute_cluster_target_identity(&client)
+        .await
+        .map_err(|e| anyhow::anyhow!("compute target_identity: {e}"))?;
+
+    let core_plan_id =
+        pgevolve_core::plan::PlanId::from_hex(&plan_id).context("plan_id hex parse")?;
+
+    // Save advisory_findings before plan is consumed by to_plan.
+    let advisory_findings = plan.advisory_findings.clone();
+
+    let core_plan = plan
+        .to_plan(core_plan_id, target_identity)
+        .context("ClusterPlan::to_plan")?;
+
     let plan_dir = project_root.join("cluster-plans").join(&plan_id);
     std::fs::create_dir_all(&plan_dir)
         .with_context(|| format!("creating {}", plan_dir.display()))?;
 
-    // plan.sql — one step per line block, separated by a blank line.
-    let sql_lines: Vec<&str> = plan.steps.iter().map(|s| s.sql.as_str()).collect();
-    let plan_sql = sql_lines.join("\n\n") + "\n";
-    std::fs::write(plan_dir.join("plan.sql"), plan_sql)
-        .with_context(|| format!("writing {}", plan_dir.join("plan.sql").display()))?;
-
-    // intent.toml — list destructive steps that need approval.
-    let intent_toml = build_intent_toml(&plan.steps);
-    std::fs::write(plan_dir.join("intent.toml"), intent_toml)
-        .with_context(|| format!("writing {}", plan_dir.join("intent.toml").display()))?;
-
-    // manifest.toml — minimal for v0.3.0.
-    let manifest = format!(
-        "plan_id = \"{plan_id}\"\nproject_name = \"{name}\"\n",
-        name = cfg.project.name,
-    );
-    std::fs::write(plan_dir.join("manifest.toml"), manifest)
-        .with_context(|| format!("writing {}", plan_dir.join("manifest.toml").display()))?;
+    write_plan_dir(&core_plan, &plan_dir)
+        .with_context(|| format!("writing {}", plan_dir.display()))?;
 
     println!("Wrote {}", plan_dir.display());
-    println!("  plan.sql ({} steps)", plan.steps.len());
+    println!(
+        "  plan.sql ({} steps)",
+        core_plan
+            .groups
+            .iter()
+            .map(|g| g.steps.len())
+            .sum::<usize>()
+    );
+    println!(
+        "  intent.toml ({} destructive intents)",
+        core_plan.intents.len()
+    );
+    println!("  manifest.toml");
 
-    // Advisory findings MUST be printed to stderr so they reach the user.
-    for finding in &plan.advisory_findings {
+    for finding in &advisory_findings {
         eprintln!(
             "pgevolve cluster plan: advisory [{}]: {}",
             finding.rule, finding.message
@@ -74,7 +82,7 @@ pub async fn run(project_root: &Path, cfg: &ClusterConfig) -> Result<i32> {
 }
 
 /// Compute a short plan id by hashing the canonical serialized source and
-/// target catalogs.
+/// target cluster catalogs.
 ///
 /// Uses the domain separator `pgevolve-cluster-plan-id-v1` so cluster plan
 /// ids never collide with per-DB plan ids even if the byte contents were
@@ -93,34 +101,6 @@ fn compute_cluster_plan_id(
     h.update(&[0]);
     h.update(&target_bytes);
     Ok(hex::encode(&h.finalize().as_bytes()[..8]))
-}
-
-/// Build the `intent.toml` content listing destructive steps.
-fn build_intent_toml(steps: &[pgevolve_core::plan::raw_step::RawStep]) -> String {
-    let mut out = String::from("# Approve each destructive step to allow apply.\n\n");
-    let mut intent_idx: u32 = 1;
-    for (i, step) in steps.iter().enumerate() {
-        if step.destructive {
-            let kind = kind_name(step.kind);
-            let reason = step
-                .destructive_reason
-                .as_deref()
-                .unwrap_or("destructive operation");
-            let step_no = i + 1;
-            // Infallible: writing to a String never errors.
-            let _ = write!(
-                out,
-                "[[destructive_intent]]\n\
-                 id = {intent_idx}\n\
-                 step = {step_no}\n\
-                 kind = \"{kind}\"\n\
-                 reason = \"{reason}\"\n\
-                 approved = false\n\n",
-            );
-            intent_idx += 1;
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -157,11 +137,5 @@ mod tests {
         let id = compute_cluster_plan_id(&c, &c).unwrap();
         assert_eq!(id.len(), 16, "8 bytes = 16 hex chars, got: {id}");
         assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn intent_toml_empty_for_no_destructive_steps() {
-        let out = build_intent_toml(&[]);
-        assert!(!out.contains("[[destructive_intent]]"));
     }
 }

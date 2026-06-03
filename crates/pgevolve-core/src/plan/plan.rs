@@ -95,6 +95,35 @@ impl PlanId {
             .map_err(|_| InvalidPlanHash(s.to_string()))?;
         Ok(Self(arr))
     }
+
+    /// Parse a short 16-char lowercase hex string (8 bytes) into a `PlanId`.
+    ///
+    /// Used by the cluster plan CLI, which derives an 8-byte plan id from a
+    /// BLAKE3 hash of the cluster catalogs. The 8 decoded bytes occupy
+    /// positions 0–7 of the internal 32-byte array; bytes 8–31 are zeroed.
+    /// This guarantees that `plan_id.short() == s` after construction, which
+    /// is the invariant that `write_plan_dir`/`read_plan_dir` rely on for
+    /// the cross-file `plan_id` consistency check.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PlanError::Internal` if `s` is not valid hex or not exactly
+    /// 16 characters (8 bytes) long.
+    pub fn from_hex(s: &str) -> Result<Self, PlanError> {
+        let decoded = hex::decode(s).map_err(|e| {
+            PlanError::Internal(format!("plan_id hex decode failed for {s:?}: {e}"))
+        })?;
+        if decoded.len() != 8 {
+            return Err(PlanError::Internal(format!(
+                "plan_id hex length mismatch: expected 16 chars (8 bytes), got {} chars ({} bytes)",
+                s.len(),
+                decoded.len(),
+            )));
+        }
+        let mut arr = [0u8; 32];
+        arr[..8].copy_from_slice(&decoded);
+        Ok(Self(arr))
+    }
 }
 
 impl std::fmt::Display for PlanId {
