@@ -53,7 +53,7 @@ fn arb_publication_scope(
         proptest::sample::subsequence(tp, 0..=(table_pool.len()))
             .prop_filter("non-empty Selective", |t| !t.is_empty())
             .prop_map(|tables| {
-                let tables = tables
+                let tables: Vec<PublishedTable> = tables
                     .into_iter()
                     .map(|qname| PublishedTable {
                         qname,
@@ -63,6 +63,14 @@ fn arb_publication_scope(
                     .collect();
                 // schemas is always empty: FOR TABLES IN SCHEMA is PG 15+ only.
                 // PG 14 compat — see issue #18.
+                //
+                // Defensive guard: if the Selective branch somehow yields
+                // empty tables (e.g. proptest filter exhaustion during
+                // shrinking), fall back to AllTables rather than producing an
+                // invalid scope. See <https://github.com/saosebastiao/pgevolve/issues/32>.
+                if tables.is_empty() {
+                    return PublicationScope::AllTables;
+                }
                 PublicationScope::Selective {
                     schemas: std::collections::BTreeSet::new(),
                     tables,
@@ -142,6 +150,29 @@ mod tests {
 
     fn qn(schema: &str, name: &str) -> QualifiedName {
         QualifiedName::new(id(schema), id(name))
+    }
+
+    /// Any generated `PublicationScope::Selective` must have at least one of
+    /// `tables` or `schemas` non-empty — a scope with neither is invalid in PG.
+    /// See <https://github.com/saosebastiao/pgevolve/issues/32>.
+    #[test]
+    fn selective_scope_is_never_empty() {
+        let schema_pool = vec![id("app"), id("public")];
+        let table_pool = vec![qn("app", "orders"), qn("app", "users")];
+        let strategy = arb_publication_scope(schema_pool, table_pool);
+        let mut runner = TestRunner::default();
+        for _ in 0..256 {
+            let tree = strategy
+                .new_tree(&mut runner)
+                .expect("strategy construction failed");
+            let scope = tree.current();
+            if let PublicationScope::Selective { schemas, tables } = &scope {
+                assert!(
+                    !schemas.is_empty() || !tables.is_empty(),
+                    "Selective scope must not be empty (no tables AND no schemas); got Selective {{ schemas: {schemas:?}, tables: {tables:?} }}",
+                );
+            }
+        }
     }
 
     /// `FOR TABLES IN SCHEMA` (non-empty `schemas` in `PublicationScope::Selective`)
