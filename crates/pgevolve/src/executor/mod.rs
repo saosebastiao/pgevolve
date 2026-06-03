@@ -19,7 +19,10 @@ pub mod lock;
 pub mod preflight;
 pub mod status;
 
-pub use cluster_apply::{ClusterApplyError, apply_cluster_plan_dir, apply_cluster_steps};
+pub use cluster_apply::{
+    ClusterApplyError, apply_cluster_plan, apply_cluster_plan_dir, apply_cluster_steps,
+};
+pub use cluster_preflight::ClusterPreflightOverrides;
 
 use std::path::Path;
 
@@ -168,7 +171,7 @@ pub async fn apply_plan(
 }
 
 /// Best-effort actor string for audit logging.
-fn default_actor() -> String {
+pub(crate) fn default_actor() -> String {
     let user = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
         .unwrap_or_else(|_| "unknown".into());

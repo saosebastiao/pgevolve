@@ -10,9 +10,87 @@
 
 use std::path::Path;
 
+use tokio_postgres::Client;
+
+use pgevolve_core::plan::Plan;
 use pgevolve_core::plan::raw_step::{RawStep, TransactionConstraint};
 
 use crate::cluster_config::ClusterConfig;
+use crate::executor::{
+    ApplyError, ApplyOutcome, ApplyOverrides,
+    cluster_preflight::{ClusterPreflightOverrides, run_cluster_preflight},
+    lock::{release_lock, try_acquire_lock},
+};
+
+/// Apply an in-memory cluster [`Plan`] to a live Postgres connection.
+///
+/// Mirrors [`crate::executor::apply_plan`] but with a cluster-flavoured
+/// preflight ([`run_cluster_preflight`]). No drift recheck.
+///
+/// Steps:
+/// 1. Bootstrap or upgrade the `pgevolve` metadata schema.
+/// 2. Acquire the singleton advisory lock.
+/// 3. Run cluster preflight (identity match + intent approval).
+/// 4. Open an `apply_log` row.
+/// 5. Execute each group in order.
+/// 6. Close the `apply_log` row with the final status.
+///
+/// # Errors
+///
+/// Returns [`ApplyError`] on the first failed step. The advisory lock is
+/// released before propagating in every failure branch.
+pub async fn apply_cluster_plan(
+    plan: &Plan,
+    client: &mut Client,
+    overrides: ApplyOverrides,
+) -> Result<ApplyOutcome, ApplyError> {
+    crate::executor::bootstrap::bootstrap_metadata(client).await?;
+
+    let actor = overrides
+        .actor
+        .clone()
+        .unwrap_or_else(crate::executor::default_actor);
+    try_acquire_lock(client, &actor).await?;
+
+    let cluster_overrides = ClusterPreflightOverrides {
+        allow_different_target: overrides.allow_different_target,
+        allow_unapproved_intents: overrides.allow_unapproved_intents,
+    };
+    let preflight_result = run_cluster_preflight(client, plan, cluster_overrides).await;
+    if let Err(e) = preflight_result {
+        let _ = release_lock(client).await;
+        return Err(e);
+    }
+
+    let apply_id = crate::executor::audit::open_apply_log(client, plan, &actor).await?;
+    let exec_result =
+        crate::executor::execute::execute_plan(client, plan, apply_id, overrides.abort_after_step)
+            .await;
+    match exec_result {
+        Ok(()) => {
+            crate::executor::audit::close_apply_log(client, apply_id, "succeeded", None).await?;
+            release_lock(client).await?;
+            Ok(ApplyOutcome::Succeeded { apply_id })
+        }
+        Err(ApplyError::AbortedAfterStep { step_no }) => {
+            crate::executor::audit::close_apply_log(
+                client,
+                apply_id,
+                "aborted",
+                Some(&format!("abort_after_step={step_no}")),
+            )
+            .await?;
+            let _ = release_lock(client).await;
+            Err(ApplyError::AbortedAfterStep { step_no })
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            crate::executor::audit::close_apply_log(client, apply_id, "failed", Some(&msg)).await?;
+            let _ = release_lock(client).await;
+            Err(e)
+        }
+    }
+}
 
 /// Apply all steps in `steps` against the Postgres instance named by
 /// `cfg.connection.dsn`.
