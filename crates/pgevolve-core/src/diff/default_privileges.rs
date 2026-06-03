@@ -291,4 +291,63 @@ mod tests {
         let grants_count = changes.iter().filter(|c| c.is_grant).count();
         assert_eq!(grants_count, 0, "expected no new grants, got: {changes:?}");
     }
+
+    /// Regression for issue #30: same shape as #23 but the `target_role` of the
+    /// rule (`ops`) also appears as a grantee in the live (target) grants.
+    /// If `ops` is not in `managed_roles` and does not appear in the source's
+    /// grant list (only `readers` does), then prior to the fix the extended
+    /// managed set would not include `ops` and the two REVOKE steps would be
+    /// suppressed.
+    ///
+    /// Scenario from the bug report:
+    ///   target: `[Grant{ops, Usage}, Grant{ops, Create}, Grant{readers, Create}]`
+    ///   source: `[Grant{readers, Create}]`
+    ///   `managed_roles`: `{readers}` (tight — `ops` is absent)
+    ///
+    /// Expected: 2 REVOKE steps (for the two `ops` grants).
+    #[test]
+    fn revoke_target_role_as_grantee_not_in_source_grants() {
+        // target (live database state)
+        let tgt = rule(
+            "ops",
+            None,
+            DefaultPrivObjectType::Schemas,
+            vec![
+                grant_to("ops", Privilege::Usage),
+                grant_to("ops", Privilege::Create),
+                grant_to("readers", Privilege::Create),
+            ],
+        );
+
+        // source (desired state): only readers/Create remains
+        let src = rule(
+            "ops",
+            None,
+            DefaultPrivObjectType::Schemas,
+            vec![grant_to("readers", Privilege::Create)],
+        );
+
+        // managed_roles contains only `readers`; `ops` is deliberately absent
+        let changes = diff_default_privileges(&[tgt], &[src], &managed(&["readers"]));
+
+        let revokes: Vec<_> = changes.iter().filter(|c| !c.is_grant).collect();
+        assert_eq!(
+            revokes.len(),
+            2,
+            "expected 2 REVOKEs for the ops grants, got: {changes:?}"
+        );
+        let priv_set: std::collections::BTreeSet<Privilege> =
+            revokes.iter().map(|c| c.grant.privilege).collect();
+        assert!(
+            priv_set.contains(&Privilege::Usage),
+            "expected REVOKE Usage for ops"
+        );
+        assert!(
+            priv_set.contains(&Privilege::Create),
+            "expected REVOKE Create for ops"
+        );
+        // No spurious GRANTs.
+        let grants_count = changes.iter().filter(|c| c.is_grant).count();
+        assert_eq!(grants_count, 0, "expected no new grants, got: {changes:?}");
+    }
 }
