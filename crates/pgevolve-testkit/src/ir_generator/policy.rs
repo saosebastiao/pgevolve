@@ -95,11 +95,17 @@ pub(super) fn arb_policy() -> BoxedStrategy<Policy> {
                     Just(None).boxed()
                 };
 
-            let using_strategy: BoxedStrategy<Option<NormalizedExpr>> = prop_oneof![
-                Just(None),
-                Just(Some(NormalizedExpr::from_canonical_text("true"))),
-            ]
-            .boxed();
+            // USING is only valid for ALL / SELECT / UPDATE / DELETE.
+            // PG rejects USING on FOR INSERT policies.
+            let using_strategy: BoxedStrategy<Option<NormalizedExpr>> = if command.allows_using() {
+                prop_oneof![
+                    Just(None),
+                    Just(Some(NormalizedExpr::from_canonical_text("true"))),
+                ]
+                .boxed()
+            } else {
+                Just(None).boxed()
+            };
 
             (
                 Just(name),
@@ -121,4 +127,49 @@ pub(super) fn arb_policy() -> BoxedStrategy<Policy> {
             },
         )
         .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::test_runner::TestRunner;
+
+    /// Verify that the generator never produces a policy violating PG's
+    /// predicate-validity matrix:
+    ///  - INSERT  → USING must be absent
+    ///  - SELECT  → WITH CHECK must be absent
+    ///  - DELETE  → WITH CHECK must be absent
+    #[test]
+    fn predicate_gating_matches_pg_rules() {
+        let mut runner = TestRunner::new(proptest::test_runner::Config {
+            cases: 256,
+            ..Default::default()
+        });
+        runner
+            .run(&arb_policy(), |policy| {
+                if policy.command == PolicyCommand::Insert {
+                    prop_assert!(
+                        policy.using.is_none(),
+                        "INSERT policy must not carry USING; got {:?}",
+                        policy
+                    );
+                }
+                if policy.command == PolicyCommand::Select {
+                    prop_assert!(
+                        policy.with_check.is_none(),
+                        "SELECT policy must not carry WITH CHECK; got {:?}",
+                        policy
+                    );
+                }
+                if policy.command == PolicyCommand::Delete {
+                    prop_assert!(
+                        policy.with_check.is_none(),
+                        "DELETE policy must not carry WITH CHECK; got {:?}",
+                        policy
+                    );
+                }
+                Ok(())
+            })
+            .expect("predicate gating test failed");
+    }
 }

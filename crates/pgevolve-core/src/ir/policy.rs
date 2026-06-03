@@ -78,6 +78,13 @@ impl PolicyCommand {
     pub const fn allows_with_check(self) -> bool {
         matches!(self, Self::All | Self::Insert | Self::Update)
     }
+
+    /// Whether `USING` is valid for this command. PG rejects USING on FOR
+    /// INSERT policies (`only WITH CHECK expression allowed for INSERT`).
+    #[must_use]
+    pub const fn allows_using(self) -> bool {
+        matches!(self, Self::All | Self::Select | Self::Update | Self::Delete)
+    }
 }
 
 #[cfg(test)]
@@ -113,6 +120,15 @@ mod tests {
         assert!(PolicyCommand::All.allows_with_check());
         assert!(PolicyCommand::Insert.allows_with_check());
         assert!(PolicyCommand::Update.allows_with_check());
+    }
+
+    #[test]
+    fn insert_rejects_using() {
+        assert!(!PolicyCommand::Insert.allows_using());
+        assert!(PolicyCommand::Select.allows_using());
+        assert!(PolicyCommand::Delete.allows_using());
+        assert!(PolicyCommand::Update.allows_using());
+        assert!(PolicyCommand::All.allows_using());
     }
 
     #[test]
