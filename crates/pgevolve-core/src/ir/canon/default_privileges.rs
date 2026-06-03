@@ -4,10 +4,18 @@ use crate::ir::default_privileges::DefaultPrivilegeRule;
 
 /// Sort default-privilege rules by `(target_role, schema, object_type)` and
 /// canonicalize each rule's grants list.
-pub fn run(rules: &mut [DefaultPrivilegeRule]) {
+///
+/// Rules with an empty grants list are stripped: Postgres has no DDL to
+/// create a zero-grant default-privilege rule, so such an entry is
+/// semantically equivalent to "no rule". Keeping empty rules in the IR would
+/// cause spurious `catalogs-differ` failures when comparing against a live
+/// database that never received a GRANT step.
+pub fn run(rules: &mut Vec<DefaultPrivilegeRule>) {
     for rule in rules.iter_mut() {
         super::grants::run_on_list(&mut rule.grants);
     }
+    // Remove rules whose grant list is empty after canonicalization.
+    rules.retain(|r| !r.grants.is_empty());
     rules.sort_by(|a, b| {
         a.target_role
             .as_str()
@@ -33,6 +41,7 @@ mod tests {
         Identifier::from_unquoted(s).unwrap()
     }
 
+    /// Build a rule with a single grant so it survives the empty-grants filter.
     fn rule(
         target: &str,
         schema: Option<&str>,
@@ -42,7 +51,13 @@ mod tests {
             target_role: id(target),
             schema: schema.map(id),
             object_type: kind,
-            grants: vec![],
+            // Provide a non-empty grants list so the rule is not stripped.
+            grants: vec![Grant {
+                grantee: GrantTarget::Public,
+                privilege: Privilege::Select,
+                with_grant_option: false,
+                columns: None,
+            }],
         }
     }
 
@@ -65,6 +80,48 @@ mod tests {
         assert_eq!(rules[2].target_role.as_str(), "alice");
         assert_eq!(rules[2].schema.as_ref().unwrap().as_str(), "b");
         assert_eq!(rules[3].target_role.as_str(), "zebra");
+    }
+
+    /// Rules with an empty grants list are semantically equivalent to "no rule"
+    /// in Postgres (you cannot create a zero-grant default-privilege rule via
+    /// DDL). Canon must strip them so that source catalogs generated with empty
+    /// rules do not diverge from a live catalog that has no such rule.
+    ///
+    /// Regression for issue #25: `drift_recovery_property` surfaced
+    /// `default_privileges.app_owner.*.SCHEMAS: 'present' vs 'removed'`
+    /// when the source catalog had an empty-grants rule and the apply emitted
+    /// nothing (correctly — no grants to add), leaving live without the rule
+    /// but the canonical comparison reporting a spurious mismatch.
+    #[test]
+    fn empty_grants_rule_is_stripped() {
+        let mut rules = vec![
+            // This rule has grants — must be kept.
+            DefaultPrivilegeRule {
+                target_role: id("alice"),
+                schema: None,
+                object_type: DefaultPrivObjectType::Tables,
+                grants: vec![Grant {
+                    grantee: GrantTarget::Role(id("reader")),
+                    privilege: Privilege::Select,
+                    with_grant_option: false,
+                    columns: None,
+                }],
+            },
+            // This rule has no grants — must be removed.
+            DefaultPrivilegeRule {
+                target_role: id("app_owner"),
+                schema: None,
+                object_type: DefaultPrivObjectType::Schemas,
+                grants: vec![],
+            },
+        ];
+        run(&mut rules);
+        assert_eq!(
+            rules.len(),
+            1,
+            "empty-grants rule should be stripped; remaining: {rules:?}"
+        );
+        assert_eq!(rules[0].target_role.as_str(), "alice");
     }
 
     #[test]
