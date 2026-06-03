@@ -3,12 +3,23 @@
 //! Rules are paired by `(target_role, schema, object_type)`. Within each pair
 //! the grant list is diffed with the standard lenient policy from
 //! [`super::grants::diff_grants`].
+//!
+//! ## Managed-roles extension for owned rules
+//!
+//! When the source catalog explicitly declares a rule (same key present in
+//! `source`), we treat every grantee that appears in the target's grant list
+//! for that rule as "managed" — even if that role does not appear elsewhere in
+//! the source catalog. Rationale: pgevolve previously applied the GRANTs via
+//! that same rule, so the grantees are our responsibility to revoke when the
+//! desired grant list shrinks. The lenient unmanaged-drift policy is reserved
+//! for rules that exist **only** in the live database and have no corresponding
+//! source declaration.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identifier::Identifier;
 use crate::ir::default_privileges::{DefaultPrivObjectType, DefaultPrivilegeRule};
-use crate::ir::grant::Grant;
+use crate::ir::grant::{Grant, GrantTarget};
 
 /// One ADD or REVOKE step for a default-privilege rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,8 +71,32 @@ pub fn diff_default_privileges(
             .get(&k)
             .map_or(&[] as &[Grant], |r| r.grants.as_slice());
 
+        // When the source explicitly declares this rule, any grantee present in
+        // the target's grant list was placed there by a previous pgevolve apply
+        // and must be revocable. Extend the managed-roles set with those
+        // grantees so that `diff_grants` does not suppress them as "unmanaged".
+        let extended;
+        let effective_managed: &BTreeSet<Identifier> = if source_map.contains_key(&k) {
+            extended = target_grants
+                .iter()
+                .filter_map(|g| {
+                    if let GrantTarget::Role(name) = &g.grantee {
+                        Some(name.clone())
+                    } else {
+                        None
+                    }
+                })
+                .fold(managed_roles.clone(), |mut acc, name| {
+                    acc.insert(name);
+                    acc
+                });
+            &extended
+        } else {
+            managed_roles
+        };
+
         let (to_add, to_revoke, _unmanaged) =
-            super::grants::diff_grants(target_grants, source_grants, managed_roles);
+            super::grants::diff_grants(target_grants, source_grants, effective_managed);
 
         for g in to_add {
             out.push(DefaultPrivilegeChange {
@@ -178,5 +213,82 @@ mod tests {
         assert_eq!(revs.len(), 1);
         assert_eq!(adds[0].grant.privilege, Privilege::Usage);
         assert_eq!(revs[0].grant.privilege, Privilege::Select);
+    }
+
+    /// Regression for issue #23: when the mutated (source) catalog removes
+    /// grantees from a default-privilege rule but those grantees are not
+    /// mentioned elsewhere in the source catalog, they were silently dropped
+    /// from the REVOKE side (classified as "unmanaged"). The fix: when the
+    /// source catalog explicitly declares the rule (same key exists in source),
+    /// treat target grantees for that rule as managed regardless of the
+    /// catalog-wide `managed_roles` set.
+    #[test]
+    fn revoke_unmanaged_grantee_when_source_owns_the_rule() {
+        use crate::ir::grant::GrantTarget;
+
+        // Target has 3 grants including Role("app") as grantee.
+        let tgt = rule(
+            "app",
+            None,
+            DefaultPrivObjectType::Schemas,
+            vec![
+                Grant {
+                    grantee: GrantTarget::Public,
+                    privilege: Privilege::Usage,
+                    with_grant_option: false,
+                    columns: None,
+                },
+                Grant {
+                    grantee: GrantTarget::Role(id("app")),
+                    privilege: Privilege::Usage,
+                    with_grant_option: false,
+                    columns: None,
+                },
+                Grant {
+                    grantee: GrantTarget::Role(id("app")),
+                    privilege: Privilege::Create,
+                    with_grant_option: false,
+                    columns: None,
+                },
+            ],
+        );
+
+        // Source has the same rule key but only 1 grant (Public/Usage).
+        // "app" does NOT appear in managed_roles.
+        let src = rule(
+            "app",
+            None,
+            DefaultPrivObjectType::Schemas,
+            vec![Grant {
+                grantee: GrantTarget::Public,
+                privilege: Privilege::Usage,
+                with_grant_option: false,
+                columns: None,
+            }],
+        );
+
+        // "app" is not in managed_roles — only "app_owner" is.
+        let changes = diff_default_privileges(&[tgt], &[src], &managed(&["app_owner"]));
+
+        // Must emit 2 REVOKEs for Role("app")/Usage and Role("app")/Create.
+        let revokes: Vec<_> = changes.iter().filter(|c| !c.is_grant).collect();
+        assert_eq!(
+            revokes.len(),
+            2,
+            "expected 2 revokes for Role(app) grants, got: {changes:?}"
+        );
+        let priv_set: std::collections::BTreeSet<Privilege> =
+            revokes.iter().map(|c| c.grant.privilege).collect();
+        assert!(
+            priv_set.contains(&Privilege::Usage),
+            "expected REVOKE Usage"
+        );
+        assert!(
+            priv_set.contains(&Privilege::Create),
+            "expected REVOKE Create"
+        );
+        // No spurious GRANTs.
+        let grants_count = changes.iter().filter(|c| c.is_grant).count();
+        assert_eq!(grants_count, 0, "expected no new grants, got: {changes:?}");
     }
 }
