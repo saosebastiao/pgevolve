@@ -158,17 +158,10 @@ fn emit_sequence_attribute_changes(
         let object_label = format!("sequence {qname}");
         let (to_add, to_revoke, unmanaged) =
             diff_grants(&target_seq.grants, &source_seq.grants, managed_roles);
-        for g in to_add {
-            out.push(
-                Change::GrantObjectPrivilege {
-                    qname: qname.clone(),
-                    kind: OwnerObjectKind::Sequence,
-                    signature: String::new(),
-                    grant: g,
-                },
-                Destructiveness::Safe,
-            );
-        }
+        // Emit REVOKEs before GRANTs (issue #33): if a grant's with_grant_option
+        // flag changes, the REVOKE must run first so the subsequent GRANT is not
+        // immediately undone. Both changes land in the modifies bucket with the
+        // same NodeId, so insertion order controls execution order.
         for g in to_revoke {
             if let Some(source_owner) = &source_seq.owner {
                 out.revokes_with_owner.push(RevokeWithOwnerObservation {
@@ -180,6 +173,17 @@ fn emit_sequence_attribute_changes(
             }
             out.push(
                 Change::RevokeObjectPrivilege {
+                    qname: qname.clone(),
+                    kind: OwnerObjectKind::Sequence,
+                    signature: String::new(),
+                    grant: g,
+                },
+                Destructiveness::Safe,
+            );
+        }
+        for g in to_add {
+            out.push(
+                Change::GrantObjectPrivilege {
                     qname: qname.clone(),
                     kind: OwnerObjectKind::Sequence,
                     signature: String::new(),

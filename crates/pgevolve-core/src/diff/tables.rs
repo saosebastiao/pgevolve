@@ -274,28 +274,9 @@ fn emit_table_attribute_changes(
         let object_label = format!("table {qname}");
         let (to_add, to_revoke, unmanaged) =
             diff_grants(&target_table.grants, &source_table.grants, managed_roles);
-        for g in to_add {
-            let is_column_level = g.columns.is_some();
-            if is_column_level {
-                out.push(
-                    Change::GrantColumnPrivilege {
-                        qname: qname.clone(),
-                        grant: g,
-                    },
-                    Destructiveness::Safe,
-                );
-            } else {
-                out.push(
-                    Change::GrantObjectPrivilege {
-                        qname: qname.clone(),
-                        kind: OwnerObjectKind::Table,
-                        signature: String::new(),
-                        grant: g,
-                    },
-                    Destructiveness::Safe,
-                );
-            }
-        }
+        // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
+        // that WGO-change pairs (same grantee+privilege, different wgo) don't
+        // self-cancel (GRANT followed by REVOKE would drop the privilege entirely).
         for g in to_revoke {
             if let Some(source_owner) = &source_table.owner {
                 out.revokes_with_owner.push(RevokeWithOwnerObservation {
@@ -317,6 +298,28 @@ fn emit_table_attribute_changes(
             } else {
                 out.push(
                     Change::RevokeObjectPrivilege {
+                        qname: qname.clone(),
+                        kind: OwnerObjectKind::Table,
+                        signature: String::new(),
+                        grant: g,
+                    },
+                    Destructiveness::Safe,
+                );
+            }
+        }
+        for g in to_add {
+            let is_column_level = g.columns.is_some();
+            if is_column_level {
+                out.push(
+                    Change::GrantColumnPrivilege {
+                        qname: qname.clone(),
+                        grant: g,
+                    },
+                    Destructiveness::Safe,
+                );
+            } else {
+                out.push(
+                    Change::GrantObjectPrivilege {
                         qname: qname.clone(),
                         kind: OwnerObjectKind::Table,
                         signature: String::new(),

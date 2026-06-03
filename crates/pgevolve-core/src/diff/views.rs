@@ -176,28 +176,9 @@ pub fn diff_views(
             let object_label = format!("view {qname}");
             let (to_add, to_revoke, unmanaged) =
                 diff_grants(&tgt.grants, &src.grants, managed_roles);
-            for g in to_add {
-                let is_column_level = g.columns.is_some();
-                if is_column_level {
-                    out.push(
-                        Change::GrantColumnPrivilege {
-                            qname: (*qname).clone(),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                } else {
-                    out.push(
-                        Change::GrantObjectPrivilege {
-                            qname: (*qname).clone(),
-                            kind: OwnerObjectKind::View,
-                            signature: String::new(),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                }
-            }
+            // Emit REVOKEs before GRANTs (issue #33): revokes must precede
+            // grants so that WGO-change pairs (same grantee+privilege, different
+            // wgo) don't self-cancel.
             for g in to_revoke {
                 if let Some(source_owner) = &src.owner {
                     out.revokes_with_owner.push(RevokeWithOwnerObservation {
@@ -219,6 +200,28 @@ pub fn diff_views(
                 } else {
                     out.push(
                         Change::RevokeObjectPrivilege {
+                            qname: (*qname).clone(),
+                            kind: OwnerObjectKind::View,
+                            signature: String::new(),
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                }
+            }
+            for g in to_add {
+                let is_column_level = g.columns.is_some();
+                if is_column_level {
+                    out.push(
+                        Change::GrantColumnPrivilege {
+                            qname: (*qname).clone(),
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                } else {
+                    out.push(
+                        Change::GrantObjectPrivilege {
                             qname: (*qname).clone(),
                             kind: OwnerObjectKind::View,
                             signature: String::new(),
@@ -348,28 +351,9 @@ pub fn diff_materialized_views(
             let object_label = format!("materialized view {qname}");
             let (to_add, to_revoke, unmanaged) =
                 diff_grants(&tgt.grants, &src.grants, managed_roles);
-            for g in to_add {
-                let is_column_level = g.columns.is_some();
-                if is_column_level {
-                    out.push(
-                        Change::GrantColumnPrivilege {
-                            qname: (*qname).clone(),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                } else {
-                    out.push(
-                        Change::GrantObjectPrivilege {
-                            qname: (*qname).clone(),
-                            kind: OwnerObjectKind::MaterializedView,
-                            signature: String::new(),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                }
-            }
+            // Emit REVOKEs before GRANTs (issue #33): revokes must precede
+            // grants so that WGO-change pairs (same grantee+privilege, different
+            // wgo) don't self-cancel.
             for g in to_revoke {
                 if let Some(source_owner) = &src.owner {
                     out.revokes_with_owner.push(RevokeWithOwnerObservation {
@@ -391,6 +375,28 @@ pub fn diff_materialized_views(
                 } else {
                     out.push(
                         Change::RevokeObjectPrivilege {
+                            qname: (*qname).clone(),
+                            kind: OwnerObjectKind::MaterializedView,
+                            signature: String::new(),
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                }
+            }
+            for g in to_add {
+                let is_column_level = g.columns.is_some();
+                if is_column_level {
+                    out.push(
+                        Change::GrantColumnPrivilege {
+                            qname: (*qname).clone(),
+                            grant: g,
+                        },
+                        Destructiveness::Safe,
+                    );
+                } else {
+                    out.push(
+                        Change::GrantObjectPrivilege {
                             qname: (*qname).clone(),
                             kind: OwnerObjectKind::MaterializedView,
                             signature: String::new(),

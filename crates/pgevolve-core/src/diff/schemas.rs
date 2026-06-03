@@ -116,17 +116,9 @@ fn emit_schema_attribute_changes(
     let object_label = format!("schema {name}");
     let (to_add, to_revoke, unmanaged) =
         diff_grants(&target_schema.grants, &source_schema.grants, managed_roles);
-    for g in to_add {
-        out.push(
-            Change::GrantObjectPrivilege {
-                qname: crate::identifier::QualifiedName::new(name.clone(), name.clone()),
-                kind: OwnerObjectKind::Schema,
-                signature: String::new(),
-                grant: g,
-            },
-            Destructiveness::Safe,
-        );
-    }
+    // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
+    // that WGO-change pairs (same grantee+privilege, different wgo) don't
+    // self-cancel.
     for g in to_revoke {
         if let Some(source_owner) = &source_schema.owner {
             out.revokes_with_owner.push(RevokeWithOwnerObservation {
@@ -138,6 +130,17 @@ fn emit_schema_attribute_changes(
         }
         out.push(
             Change::RevokeObjectPrivilege {
+                qname: crate::identifier::QualifiedName::new(name.clone(), name.clone()),
+                kind: OwnerObjectKind::Schema,
+                signature: String::new(),
+                grant: g,
+            },
+            Destructiveness::Safe,
+        );
+    }
+    for g in to_add {
+        out.push(
+            Change::GrantObjectPrivilege {
                 qname: crate::identifier::QualifiedName::new(name.clone(), name.clone()),
                 kind: OwnerObjectKind::Schema,
                 signature: String::new(),

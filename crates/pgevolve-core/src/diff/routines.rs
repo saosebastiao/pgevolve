@@ -115,17 +115,9 @@ fn diff_function_owner_grants(
     let object_label = format!("function {}{signature}", source.qname);
     let (to_add, to_revoke, unmanaged) =
         diff_grants(&catalog.grants, &source.grants, managed_roles);
-    for g in to_add {
-        out.push(
-            Change::GrantObjectPrivilege {
-                qname: source.qname.clone(),
-                kind: OwnerObjectKind::Function,
-                signature: signature.clone(),
-                grant: g,
-            },
-            Destructiveness::Safe,
-        );
-    }
+    // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
+    // that WGO-change pairs (same grantee+privilege, different wgo) don't
+    // self-cancel.
     for g in to_revoke {
         if let Some(source_owner) = &source.owner {
             out.revokes_with_owner.push(RevokeWithOwnerObservation {
@@ -137,6 +129,17 @@ fn diff_function_owner_grants(
         }
         out.push(
             Change::RevokeObjectPrivilege {
+                qname: source.qname.clone(),
+                kind: OwnerObjectKind::Function,
+                signature: signature.clone(),
+                grant: g,
+            },
+            Destructiveness::Safe,
+        );
+    }
+    for g in to_add {
+        out.push(
+            Change::GrantObjectPrivilege {
                 qname: source.qname.clone(),
                 kind: OwnerObjectKind::Function,
                 signature: signature.clone(),
@@ -347,17 +350,9 @@ fn diff_procedure_owner_grants(
     let object_label = format!("procedure {}{signature}", source.qname);
     let (to_add, to_revoke, unmanaged) =
         diff_grants(&catalog.grants, &source.grants, managed_roles);
-    for g in to_add {
-        out.push(
-            Change::GrantObjectPrivilege {
-                qname: source.qname.clone(),
-                kind: OwnerObjectKind::Procedure,
-                signature: signature.clone(),
-                grant: g,
-            },
-            Destructiveness::Safe,
-        );
-    }
+    // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
+    // that WGO-change pairs (same grantee+privilege, different wgo) don't
+    // self-cancel.
     for g in to_revoke {
         if let Some(source_owner) = &source.owner {
             out.revokes_with_owner.push(RevokeWithOwnerObservation {
@@ -369,6 +364,17 @@ fn diff_procedure_owner_grants(
         }
         out.push(
             Change::RevokeObjectPrivilege {
+                qname: source.qname.clone(),
+                kind: OwnerObjectKind::Procedure,
+                signature: signature.clone(),
+                grant: g,
+            },
+            Destructiveness::Safe,
+        );
+    }
+    for g in to_add {
+        out.push(
+            Change::GrantObjectPrivilege {
                 qname: source.qname.clone(),
                 kind: OwnerObjectKind::Procedure,
                 signature: signature.clone(),

@@ -98,21 +98,24 @@ pub fn diff_default_privileges(
         let (to_add, to_revoke, _unmanaged) =
             super::grants::diff_grants(target_grants, source_grants, effective_managed);
 
-        for g in to_add {
-            out.push(DefaultPrivilegeChange {
-                target_role: k.0.clone(),
-                schema: k.1.clone(),
-                object_type: k.2,
-                is_grant: true,
-                grant: g,
-            });
-        }
+        // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
+        // that WGO-change pairs (same grantee+privilege, different wgo) don't
+        // self-cancel when the changes are applied to the live database.
         for g in to_revoke {
             out.push(DefaultPrivilegeChange {
                 target_role: k.0.clone(),
                 schema: k.1.clone(),
                 object_type: k.2,
                 is_grant: false,
+                grant: g,
+            });
+        }
+        for g in to_add {
+            out.push(DefaultPrivilegeChange {
+                target_role: k.0.clone(),
+                schema: k.1.clone(),
+                object_type: k.2,
+                is_grant: true,
                 grant: g,
             });
         }

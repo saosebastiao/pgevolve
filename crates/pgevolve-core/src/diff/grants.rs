@@ -19,6 +19,15 @@ use crate::ir::grant::{Grant, GrantTarget};
 /// considered managed.
 ///
 /// Returns `(to_add, to_revoke, unmanaged_observed)`.
+///
+/// # Caller contract — emit order
+///
+/// Callers **must** push `to_revoke` entries into the change-set *before*
+/// `to_add` entries. This ensures that when a grant's `with_grant_option` flag
+/// changes (same grantee + privilege + columns, different WGO value), the plan
+/// executes `REVOKE … FROM …` before `GRANT … TO … [WITH GRANT OPTION]`.
+/// Reversing the order causes the GRANT to be immediately undone by the
+/// following REVOKE, leaving the live database without the privilege entirely.
 #[must_use]
 pub fn diff_grants(
     target: &[Grant],
@@ -201,6 +210,81 @@ mod tests {
         let (add, rev, unmanaged) = diff_grants(std::slice::from_ref(&g), &[], &managed(&[]));
         assert!(add.is_empty());
         assert_eq!(rev, vec![g]);
+        assert!(unmanaged.is_empty());
+    }
+
+    /// Regression for issue #33: when `with_grant_option` changes on an
+    /// existing grant (same grantee + privilege, different WGO flag), the diff
+    /// produces both a `to_revoke` (old WGO value) and a `to_add` (new WGO
+    /// value). Callers **must** emit the REVOKE before the GRANT so that the
+    /// GRANT is not immediately cancelled by the subsequent REVOKE.
+    ///
+    /// This test documents the rule: `to_add` and `to_revoke` for a WGO change
+    /// are distinct elements (different `with_grant_option` value) so both
+    /// appear in the output; the caller must respect the emit order described
+    /// in `diff_grants`'s doc comment.
+    #[test]
+    fn wgo_upgrade_produces_both_add_and_revoke() {
+        // target: readers/Select WITHOUT grant option
+        // source: readers/Select WITH grant option
+        let target = Grant {
+            grantee: GrantTarget::Role(id("readers")),
+            privilege: Privilege::Select,
+            with_grant_option: false,
+            columns: None,
+        };
+        let source = Grant {
+            grantee: GrantTarget::Role(id("readers")),
+            privilege: Privilege::Select,
+            with_grant_option: true,
+            columns: None,
+        };
+        let (add, rev, unmanaged) = diff_grants(
+            std::slice::from_ref(&target),
+            std::slice::from_ref(&source),
+            &managed(&["readers"]),
+        );
+        // One add: readers/Select wgo=true (source wants it)
+        assert_eq!(add.len(), 1, "expected exactly one grant to add: {add:?}");
+        assert!(add[0].with_grant_option, "added grant must have wgo=true");
+        // One revoke: readers/Select wgo=false (target has it, source does not)
+        assert_eq!(rev.len(), 1, "expected exactly one grant to revoke: {rev:?}");
+        assert!(!rev[0].with_grant_option, "revoked grant must have wgo=false");
+        assert!(unmanaged.is_empty());
+        // Caller contract: emit `rev` BEFORE `add`. If the caller emits
+        // `add` first then `rev`, the executed SQL would be:
+        //   GRANT SELECT TO readers WITH GRANT OPTION;  -- adds WGO
+        //   REVOKE SELECT FROM readers;                 -- removes the grant entirely!
+        // Emitting `rev` first then `add` gives the correct result:
+        //   REVOKE SELECT FROM readers;                 -- removes old grant (no WGO)
+        //   GRANT SELECT TO readers WITH GRANT OPTION;  -- grants with WGO
+    }
+
+    #[test]
+    fn wgo_downgrade_produces_both_add_and_revoke() {
+        // target: readers/Select WITH grant option
+        // source: readers/Select WITHOUT grant option
+        let target = Grant {
+            grantee: GrantTarget::Role(id("readers")),
+            privilege: Privilege::Select,
+            with_grant_option: true,
+            columns: None,
+        };
+        let source = Grant {
+            grantee: GrantTarget::Role(id("readers")),
+            privilege: Privilege::Select,
+            with_grant_option: false,
+            columns: None,
+        };
+        let (add, rev, unmanaged) = diff_grants(
+            std::slice::from_ref(&target),
+            std::slice::from_ref(&source),
+            &managed(&["readers"]),
+        );
+        assert_eq!(add.len(), 1, "expected one add (wgo=false)");
+        assert!(!add[0].with_grant_option, "added grant must have wgo=false");
+        assert_eq!(rev.len(), 1, "expected one revoke (wgo=true)");
+        assert!(rev[0].with_grant_option, "revoked grant must have wgo=true");
         assert!(unmanaged.is_empty());
     }
 }
