@@ -188,6 +188,9 @@ fn parse_subscription_options(
                     .map_err(|e| ParseError::InvalidIdentifier(s, e.to_string()))?;
                 opts.slot_name = Some(id);
             }
+            "connect" => {
+                opts.connect = Some(extract_def_elem_bool(def, name, &loc)?);
+            }
             "create_slot" => {
                 opts.create_slot = Some(extract_def_elem_bool(def, name, &loc)?);
             }
@@ -278,6 +281,9 @@ fn merge_options(base: &mut SubscriptionOptions, delta: SubscriptionOptions) {
     }
     if delta.slot_name.is_some() {
         base.slot_name = delta.slot_name;
+    }
+    if delta.connect.is_some() {
+        base.connect = delta.connect;
     }
     if delta.create_slot.is_some() {
         base.create_slot = delta.create_slot;
@@ -549,6 +555,36 @@ mod tests {
         assert_eq!(sub.options.enabled, Some(false));
         assert_eq!(sub.options.binary, Some(true));
         assert_eq!(sub.options.streaming, Some(StreamingMode::Parallel));
+    }
+
+    #[test]
+    fn create_with_connect_false() {
+        let sql = "CREATE SUBSCRIPTION s CONNECTION 'host=x' PUBLICATION p \
+                   WITH (connect = false);";
+        let stmt = parse_one_create_stmt(sql);
+        let mut acc: BTreeMap<Identifier, Subscription> = BTreeMap::new();
+        parse_create_subscription(&stmt, loc(), &mut acc).expect("ok");
+        let sub = acc.values().next().unwrap();
+        assert_eq!(
+            sub.options.connect,
+            Some(false),
+            "connect = false should parse to Some(false)"
+        );
+    }
+
+    #[test]
+    fn create_with_connect_true() {
+        let sql = "CREATE SUBSCRIPTION s CONNECTION 'host=x' PUBLICATION p \
+                   WITH (connect = true);";
+        let stmt = parse_one_create_stmt(sql);
+        let mut acc: BTreeMap<Identifier, Subscription> = BTreeMap::new();
+        parse_create_subscription(&stmt, loc(), &mut acc).expect("ok");
+        let sub = acc.values().next().unwrap();
+        assert_eq!(
+            sub.options.connect,
+            Some(true),
+            "connect = true should parse to Some(true)"
+        );
     }
 
     #[test]

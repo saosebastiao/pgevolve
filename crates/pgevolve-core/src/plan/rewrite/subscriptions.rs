@@ -4,8 +4,8 @@
 //! All helpers return a complete SQL statement including the trailing semicolon.
 //!
 //! **Important split**: `render_options_body_for_create` includes CREATE-only
-//! options (`create_slot`, `copy_data`); `render_options_body_for_alter` omits
-//! them. PG rejects `ALTER SUBSCRIPTION s SET (create_slot = …)` — these
+//! options (`connect`, `create_slot`, `copy_data`); `render_options_body_for_alter`
+//! omits them. PG rejects `ALTER SUBSCRIPTION s SET (connect = …)` — these
 //! options only exist at CREATE time. The alter helpers call
 //! `render_options_body_for_alter` as a defense-in-depth filter (the differ's
 //! `options_delta` also strips them, but the renderer is the last line of defense).
@@ -71,8 +71,8 @@ pub fn alter_subscription_drop_publication(name: &Identifier, publication: &Iden
 
 /// `ALTER SUBSCRIPTION s SET (option = value, ...);`
 ///
-/// Uses `render_options_body_for_alter` which OMITS `create_slot` and
-/// `copy_data` — those are CREATE-only PG options. The differ's
+/// Uses `render_options_body_for_alter` which OMITS `connect`, `create_slot`,
+/// and `copy_data` — those are CREATE-only PG options. The differ's
 /// `options_delta` also strips them, but this is a defense-in-depth filter.
 #[must_use]
 pub fn alter_subscription_set_options(name: &Identifier, opts: &SubscriptionOptions) -> String {
@@ -102,8 +102,8 @@ fn render_with_options(opts: &SubscriptionOptions) -> String {
     }
 }
 
-/// Render all WITH options including CREATE-only `create_slot` + `copy_data`.
-/// Used only by `create_subscription`.
+/// Render all WITH options including CREATE-only `connect`, `create_slot` +
+/// `copy_data`. Used only by `create_subscription`.
 fn render_options_body_for_create(opts: &SubscriptionOptions) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(v) = opts.enabled {
@@ -111,6 +111,10 @@ fn render_options_body_for_create(opts: &SubscriptionOptions) -> String {
     }
     if let Some(ref v) = opts.slot_name {
         parts.push(format!("slot_name = {}", v.render_sql()));
+    }
+    // `connect` is CREATE-only — controls whether PG dials the publisher.
+    if let Some(v) = opts.connect {
+        parts.push(format!("connect = {v}"));
     }
     if let Some(v) = opts.create_slot {
         parts.push(format!("create_slot = {v}"));
@@ -122,8 +126,8 @@ fn render_options_body_for_create(opts: &SubscriptionOptions) -> String {
     parts.join(", ")
 }
 
-/// Render only the ALTER-able WITH options. Omits `create_slot` and `copy_data`.
-/// Used by `alter_subscription_set_options`.
+/// Render only the ALTER-able WITH options. Omits `connect`, `create_slot`,
+/// and `copy_data`. Used by `alter_subscription_set_options`.
 fn render_options_body_for_alter(opts: &SubscriptionOptions) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(v) = opts.enabled {
@@ -132,7 +136,8 @@ fn render_options_body_for_alter(opts: &SubscriptionOptions) -> String {
     if let Some(ref v) = opts.slot_name {
         parts.push(format!("slot_name = {}", v.render_sql()));
     }
-    // create_slot and copy_data intentionally omitted — PG rejects them in ALTER.
+    // connect, create_slot, and copy_data intentionally omitted — PG rejects
+    // them in ALTER SUBSCRIPTION.
     push_alterable_options(opts, &mut parts);
     parts.join(", ")
 }
@@ -244,6 +249,48 @@ mod tests {
         assert!(sql.contains("enabled = false"));
         assert!(sql.contains("create_slot = false"));
         assert!(sql.contains("copy_data = false"));
+    }
+
+    #[test]
+    fn create_subscription_with_connect_false_emits_connect_false() {
+        let mut s = minimal_sub();
+        s.options.connect = Some(false);
+        let sql = create_subscription(&s);
+        assert!(
+            sql.contains("WITH ("),
+            "WITH clause must be present when connect is Some, got: {sql}"
+        );
+        assert!(
+            sql.contains("connect = false"),
+            "connect = false must appear in WITH clause, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn create_subscription_with_connect_true_emits_connect_true() {
+        let mut s = minimal_sub();
+        s.options.connect = Some(true);
+        let sql = create_subscription(&s);
+        assert!(
+            sql.contains("connect = true"),
+            "connect = true must appear in WITH clause, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn alter_subscription_set_options_does_not_include_connect() {
+        // `connect` is CREATE-only — must never appear in ALTER SET (…).
+        let opts = SubscriptionOptions {
+            connect: Some(false),
+            binary: Some(true),
+            ..Default::default()
+        };
+        let sql = alter_subscription_set_options(&id("mysub"), &opts);
+        assert!(
+            !sql.contains("connect"),
+            "connect must not appear in ALTER SET (PG rejects it), got: {sql}"
+        );
+        assert!(sql.contains("binary = true"));
     }
 
     #[test]

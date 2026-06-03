@@ -158,11 +158,13 @@ fn decode_options(row: &Row) -> Result<SubscriptionOptions, CatalogError> {
         })?)
     };
 
-    // `create_slot` and `copy_data` are CREATE-time-only; pg_subscription
-    // does not store them. Always None when reading from catalog.
+    // `connect`, `create_slot`, and `copy_data` are CREATE-time-only;
+    // pg_subscription does not store them. Always None when reading from
+    // catalog.
     Ok(SubscriptionOptions {
         enabled,
         slot_name,
+        connect: None,    // CREATE-only; not stored in pg_subscription.
         create_slot: None,
         copy_data: None,
         synchronous_commit,

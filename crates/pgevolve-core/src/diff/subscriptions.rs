@@ -215,6 +215,7 @@ fn options_delta(
     SubscriptionOptions {
         enabled: delta_field!(enabled),
         slot_name: delta_field!(slot_name),
+        connect: None,     // CREATE-only; intentionally never diffed.
         create_slot: None, // CREATE-only; intentionally never diffed.
         copy_data: None,   // CREATE-only; intentionally never diffed.
         synchronous_commit: delta_field!(synchronous_commit),
@@ -232,6 +233,7 @@ fn options_delta(
 const fn options_delta_is_empty(d: &SubscriptionOptions) -> bool {
     d.enabled.is_none()
         && d.slot_name.is_none()
+        && d.connect.is_none()
         && d.create_slot.is_none()
         && d.copy_data.is_none()
         && d.synchronous_commit.is_none()

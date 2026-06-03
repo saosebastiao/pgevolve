@@ -43,18 +43,32 @@ pub struct Subscription {
 /// nor resets); `Some(value)` = managed (diff emits an ALTER to match).
 /// Matches the v0.3.3 reloptions per-field-lenient pattern.
 ///
-/// **CREATE-only fields**: `create_slot` and `copy_data` are PG-CREATE-only
-/// (no `ALTER SUBSCRIPTION s SET (create_slot = …)` exists). They flow into
-/// the IR from source CREATE statements so users can declare them, but the
-/// differ NEVER includes them in `AlterSubscriptionSetOptions` deltas, and
-/// the catalog reader ALWAYS returns `None` for them (`pg_subscription`
-/// doesn't store the CREATE-time decision). See `diff::subscriptions::options_delta`.
+/// **CREATE-only fields**: `connect`, `create_slot`, and `copy_data` are
+/// PG-CREATE-only (no `ALTER SUBSCRIPTION s SET (connect = …)` exists).
+/// They flow into the IR from source CREATE statements so users can declare
+/// them, but the differ NEVER includes them in `AlterSubscriptionSetOptions`
+/// deltas, and the catalog reader ALWAYS returns `None` for them
+/// (`pg_subscription` doesn't store the CREATE-time decision).
+/// See `diff::subscriptions::options_delta`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct SubscriptionOptions {
     /// Whether the subscription is enabled. PG default: true.
     pub enabled: Option<bool>,
     /// Replication slot name on the publisher. `None` = use subscription name.
     pub slot_name: Option<Identifier>,
+    /// Whether `CREATE SUBSCRIPTION` should dial the publisher to set up the
+    /// replication slot and verify the connection. PG default: true.
+    ///
+    /// `connect = false` creates the subscription without connecting to the
+    /// publisher; no slot is created at CREATE time. This is a CREATE-only
+    /// directive: it does not appear in `pg_subscription` and cannot be
+    /// changed via `ALTER SUBSCRIPTION`. The catalog reader always returns
+    /// `None` for this field.
+    ///
+    /// Set `connect: Some(false)` in generated catalogs that use synthetic
+    /// DSNs (e.g. `replica.example.com`) to avoid network errors during
+    /// `CREATE SUBSCRIPTION`.
+    pub connect: Option<bool>,
     /// Whether `CREATE SUBSCRIPTION` should create the publisher-side slot.
     /// PG default: true.
     pub create_slot: Option<bool>,
@@ -111,6 +125,7 @@ mod tests {
         let o = SubscriptionOptions::default();
         assert!(o.enabled.is_none());
         assert!(o.slot_name.is_none());
+        assert!(o.connect.is_none());
         assert!(o.create_slot.is_none());
         assert!(o.copy_data.is_none());
         assert!(o.synchronous_commit.is_none());
@@ -122,6 +137,18 @@ mod tests {
         assert!(o.run_as_owner.is_none());
         assert!(o.origin.is_none());
         assert!(o.failover.is_none());
+    }
+
+    #[test]
+    fn options_connect_false_round_trips() {
+        // `connect: Some(false)` must be preserved through clone + equality.
+        let o = SubscriptionOptions {
+            connect: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(o.connect, Some(false));
+        let o2 = o.clone();
+        assert_eq!(o, o2);
     }
 
     #[test]

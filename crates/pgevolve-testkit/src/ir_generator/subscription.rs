@@ -2,10 +2,14 @@
 //!
 //! Publication names are drawn from the catalog's actual publications so
 //! generated subscriptions always reference real publications. CREATE-only
-//! fields (`create_slot`, `copy_data`) and PG-version-gated fields
+//! fields (`connect`, `create_slot`, `copy_data`) and PG-version-gated fields
 //! (`password_required`, `run_as_owner`, `disable_on_error` (PG 15+),
-//! `two_phase` (PG 15+), `origin` (PG 16+), `failover` (PG 17+)) are left
-//! `None` to keep generation simple and lint-clean.
+//! `two_phase` (PG 15+), `origin` (PG 16+), `failover` (PG 17+)) are left at
+//! fixed values or `None` to keep generation simple and lint-clean.
+//!
+//! `connect` is always `Some(false)` so that generated subscriptions with
+//! synthetic DSNs (e.g. `replica.example.com`) never trigger a network dial
+//! at `CREATE SUBSCRIPTION` time (PG dials the publisher by default).
 
 #![allow(clippy::needless_pass_by_value)]
 
@@ -30,7 +34,10 @@ fn arb_streaming_mode() -> impl Strategy<Value = StreamingMode> {
 
 /// Generate random [`SubscriptionOptions`] with selected fields set.
 ///
-/// CREATE-only fields (`create_slot`, `copy_data`) and PG-version-gated
+/// `connect` is always `Some(false)` — generated subscriptions use synthetic
+/// DSNs that must never be dialed at CREATE time.
+///
+/// Other CREATE-only fields (`create_slot`, `copy_data`) and PG-version-gated
 /// fields (`password_required`, `run_as_owner`, `disable_on_error` (PG 15+),
 /// `two_phase` (PG 15+), `origin` (PG 16+), `failover` (PG 17+)) are left
 /// `None` to keep generation simple and lint-clean. `synchronous_commit` is
@@ -50,6 +57,7 @@ fn arb_subscription_options() -> impl Strategy<Value = SubscriptionOptions> {
                 SubscriptionOptions {
                     enabled,
                     slot_name: None,
+                    connect: Some(false), // always false — never dial synthetic DSNs
                     create_slot: None,
                     copy_data: None,
                     synchronous_commit: None,
@@ -138,6 +146,27 @@ mod tests {
     use super::arb_subscription_options;
 
     use pgevolve_core::ir::subscription::StreamingMode;
+
+    /// `connect` must always be `Some(false)` in generated subscriptions.
+    /// Generated subscriptions use synthetic DSNs (e.g. `replica.example.com`)
+    /// that cannot be dialed; `connect = false` prevents PG from attempting a
+    /// network connection at `CREATE SUBSCRIPTION` time.
+    #[test]
+    fn subscription_options_connect_is_always_some_false() {
+        let mut runner = TestRunner::default();
+        for _ in 0..256 {
+            let tree = arb_subscription_options()
+                .new_tree(&mut runner)
+                .expect("strategy construction failed");
+            let opts = tree.current();
+            assert_eq!(
+                opts.connect,
+                Some(false),
+                "connect must always be Some(false) for synthetic-DSN safety, got {:?}",
+                opts.connect,
+            );
+        }
+    }
 
     /// `failover` (PG 17+), `origin` (PG 16+), `two_phase` (PG 15+), and
     /// `disable_on_error` (PG 15+) must always be `None` so that generated
