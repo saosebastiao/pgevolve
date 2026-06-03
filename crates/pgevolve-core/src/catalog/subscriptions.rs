@@ -193,13 +193,17 @@ fn opt_bool(row: &Row, col: &str) -> Result<Option<bool>, CatalogError> {
 
 /// Decode `substream` text to [`StreamingMode`].
 ///
-/// PG 14 stores `substream` as `bool` (`f`/`t`), cast to `text` by the SQL.
-/// PG 16+ uses `text` directly with values `'f'`/`'t'`/`'p'`.
+/// PG 14/15 stores `substream` as `bool`; the catalog SQL casts it with
+/// `::text`, which Postgres renders as `"true"` / `"false"` (full words).
+/// PG 16+ changed the column type to `char`, storing `'f'` / `'t'` / `'p'`.
+/// Both spellings are accepted here (belt-and-suspenders; fixes #28).
 pub fn decode_streaming(s: &str) -> Result<StreamingMode, CatalogError> {
     match s {
-        "f" => Ok(StreamingMode::Off),
-        "t" => Ok(StreamingMode::On),
-        "p" => Ok(StreamingMode::Parallel),
+        // Single-char form (PG 16+ char column) and boolean-text form
+        // (PG 14/15 bool column cast via ::text) are both accepted.
+        "f" | "false" => Ok(StreamingMode::Off),
+        "t" | "true" => Ok(StreamingMode::On),
+        "p" | "parallel" => Ok(StreamingMode::Parallel),
         other => Err(CatalogError::BadColumnType {
             query: Q,
             column: "streaming".to_string(),
@@ -268,6 +272,31 @@ mod tests {
         assert!(
             format!("{err}").contains("unknown substream value"),
             "error should mention unknown value: {err}"
+        );
+    }
+
+    // Boolean text forms emitted by PG when substream (bool column, PG 14/15)
+    // is cast to ::text via the catalog query.  After commit 954614c (#24) the
+    // renderer emits `streaming = false / true` which PG stores and then
+    // round-trips back as "false" / "true" through ::text.  Closes #28.
+
+    #[test]
+    fn streaming_off_boolean_text_false_decodes() {
+        assert_eq!(decode_streaming("false").unwrap(), StreamingMode::Off);
+    }
+
+    #[test]
+    fn streaming_on_boolean_text_true_decodes() {
+        assert_eq!(decode_streaming("true").unwrap(), StreamingMode::On);
+    }
+
+    // "parallel" is the PG 16+ text form (stored directly as text, not bool).
+    // Verify it also decodes correctly even though it is not a new form.
+    #[test]
+    fn streaming_parallel_text_parallel_decodes() {
+        assert_eq!(
+            decode_streaming("parallel").unwrap(),
+            StreamingMode::Parallel
         );
     }
 

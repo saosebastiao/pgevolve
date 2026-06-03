@@ -43,8 +43,9 @@ pub const PUBLICATION_ATTRIBUTES_QUERY_PG14: &str =
 ///   - `subpasswordrequired`, `subrunasowner`, `suborigin` (PG 16+)
 ///   - `subfailover`       (PG 17+)
 ///
-/// `substream` is `bool` in PG 14; the `::text` cast returns `'f'` or `'t'`
-/// which the decoder handles identically to the PG 16+ text column.
+/// `substream` is `bool` in PG 14; the `::text` cast returns `'false'` or
+/// `'true'` (full boolean text form). The decoder accepts both this form and
+/// the PG 16+ single-char form (`'f'`/`'t'`/`'p'`). See #28.
 ///
 /// `two_phase_state` is returned as NULL so the IR field is always `None`
 /// when reading from a PG 14 instance (`two_phase` was added in PG 15).
