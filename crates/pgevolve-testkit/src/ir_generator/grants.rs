@@ -228,13 +228,30 @@ pub fn arbitrary_default_privileges(
 
     // Build the rule strategy by pairing an independent schema pick with the
     // other fields so that each generated rule carries its own schema choice.
+    //
+    // Grants within each rule must use a privilege valid for the rule's
+    // object_type: PG rejects mismatches with error 0LP01. We pick the
+    // object_type first, then derive the privilege set from it via
+    // `prop_flat_map`.
+    let grantee_strategy = || {
+        prop_oneof![
+            Just(GrantTarget::Public),
+            Just(GrantTarget::Role(
+                Identifier::from_unquoted("readers").unwrap()
+            )),
+            Just(GrantTarget::Role(
+                Identifier::from_unquoted("writers").unwrap()
+            )),
+        ]
+    };
+
     let rule_strategy = (
         // target_role
         prop_oneof![Just("app_owner"), Just("app"), Just("ops"),]
             .prop_map(|s| Identifier::from_unquoted(s).unwrap()),
         // schema: None or a schema from the catalog's declared set.
         schema_strategy,
-        // object_type
+        // object_type — picked first so the grant strategy can depend on it.
         prop_oneof![
             Just(DefaultPrivObjectType::Tables),
             Just(DefaultPrivObjectType::Sequences),
@@ -242,34 +259,56 @@ pub fn arbitrary_default_privileges(
             Just(DefaultPrivObjectType::Types),
             Just(DefaultPrivObjectType::Schemas),
         ],
-        // grants within the rule (0–2)
-        prop_oneof![
-            Just(vec![]),
-            prop_oneof![
-                Just(GrantTarget::Public),
-                Just(GrantTarget::Role(
-                    Identifier::from_unquoted("readers").unwrap()
-                )),
-                Just(GrantTarget::Role(
-                    Identifier::from_unquoted("writers").unwrap()
-                )),
-            ]
-            .prop_map(|grantee| vec![Grant {
-                grantee,
-                privilege: Privilege::Select,
-                with_grant_option: false,
-                columns: None,
-            }]),
-        ],
     )
-        .prop_map(
-            |(target_role, schema, object_type, grants)| DefaultPrivilegeRule {
-                target_role,
-                schema,
+        .prop_flat_map(move |(target_role, schema, object_type)| {
+            // Per-object-type valid privilege sets (PG 14-17).
+            // MAINTAIN (PG 17+) omitted to avoid version gating.
+            let privilege_strategy: BoxedStrategy<Privilege> = match object_type {
+                DefaultPrivObjectType::Tables => prop_oneof![
+                    Just(Privilege::Select),
+                    Just(Privilege::Insert),
+                    Just(Privilege::Update),
+                    Just(Privilege::Delete),
+                    Just(Privilege::Truncate),
+                    Just(Privilege::References),
+                    Just(Privilege::Trigger),
+                ]
+                .boxed(),
+                DefaultPrivObjectType::Sequences => prop_oneof![
+                    Just(Privilege::Usage),
+                    Just(Privilege::Select),
+                    Just(Privilege::Update),
+                ]
+                .boxed(),
+                DefaultPrivObjectType::Functions => Just(Privilege::Execute).boxed(),
+                DefaultPrivObjectType::Types => Just(Privilege::Usage).boxed(),
+                DefaultPrivObjectType::Schemas => {
+                    prop_oneof![Just(Privilege::Usage), Just(Privilege::Create),].boxed()
+                }
+            };
+
+            // grants within the rule (0–1): empty or one grant with a
+            // privilege valid for this object_type.
+            let grants_strategy: BoxedStrategy<Vec<Grant>> = prop_oneof![
+                Just(vec![]),
+                (grantee_strategy(), privilege_strategy).prop_map(|(grantee, privilege)| {
+                    vec![Grant {
+                        grantee,
+                        privilege,
+                        with_grant_option: false,
+                        columns: None,
+                    }]
+                }),
+            ]
+            .boxed();
+
+            grants_strategy.prop_map(move |grants| DefaultPrivilegeRule {
+                target_role: target_role.clone(),
+                schema: schema.clone(),
                 object_type,
                 grants,
-            },
-        );
+            })
+        });
 
     prop_oneof![
         Just(vec![]),
@@ -281,6 +320,36 @@ pub fn arbitrary_default_privileges(
     .boxed()
 }
 
+/// Returns `true` iff `privilege` is a valid privilege for the given
+/// `DefaultPrivObjectType` per PG 14-17.
+///
+/// Used in property tests to assert the generator never emits an invalid
+/// `(object_type, privilege)` pair.
+#[cfg(test)]
+const fn is_valid_default_priv(
+    object_type: pgevolve_core::ir::default_privileges::DefaultPrivObjectType,
+    privilege: pgevolve_core::ir::grant::Privilege,
+) -> bool {
+    use pgevolve_core::ir::default_privileges::DefaultPrivObjectType as T;
+    use pgevolve_core::ir::grant::Privilege as P;
+    match object_type {
+        T::Tables => matches!(
+            privilege,
+            P::Select
+                | P::Insert
+                | P::Update
+                | P::Delete
+                | P::Truncate
+                | P::References
+                | P::Trigger
+        ),
+        T::Sequences => matches!(privilege, P::Usage | P::Select | P::Update),
+        T::Functions => matches!(privilege, P::Execute),
+        T::Types => matches!(privilege, P::Usage),
+        T::Schemas => matches!(privilege, P::Usage | P::Create),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -288,7 +357,9 @@ mod tests {
 
     use pgevolve_core::ir::grant::GrantTarget;
 
-    use super::{TABLE_PRIVS, arb_object_grants};
+    use super::{
+        TABLE_PRIVS, arb_object_grants, arbitrary_default_privileges, is_valid_default_priv,
+    };
 
     proptest! {
         #![proptest_config(Config { cases: 256, ..Config::default() })]
@@ -302,6 +373,25 @@ mod tests {
                     prop_assert!(
                         !grant.with_grant_option,
                         "with_grant_option must be false for PUBLIC grantee (PG error 0LP01)"
+                    );
+                }
+            }
+        }
+
+        /// PG rejects privilege/object-kind mismatches in ALTER DEFAULT PRIVILEGES
+        /// (e.g. SELECT on FUNCTIONS is invalid — only EXECUTE is accepted).
+        /// Assert that every generated rule uses a privilege valid for its object type.
+        #[test]
+        fn default_priv_rules_use_valid_privilege_for_object_type(
+            rules in arbitrary_default_privileges(&[])
+        ) {
+            for rule in &rules {
+                for grant in &rule.grants {
+                    prop_assert!(
+                        is_valid_default_priv(rule.object_type, grant.privilege),
+                        "invalid privilege {:?} for object type {:?} (PG error 0LP01)",
+                        grant.privilege,
+                        rule.object_type,
                     );
                 }
             }
