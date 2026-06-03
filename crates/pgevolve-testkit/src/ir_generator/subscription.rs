@@ -3,8 +3,9 @@
 //! Publication names are drawn from the catalog's actual publications so
 //! generated subscriptions always reference real publications. CREATE-only
 //! fields (`create_slot`, `copy_data`) and PG-version-gated fields
-//! (`password_required`, `run_as_owner`, `origin` (PG 16+), `failover`
-//! (PG 17+)) are left `None` to keep generation simple and lint-clean.
+//! (`password_required`, `run_as_owner`, `two_phase` (PG 15+), `origin`
+//! (PG 16+), `failover` (PG 17+)) are left `None` to keep generation
+//! simple and lint-clean.
 
 #![allow(clippy::needless_pass_by_value)]
 
@@ -28,16 +29,16 @@ fn arb_streaming_mode() -> impl Strategy<Value = StreamingMode> {
 /// Generate random [`SubscriptionOptions`] with selected fields set.
 ///
 /// CREATE-only fields (`create_slot`, `copy_data`) and PG-version-gated
-/// fields (`password_required`, `run_as_owner`, `origin` (PG 16+),
-/// `failover` (PG 17+)) are left `None` to keep generation simple and
-/// lint-clean. `synchronous_commit` is also left `None` (free-form
-/// string; no bounded pool to sample from).
+/// fields (`password_required`, `run_as_owner`, `two_phase` (PG 15+),
+/// `origin` (PG 16+), `failover` (PG 17+)) are left `None` to keep
+/// generation simple and lint-clean. `synchronous_commit` is also left
+/// `None` (free-form string; no bounded pool to sample from).
 fn arb_subscription_options() -> impl Strategy<Value = SubscriptionOptions> {
     (
         prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // enabled
         prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // binary
         prop_oneof![Just(None), arb_streaming_mode().prop_map(Some)], // streaming
-        prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // two_phase
+        Just(None), // two_phase — PG 15+ only; leave None to stay version-agnostic
         prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // disable_on_error
         Just(None), // origin — PG 16+ only; leave None to stay version-agnostic
         Just(None), // failover — PG 17+ only; leave None to stay version-agnostic
@@ -134,9 +135,9 @@ mod tests {
 
     use super::arb_subscription_options;
 
-    /// `failover` (PG 17+) and `origin` (PG 16+) must always be `None` so
-    /// that generated subscriptions are valid on every PG version the soak
-    /// matrix covers (PG 14–18).
+    /// `failover` (PG 17+), `origin` (PG 16+), and `two_phase` (PG 15+) must
+    /// always be `None` so that generated subscriptions are valid on every PG
+    /// version the soak matrix covers (PG 14–18).
     #[test]
     fn subscription_options_version_gated_fields_are_none() {
         let mut runner = TestRunner::default();
@@ -154,6 +155,11 @@ mod tests {
                 opts.origin.is_none(),
                 "origin must be None (PG 16+ only), got {:?}",
                 opts.origin,
+            );
+            assert!(
+                opts.two_phase.is_none(),
+                "two_phase must be None (PG 15+ only), got {:?}",
+                opts.two_phase,
             );
         }
     }
