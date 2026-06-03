@@ -25,5 +25,5 @@ pub use api::{ClusterPlan, ClusterPlanError, build_cluster_plan};
 pub use executor::{
     ApplyError, ApplyOutcome, ApplyOverrides, apply, apply_plan, bootstrap_metadata,
 };
-pub use executor::{ClusterApplyError, apply_cluster_plan_dir, apply_cluster_steps};
+pub use executor::{ClusterApplyError, apply_cluster_plan, apply_cluster_plan_dir};
 pub use target_identity::compute_target_identity;

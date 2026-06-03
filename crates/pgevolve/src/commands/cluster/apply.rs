@@ -3,18 +3,18 @@
 //! With no plan id, finds the most recently modified directory under
 //! `cluster-plans/`. With an explicit id, applies that specific plan.
 //!
-//! v0.3.0 limitations (tracked for Stage 12):
-//! - `intent.toml` destructive-step approval is not enforced.
-//! - No advisory lock is taken.
-//! - No `pgevolve.apply_log` row is created.
+//! Closes the v0.3.0 Stage-12 gaps (#7): structured plan loading, advisory
+//! lock, intent enforcement, manifest cross-check, `apply_log` audit.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::{Context, Result, anyhow};
 
+use pgevolve_core::plan::read_plan_dir;
+
 use crate::cluster_config::ClusterConfig;
-use crate::executor::cluster_apply::apply_cluster_plan_dir;
+use crate::executor::{ApplyOverrides, apply_cluster_plan};
 
 /// Run `pgevolve cluster apply`.
 pub async fn run(project_root: &Path, cfg: &ClusterConfig, plan_id: Option<&str>) -> Result<i32> {
@@ -25,11 +25,26 @@ pub async fn run(project_root: &Path, cfg: &ClusterConfig, plan_id: Option<&str>
     };
 
     eprintln!("Applying {}", plan_dir.display());
-    apply_cluster_plan_dir(&plan_dir, cfg)
+
+    let plan = read_plan_dir(&plan_dir)
+        .with_context(|| format!("reading plan from {}", plan_dir.display()))?;
+
+    let (mut client, connection) =
+        tokio_postgres::connect(&cfg.connection.dsn, tokio_postgres::NoTls)
+            .await
+            .context("connecting to cluster for apply")?;
+    tokio::spawn(async move {
+        if let Err(err) = connection.await {
+            tracing::debug!(?err, "cluster apply connection ended");
+        }
+    });
+
+    let overrides = ApplyOverrides::default();
+    apply_cluster_plan(&plan, &mut client, overrides)
         .await
         .map_err(|e| anyhow!("{e}"))?;
-    eprintln!("Done.");
 
+    eprintln!("Done.");
     Ok(0)
 }
 

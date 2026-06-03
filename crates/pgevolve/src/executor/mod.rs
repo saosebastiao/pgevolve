@@ -4,7 +4,7 @@
 //! bootstrap, advisory locking, drift recheck, intent enforcement, per-step
 //! audit logging, and rollback handling. Public entry point: [`apply`].
 //!
-//! Cluster apply: [`cluster_apply::apply_cluster_steps`] and
+//! Cluster apply: [`cluster_apply::apply_cluster_plan`] and
 //! [`cluster_apply::apply_cluster_plan_dir`] run cluster DDL steps against
 //! the superuser DSN from a [`crate::cluster_config::ClusterConfig`].
 
@@ -19,9 +19,7 @@ pub mod lock;
 pub mod preflight;
 pub mod status;
 
-pub use cluster_apply::{
-    ClusterApplyError, apply_cluster_plan, apply_cluster_plan_dir, apply_cluster_steps,
-};
+pub use cluster_apply::{ClusterApplyError, apply_cluster_plan, apply_cluster_plan_dir};
 pub use cluster_preflight::ClusterPreflightOverrides;
 
 use std::path::Path;
