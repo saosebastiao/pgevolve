@@ -60,9 +60,20 @@ pub(super) fn build_default_privileges(
             })?;
 
         let acl_strings = row.get_text_array(Q, "acl")?;
-        let grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
-        // Note: default-priv rules don't have a per-rule "owner" to strip
-        // against, so no owner-self-grant filtering here.
+        let raw_grants = crate::catalog::grants::decode_aclitem_array(&acl_strings)?;
+        // Strip self-grants: `pg_default_acl.defaclacl` stores the COMPLETE
+        // desired ACL for objects created by `target_role`, which includes the
+        // target_role's own implicit privileges (e.g. `ops=X/ops` for EXECUTE
+        // on functions). These self-grants are PG bookkeeping — they are never
+        // declared in source IR and must not appear in the live catalog either.
+        // Without this filter the live catalog perpetually diverges from source:
+        //   source = `[readers/Execute]`
+        //   live   = `[ops/Execute, readers/Execute]`
+        // and the diff engine emits a spurious REVOKE that can delete the
+        // entire `pg_default_acl` row, causing `present vs removed` failures.
+        // (Analogous to `strip_owner_self_grants` for regular object grants.)
+        let grants =
+            crate::catalog::grants::strip_owner_self_grants(raw_grants, &target_role);
 
         out.push(DefaultPrivilegeRule {
             target_role,
@@ -145,5 +156,101 @@ mod tests {
     fn unknown_object_type_errors() {
         let rows = vec![row_for("role1", None, "q", &[])];
         assert!(build_default_privileges(&rows).is_err());
+    }
+
+    /// Regression for issue #34: PG stores the target_role's own privileges in
+    /// `pg_default_acl.defaclacl` (e.g. `ops=X/ops` alongside `readers=X/ops`
+    /// when you GRANT EXECUTE ON FUNCTIONS TO readers FOR ROLE ops). Without
+    /// filtering, the live catalog perpetually diverges from source IR because
+    /// source never declares these self-grants. The self-grants must be stripped
+    /// at read time, just as `strip_owner_self_grants` strips them for regular
+    /// object ACLs.
+    #[test]
+    fn strips_target_role_self_grant_from_acl() {
+        // Simulate what PG stores in defaclacl after:
+        //   ALTER DEFAULT PRIVILEGES FOR ROLE ops
+        //     GRANT EXECUTE ON FUNCTIONS TO readers;
+        // PG records: ops=X/ops (self-grant) AND readers=X/ops (explicit grant).
+        let rows = vec![row_for(
+            "ops",
+            None,
+            "f",
+            &["ops=X/ops", "readers=X/ops"],
+        )];
+        let rules = build_default_privileges(&rows).unwrap();
+        assert_eq!(rules.len(), 1);
+        // The self-grant `ops=X/ops` must be stripped; only `readers/Execute` remains.
+        assert_eq!(
+            rules[0].grants.len(),
+            1,
+            "expected 1 grant (readers/Execute), got: {:?}",
+            rules[0].grants
+        );
+        assert!(
+            matches!(
+                &rules[0].grants[0].grantee,
+                crate::ir::grant::GrantTarget::Role(r) if r.as_str() == "readers"
+            ),
+            "remaining grant should be to readers, got: {:?}",
+            rules[0].grants[0]
+        );
+    }
+
+    /// Analogous regression test for schemas (USAGE + CREATE self-grant case).
+    #[test]
+    fn strips_target_role_self_grant_schemas() {
+        // Simulate: ALTER DEFAULT PRIVILEGES FOR ROLE app GRANT CREATE ON SCHEMAS TO readers
+        // PG stores: app=UC/app (self-grant), readers=C/app (explicit grant).
+        let rows = vec![row_for(
+            "app",
+            None,
+            "n",
+            &["app=UC/app", "readers=C/app"],
+        )];
+        let rules = build_default_privileges(&rows).unwrap();
+        assert_eq!(rules.len(), 1);
+        // app=UC/app (self-grant) must be stripped; only readers/Create remains.
+        assert_eq!(
+            rules[0].grants.len(),
+            1,
+            "expected 1 grant (readers/Create), got: {:?}",
+            rules[0].grants
+        );
+        let g = &rules[0].grants[0];
+        assert!(
+            matches!(&g.grantee, crate::ir::grant::GrantTarget::Role(r) if r.as_str() == "readers"),
+            "remaining grant should be to readers, got: {:?}",
+            g
+        );
+        assert_eq!(
+            g.privilege,
+            crate::ir::grant::Privilege::Create,
+            "remaining grant should be Create"
+        );
+    }
+
+    /// A non-self-grant from a role that happens to have the same name as the
+    /// target_role but is a different grant (to a different grantee) must be kept.
+    #[test]
+    fn keeps_non_self_grants_intact() {
+        // ops is the target_role. readers and ops are both grantees, but only
+        // ops=X/ops is the self-grant. If ops appeared as a grantee in a
+        // different privilege it would also be stripped (same name comparison).
+        // This test confirms that non-self-grantees (readers) are always kept.
+        let rows = vec![row_for(
+            "ops",
+            None,
+            "f",
+            &["ops=X/ops", "readers=X/ops"],
+        )];
+        let rules = build_default_privileges(&rows).unwrap();
+        assert_eq!(rules[0].grants.len(), 1);
+        assert!(
+            matches!(
+                &rules[0].grants[0].grantee,
+                crate::ir::grant::GrantTarget::Role(r) if r.as_str() == "readers"
+            ),
+            "readers grant must be kept"
+        );
     }
 }

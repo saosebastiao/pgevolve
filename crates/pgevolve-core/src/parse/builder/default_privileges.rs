@@ -133,6 +133,17 @@ pub(crate) fn apply(
                     && r.schema == schema
                     && r.object_type == default_obj_type
             });
+            // Strip self-grants from source: `GRANT ... TO <target_role>` has
+            // no operational effect — Postgres always grants the target_role its
+            // own implicit privileges on objects it creates. Declaring the self-
+            // grant in source would cause a permanent divergence because the live
+            // catalog reader also strips them (they are PG bookkeeping, not
+            // user-declared intent). Removing them here keeps source and live IR
+            // in the same canonical form.
+            let new_grants: Vec<Grant> = crate::catalog::grants::strip_owner_self_grants(
+                new_grants,
+                target_role,
+            );
             if let Some(rule) = existing {
                 rule.grants.extend(new_grants);
             } else {
@@ -455,5 +466,70 @@ mod tests {
         assert!(privs.contains(&Privilege::Truncate));
         assert!(privs.contains(&Privilege::References));
         assert!(privs.contains(&Privilege::Trigger));
+    }
+
+    /// Regression for issue #34: self-grants in source SQL must be stripped.
+    ///
+    /// `ALTER DEFAULT PRIVILEGES FOR ROLE ops GRANT EXECUTE ON FUNCTIONS TO ops`
+    /// is a no-op in Postgres — the target_role always has implicit EXECUTE on
+    /// its own future functions. Declaring it in source causes a phantom
+    /// divergence because the live catalog reader also strips self-grants (they
+    /// are PG bookkeeping). By stripping here at parse time we keep source and
+    /// live IR in the same canonical form and avoid spurious revoke/re-grant
+    /// cycles.
+    #[test]
+    fn strips_target_role_self_grant_from_source_ir() {
+        let mut cat = empty_cat();
+        // Self-grant: ops grants EXECUTE to ops (self).
+        let s = parse_adp(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE ops \
+             GRANT EXECUTE ON FUNCTIONS TO ops;",
+        );
+        apply(&s, &mut cat, &loc()).unwrap();
+        // The rule is created (empty grants list) rather than being silently dropped.
+        // Empty-rules are filtered later in canonicalize; here we just verify
+        // that the self-grant is not present.
+        let rule = cat.default_privileges.iter().find(|r| r.target_role == id("ops"));
+        if let Some(rule) = rule {
+            assert!(
+                rule.grants.is_empty(),
+                "self-grant ops/Execute must be stripped; got: {:?}",
+                rule.grants
+            );
+        }
+        // No rule at all is also acceptable (empty-grants rules may be elided).
+    }
+
+    /// Self-grant is stripped even when other grantees are present.
+    #[test]
+    fn strips_self_grant_but_keeps_others() {
+        let mut cat = empty_cat();
+        // Two statements: grant to self (stripped) and grant to readers (kept).
+        let s1 = parse_adp(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE ops \
+             GRANT EXECUTE ON FUNCTIONS TO ops;",
+        );
+        let s2 = parse_adp(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE ops \
+             GRANT EXECUTE ON FUNCTIONS TO readers;",
+        );
+        apply(&s1, &mut cat, &loc()).unwrap();
+        apply(&s2, &mut cat, &loc()).unwrap();
+        let rule = cat
+            .default_privileges
+            .iter()
+            .find(|r| r.target_role == id("ops"))
+            .expect("rule should exist");
+        assert_eq!(
+            rule.grants.len(),
+            1,
+            "only readers/Execute should remain; got: {:?}",
+            rule.grants
+        );
+        assert!(
+            matches!(&rule.grants[0].grantee, GrantTarget::Role(r) if r.as_str() == "readers"),
+            "remaining grant must be to readers; got: {:?}",
+            rule.grants[0]
+        );
     }
 }
