@@ -81,4 +81,11 @@ pub enum ApplyError {
         "missing env var ${{{0}}} referenced by step {1}; required for subscription CONNECTION resolution"
     )]
     MissingEnvVar(String, u32),
+
+    /// An internal invariant was violated or an unexpected value was encountered.
+    ///
+    /// Used for failures that are not Postgres errors (e.g., parsing a value
+    /// returned from Postgres that should always be valid, but is not).
+    #[error("internal error: {0}")]
+    Internal(String),
 }
