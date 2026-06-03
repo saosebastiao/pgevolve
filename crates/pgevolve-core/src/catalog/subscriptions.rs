@@ -164,7 +164,7 @@ fn decode_options(row: &Row) -> Result<SubscriptionOptions, CatalogError> {
     Ok(SubscriptionOptions {
         enabled,
         slot_name,
-        connect: None,    // CREATE-only; not stored in pg_subscription.
+        connect: None, // CREATE-only; not stored in pg_subscription.
         create_slot: None,
         copy_data: None,
         synchronous_commit,

@@ -7,6 +7,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Cluster apply reaches per-DB parity.** `pgevolve cluster apply` now bootstraps `pgevolve` metadata, acquires the singleton advisory lock, runs cluster preflight (identity match + intent approval), writes an `apply_log` row, executes via the per-DB group executor, and closes the audit row. `pgevolve cluster plan` writes the canonical 3-file plan layout (structured `plan.sql` headers + `intent.toml` + `manifest.toml` with `target_identity`). Closes #7.
+
+### Removed
+
+- `pgevolve::executor::apply_cluster_steps` (public API). Callers that previously built a `Vec<RawStep>` and applied it directly should now build a `Plan` and use `apply_cluster_plan` instead.
+
 ## [0.3.9] — 2026-05-28
 
 Patch for the broken v0.3.8 — no new features.
