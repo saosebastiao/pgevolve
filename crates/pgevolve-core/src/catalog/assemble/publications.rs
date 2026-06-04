@@ -75,6 +75,23 @@ pub(super) fn assemble_publications(
             nss,
         )?;
 
+        // Skip empty publications. PG permits a publication with no tables and
+        // no schemas — created directly (`CREATE PUBLICATION p;`) or left behind
+        // when a selective publication's last table/schema is dropped (PG
+        // silently empties it rather than dropping it). pgevolve cannot model an
+        // empty publication: the parser and canon both reject an empty
+        // `Selective` scope, so one can never be declared in source and is
+        // always unmanaged. Skipping it keeps the catalog readable instead of
+        // failing the whole introspection; the lenient drift policy already
+        // ignores unmanaged publications.
+        if matches!(
+            &scope,
+            crate::ir::publication::PublicationScope::Selective { schemas, tables }
+                if schemas.is_empty() && tables.is_empty()
+        ) {
+            continue;
+        }
+
         publications.push(Publication {
             name: pp.name,
             scope,
@@ -175,5 +192,31 @@ mod tests {
     fn empty_pub_rows_returns_empty_vec() {
         let pubs = assemble_publications(&[], &[], &[], &[]).unwrap();
         assert!(pubs.is_empty());
+    }
+
+    /// An empty publication (no `FOR ALL TABLES`, no tables, no schemas) is a
+    /// legal PG object — `CREATE PUBLICATION p;`, or a selective publication
+    /// whose last table/schema was dropped (PG silently empties it). pgevolve
+    /// cannot model one (the parser and canon reject empty `Selective`
+    /// scopes), so it can never appear in source and is always unmanaged. The
+    /// reader must skip it rather than failing the entire catalog read.
+    #[test]
+    fn empty_selective_publication_is_skipped() {
+        let pubs = assemble_publications(&[pub_row(7, "empty_pub", false)], &[], &[], &[]).unwrap();
+        assert!(
+            pubs.is_empty(),
+            "an empty publication must be skipped on read, got {pubs:?}"
+        );
+    }
+
+    /// A non-empty publication alongside an empty one: only the empty one is
+    /// skipped.
+    #[test]
+    fn empty_publication_skipped_but_others_kept() {
+        let pub_rows = vec![pub_row(1, "empty_pub", false), pub_row(2, "real_pub", false)];
+        let rel_rows = vec![rel_row(2, "app", "orders", 99)];
+        let pubs = assemble_publications(&pub_rows, &rel_rows, &[], &[]).unwrap();
+        assert_eq!(pubs.len(), 1);
+        assert_eq!(pubs[0].name.as_str(), "real_pub");
     }
 }
