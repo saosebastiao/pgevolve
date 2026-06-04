@@ -133,15 +133,22 @@ pub(crate) fn apply(
                     && r.schema == schema
                     && r.object_type == default_obj_type
             });
-            // Strip self-grants from source: `GRANT ... TO <target_role>` has
-            // no operational effect — Postgres always grants the target_role its
-            // own implicit privileges on objects it creates. Declaring the self-
-            // grant in source would cause a permanent divergence because the live
-            // catalog reader also strips them (they are PG bookkeeping, not
-            // user-declared intent). Removing them here keeps source and live IR
-            // in the same canonical form.
+            // Strip implicit grants from source so that source IR and live IR
+            // remain in the same canonical form:
+            //
+            // 1. Self-grants (#34): `GRANT ... TO <target_role>` is a no-op —
+            //    Postgres always grants the target_role its own implicit
+            //    privileges on objects it creates. These are PG bookkeeping.
+            //
+            // 2. Implicit PUBLIC grants (#37): `GRANT USAGE ON TYPES TO PUBLIC`
+            //    and `GRANT EXECUTE ON FUNCTIONS TO PUBLIC` are always present in
+            //    `pg_default_acl.defaclacl` and are never user-revocable. The
+            //    reader strips them too; declaring them in source causes a
+            //    permanent phantom divergence.
             let new_grants: Vec<Grant> =
                 crate::catalog::grants::strip_owner_self_grants(new_grants, target_role);
+            let new_grants: Vec<Grant> =
+                crate::catalog::grants::strip_public_implicit_grants(new_grants, default_obj_type);
             if let Some(rule) = existing {
                 rule.grants.extend(new_grants);
             } else {
@@ -499,6 +506,87 @@ mod tests {
             );
         }
         // No rule at all is also acceptable (empty-grants rules may be elided).
+    }
+
+    /// Regression for issue #37: parser must strip the implicit Public/Usage grant
+    /// when the user writes `GRANT USAGE ON TYPES TO PUBLIC` for any `target_role`.
+    /// PG always has this entry in `defaclacl`; declaring it in source would cause
+    /// a phantom divergence because the reader also strips it.
+    #[test]
+    fn strips_implicit_public_usage_on_types_from_source_ir() {
+        let mut cat = empty_cat();
+        let s = parse_adp(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE app_owner \
+             GRANT USAGE ON TYPES TO PUBLIC;",
+        );
+        apply(&s, &mut cat, &loc()).unwrap();
+        // Rule may be created with empty grants or not at all.
+        let rule = cat
+            .default_privileges
+            .iter()
+            .find(|r| r.target_role == id("app_owner"));
+        if let Some(rule) = rule {
+            assert!(
+                rule.grants.is_empty(),
+                "implicit Public/Usage on TYPES must be stripped; got: {:?}",
+                rule.grants
+            );
+        }
+    }
+
+    /// Parser strips Public/Usage on TYPES but keeps explicit grants to other roles.
+    #[test]
+    fn strips_public_usage_on_types_but_keeps_others() {
+        let mut cat = empty_cat();
+        // Implicit grant (stripped) + explicit grant to readers (kept).
+        let s1 = parse_adp(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE app_owner \
+             GRANT USAGE ON TYPES TO PUBLIC;",
+        );
+        let s2 = parse_adp(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE app_owner \
+             GRANT USAGE ON TYPES TO readers;",
+        );
+        apply(&s1, &mut cat, &loc()).unwrap();
+        apply(&s2, &mut cat, &loc()).unwrap();
+        let rule = cat
+            .default_privileges
+            .iter()
+            .find(|r| r.target_role == id("app_owner"))
+            .expect("rule should exist");
+        assert_eq!(
+            rule.grants.len(),
+            1,
+            "only readers/Usage should remain; got: {:?}",
+            rule.grants
+        );
+        assert!(
+            matches!(&rule.grants[0].grantee, GrantTarget::Role(r) if r.as_str() == "readers"),
+            "remaining grant must be to readers; got: {:?}",
+            rule.grants[0]
+        );
+    }
+
+    /// Parser strips Public/Execute on FUNCTIONS.
+    #[test]
+    fn strips_implicit_public_execute_on_functions_from_source_ir() {
+        let mut cat = empty_cat();
+        let s = parse_adp(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE ops \
+             GRANT EXECUTE ON FUNCTIONS TO PUBLIC;",
+        );
+        apply(&s, &mut cat, &loc()).unwrap();
+        let rule = cat
+            .default_privileges
+            .iter()
+            .find(|r| r.target_role == id("ops"));
+        if let Some(rule) = rule {
+            assert!(
+                rule.grants.is_empty(),
+                "implicit Public/Execute on FUNCTIONS must be stripped; got: {:?}",
+                rule.grants
+            );
+        }
     }
 
     /// Self-grant is stripped even when other grantees are present.

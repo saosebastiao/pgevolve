@@ -12,8 +12,10 @@ use crate::ir::default_privileges::{DefaultPrivObjectType, DefaultPrivilegeRule}
 /// column is a `text[]` of `aclitem` strings, decoded via
 /// [`crate::catalog::grants::decode_aclitem_array`].
 ///
-/// No owner self-grant filtering is applied here — default-privilege rules
-/// don't carry a per-rule "owner" to strip against.
+/// Two classes of implicit grants are stripped before emitting the rule:
+/// 1. `target_role == grantee` self-grants (#34) — PG bookkeeping, never user-declared.
+/// 2. PG-implicit PUBLIC grants (#37): `Public/Usage` on TYPES, `Public/Execute`
+///    on FUNCTIONS — always present in `defaclacl`, never user-revocable.
 pub(super) fn build_default_privileges(
     rows: &[Row],
 ) -> Result<Vec<DefaultPrivilegeRule>, CatalogError> {
@@ -72,7 +74,11 @@ pub(super) fn build_default_privileges(
         // and the diff engine emits a spurious REVOKE that can delete the
         // entire `pg_default_acl` row, causing `present vs removed` failures.
         // (Analogous to `strip_owner_self_grants` for regular object grants.)
+        // Strip self-grants then implicit PUBLIC grants. Order doesn't matter
+        // (the two predicates are disjoint) but self-grants are stripped first
+        // to mirror the original #34 code for readability.
         let grants = crate::catalog::grants::strip_owner_self_grants(raw_grants, &target_role);
+        let grants = crate::catalog::grants::strip_public_implicit_grants(grants, object_type);
 
         out.push(DefaultPrivilegeRule {
             target_role,
@@ -214,6 +220,97 @@ mod tests {
             g.privilege,
             crate::ir::grant::Privilege::Create,
             "remaining grant should be Create"
+        );
+    }
+
+    /// Regression for issue #37: PG implicitly grants USAGE on TYPES to PUBLIC.
+    /// `pg_default_acl.defaclacl` always includes `=U/<target_role>` for TYPES
+    /// rules. Without filtering this appears as a spurious `Public/Usage` grant
+    /// in the live catalog, causing a diff divergence against source IR that
+    /// never declares it.
+    #[test]
+    fn strips_implicit_public_usage_from_types() {
+        // Simulate what PG stores in defaclacl after:
+        //   ALTER DEFAULT PRIVILEGES FOR ROLE app_owner GRANT USAGE ON TYPES TO readers;
+        // PG records: =U/app_owner (implicit Public/Usage) AND readers=U/app_owner.
+        let rows = vec![row_for(
+            "app_owner",
+            None,
+            "T",
+            &["=U/app_owner", "readers=U/app_owner"],
+        )];
+        let rules = build_default_privileges(&rows).unwrap();
+        assert_eq!(rules.len(), 1);
+        // The implicit `Public/Usage` entry must be stripped; only readers/Usage remains.
+        assert_eq!(
+            rules[0].grants.len(),
+            1,
+            "expected 1 grant (readers/Usage), got: {:?}",
+            rules[0].grants
+        );
+        assert!(
+            matches!(
+                &rules[0].grants[0].grantee,
+                crate::ir::grant::GrantTarget::Role(r) if r.as_str() == "readers"
+            ),
+            "remaining grant should be to readers, got: {:?}",
+            rules[0].grants[0]
+        );
+        assert_eq!(
+            rules[0].grants[0].privilege,
+            crate::ir::grant::Privilege::Usage,
+            "remaining grant should be Usage"
+        );
+    }
+
+    /// Regression for issue #37: PG implicitly grants EXECUTE on FUNCTIONS to PUBLIC.
+    /// `pg_default_acl.defaclacl` always includes `=X/<target_role>` for FUNCTIONS
+    /// rules. Without filtering this appears as a spurious `Public/Execute` grant
+    /// in the live catalog, causing a diff divergence against source IR.
+    #[test]
+    fn strips_implicit_public_execute_from_functions() {
+        // Simulate what PG stores in defaclacl after:
+        //   ALTER DEFAULT PRIVILEGES FOR ROLE ops GRANT EXECUTE ON FUNCTIONS TO readers;
+        // PG records: =X/ops (implicit Public/Execute) AND readers=X/ops.
+        let rows = vec![row_for("ops", None, "f", &["=X/ops", "readers=X/ops"])];
+        let rules = build_default_privileges(&rows).unwrap();
+        assert_eq!(rules.len(), 1);
+        // The implicit `Public/Execute` entry must be stripped; only readers/Execute remains.
+        assert_eq!(
+            rules[0].grants.len(),
+            1,
+            "expected 1 grant (readers/Execute), got: {:?}",
+            rules[0].grants
+        );
+        assert!(
+            matches!(
+                &rules[0].grants[0].grantee,
+                crate::ir::grant::GrantTarget::Role(r) if r.as_str() == "readers"
+            ),
+            "remaining grant should be to readers, got: {:?}",
+            rules[0].grants[0]
+        );
+        assert_eq!(
+            rules[0].grants[0].privilege,
+            crate::ir::grant::Privilege::Execute,
+            "remaining grant should be Execute"
+        );
+    }
+
+    /// `Public/Usage` `with_grant_option=true` on TYPES must NOT be stripped —
+    /// only the implicit (wgo=false) entry is implicit.
+    #[test]
+    fn keeps_public_usage_with_grant_option_on_types() {
+        // wgo=true means U* in aclitem
+        let rows = vec![row_for("app_owner", None, "T", &["=U*/app_owner"])];
+        let rules = build_default_privileges(&rows).unwrap();
+        assert_eq!(rules.len(), 1);
+        // U* is NOT the implicit entry; it must be kept.
+        assert_eq!(
+            rules[0].grants.len(),
+            1,
+            "Public/Usage WGO must be kept, got: {:?}",
+            rules[0].grants
         );
     }
 

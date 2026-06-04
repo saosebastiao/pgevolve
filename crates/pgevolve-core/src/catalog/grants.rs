@@ -10,6 +10,50 @@ use crate::catalog::error::CatalogError;
 use crate::identifier::Identifier;
 use crate::ir::grant::{Grant, GrantTarget, Privilege};
 
+/// Strip PG-implicit PUBLIC grants for object types that carry them by default.
+///
+/// Postgres automatically grants:
+/// - `USAGE` on `TYPES` to `PUBLIC`
+/// - `EXECUTE` on `FUNCTIONS` (and `PROCEDURES`) to `PUBLIC`
+///
+/// These entries always appear in `pg_default_acl.defaclacl` when any explicit
+/// grant exists on such a rule, regardless of user intent. They cannot be
+/// revoked by users (PG re-adds them). Carrying them into source or live IR
+/// would cause a permanent divergence: the source author never writes them, but
+/// the live catalog reader always sees them.
+///
+/// Only the plain (non–WGO) form is implicit: `WITH GRANT OPTION` variants
+/// (`Public/Usage wgo=true`, `Public/Execute wgo=true`) are always user-declared
+/// and must be preserved.
+///
+/// This stripping is symmetrical: both the catalog reader and the source parser
+/// apply it so that source IR and live IR remain in the same canonical form.
+#[must_use]
+pub fn strip_public_implicit_grants(
+    grants: Vec<Grant>,
+    object_type: crate::ir::default_privileges::DefaultPrivObjectType,
+) -> Vec<Grant> {
+    use crate::ir::default_privileges::DefaultPrivObjectType;
+    grants
+        .into_iter()
+        .filter(|g| {
+            if g.with_grant_option {
+                return true; // WGO variants are always user-declared.
+            }
+            match (&g.grantee, g.privilege, object_type) {
+                // PG-implicit PUBLIC grants: Usage on TYPES, Execute on FUNCTIONS
+                // (PROCEDURES map to Functions in pgevolve). Both are always
+                // present in pg_default_acl.defaclacl and are never user-revocable.
+                (GrantTarget::Public, Privilege::Usage, DefaultPrivObjectType::Types)
+                | (GrantTarget::Public, Privilege::Execute, DefaultPrivObjectType::Functions) => {
+                    false
+                }
+                _ => true,
+            }
+        })
+        .collect()
+}
+
 /// Strip grants whose grantee equals the object owner.
 ///
 /// PG's `relacl` materializes owner self-grants (e.g. `app_owner=arwdDxt/app_owner`)
@@ -210,6 +254,78 @@ mod tests {
         // x=References, t=Trigger, X=Execute, U=Usage, C=Create
         let g = decode_one("alice=rwadDxtXUC/owner").unwrap();
         assert_eq!(g.len(), 10, "all 10 managed privilege letters");
+    }
+
+    #[test]
+    fn strip_public_implicit_grants_removes_types_usage() {
+        use crate::ir::default_privileges::DefaultPrivObjectType;
+        let grants = vec![
+            Grant {
+                grantee: GrantTarget::Public,
+                privilege: Privilege::Usage,
+                with_grant_option: false,
+                columns: None,
+            },
+            Grant {
+                grantee: GrantTarget::Role(Identifier::from_unquoted("readers").unwrap()),
+                privilege: Privilege::Usage,
+                with_grant_option: false,
+                columns: None,
+            },
+        ];
+        let filtered = strip_public_implicit_grants(grants, DefaultPrivObjectType::Types);
+        assert_eq!(filtered.len(), 1);
+        assert!(matches!(&filtered[0].grantee, GrantTarget::Role(r) if r.as_str() == "readers"));
+    }
+
+    #[test]
+    fn strip_public_implicit_grants_removes_functions_execute() {
+        use crate::ir::default_privileges::DefaultPrivObjectType;
+        let grants = vec![
+            Grant {
+                grantee: GrantTarget::Public,
+                privilege: Privilege::Execute,
+                with_grant_option: false,
+                columns: None,
+            },
+            Grant {
+                grantee: GrantTarget::Role(Identifier::from_unquoted("app").unwrap()),
+                privilege: Privilege::Execute,
+                with_grant_option: false,
+                columns: None,
+            },
+        ];
+        let filtered = strip_public_implicit_grants(grants, DefaultPrivObjectType::Functions);
+        assert_eq!(filtered.len(), 1);
+        assert!(matches!(&filtered[0].grantee, GrantTarget::Role(r) if r.as_str() == "app"));
+    }
+
+    #[test]
+    fn strip_public_implicit_grants_keeps_wgo_variants() {
+        use crate::ir::default_privileges::DefaultPrivObjectType;
+        // Public/Usage WGO on TYPES must NOT be stripped.
+        let grants = vec![Grant {
+            grantee: GrantTarget::Public,
+            privilege: Privilege::Usage,
+            with_grant_option: true, // WGO — user-declared, never implicit
+            columns: None,
+        }];
+        let filtered = strip_public_implicit_grants(grants, DefaultPrivObjectType::Types);
+        assert_eq!(filtered.len(), 1, "WGO Public/Usage on TYPES must be kept");
+    }
+
+    #[test]
+    fn strip_public_implicit_grants_leaves_tables_untouched() {
+        use crate::ir::default_privileges::DefaultPrivObjectType;
+        // Tables have no implicit PUBLIC grant — nothing should be stripped.
+        let grants = vec![Grant {
+            grantee: GrantTarget::Public,
+            privilege: Privilege::Select,
+            with_grant_option: false,
+            columns: None,
+        }];
+        let filtered = strip_public_implicit_grants(grants, DefaultPrivObjectType::Tables);
+        assert_eq!(filtered.len(), 1, "Tables have no implicit PUBLIC grants");
     }
 
     #[test]
