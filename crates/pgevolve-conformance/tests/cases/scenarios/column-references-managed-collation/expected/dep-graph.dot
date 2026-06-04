@@ -2,11 +2,11 @@ digraph pgevolve_deps {
   rankdir=LR;
   node [shape=box, fontname=Helvetica];
   "collation:app.ci";
-  "collation:app.ci" -> "schema:app" [style=solid];
   "constraint:app.users.users_pkey";
   "schema:app";
   "table:app.users";
   "table:app.users" -> "schema:app" [style=solid];
   "table:app.users" -> "collation:app.ci" [style=solid];
   "constraint:app.users.users_pkey" -> "table:app.users" [style=solid];
+  "collation:app.ci" -> "schema:app" [style=solid];
 }

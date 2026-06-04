@@ -546,12 +546,64 @@ fn change_node(change: &Change) -> NodeId {
             TableChange::AttachPartition { child, .. } | TableChange::DetachPartition { child, .. },
         ) => NodeId::Table(child.clone()),
         // Grant / revoke / owner: map to the object's primary node.
-        Change::GrantObjectPrivilege { qname, .. }
-        | Change::RevokeObjectPrivilege { qname, .. }
-        | Change::GrantColumnPrivilege { qname, .. }
+        //
+        // `GrantObjectPrivilege` and `RevokeObjectPrivilege` carry a `kind`
+        // field; use it to select the correct `NodeId` variant. Falling back
+        // to `NodeId::Table` for every object type was wrong: when the object
+        // is a sequence (or schema, view, type, function, procedure, or MV),
+        // no `NodeId::Table(qname)` exists in the dep-graph, so the grant
+        // would be assigned position `usize::MAX` by `sort_changes_by_order`
+        // and land at the tail of the modifies bucket. Relative order within
+        // the same object's grants is preserved by stable sort, but the wrong
+        // NodeId causes unpredictable cross-object interleaving (issue #36).
+        Change::GrantObjectPrivilege { qname, kind, .. }
+        | Change::RevokeObjectPrivilege { qname, kind, .. } => {
+            use crate::diff::owner_op::OwnerObjectKind;
+            match kind {
+                OwnerObjectKind::Schema => NodeId::Schema(qname.name.clone()),
+                OwnerObjectKind::Sequence => NodeId::Sequence(qname.clone()),
+                OwnerObjectKind::Table => NodeId::Table(qname.clone()),
+                OwnerObjectKind::View => NodeId::View(qname.clone()),
+                OwnerObjectKind::MaterializedView => NodeId::Mv(qname.clone()),
+                OwnerObjectKind::Function | OwnerObjectKind::Procedure => {
+                    // `NodeId::Function` requires `NormalizedArgTypes` (derived
+                    // from the full argument list), which is not available in the
+                    // grant `Change` entry. Use the owning schema node as an
+                    // ordering anchor — it is guaranteed to be in the dep-graph
+                    // and places function grants after the schema is created.
+                    NodeId::Schema(qname.schema.clone())
+                }
+                OwnerObjectKind::UserType => NodeId::Type(qname.clone()),
+                OwnerObjectKind::Publication => NodeId::Publication(qname.name.clone()),
+                OwnerObjectKind::Subscription => NodeId::Subscription(qname.name.clone()),
+                OwnerObjectKind::Statistic => NodeId::Statistic(qname.clone()),
+                OwnerObjectKind::Collation => NodeId::Collation(qname.clone()),
+            }
+        }
+        // Column-level grants are always scoped to tables, views, or MVs.
+        Change::GrantColumnPrivilege { qname, .. }
         | Change::RevokeColumnPrivilege { qname, .. } => NodeId::Table(qname.clone()),
         Change::AlterObjectOwner(op) => match &op.id {
-            crate::diff::owner_op::OwnedObjectId::Qualified(q) => NodeId::Table(q.clone()),
+            crate::diff::owner_op::OwnedObjectId::Qualified(q) => {
+                use crate::diff::owner_op::OwnerObjectKind;
+                match op.kind {
+                    OwnerObjectKind::Schema => NodeId::Schema(q.name.clone()),
+                    OwnerObjectKind::Sequence => NodeId::Sequence(q.clone()),
+                    OwnerObjectKind::Table => NodeId::Table(q.clone()),
+                    OwnerObjectKind::View => NodeId::View(q.clone()),
+                    OwnerObjectKind::MaterializedView => NodeId::Mv(q.clone()),
+                    OwnerObjectKind::Function | OwnerObjectKind::Procedure => {
+                        // As with grant changes, `NormalizedArgTypes` is not
+                        // available in `AlterObjectOwner`; anchor to the schema.
+                        NodeId::Schema(q.schema.clone())
+                    }
+                    OwnerObjectKind::UserType => NodeId::Type(q.clone()),
+                    OwnerObjectKind::Publication => NodeId::Publication(q.name.clone()),
+                    OwnerObjectKind::Subscription => NodeId::Subscription(q.name.clone()),
+                    OwnerObjectKind::Statistic => NodeId::Statistic(q.clone()),
+                    OwnerObjectKind::Collation => NodeId::Collation(q.clone()),
+                }
+            }
             crate::diff::owner_op::OwnedObjectId::Schema(name) => NodeId::Schema(name.clone()),
             crate::diff::owner_op::OwnedObjectId::Cluster(name) => {
                 use crate::diff::owner_op::OwnerObjectKind;

@@ -1,5 +1,5 @@
 [meta]
-title     = "revoke-from-owner error — REVOKE against the owner fires error advisory"
+title     = "owner self-grants in source are silently dropped at canon time — no REVOKE emitted"
 authoring = "objects"
 spec_refs = ["lint.revoke-from-owner"]
 
@@ -7,11 +7,10 @@ spec_refs = ["lint.revoke-from-owner"]
 min = 14
 max = 17
 
-# The REVOKE step is suppressed (the rule fires before emit), but the error
-# advisory is surfaced so the operator can fix the source.
+# before.sql carries an explicit GRANT SELECT TO app_owner (the owner).
+# The canon pass strips owner self-grants from both source and target so the
+# diff is empty and no REVOKE step is generated.  The `revoke-from-owner` lint
+# never fires because the asymmetry is resolved before diffing.
 [expect.plan]
-steps     = 1
+steps     = 0
 golden    = false
-
-[expect.advisory]
-rule_ids = ["revoke-from-owner"]

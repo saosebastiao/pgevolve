@@ -55,28 +55,44 @@ pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
     resolve_user_defined_types::run(cat);
     sentinel_view_columns::run(cat);
     renumber_enum_sort_orders::run(cat);
+    // For every object that carries an `owner` field: strip grants where
+    // `grantee == owner` **before** deduplication. This mirrors what the live
+    // catalog reader does via `catalog::grants::strip_owner_self_grants`, so
+    // that source IR and live IR are normalised identically. Without this pass
+    // the IR generator can produce `owner = role_X` together with an explicit
+    // `role_X / privilege` grant; the source catalog would retain the grant
+    // while the live reader silently discards it, causing `diff(live, source)`
+    // to be non-empty and `assert_convergent` to fail (issue #36).
     for s in &mut cat.schemas {
+        grants::strip_owner_self_grants(&mut s.grants, s.owner.as_ref());
         grants::run_on_list(&mut s.grants);
     }
     for s in &mut cat.sequences {
+        grants::strip_owner_self_grants(&mut s.grants, s.owner.as_ref());
         grants::run_on_list(&mut s.grants);
     }
     for t in &mut cat.tables {
+        grants::strip_owner_self_grants(&mut t.grants, t.owner.as_ref());
         grants::run_on_list(&mut t.grants);
     }
     for v in &mut cat.views {
+        grants::strip_owner_self_grants(&mut v.grants, v.owner.as_ref());
         grants::run_on_list(&mut v.grants);
     }
     for m in &mut cat.materialized_views {
+        grants::strip_owner_self_grants(&mut m.grants, m.owner.as_ref());
         grants::run_on_list(&mut m.grants);
     }
     for f in &mut cat.functions {
+        grants::strip_owner_self_grants(&mut f.grants, f.owner.as_ref());
         grants::run_on_list(&mut f.grants);
     }
     for p in &mut cat.procedures {
+        grants::strip_owner_self_grants(&mut p.grants, p.owner.as_ref());
         grants::run_on_list(&mut p.grants);
     }
     for t in &mut cat.types {
+        grants::strip_owner_self_grants(&mut t.grants, t.owner.as_ref());
         grants::run_on_list(&mut t.grants);
     }
     default_privileges::run(&mut cat.default_privileges);
