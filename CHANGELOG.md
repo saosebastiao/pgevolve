@@ -7,9 +7,47 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **`SubscriptionOptions.connect` — CREATE-only directive.** New IR field that maps to PG's `CREATE SUBSCRIPTION ... WITH (connect = ...)` option. `connect = false` creates the subscription without dialing the publisher (the only way to construct a subscription against a publisher that may not be reachable). The option is CREATE-only — `pg_subscription` doesn't store it — so the catalog reader always returns `None` and the diff never emits an ALTER for it. Closes #14.
+
 ### Changed
 
-- **Cluster apply reaches per-DB parity.** `pgevolve cluster apply` now bootstraps `pgevolve` metadata, acquires the singleton advisory lock, runs cluster preflight (identity match + intent approval), writes an `apply_log` row, executes via the per-DB group executor, and closes the audit row. `pgevolve cluster plan` writes the canonical 3-file plan layout (structured `plan.sql` headers + `intent.toml` + `manifest.toml` with `target_identity`). Closes #7.
+- **Cluster apply reaches per-DB parity.** `pgevolve cluster apply` now bootstraps `pgevolve` metadata, acquires the singleton advisory lock, runs cluster preflight (identity match + intent approval), writes an `apply_log` row, executes via the per-DB group executor, and closes the audit row. `pgevolve cluster plan` writes the canonical 3-file plan layout (structured `plan.sql` headers + `intent.toml` + `manifest.toml` with `target_identity`). The cluster `target_identity` format is `cluster:{system_identifier_hex16}`. Closes #7.
+
+### Fixed
+
+#### Diff + planner
+
+- **New tables, sequences, schemas, and indexes carry their full attribute set on CREATE.** The diff previously emitted only the bare CREATE for newly-declared objects; owner, grants, policies, storage options, and the RLS-forced bit were silently dropped and required a subsequent ALTER cycle to land. Fresh applies and empty-DB bootstraps now produce live state matching the source IR on the first apply.
+- **`CREATE INDEX` emits the `WITH (...)` storage clause.** The clause was previously dropped at render time; index reloptions (`fillfactor`, `fastupdate`, etc.) needed a follow-up `ALTER INDEX SET (...)` to land. Now emitted inline.
+- **Column STORAGE is no longer inline-rendered in `CREATE TABLE` / `ADD COLUMN`.** Inline STORAGE is PG 16+ syntax. The renderer now emits `ALTER COLUMN ... SET STORAGE` as a follow-up step, restoring PG 14/15 compatibility.
+- **`CREATE SUBSCRIPTION` runs outside transaction when `create_slot != false`.** PG forbids tx-block `CREATE SUBSCRIPTION` with `create_slot = true` (the default). Planner now sets `TransactionConstraint::OutsideTransaction` based on subscription options. Closes #11.
+- **`DROP SUBSCRIPTION` runs outside transaction.** PG forbids tx-block DROP when the subscription has an attached slot. The IR can't tell at diff time whether a slot is attached; conservative path always uses out-of-transaction. Closes #26.
+- **`streaming` subscription option emits boolean form on PG ≤15.** PG ≤15 accepts only `true`/`false` for `streaming`; the `parallel` keyword is PG 16+. Renderer no longer emits string forms. Closes #24.
+- **Subscription reader accepts boolean substream column values.** Companion to the renderer fix above; PG's `pg_subscription.subsubstream` is returned via `::text` cast as `f`/`t`/`false`/`true`/`parallel`. Closes #28.
+- **REVOKE statements emit before GRANT in the same diff step.** PG's `REVOKE priv FROM role` removes the privilege regardless of `grant_option`; ordering GRANT-before-REVOKE silently cancelled a just-emitted grant. Affects `with_grant_option` upgrades and downgrades on tables, sequences, schemas, views, materialized views, functions, procedures, and types. Closes #33.
+- **`default_privileges` diff emits REVOKE when grants shrink.** Previously, removing a grant from an existing rule left the live database with the old grant intact. Closes #23.
+- **`default_privileges` rules carry their grant set when newly declared.** Was previously a no-op in the source-only diff branch. Closes #25.
+- **Column-level REVOKE elided when the column is dropped in the same plan.** PG cascade-revokes column ACLs during column drop; the explicit REVOKE then failed with `column does not exist`. Closes #39.
+- **`DROP SCHEMA` cascade-emits `DROP COLLATION`.** The diff previously left dependent collations in `catalog.collations`, tripping PG error `2BP01` on apply. The dependency graph now also carries a Collation → Schema edge so the drops sort correctly. Closes #38.
+- **`change_node()` returns the correct `NodeId` variant per object kind.** Owner/grant changes on sequences/schemas/views/types/MVs/procedures/collations previously defaulted to `NodeId::Table(qname)`, causing incorrect interleaving across object kinds when sorting plan steps. Closes #36 (one of two root causes).
+
+#### Reader + canonicalization
+
+- **PG-implicit grants stripped from `default_privileges` canonical IR.** PG silently injects `(grantee = target_role, full self-priv)` into every `pg_default_acl.defaclacl`, and additionally injects `(Public, USAGE)` on TYPES and `(Public, EXECUTE)` on FUNCTIONS. Both the catalog reader and the source parser now strip these implicit entries so source and live IRs match. Without this, the diff emitted spurious REVOKEs that deleted entire `pg_default_acl` rows, manifesting as `present vs removed` divergences in round-trip tests. Closes #34 + #37.
+- **`Range` type `subtype_opclass` and `collation` canonicalize to None when matching PG defaults.** PG resolves and stores the default opclass (e.g. `timestamptz_ops`) and the `pg_catalog.default` collation even when the user omits them; canon now strips the resolved value back to None so source IR matches live IR after read-back. Closes #35.
+- **Policy roles `[PUBLIC, X]` canonicalize to `[PUBLIC]`.** PG accepts the list at CREATE POLICY time but silently drops named roles when PUBLIC is present (PUBLIC includes all roles). Canon now aligns source IR with PG's stored form. Closes #31.
+- **Owner self-grants stripped from source IR.** The live catalog reader has long stripped grants where `grantee == owner` from tables/sequences/schemas/views/etc.; source IR now matches symmetrically. The asymmetry caused `diff(live, source)` to be non-empty whenever the IR generator (or a user) happened to write the owner into the grants list. Closes #36 (second root cause).
+- **`default_privileges` rules with empty grant sets stripped in canon.** PG has no DDL form for a zero-grant default-privilege rule; the rule only materializes in `pg_default_acl` when at least one grant is in effect. Canon now removes empty-grant rules from source IR so they don't show as `present vs removed` divergences.
+- **RLS policy predicates respect PG's per-command matrix.** `FOR INSERT` policies use only `WITH CHECK` (PG rejects `USING` for INSERT with error `42601`); `FOR SELECT`/`DELETE` use only `USING`; `FOR UPDATE`/`ALL` use both. Closes #22.
+
+### Test infrastructure (no user-visible change)
+
+- Soak workflow now sets `TEST_PWD` so subscription apply doesn't trip the env-var preflight.
+- Testkit IR generator tightened across many shapes: subscription options gated by PG version (`origin`, `failover`, `two_phase`, `disable_on_error`); RLS policy predicates gated by command; default_privileges restricted to valid `(grantee, object_kind)` and `(schema, object_type)` matrices; index storage options gated by access method; STATISTICS columns restricted to types with a default B-tree opclass; publication scope guards empty Selective output and PG 15+ `FOR ALL TABLES IN SCHEMA` form; mutation cascades clean dependent references on `drop_schema` (default privileges, types, statistics, views, collations) and `drop_column` (constraints, grants, statistics, indexes); grant generator never combines `WITH GRANT OPTION` with `PUBLIC`.
+- `cargo xtask soak-streak` tracks the consecutive-clean-soak-day counter feeding the v1.0 release gate (sub-project C).
+- `Plan::from_grouped_with_id` constructor lets callers supply a pre-computed `PlanId` (used by cluster apply, which hashes `ClusterCatalog` rather than per-DB `Catalog`).
 
 ### Removed
 
