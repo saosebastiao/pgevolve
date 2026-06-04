@@ -2286,9 +2286,10 @@ mod tests {
         let result = order(&target, &source, cs, &PlannerPolicy::default()).unwrap();
         // The RevokeColumnPrivilege must be RETAINED because it still covers
         // status, which is not being dropped.
-        let revoke_present = result.modifies.iter().any(|e| {
-            matches!(&e.change, Change::RevokeColumnPrivilege { .. })
-        });
+        let revoke_present = result
+            .modifies
+            .iter()
+            .any(|e| matches!(&e.change, Change::RevokeColumnPrivilege { .. }));
         assert!(
             revoke_present,
             "RevokeColumnPrivilege covering a retained column must not be elided"

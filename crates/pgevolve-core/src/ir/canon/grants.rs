@@ -216,7 +216,7 @@ mod tests {
         assert_eq!(g.len(), 1, "PUBLIC grant must survive owner-strip");
     }
 
-    /// Regression guard for issue #36: round_trip failures where
+    /// Regression guard for issue #36: `round_trip` failures where
     /// source IR carried an owner self-grant (e.g. `app_owner/Usage`
     /// on a sequence owned by `app_owner`), but the live catalog reader
     /// stripped it. The asymmetry caused `diff(live, source)` to be
@@ -234,8 +234,6 @@ mod tests {
         run_on_list(&mut g);
         // After the combined pass the owner self-grant is gone
         assert_eq!(g.len(), 1, "only readers/Select survives");
-        assert!(
-            matches!(&g[0].grantee, GrantTarget::Role(n) if n.as_str() == "readers"),
-        );
+        assert!(matches!(&g[0].grantee, GrantTarget::Role(n) if n.as_str() == "readers"),);
     }
 }
