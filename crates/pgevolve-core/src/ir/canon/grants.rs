@@ -16,6 +16,7 @@
 use std::collections::BTreeMap;
 
 use crate::identifier::Identifier;
+use crate::ir::default_privileges::DefaultPrivObjectType;
 use crate::ir::grant::{Grant, GrantTarget, Privilege};
 
 /// Remove grants where the grantee is the named owner.
@@ -37,6 +38,34 @@ pub fn strip_owner_self_grants(grants: &mut Vec<Grant>, owner: Option<&Identifie
     grants.retain(|g| match &g.grantee {
         GrantTarget::Role(name) => name != owner_name,
         GrantTarget::Public => true,
+    });
+}
+
+/// Remove the PG-implicit `PUBLIC` grants that `pg_default_acl` always
+/// materialises for a default-privilege rule's object type.
+///
+/// Postgres implicitly grants `USAGE` on `TYPES` and `EXECUTE` on `FUNCTIONS`
+/// (procedures map to functions in pgevolve) to `PUBLIC`. These entries are
+/// always present in `pg_default_acl.defaclacl` and are never user-revocable,
+/// so the live catalog reader discards them via
+/// `catalog::grants::strip_public_implicit_grants`. Source IR that does not go
+/// through the SQL parser — notably the IR generator — can still carry the
+/// implicit grant, so the canon pass applies the identical rule to keep source
+/// IR and live IR symmetric. A rule whose grants empty out after this strip is
+/// removed by [`super::default_privileges::run`]'s empty-grants filter.
+///
+/// Only the plain `wgo = false` form is stripped — `WITH GRANT OPTION` variants
+/// are always user-declared (PG's implicit grant is never WGO) and are kept.
+pub fn strip_public_implicit_grants(grants: &mut Vec<Grant>, object_type: DefaultPrivObjectType) {
+    grants.retain(|g| {
+        if g.with_grant_option {
+            return true;
+        }
+        !matches!(
+            (&g.grantee, g.privilege, object_type),
+            (GrantTarget::Public, Privilege::Usage, DefaultPrivObjectType::Types)
+                | (GrantTarget::Public, Privilege::Execute, DefaultPrivObjectType::Functions)
+        )
     });
 }
 

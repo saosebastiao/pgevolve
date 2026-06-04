@@ -5,13 +5,21 @@ use crate::ir::default_privileges::DefaultPrivilegeRule;
 /// Sort default-privilege rules by `(target_role, schema, object_type)` and
 /// canonicalize each rule's grants list.
 ///
+/// Per rule we first strip the PG-implicit `PUBLIC` grants for the rule's
+/// object type (`USAGE` on `TYPES`, `EXECUTE` on `FUNCTIONS`), mirroring the
+/// live catalog reader so that source IR — including IR-generator output that
+/// never passes through the SQL parser — normalises identically. Then the
+/// grant list is canonicalized.
+///
 /// Rules with an empty grants list are stripped: Postgres has no DDL to
 /// create a zero-grant default-privilege rule, so such an entry is
 /// semantically equivalent to "no rule". Keeping empty rules in the IR would
 /// cause spurious `catalogs-differ` failures when comparing against a live
-/// database that never received a GRANT step.
+/// database that never received a GRANT step. A rule whose only grant was the
+/// implicit `PUBLIC` entry empties out above and is removed here.
 pub fn run(rules: &mut Vec<DefaultPrivilegeRule>) {
     for rule in rules.iter_mut() {
+        super::grants::strip_public_implicit_grants(&mut rule.grants, rule.object_type);
         super::grants::run_on_list(&mut rule.grants);
     }
     // Remove rules whose grant list is empty after canonicalization.
@@ -122,6 +130,101 @@ mod tests {
             "empty-grants rule should be stripped; remaining: {rules:?}"
         );
         assert_eq!(rules[0].target_role.as_str(), "alice");
+    }
+
+    /// Regression for the soak `default_privileges.*.TYPES: present vs removed`
+    /// failure. The IR generator (and any source path that does not go through
+    /// the SQL parser) can produce a default-privilege rule whose only grant is
+    /// the PG-implicit `(PUBLIC, USAGE)` on `TYPES` — or `(PUBLIC, EXECUTE)` on
+    /// `FUNCTIONS`. The live catalog reader strips these implicit grants, so the
+    /// live rule becomes empty and is dropped, while the source rule survived,
+    /// making `diff(live, source)` non-empty. Canon must strip the same implicit
+    /// grants so source IR and live IR normalise identically; the resulting
+    /// empty rule is then removed by the empty-grants filter.
+    #[test]
+    fn strips_implicit_public_grants_then_drops_empty_rule() {
+        let mut rules = vec![
+            // TYPES rule whose only grant is implicit PUBLIC/USAGE → empties out.
+            DefaultPrivilegeRule {
+                target_role: id("app_owner"),
+                schema: Some(id("ops")),
+                object_type: DefaultPrivObjectType::Types,
+                grants: vec![Grant {
+                    grantee: GrantTarget::Public,
+                    privilege: Privilege::Usage,
+                    with_grant_option: false,
+                    columns: None,
+                }],
+            },
+            // FUNCTIONS rule whose only grant is implicit PUBLIC/EXECUTE → empties out.
+            DefaultPrivilegeRule {
+                target_role: id("app_owner"),
+                schema: Some(id("ops")),
+                object_type: DefaultPrivObjectType::Functions,
+                grants: vec![Grant {
+                    grantee: GrantTarget::Public,
+                    privilege: Privilege::Execute,
+                    with_grant_option: false,
+                    columns: None,
+                }],
+            },
+        ];
+        run(&mut rules);
+        assert!(
+            rules.is_empty(),
+            "implicit-only rules must be stripped to empty and removed; remaining: {rules:?}"
+        );
+    }
+
+    /// A `TYPES` rule carrying a *real* user grant alongside the implicit one
+    /// keeps the user grant but drops the implicit `(PUBLIC, USAGE)`.
+    #[test]
+    fn strips_implicit_but_keeps_real_grants() {
+        let mut rules = vec![DefaultPrivilegeRule {
+            target_role: id("app_owner"),
+            schema: Some(id("ops")),
+            object_type: DefaultPrivObjectType::Types,
+            grants: vec![
+                Grant {
+                    grantee: GrantTarget::Public,
+                    privilege: Privilege::Usage,
+                    with_grant_option: false,
+                    columns: None,
+                },
+                Grant {
+                    grantee: GrantTarget::Role(id("readers")),
+                    privilege: Privilege::Usage,
+                    with_grant_option: false,
+                    columns: None,
+                },
+            ],
+        }];
+        run(&mut rules);
+        assert_eq!(rules.len(), 1, "rule with a real grant survives");
+        assert_eq!(rules[0].grants.len(), 1, "only the implicit grant is stripped");
+        assert!(
+            matches!(&rules[0].grants[0].grantee, GrantTarget::Role(n) if n.as_str() == "readers"),
+        );
+    }
+
+    /// A WGO `(PUBLIC, USAGE WITH GRANT OPTION)` on `TYPES` is user-declared
+    /// (PG's implicit grant is never WGO) and must be kept.
+    #[test]
+    fn keeps_wgo_public_grant_on_types() {
+        let mut rules = vec![DefaultPrivilegeRule {
+            target_role: id("app_owner"),
+            schema: Some(id("ops")),
+            object_type: DefaultPrivObjectType::Types,
+            grants: vec![Grant {
+                grantee: GrantTarget::Public,
+                privilege: Privilege::Usage,
+                with_grant_option: true,
+                columns: None,
+            }],
+        }];
+        run(&mut rules);
+        assert_eq!(rules.len(), 1, "WGO public grant is user-declared, kept");
+        assert!(rules[0].grants[0].with_grant_option);
     }
 
     #[test]
