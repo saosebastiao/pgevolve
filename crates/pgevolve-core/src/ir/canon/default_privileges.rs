@@ -201,7 +201,11 @@ mod tests {
         }];
         run(&mut rules);
         assert_eq!(rules.len(), 1, "rule with a real grant survives");
-        assert_eq!(rules[0].grants.len(), 1, "only the implicit grant is stripped");
+        assert_eq!(
+            rules[0].grants.len(),
+            1,
+            "only the implicit grant is stripped"
+        );
         assert!(
             matches!(&rules[0].grants[0].grantee, GrantTarget::Role(n) if n.as_str() == "readers"),
         );

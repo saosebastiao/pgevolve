@@ -63,8 +63,15 @@ pub fn strip_public_implicit_grants(grants: &mut Vec<Grant>, object_type: Defaul
         }
         !matches!(
             (&g.grantee, g.privilege, object_type),
-            (GrantTarget::Public, Privilege::Usage, DefaultPrivObjectType::Types)
-                | (GrantTarget::Public, Privilege::Execute, DefaultPrivObjectType::Functions)
+            (
+                GrantTarget::Public,
+                Privilege::Usage,
+                DefaultPrivObjectType::Types
+            ) | (
+                GrantTarget::Public,
+                Privilege::Execute,
+                DefaultPrivObjectType::Functions
+            )
         )
     });
 }

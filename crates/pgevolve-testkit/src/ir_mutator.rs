@@ -194,8 +194,7 @@ fn remove_table_with_column_from_publications(
     for p in &mut c.publications {
         if let PublicationScope::Selective { tables, .. } = &mut p.scope {
             tables.retain(|t| {
-                &t.qname != table
-                    || t.columns.as_ref().is_none_or(|cols| !cols.contains(column))
+                &t.qname != table || t.columns.as_ref().is_none_or(|cols| !cols.contains(column))
             });
         }
     }

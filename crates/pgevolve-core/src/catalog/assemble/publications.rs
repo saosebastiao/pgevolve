@@ -213,7 +213,10 @@ mod tests {
     /// skipped.
     #[test]
     fn empty_publication_skipped_but_others_kept() {
-        let pub_rows = vec![pub_row(1, "empty_pub", false), pub_row(2, "real_pub", false)];
+        let pub_rows = vec![
+            pub_row(1, "empty_pub", false),
+            pub_row(2, "real_pub", false),
+        ];
         let rel_rows = vec![rel_row(2, "app", "orders", 99)];
         let pubs = assemble_publications(&pub_rows, &rel_rows, &[], &[]).unwrap();
         assert_eq!(pubs.len(), 1);
