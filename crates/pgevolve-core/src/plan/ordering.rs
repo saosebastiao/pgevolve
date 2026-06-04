@@ -47,6 +47,18 @@ pub fn order(
     // plan causes the executor to fail with SQLSTATE 42704.
     let changes = elide_cascaded_index_drops(target, changes);
 
+    // Elide RevokeColumnPrivilege entries whose column list is entirely
+    // covered by an ALTER TABLE ... DROP COLUMN in the same plan. Postgres
+    // cascade-revokes column-level ACLs as part of the column drop, so an
+    // explicit REVOKE on a dropped column would fail with SQLSTATE 42703
+    // ("column X of relation Y does not exist").
+    //
+    // Conservative rule: only elide when ALL columns in the revoke's column
+    // list are being dropped. When the revoke covers a mix of dropped and
+    // retained columns, retain it (PG needs the explicit revoke for the
+    // surviving columns). Absent a column list (object-level revoke) — retain.
+    let changes = elide_cascaded_column_revokes(changes);
+
     // Extend the changeset with explicit DROP + CREATE steps for every
     // transitively-affected view (never CASCADE). This must happen before
     // partitioning so the new ReplaceBody entries flow through the normal
@@ -198,6 +210,38 @@ fn elide_cascaded_index_drops(target: &Catalog, mut changes: ChangeSet) -> Chang
             .chain(idx.include.iter())
             .any(|col| dropped_columns.contains(&(idx.on.qname().clone(), col.clone())));
         !cascades
+    });
+    changes
+}
+
+/// Remove `RevokeColumnPrivilege` changes whose entire column list is being
+/// dropped by an `ALTER TABLE ... DROP COLUMN` in the same plan.
+///
+/// Postgres cascade-revokes column-level ACLs when the column is dropped;
+/// leaving an explicit `REVOKE` in a later step causes the executor to fail
+/// with `SQLSTATE 42703` (`column "X" of relation "Y" does not exist`).
+///
+/// Conservative rule: only elide when **all** columns in the revoke's column
+/// list are being dropped. If the revoke covers any surviving column, retain
+/// it so the surviving column loses the privilege.
+fn elide_cascaded_column_revokes(mut changes: ChangeSet) -> ChangeSet {
+    let dropped_columns = collect_dropped_columns(&changes);
+    if dropped_columns.is_empty() {
+        return changes;
+    }
+    changes.entries.retain(|entry| {
+        let Change::RevokeColumnPrivilege { qname, grant } = &entry.change else {
+            return true;
+        };
+        let Some(cols) = &grant.columns else {
+            // Object-level revoke (no column list) — retain.
+            return true;
+        };
+        // Elide only when every column in the revoke's list is being dropped.
+        let all_dropped = cols
+            .iter()
+            .all(|c| dropped_columns.contains(&(qname.clone(), c.clone())));
+        !all_dropped
     });
     changes
 }
@@ -1971,6 +2015,231 @@ mod tests {
         assert!(
             pos_coll_b < schema_pos,
             "collation coll_b (pos {pos_coll_b}) must be dropped before schema (pos {schema_pos})"
+        );
+    }
+
+    // ── RevokeColumnPrivilege elision tests ───────────────────────────────────
+
+    use crate::ir::grant::{Grant, GrantTarget, Privilege};
+
+    /// Regression for issue #39: `drop_non_pk_column` cascade cleaned the
+    /// mutated catalog's grant list, so the diff correctly emits no
+    /// `GrantColumnPrivilege` for the dropped column. But when the **target**
+    /// (live database) had a column-level grant on that column, the differ
+    /// emits a `RevokeColumnPrivilege` to remove it. Because PG cascade-revokes
+    /// column ACLs as part of `ALTER TABLE ... DROP COLUMN`, the explicit
+    /// `REVOKE ... ON COLUMN` in step 2 then fails with
+    /// `[42703] column "X" of relation "Y" does not exist`.
+    ///
+    /// The fix: elide `RevokeColumnPrivilege` entries whose entire column list
+    /// is being dropped by an `AlterTable { DropColumn }` in the same plan.
+    #[test]
+    fn revoke_column_privilege_elided_when_column_is_dropped() {
+        // target (live DB): settings table has created_at with a column grant.
+        let mut target = Catalog::empty();
+        target.schemas.push(Schema::new(id("app")));
+        target.tables.push(Table {
+            qname: qn("app", "settings"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("created_at", ColumnType::Text, true),
+            ],
+            constraints: vec![pk("settings_pkey", &["id"])],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: None,
+            grants: vec![Grant {
+                grantee: GrantTarget::Role(id("ops")),
+                privilege: Privilege::Select,
+                with_grant_option: false,
+                columns: Some(vec![id("created_at")]),
+            }],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
+        });
+
+        // source (desired): settings without created_at, and without the grant.
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "settings"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![pk("settings_pkey", &["id"])],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: None,
+            grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
+        });
+
+        // Build the changeset the differ would produce: AlterTable(DropColumn)
+        // and RevokeColumnPrivilege for the same column.
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "settings"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::DropColumn {
+                        name: id("created_at"),
+                        is_populated: false,
+                    },
+                    destructiveness: Destructiveness::RequiresApproval {
+                        reason: "drops column".into(),
+                    },
+                }],
+            },
+            Destructiveness::RequiresApproval {
+                reason: "drops column".into(),
+            },
+        );
+        cs.push(
+            Change::RevokeColumnPrivilege {
+                qname: qn("app", "settings"),
+                grant: Grant {
+                    grantee: GrantTarget::Role(id("ops")),
+                    privilege: Privilege::Select,
+                    with_grant_option: false,
+                    columns: Some(vec![id("created_at")]),
+                },
+            },
+            Destructiveness::Safe,
+        );
+
+        let result = order(&target, &source, cs, &PlannerPolicy::default()).unwrap();
+        // The RevokeColumnPrivilege must be elided (PG cascade-revokes it as
+        // part of DROP COLUMN). The modifies bucket should only contain the
+        // AlterTable change.
+        let revoke_present = result.modifies.iter().any(|e| {
+            matches!(
+                &e.change,
+                Change::RevokeColumnPrivilege { grant, .. }
+                if grant.columns.as_ref().is_some_and(|cols| cols.contains(&id("created_at")))
+            )
+        });
+        assert!(
+            !revoke_present,
+            "RevokeColumnPrivilege on a dropped column must be elided; \
+             got modifies: {:?}",
+            result
+                .modifies
+                .iter()
+                .map(|e| format!("{:?}", e.change))
+                .collect::<Vec<_>>()
+        );
+        // The AlterTable (DropColumn) must still be present.
+        let alter_present = result
+            .modifies
+            .iter()
+            .any(|e| matches!(&e.change, Change::AlterTable { .. }));
+        assert!(alter_present, "AlterTable must remain in modifies");
+    }
+
+    /// Multi-column grant: `RevokeColumnPrivilege` on columns (a, b) is NOT
+    /// elided when only column `a` is dropped — the grant still covers `b`.
+    #[test]
+    fn revoke_column_privilege_retained_when_only_some_columns_dropped() {
+        let mut target = Catalog::empty();
+        target.schemas.push(Schema::new(id("app")));
+        target.tables.push(Table {
+            qname: qn("app", "settings"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("created_at", ColumnType::Text, true),
+                col("status", ColumnType::Text, true),
+            ],
+            constraints: vec![pk("settings_pkey", &["id"])],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: None,
+            grants: vec![Grant {
+                grantee: GrantTarget::Role(id("ops")),
+                privilege: Privilege::Select,
+                with_grant_option: false,
+                columns: Some(vec![id("created_at"), id("status")]),
+            }],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
+        });
+
+        let mut source = Catalog::empty();
+        source.schemas.push(Schema::new(id("app")));
+        source.tables.push(Table {
+            qname: qn("app", "settings"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("status", ColumnType::Text, true),
+            ],
+            constraints: vec![pk("settings_pkey", &["id"])],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: None,
+            grants: vec![Grant {
+                grantee: GrantTarget::Role(id("ops")),
+                privilege: Privilege::Select,
+                with_grant_option: false,
+                columns: Some(vec![id("status")]),
+            }],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
+        });
+
+        // The differ would emit: DropColumn(created_at) + RevokeColumnPrivilege
+        // on (created_at, status) to be replaced by a narrower grant on (status)
+        // alone. The REVOKE must NOT be elided because it still covers `status`
+        // (which is not being dropped).
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::AlterTable {
+                qname: qn("app", "settings"),
+                ops: vec![TableOpEntry {
+                    op: TableOp::DropColumn {
+                        name: id("created_at"),
+                        is_populated: false,
+                    },
+                    destructiveness: Destructiveness::RequiresApproval {
+                        reason: "drops column".into(),
+                    },
+                }],
+            },
+            Destructiveness::RequiresApproval {
+                reason: "drops column".into(),
+            },
+        );
+        cs.push(
+            Change::RevokeColumnPrivilege {
+                qname: qn("app", "settings"),
+                grant: Grant {
+                    grantee: GrantTarget::Role(id("ops")),
+                    privilege: Privilege::Select,
+                    with_grant_option: false,
+                    columns: Some(vec![id("created_at"), id("status")]),
+                },
+            },
+            Destructiveness::Safe,
+        );
+
+        let result = order(&target, &source, cs, &PlannerPolicy::default()).unwrap();
+        // The RevokeColumnPrivilege must be RETAINED because it still covers
+        // status, which is not being dropped.
+        let revoke_present = result.modifies.iter().any(|e| {
+            matches!(&e.change, Change::RevokeColumnPrivilege { .. })
+        });
+        assert!(
+            revoke_present,
+            "RevokeColumnPrivilege covering a retained column must not be elided"
         );
     }
 }
