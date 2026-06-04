@@ -10,7 +10,7 @@ use crate::ir::catalog::Catalog;
 use crate::ir::grant::GrantTarget;
 use crate::ir::schema::Schema;
 
-use super::change::Change;
+use super::change::{Change, CollationChange};
 use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use super::destructiveness::Destructiveness;
 use super::grants::diff_grants;
@@ -57,6 +57,29 @@ pub fn diff_schemas(
                         reason: format!("drops schema {name}"),
                     },
                 );
+                // Cascade: drop every collation that lives in the dropped schema.
+                // `diff_collations` is lenient by design — it never auto-drops
+                // target-only collations. But PG error 2BP01 fires when
+                // `DROP SCHEMA X` executes while X still contains collations
+                // (they depend on the schema). We must emit explicit drops here
+                // so the planner can order them before `DROP SCHEMA`.
+                for coll in target
+                    .collations
+                    .iter()
+                    .filter(|c| &c.qname.schema == *name)
+                {
+                    out.push(
+                        Change::Collation(CollationChange::Drop {
+                            qname: coll.qname.clone(),
+                        }),
+                        Destructiveness::RequiresApproval {
+                            reason: format!(
+                                "drops collation {} (schema {} is being dropped)",
+                                coll.qname, name,
+                            ),
+                        },
+                    );
+                }
             }
             Some(source_schema) => {
                 // Comment is structurally tied to AlterSchema, not attribute-setting;
@@ -289,5 +312,90 @@ mod tests {
         let mut cs = ChangeSet::new();
         diff_schemas(&target, &source, &mut cs, &BTreeSet::new());
         assert!(cs.is_empty());
+    }
+
+    /// Regression for issue #38: `drop_schema` did not cascade-emit
+    /// `CollationChange::Drop` for collations that belong to the dropped
+    /// schema. PG error 2BP01 ("cannot drop schema X because other objects
+    /// depend on it: collation X.coll depends on schema X") is raised when
+    /// `DROP SCHEMA X` executes while collations in X are still live.
+    ///
+    /// `diff_schemas` must emit one `CollationChange::Drop` per collation
+    /// in the target catalog whose schema matches the dropped schema, so the
+    /// planner can order those drops before `DROP SCHEMA`.
+    #[test]
+    fn drop_schema_cascades_collation_drops() {
+        use crate::diff::CollationChange;
+        use crate::identifier::QualifiedName;
+        use crate::ir::collation::{Collation, CollationProvider};
+
+        fn qn(schema: &str, name: &str) -> QualifiedName {
+            QualifiedName::new(id(schema), id(name))
+        }
+
+        fn coll(schema: &str, name: &str) -> Collation {
+            Collation {
+                qname: qn(schema, name),
+                provider: CollationProvider::Libc,
+                lc_collate: "C".into(),
+                lc_ctype: "C".into(),
+                deterministic: true,
+                version: None,
+                owner: None,
+                comment: None,
+            }
+        }
+
+        let mut target = Catalog::empty();
+        target.schemas.push(sch("audit", None));
+        target.collations.push(coll("audit", "coll_a"));
+        target.collations.push(coll("audit", "coll_b"));
+
+        let source = Catalog::empty();
+
+        let mut cs = ChangeSet::new();
+        diff_schemas(&target, &source, &mut cs, &BTreeSet::new());
+
+        // Must emit one DropSchema and one CollationChange::Drop per collation.
+        let changes: Vec<_> = cs.iter().map(|e| &e.change).collect();
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, Change::DropSchema(n) if n == &id("audit"))),
+            "expected DropSchema(audit) in {changes:?}",
+        );
+        let drop_coll_qnames: Vec<&QualifiedName> = changes
+            .iter()
+            .filter_map(|c| {
+                if let Change::Collation(CollationChange::Drop { qname }) = c {
+                    Some(qname)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(
+            drop_coll_qnames.len(),
+            2,
+            "expected 2 CollationChange::Drop, got {drop_coll_qnames:?} (all changes: {changes:?})",
+        );
+        assert!(
+            drop_coll_qnames.contains(&&qn("audit", "coll_a")),
+            "expected drop of audit.coll_a",
+        );
+        assert!(
+            drop_coll_qnames.contains(&&qn("audit", "coll_b")),
+            "expected drop of audit.coll_b",
+        );
+        // CollationChange::Drop is destructive (data-loss risk: collation may be
+        // referenced by columns / indexes — users must approve).
+        for entry in cs.iter() {
+            if let Change::Collation(CollationChange::Drop { .. }) = &entry.change {
+                assert!(
+                    entry.destructiveness.requires_approval(),
+                    "DropCollation must require approval",
+                );
+            }
+        }
     }
 }

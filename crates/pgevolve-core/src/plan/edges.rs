@@ -215,10 +215,16 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
         g.add_node(stat_node.clone());
         g.add_edge(stat_node, NodeId::Table(s.target.clone()));
     }
-    // Register collations. Edges (table/type → collation) are added below in
-    // the column / domain / range / composite-attribute loops.
+    // Register collations and wire each to its schema (collation depends on
+    // schema — CREATE COLLATION must follow CREATE SCHEMA; DROP COLLATION must
+    // precede DROP SCHEMA). Without this edge the drop ordering is only
+    // accidentally correct (via enum discriminant tie-breaking).
+    // Edges from table columns / domain / range / composite attributes
+    // → collation are added below in the relevant loops.
     for c in &catalog.collations {
-        g.add_node(NodeId::Collation(c.qname.clone()));
+        let coll_node = NodeId::Collation(c.qname.clone());
+        g.add_node(coll_node.clone());
+        g.add_edge(coll_node, NodeId::Schema(c.qname.schema.clone()));
     }
 
     // Phase 1b.0: type → schema edges. Every user-defined type lives inside
@@ -1537,13 +1543,21 @@ mod tests {
     }
 
     #[test]
-    fn collation_node_registered() {
+    fn collation_node_registered_with_schema_edge() {
         let mut c = Catalog::empty();
         c.schemas.push(crate::ir::schema::Schema::new(id("app")));
         c.collations.push(make_collation("app", "ci"));
         let g = build_create_graph(&c);
-        // schema + collation nodes; no edges.
+        // schema + collation nodes; one structural edge collation → schema.
         assert_eq!(g.node_count(), 2);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::Collation(qn("app", "ci")),
+                &NodeId::Schema(id("app")),
+            ),
+            "collation must depend on its schema (ensures DROP COLLATION before DROP SCHEMA)"
+        );
     }
 
     #[test]

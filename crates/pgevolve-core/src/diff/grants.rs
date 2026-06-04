@@ -248,8 +248,15 @@ mod tests {
         assert_eq!(add.len(), 1, "expected exactly one grant to add: {add:?}");
         assert!(add[0].with_grant_option, "added grant must have wgo=true");
         // One revoke: readers/Select wgo=false (target has it, source does not)
-        assert_eq!(rev.len(), 1, "expected exactly one grant to revoke: {rev:?}");
-        assert!(!rev[0].with_grant_option, "revoked grant must have wgo=false");
+        assert_eq!(
+            rev.len(),
+            1,
+            "expected exactly one grant to revoke: {rev:?}"
+        );
+        assert!(
+            !rev[0].with_grant_option,
+            "revoked grant must have wgo=false"
+        );
         assert!(unmanaged.is_empty());
         // Caller contract: emit `rev` BEFORE `add`. If the caller emits
         // `add` first then `rev`, the executed SQL would be:

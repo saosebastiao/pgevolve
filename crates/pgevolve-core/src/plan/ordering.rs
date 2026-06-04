@@ -1885,4 +1885,92 @@ mod tests {
             "type must be created before the table that uses it"
         );
     }
+
+    /// Regression for issue #38: `DropCollation` must be ordered before
+    /// `DropSchema` when both appear in the drops bucket. The drop graph
+    /// requires a `Collation → Schema` dependency edge so that the
+    /// reverse-topo sort places the collation drop first.
+    ///
+    /// Without the edge, ordering is non-deterministic and the generated DDL
+    /// may try to `DROP SCHEMA X` while collations in X are still live, which
+    /// PG rejects with error 2BP01.
+    #[test]
+    fn drop_collation_ordered_before_drop_schema() {
+        use crate::diff::CollationChange;
+        use crate::ir::collation::{Collation, CollationProvider};
+
+        fn coll(schema: &str, name: &str) -> Collation {
+            Collation {
+                qname: qn(schema, name),
+                provider: CollationProvider::Libc,
+                lc_collate: "C".into(),
+                lc_ctype: "C".into(),
+                deterministic: true,
+                version: None,
+                owner: None,
+                comment: None,
+            }
+        }
+
+        let mut target = Catalog::empty();
+        target.schemas.push(Schema::new(id("audit")));
+        target.collations.push(coll("audit", "coll_a"));
+        target.collations.push(coll("audit", "coll_b"));
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::DropSchema(id("audit")),
+            Destructiveness::RequiresApproval {
+                reason: "drops schema audit".into(),
+            },
+        );
+        cs.push(
+            Change::Collation(CollationChange::Drop {
+                qname: qn("audit", "coll_a"),
+            }),
+            Destructiveness::RequiresApproval {
+                reason: "drops collation audit.coll_a".into(),
+            },
+        );
+        cs.push(
+            Change::Collation(CollationChange::Drop {
+                qname: qn("audit", "coll_b"),
+            }),
+            Destructiveness::RequiresApproval {
+                reason: "drops collation audit.coll_b".into(),
+            },
+        );
+
+        let result = order(&target, &Catalog::empty(), cs, &PlannerPolicy::default()).unwrap();
+        assert_eq!(result.drops.len(), 3, "expected 3 drop steps");
+
+        let schema_pos = result
+            .drops
+            .iter()
+            .position(|e| matches!(&e.change, Change::DropSchema(n) if n == &id("audit")))
+            .expect("DropSchema(audit) not found");
+        let pos_coll_a = result
+            .drops
+            .iter()
+            .position(|e| {
+                matches!(&e.change, Change::Collation(CollationChange::Drop { qname }) if qname == &qn("audit", "coll_a"))
+            })
+            .expect("DropCollation(audit.coll_a) not found");
+        let pos_coll_b = result
+            .drops
+            .iter()
+            .position(|e| {
+                matches!(&e.change, Change::Collation(CollationChange::Drop { qname }) if qname == &qn("audit", "coll_b"))
+            })
+            .expect("DropCollation(audit.coll_b) not found");
+
+        assert!(
+            pos_coll_a < schema_pos,
+            "collation coll_a (pos {pos_coll_a}) must be dropped before schema (pos {schema_pos})"
+        );
+        assert!(
+            pos_coll_b < schema_pos,
+            "collation coll_b (pos {pos_coll_b}) must be dropped before schema (pos {schema_pos})"
+        );
+    }
 }

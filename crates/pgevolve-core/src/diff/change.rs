@@ -824,10 +824,13 @@ pub enum CollationChange {
     Create(Collation),
     /// `DROP COLLATION qname` — destructive.
     ///
-    /// Not emitted by the differ: collations are lenient like other v0.3.x
-    /// managed kinds (no auto-drop; unmanaged drift surfaces via the
-    /// `unmanaged-collation` lint). This variant exists for the parser and
-    /// future explicit-drop use cases.
+    /// Emitted by [`diff_schemas`][crate::diff::schemas::diff_schemas] when
+    /// dropping a schema that contains collations: PG error 2BP01 fires if
+    /// `DROP SCHEMA X` executes while collations in X are still live.
+    ///
+    /// Not emitted by `diff_collations` directly — collations are lenient
+    /// there (no auto-drop for target-only collations; unmanaged drift
+    /// surfaces via the `unmanaged-collation` lint instead).
     Drop {
         /// Schema-qualified collation name.
         qname: QualifiedName,

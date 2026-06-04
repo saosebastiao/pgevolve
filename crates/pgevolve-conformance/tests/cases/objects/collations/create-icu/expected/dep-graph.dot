@@ -1,4 +1,7 @@
 digraph pgevolve_deps {
   rankdir=LR;
   node [shape=box, fontname=Helvetica];
+  "collation:app.und_co";
+  "collation:app.und_co" -> "schema:app" [style=solid];
+  "schema:app";
 }

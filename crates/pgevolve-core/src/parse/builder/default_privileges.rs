@@ -140,10 +140,8 @@ pub(crate) fn apply(
             // catalog reader also strips them (they are PG bookkeeping, not
             // user-declared intent). Removing them here keeps source and live IR
             // in the same canonical form.
-            let new_grants: Vec<Grant> = crate::catalog::grants::strip_owner_self_grants(
-                new_grants,
-                target_role,
-            );
+            let new_grants: Vec<Grant> =
+                crate::catalog::grants::strip_owner_self_grants(new_grants, target_role);
             if let Some(rule) = existing {
                 rule.grants.extend(new_grants);
             } else {
@@ -471,7 +469,7 @@ mod tests {
     /// Regression for issue #34: self-grants in source SQL must be stripped.
     ///
     /// `ALTER DEFAULT PRIVILEGES FOR ROLE ops GRANT EXECUTE ON FUNCTIONS TO ops`
-    /// is a no-op in Postgres — the target_role always has implicit EXECUTE on
+    /// is a no-op in Postgres — the `target_role` always has implicit EXECUTE on
     /// its own future functions. Declaring it in source causes a phantom
     /// divergence because the live catalog reader also strips self-grants (they
     /// are PG bookkeeping). By stripping here at parse time we keep source and
@@ -489,7 +487,10 @@ mod tests {
         // The rule is created (empty grants list) rather than being silently dropped.
         // Empty-rules are filtered later in canonicalize; here we just verify
         // that the self-grant is not present.
-        let rule = cat.default_privileges.iter().find(|r| r.target_role == id("ops"));
+        let rule = cat
+            .default_privileges
+            .iter()
+            .find(|r| r.target_role == id("ops"));
         if let Some(rule) = rule {
             assert!(
                 rule.grants.is_empty(),
