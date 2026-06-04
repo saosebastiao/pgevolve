@@ -245,6 +245,135 @@ pub fn diff_tables(
 /// Intentionally excludes: column/constraint diffs (handled by the ALTER TABLE
 /// ops block), `partition_by`/`partition_of` (structural, inline-with-create),
 /// and comment (rides in the ALTER TABLE ops block above).
+/// Return `grants` with `dropped_columns` removed from every column-level
+/// grant's column list. A column-level grant whose entire list is dropped is
+/// omitted (the column drop alone revokes it); object-level grants
+/// (`columns: None`) and grants on surviving columns pass through unchanged.
+fn strip_dropped_columns_from_grants(
+    grants: &[crate::ir::grant::Grant],
+    dropped_columns: &BTreeSet<&Identifier>,
+) -> Vec<crate::ir::grant::Grant> {
+    if dropped_columns.is_empty() {
+        return grants.to_vec();
+    }
+    grants
+        .iter()
+        .filter_map(|g| {
+            g.columns.as_ref().map_or_else(
+                || Some(g.clone()),
+                |cols| {
+                    let kept: Vec<Identifier> = cols
+                        .iter()
+                        .filter(|c| !dropped_columns.contains(c))
+                        .cloned()
+                        .collect();
+                    if kept.is_empty() {
+                        None
+                    } else {
+                        Some(crate::ir::grant::Grant {
+                            columns: Some(kept),
+                            ..g.clone()
+                        })
+                    }
+                },
+            )
+        })
+        .collect()
+}
+
+/// Emit the GRANT/REVOKE changes for one table pair (object- and column-level),
+/// plus unmanaged-grant and revoke-with-owner observations.
+fn emit_table_grant_changes(
+    target_table: &Table,
+    source_table: &Table,
+    managed_roles: &BTreeSet<Identifier>,
+    out: &mut ChangeSet,
+) {
+    let qname = &source_table.qname;
+    let object_label = format!("table {qname}");
+    // Columns present in the target (live) table but absent from the source are
+    // about to be dropped by an `ALTER TABLE ... DROP COLUMN`. PG cascade-revokes
+    // their column-level ACLs as part of that drop, so they must not generate
+    // `RevokeColumnPrivilege` steps — an explicit `REVOKE ... (dropped_col)`
+    // fails with `42703` once the column is gone. Strip dropped columns from the
+    // target grants before diffing so only surviving-column changes are emitted.
+    let dropped_columns: BTreeSet<&Identifier> = {
+        let source_cols: BTreeSet<&Identifier> =
+            source_table.columns.iter().map(|c| &c.name).collect();
+        target_table
+            .columns
+            .iter()
+            .map(|c| &c.name)
+            .filter(|n| !source_cols.contains(*n))
+            .collect()
+    };
+    let adjusted_target = strip_dropped_columns_from_grants(&target_table.grants, &dropped_columns);
+    let (to_add, to_revoke, unmanaged) =
+        diff_grants(&adjusted_target, &source_table.grants, managed_roles);
+    // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
+    // that WGO-change pairs (same grantee+privilege, different wgo) don't
+    // self-cancel (GRANT followed by REVOKE would drop the privilege entirely).
+    for g in to_revoke {
+        if let Some(source_owner) = &source_table.owner {
+            out.revokes_with_owner.push(RevokeWithOwnerObservation {
+                object_label: object_label.clone(),
+                privilege_label: g.privilege.sql_keyword().into(),
+                grantee: g.grantee.clone(),
+                owner: source_owner.clone(),
+            });
+        }
+        if g.columns.is_some() {
+            out.push(
+                Change::RevokeColumnPrivilege {
+                    qname: qname.clone(),
+                    grant: g,
+                },
+                Destructiveness::Safe,
+            );
+        } else {
+            out.push(
+                Change::RevokeObjectPrivilege {
+                    qname: qname.clone(),
+                    kind: OwnerObjectKind::Table,
+                    signature: String::new(),
+                    grant: g,
+                },
+                Destructiveness::Safe,
+            );
+        }
+    }
+    for g in to_add {
+        if g.columns.is_some() {
+            out.push(
+                Change::GrantColumnPrivilege {
+                    qname: qname.clone(),
+                    grant: g,
+                },
+                Destructiveness::Safe,
+            );
+        } else {
+            out.push(
+                Change::GrantObjectPrivilege {
+                    qname: qname.clone(),
+                    kind: OwnerObjectKind::Table,
+                    signature: String::new(),
+                    grant: g,
+                },
+                Destructiveness::Safe,
+            );
+        }
+    }
+    for g in unmanaged {
+        if let GrantTarget::Role(role_name) = &g.grantee {
+            out.unmanaged_grants.push(UnmanagedGrantObservation {
+                object_label: object_label.clone(),
+                privilege_label: g.privilege.sql_keyword().into(),
+                role_name: role_name.clone(),
+            });
+        }
+    }
+}
+
 fn emit_table_attribute_changes(
     target_table: &Table,
     source_table: &Table,
@@ -270,75 +399,7 @@ fn emit_table_attribute_changes(
     }
 
     // ---- grant diff ----
-    {
-        let object_label = format!("table {qname}");
-        let (to_add, to_revoke, unmanaged) =
-            diff_grants(&target_table.grants, &source_table.grants, managed_roles);
-        // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
-        // that WGO-change pairs (same grantee+privilege, different wgo) don't
-        // self-cancel (GRANT followed by REVOKE would drop the privilege entirely).
-        for g in to_revoke {
-            if let Some(source_owner) = &source_table.owner {
-                out.revokes_with_owner.push(RevokeWithOwnerObservation {
-                    object_label: object_label.clone(),
-                    privilege_label: g.privilege.sql_keyword().into(),
-                    grantee: g.grantee.clone(),
-                    owner: source_owner.clone(),
-                });
-            }
-            let is_column_level = g.columns.is_some();
-            if is_column_level {
-                out.push(
-                    Change::RevokeColumnPrivilege {
-                        qname: qname.clone(),
-                        grant: g,
-                    },
-                    Destructiveness::Safe,
-                );
-            } else {
-                out.push(
-                    Change::RevokeObjectPrivilege {
-                        qname: qname.clone(),
-                        kind: OwnerObjectKind::Table,
-                        signature: String::new(),
-                        grant: g,
-                    },
-                    Destructiveness::Safe,
-                );
-            }
-        }
-        for g in to_add {
-            let is_column_level = g.columns.is_some();
-            if is_column_level {
-                out.push(
-                    Change::GrantColumnPrivilege {
-                        qname: qname.clone(),
-                        grant: g,
-                    },
-                    Destructiveness::Safe,
-                );
-            } else {
-                out.push(
-                    Change::GrantObjectPrivilege {
-                        qname: qname.clone(),
-                        kind: OwnerObjectKind::Table,
-                        signature: String::new(),
-                        grant: g,
-                    },
-                    Destructiveness::Safe,
-                );
-            }
-        }
-        for g in unmanaged {
-            if let GrantTarget::Role(role_name) = &g.grantee {
-                out.unmanaged_grants.push(UnmanagedGrantObservation {
-                    object_label: object_label.clone(),
-                    privilege_label: g.privilege.sql_keyword().into(),
-                    role_name: role_name.clone(),
-                });
-            }
-        }
-    }
+    emit_table_grant_changes(target_table, source_table, managed_roles, out);
 
     // ---- policy diff (RLS toggles + per-policy changes) ----
     let mut policy_changes: Vec<Change> = Vec::new();
@@ -413,6 +474,64 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+        }
+    }
+
+    /// Regression for the soak `[42703] column "X" of relation "Y" does not
+    /// exist` failure. When a column carrying a *multi-column* grant is dropped
+    /// — e.g. live `GRANT SELECT (id, price)` and the source drops `price`,
+    /// keeping `GRANT SELECT (id)` — the grant diff must not emit a
+    /// `RevokeColumnPrivilege` whose column list names the dropped column. PG
+    /// cascade-revokes the column ACL as part of `ALTER TABLE ... DROP COLUMN`,
+    /// so an explicit `REVOKE SELECT (id, price)` fails with 42703 once `price`
+    /// is gone. Dropped columns must be stripped from the target grants before
+    /// diffing; here that leaves `SELECT (id)` on both sides, so no grant change
+    /// is emitted at all (the column drop alone converges the grant).
+    #[test]
+    fn dropped_column_does_not_emit_column_grant_revoke() {
+        let writers = id("writers");
+        let managed_roles: BTreeSet<Identifier> = std::iter::once(writers.clone()).collect();
+
+        let col_grant = |cols: &[&str]| Grant {
+            grantee: GrantTarget::Role(writers.clone()),
+            privilege: Privilege::Select,
+            with_grant_option: false,
+            columns: Some(cols.iter().map(|c| id(c)).collect()),
+        };
+
+        let mut target = Catalog::empty();
+        target.tables.push(Table {
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("price", ColumnType::BigInt, true),
+            ],
+            grants: vec![col_grant(&["id", "price"])],
+            ..users()
+        });
+
+        let mut source = Catalog::empty();
+        source.tables.push(Table {
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            grants: vec![col_grant(&["id"])],
+            ..users()
+        });
+
+        let mut cs = ChangeSet::new();
+        diff_tables(&target, &source, &mut cs, &managed_roles);
+
+        for entry in &cs.entries {
+            if let Change::RevokeColumnPrivilege { grant, .. } = &entry.change {
+                let cols = grant.columns.as_ref().expect("column grant");
+                assert!(
+                    !cols.iter().any(|c| c.as_str() == "price"),
+                    "must not revoke the dropped column 'price': {grant:?}"
+                );
+            }
+            assert!(
+                !matches!(&entry.change, Change::GrantColumnPrivilege { .. }),
+                "no column grant needed — surviving column 'id' already has it: {:?}",
+                entry.change
+            );
         }
     }
 
