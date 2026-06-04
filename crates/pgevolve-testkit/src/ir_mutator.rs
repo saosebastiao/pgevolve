@@ -162,23 +162,43 @@ fn drop_non_pk_column(c: &mut Catalog, seed: usize) {
             .iter()
             .any(|ic| matches!(&ic.expr, IndexColumnExpr::Column(name) if name == &dropped_name))
     });
-    // Cascade-clean statistics that reference the dropped column:
-    //   1. Remove the dropped column from each statistic's column list.
-    //   2. Drop statistics whose column list falls below 2 (PG requires >= 2
-    //      for CREATE STATISTICS).
-    for stat in &mut c.statistics {
-        if stat.target == qname {
-            stat.columns.retain(|sc| {
-                !matches!(sc, pgevolve_core::ir::statistic::StatisticColumn::Column(n) if n == &dropped_name)
+    // Cascade-drop statistics that reference the dropped column. PG drops an
+    // extended-statistics object *entirely* when any of its columns is dropped —
+    // it does not reduce the column list (verified empirically: dropping one
+    // column of a 3-column statistic removes the whole object). The generator
+    // only emits `StatisticColumn::Column` entries, so a name match is exact.
+    c.statistics.retain(|stat| {
+        stat.target != qname
+            || !stat.columns.iter().any(|sc| {
+                matches!(sc, pgevolve_core::ir::statistic::StatisticColumn::Column(n) if n == &dropped_name)
+            })
+    });
+
+    // Cascade-drop publication entries that list the dropped column. PG refuses
+    // to drop a column named in a publication's column list (it reports a
+    // dependency), so a faithful mutation drops the whole table from any such
+    // publication (the CASCADE a user would issue). Publications that publish
+    // the table with no column list (all columns) are unaffected.
+    remove_table_with_column_from_publications(c, &qname, &dropped_name);
+    drop_emptied_publications(c);
+}
+
+/// Remove the entry for `table`/`column` from any `Selective` publication that
+/// publishes `table` with a column list naming `column`.
+fn remove_table_with_column_from_publications(
+    c: &mut Catalog,
+    table: &QualifiedName,
+    column: &Identifier,
+) {
+    use pgevolve_core::ir::publication::PublicationScope;
+    for p in &mut c.publications {
+        if let PublicationScope::Selective { tables, .. } = &mut p.scope {
+            tables.retain(|t| {
+                &t.qname != table
+                    || t.columns.as_ref().is_none_or(|cols| !cols.contains(column))
             });
         }
     }
-    c.statistics.retain(|stat| {
-        if stat.target != qname {
-            return true;
-        }
-        stat.columns.len() >= 2
-    });
 }
 
 /// Returns `true` if `kind` explicitly names `col` in its column lists.
@@ -378,12 +398,28 @@ fn drop_schema(c: &mut Catalog, seed: usize) {
     // error 3F000 (schema does not exist) when the DDL is applied.
     c.types.retain(|ty| ty.qname.schema != dropped);
     c.collations.retain(|col| col.qname.schema != dropped);
-    c.statistics.retain(|s| s.qname.schema != dropped);
+    // A statistic is dropped when it lives in the dropped schema *or* when its
+    // target table does (the table goes, so PG cascade-drops the statistic).
+    c.statistics
+        .retain(|s| s.qname.schema != dropped && s.target.schema != dropped);
     c.views.retain(|v| v.qname.schema != dropped);
     c.materialized_views.retain(|m| m.qname.schema != dropped);
     // Strip any default-privilege rules scoped to the dropped schema.
     c.default_privileges
         .retain(|r| r.schema.as_ref() != Some(&dropped));
+    // Publications: PG drops the schema from `TABLES IN SCHEMA` scopes and
+    // removes every table that lived in the dropped schema. Mirror both, then
+    // drop any publication left with an empty scope.
+    {
+        use pgevolve_core::ir::publication::PublicationScope;
+        for p in &mut c.publications {
+            if let PublicationScope::Selective { schemas, tables } = &mut p.scope {
+                schemas.retain(|s| s != &dropped);
+                tables.retain(|t| t.qname.schema != dropped);
+            }
+        }
+    }
+    drop_emptied_publications(c);
 }
 
 // ---------------------------------------------------------------------------
@@ -451,6 +487,38 @@ fn cascade_drop_objects_for_table(c: &mut Catalog, qname: &QualifiedName) {
     c.indexes.retain(|i| i.on.qname() != qname);
     c.sequences
         .retain(|s: &Sequence| s.owned_by.as_ref().is_none_or(|o| &o.table != qname));
+    // PG drops every extended-statistics object targeting a table when that
+    // table is dropped. Mirror it so the mutated catalog matches live.
+    c.statistics.retain(|s| &s.target != qname);
+    // PG removes a dropped table from every publication. Doing so can leave a
+    // publication with no tables and no schemas — an empty publication, which
+    // pgevolve cannot model (the parser rejects empty `Selective` scopes and
+    // the catalog reader errors). Drop such publications entirely.
+    remove_table_from_publications(c, qname);
+    drop_emptied_publications(c);
+}
+
+/// Remove `qname` from every `Selective` publication's table list. `AllTables`
+/// publications are unaffected (PG keeps publishing all current/future tables).
+fn remove_table_from_publications(c: &mut Catalog, qname: &QualifiedName) {
+    use pgevolve_core::ir::publication::PublicationScope;
+    for p in &mut c.publications {
+        if let PublicationScope::Selective { tables, .. } = &mut p.scope {
+            tables.retain(|t| &t.qname != qname);
+        }
+    }
+}
+
+/// Drop any publication whose `Selective` scope has become empty (no tables and
+/// no schemas). pgevolve does not model empty publications.
+fn drop_emptied_publications(c: &mut Catalog) {
+    use pgevolve_core::ir::publication::PublicationScope;
+    c.publications.retain(|p| match &p.scope {
+        PublicationScope::AllTables => true,
+        PublicationScope::Selective { schemas, tables } => {
+            !(schemas.is_empty() && tables.is_empty())
+        }
+    });
 }
 
 #[cfg(test)]
@@ -696,6 +764,100 @@ mod tests {
                     (declared schemas: {declared:?})",
                     schema.as_str(),
                 );
+            }
+        }
+    }
+
+    /// Regression for the soak `Statistic(Create)` / empty-publication
+    /// failures: the mutator's table-, column-, and schema-drop paths must
+    /// mirror PG's automatic cascade so the mutated catalog matches what a live
+    /// database actually ends up with.
+    ///
+    /// PG (verified empirically):
+    /// - drops an extended-statistics object entirely when *any* of its columns
+    ///   or its target table is dropped;
+    /// - removes a dropped table from every publication, leaving an empty
+    ///   publication when its last table/schema goes (pgevolve cannot model
+    ///   empty publications, so the mutation must drop the publication);
+    /// - refuses to drop a column listed in a publication's column list.
+    ///
+    /// This asserts the invariants over 256 random mutated catalogs:
+    /// 1. every statistic targets a table that still exists;
+    /// 2. every published table / schema still exists and no publication scope
+    ///    is empty;
+    /// 3. no publication column list references a missing column.
+    #[test]
+    fn drop_cascades_to_statistics_and_publications() {
+        use pgevolve_core::ir::publication::PublicationScope;
+        use std::collections::BTreeSet;
+
+        let mut runner = TestRunner::default();
+        for _ in 0..256 {
+            let seed = arbitrary_catalog(IRGeneratorConfig::default())
+                .new_tree(&mut runner)
+                .unwrap()
+                .current();
+            let mutated = arbitrary_mutation(seed.clone())
+                .new_tree(&mut runner)
+                .unwrap()
+                .current();
+
+            let table_qnames: BTreeSet<&QualifiedName> =
+                mutated.tables.iter().map(|t| &t.qname).collect();
+            let schema_names: BTreeSet<&Identifier> =
+                mutated.schemas.iter().map(|s| &s.name).collect();
+
+            // 1. Every statistic must target a table that still exists.
+            for stat in &mutated.statistics {
+                assert!(
+                    table_qnames.contains(&stat.target),
+                    "statistic '{}' targets dropped table '{}'",
+                    stat.qname.render_sql(),
+                    stat.target.render_sql(),
+                );
+            }
+
+            // 2 + 3. Publications must reference only live tables/schemas and
+            //        never have an empty Selective scope.
+            for p in &mutated.publications {
+                let PublicationScope::Selective { schemas, tables } = &p.scope else {
+                    continue;
+                };
+                assert!(
+                    !(schemas.is_empty() && tables.is_empty()),
+                    "publication '{}' has an empty Selective scope",
+                    p.name.as_str(),
+                );
+                for s in schemas {
+                    assert!(
+                        schema_names.contains(s),
+                        "publication '{}' references dropped schema '{}'",
+                        p.name.as_str(),
+                        s.as_str(),
+                    );
+                }
+                for pt in tables {
+                    let Some(tbl) = mutated.tables.iter().find(|t| t.qname == pt.qname) else {
+                        panic!(
+                            "publication '{}' references dropped table '{}'",
+                            p.name.as_str(),
+                            pt.qname.render_sql(),
+                        );
+                    };
+                    if let Some(cols) = &pt.columns {
+                        let live: BTreeSet<&Identifier> =
+                            tbl.columns.iter().map(|c| &c.name).collect();
+                        for c in cols {
+                            assert!(
+                                live.contains(c),
+                                "publication '{}' lists dropped column '{}' of table '{}'",
+                                p.name.as_str(),
+                                c.as_str(),
+                                pt.qname.render_sql(),
+                            );
+                        }
+                    }
+                }
             }
         }
     }
