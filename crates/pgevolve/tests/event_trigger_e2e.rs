@@ -19,6 +19,7 @@
 mod common;
 
 use anyhow::Result;
+use pgevolve_core::identifier::Identifier;
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::parse::parse_directory;
 use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, default_pg_version, docker_available};
@@ -85,4 +86,58 @@ async fn run() -> Result<()> {
         "live database should report exactly one event trigger after apply"
     );
     assert_convergent(&live, &source)
+}
+
+// ---------------------------------------------------------------------------
+// Extension-owned exclusion test
+// ---------------------------------------------------------------------------
+
+#[ignore = "e2e test — requires Docker; run via `cargo test -- --ignored`"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn extension_owned_event_trigger_is_excluded_from_introspection() {
+    if !docker_available() {
+        eprintln!("skipping: docker unavailable");
+        return;
+    }
+    run_extension_owned_exclusion()
+        .await
+        .expect("extension-owned event trigger exclusion");
+}
+
+async fn run_extension_owned_exclusion() -> Result<()> {
+    let pg = EphemeralPostgres::start(default_pg_version()).await?;
+    let client = connect_and_bootstrap(&pg).await?;
+
+    // Create two event triggers: one managed (et_managed) and one that is
+    // then adopted by the plpgsql extension (et_ext), producing a
+    // pg_depend row with deptype='e'.  The reader must exclude et_ext.
+    client
+        .batch_execute(
+            "CREATE SCHEMA app; \
+             CREATE FUNCTION app.audit() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN END $$; \
+             CREATE EVENT TRIGGER et_managed ON ddl_command_end EXECUTE FUNCTION app.audit(); \
+             CREATE EVENT TRIGGER et_ext ON ddl_command_end EXECUTE FUNCTION app.audit(); \
+             ALTER EXTENSION plpgsql ADD EVENT TRIGGER et_ext;",
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("setup SQL: {e}"))?;
+
+    let managed = vec![Identifier::from_unquoted("app").map_err(|e| anyhow::anyhow!("{e}"))?];
+    let live = introspect(&pg, &managed).await?;
+
+    let names: Vec<&str> = live
+        .event_triggers
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
+    assert!(
+        names.contains(&"et_managed"),
+        "managed event trigger must be read: {names:?}"
+    );
+    assert!(
+        !names.contains(&"et_ext"),
+        "extension-owned event trigger must be excluded: {names:?}"
+    );
+
+    Ok(())
 }
