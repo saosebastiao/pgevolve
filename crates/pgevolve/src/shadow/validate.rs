@@ -328,7 +328,8 @@ fn node_id_to_key(node: &NodeId) -> String {
         NodeId::Schema(id)
         | NodeId::Extension(id)
         | NodeId::Publication(id)
-        | NodeId::Subscription(id) => id.to_string(),
+        | NodeId::Subscription(id)
+        | NodeId::EventTrigger(id) => id.to_string(),
         NodeId::Constraint { table, name } => format!("{table}.{name}"),
     }
 }

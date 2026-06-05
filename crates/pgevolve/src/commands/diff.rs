@@ -587,6 +587,36 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            pgevolve_core::diff::change::Change::EventTrigger(ec) => {
+                use pgevolve_core::diff::change::EventTriggerChange;
+                match ec {
+                    EventTriggerChange::Create(et) => {
+                        println!("      + CREATE EVENT TRIGGER {}", et.name);
+                    }
+                    EventTriggerChange::Replace { to, .. } => {
+                        println!("      ~ REPLACE EVENT TRIGGER {} (DROP + CREATE)", to.name);
+                    }
+                    EventTriggerChange::Drop { name } => {
+                        println!("      - DROP EVENT TRIGGER {name}");
+                    }
+                    EventTriggerChange::AlterEnable { name, enabled } => {
+                        println!(
+                            "      ~ ALTER EVENT TRIGGER {name} {}",
+                            enabled.alter_clause()
+                        );
+                    }
+                    EventTriggerChange::AlterOwner { name, owner } => {
+                        println!("      ~ ALTER EVENT TRIGGER {name} OWNER TO {owner}");
+                    }
+                    EventTriggerChange::CommentOn { name, comment } => {
+                        if comment.is_some() {
+                            println!("      ~ COMMENT ON EVENT TRIGGER {name}");
+                        } else {
+                            println!("      ~ COMMENT ON EVENT TRIGGER {name} IS NULL");
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -820,5 +850,23 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Collation(CollationChange::Rename { .. }) => "rename_collation",
         Change::Collation(CollationChange::Replace { .. }) => "replace_collation",
         Change::Collation(CollationChange::CommentOn { .. }) => "comment_on_collation",
+        Change::EventTrigger(pgevolve_core::diff::change::EventTriggerChange::Create(_)) => {
+            "create_event_trigger"
+        }
+        Change::EventTrigger(pgevolve_core::diff::change::EventTriggerChange::Replace {
+            ..
+        }) => "replace_event_trigger",
+        Change::EventTrigger(pgevolve_core::diff::change::EventTriggerChange::Drop { .. }) => {
+            "drop_event_trigger"
+        }
+        Change::EventTrigger(pgevolve_core::diff::change::EventTriggerChange::AlterEnable {
+            ..
+        }) => "alter_event_trigger_enable",
+        Change::EventTrigger(pgevolve_core::diff::change::EventTriggerChange::AlterOwner {
+            ..
+        }) => "alter_event_trigger_owner",
+        Change::EventTrigger(pgevolve_core::diff::change::EventTriggerChange::CommentOn {
+            ..
+        }) => "comment_on_event_trigger",
     }
 }

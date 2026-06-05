@@ -104,6 +104,7 @@ fn node_label(n: &NodeId) -> String {
         NodeId::Subscription(n) => format!("subscription:{}", n.as_str()),
         NodeId::Statistic(q) => format!("statistic:{q}"),
         NodeId::Collation(q) => format!("collation:{q}"),
+        NodeId::EventTrigger(n) => format!("event_trigger:{}", n.as_str()),
     }
 }
 
