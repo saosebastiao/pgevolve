@@ -1852,11 +1852,10 @@ mod tests {
                 .any(|n| n == &NodeId::EventTrigger(id("audit_et"))),
             "event trigger node must still be registered even if function is unmanaged"
         );
-        let deps: Vec<_> = g
-            .dependencies_of(&NodeId::EventTrigger(id("audit_et")))
-            .collect();
         assert!(
-            deps.is_empty(),
+            g.dependencies_of(&NodeId::EventTrigger(id("audit_et")))
+                .next()
+                .is_none(),
             "no edge expected for unmanaged function reference"
         );
     }

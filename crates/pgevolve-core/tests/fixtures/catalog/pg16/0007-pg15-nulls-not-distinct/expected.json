@@ -116,6 +116,7 @@
   "procedures": [],
   "triggers": [],
   "publications": [],
+  "event_triggers": [],
   "statistics": [],
   "subscriptions": [],
   "collations": [],

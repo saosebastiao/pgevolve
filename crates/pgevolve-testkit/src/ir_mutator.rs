@@ -949,6 +949,7 @@ mod tests {
             functions: vec![],
             procedures: vec![],
             triggers: vec![],
+            event_triggers: vec![],
             publications: vec![],
             statistics: vec![],
             subscriptions: vec![],

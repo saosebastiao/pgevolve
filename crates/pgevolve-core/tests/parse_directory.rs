@@ -108,11 +108,12 @@ fn unsupported_object_kind_rejected() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
 
-    // CREATE EXTENSION became supported in v0.2 sub-spec #3; use a
-    // genuinely-unsupported statement.
+    // CREATE EXTENSION became supported in v0.2 sub-spec #3 and
+    // CREATE EVENT TRIGGER in v0.4.0; use a genuinely-unsupported
+    // statement (CREATE RULE is ⛔ Not planned).
     write(
         &root.join("bad.sql"),
-        "CREATE EVENT TRIGGER trg ON ddl_command_start EXECUTE FUNCTION f();\n",
+        "CREATE RULE notify_me AS ON UPDATE TO app.t DO NOTHING;\n",
     );
     let err = parse::parse_directory(root, &[]).unwrap_err();
     match err {
