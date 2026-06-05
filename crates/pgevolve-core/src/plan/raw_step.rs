@@ -291,6 +291,18 @@ pub enum StepKind {
     ReplaceCollation,
     /// `COMMENT ON COLLATION qname IS '...'`.
     CommentOnCollation,
+
+    // --- v0.4 event trigger step kinds ---
+    /// `CREATE EVENT TRIGGER name ON event [WHEN TAG IN (...)] EXECUTE FUNCTION fn();`.
+    CreateEventTrigger,
+    /// `DROP EVENT TRIGGER name;` — destructive.
+    DropEventTrigger,
+    /// `ALTER EVENT TRIGGER name {ENABLE|DISABLE|ENABLE REPLICA|ENABLE ALWAYS};`.
+    AlterEventTriggerEnable,
+    /// `ALTER EVENT TRIGGER name OWNER TO role;`.
+    AlterEventTriggerOwner,
+    /// `COMMENT ON EVENT TRIGGER name IS '...';`.
+    CommentOnEventTrigger,
 }
 
 /// One unit of work the executor will attempt.
@@ -445,6 +457,11 @@ mod tests {
             StepKind::RenameCollation,
             StepKind::ReplaceCollation,
             StepKind::CommentOnCollation,
+            StepKind::CreateEventTrigger,
+            StepKind::DropEventTrigger,
+            StepKind::AlterEventTriggerEnable,
+            StepKind::AlterEventTriggerOwner,
+            StepKind::CommentOnEventTrigger,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

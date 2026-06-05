@@ -7,6 +7,7 @@
 
 pub(super) mod constraint;
 pub(super) mod deferred_fk;
+pub(super) mod event_trigger;
 pub(super) mod extension;
 pub(super) mod function;
 pub(super) mod index;

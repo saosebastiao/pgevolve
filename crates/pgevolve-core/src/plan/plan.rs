@@ -514,6 +514,11 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::RenameCollation => "rename_collation",
         K::ReplaceCollation => "replace_collation",
         K::CommentOnCollation => "comment_on_collation",
+        K::CreateEventTrigger => "create_event_trigger",
+        K::DropEventTrigger => "drop_event_trigger",
+        K::AlterEventTriggerEnable => "alter_event_trigger_enable",
+        K::AlterEventTriggerOwner => "alter_event_trigger_owner",
+        K::CommentOnEventTrigger => "comment_on_event_trigger",
     }
 }
 
@@ -634,6 +639,11 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "rename_collation" => K::RenameCollation,
         "replace_collation" => K::ReplaceCollation,
         "comment_on_collation" => K::CommentOnCollation,
+        "create_event_trigger" => K::CreateEventTrigger,
+        "drop_event_trigger" => K::DropEventTrigger,
+        "alter_event_trigger_enable" => K::AlterEventTriggerEnable,
+        "alter_event_trigger_owner" => K::AlterEventTriggerOwner,
+        "comment_on_event_trigger" => K::CommentOnEventTrigger,
         _ => return None,
     })
 }
