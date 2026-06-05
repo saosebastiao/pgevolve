@@ -41,6 +41,7 @@ pub mod trigger_references_unmanaged_function;
 pub mod trigger_references_unmanaged_table;
 pub mod type_shadows_table;
 pub mod unmanaged_collation;
+pub mod unmanaged_event_trigger;
 pub mod unmanaged_publication;
 pub mod unmanaged_reloption;
 pub mod unmanaged_statistic;

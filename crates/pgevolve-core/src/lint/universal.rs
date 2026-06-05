@@ -158,6 +158,7 @@ pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
     rules::column_position_drift::check(source, target, &mut out);
     out.extend(rules::unmanaged_reloption::check(source, target));
     out.extend(rules::unmanaged_publication::check(source, target));
+    out.extend(rules::unmanaged_event_trigger::check(source, target));
     out.extend(rules::publication_captures_unmanaged_table::check(
         source, target,
     ));
