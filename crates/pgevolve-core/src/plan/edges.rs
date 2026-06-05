@@ -68,6 +68,8 @@ pub enum NodeId {
     /// A subscription (not schema-qualified — subscriptions are a per-database
     /// global namespace, like publications).
     Subscription(Identifier),
+    /// A database-global event trigger.
+    EventTrigger(Identifier),
     /// A statistics object (`CREATE STATISTICS schema.name`).
     Statistic(QualifiedName),
     /// A user-defined collation (`CREATE COLLATION schema.name`).
@@ -207,6 +209,17 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
     // them create-last, drop-first via sort_key.
     for s in &catalog.subscriptions {
         g.add_node(NodeId::Subscription(s.name.clone()));
+    }
+    // Event triggers: global nodes; edge to the function they execute so the
+    // function is created before the event trigger (and dropped after).
+    for et in &catalog.event_triggers {
+        g.add_node(NodeId::EventTrigger(et.name.clone()));
+        if let Some(func) = catalog.functions.iter().find(|f| f.qname == et.function) {
+            g.add_edge(
+                NodeId::EventTrigger(et.name.clone()),
+                NodeId::Function(et.function.clone(), func.arg_types_normalized.clone()),
+            );
+        }
     }
     // Register statistics; each depends on its target table (must be created
     // after the table exists and dropped before the table is dropped).
@@ -1776,5 +1789,75 @@ mod tests {
             .position(|n| n == &NodeId::Type(qn("app", "derived_t")))
             .expect("derived_t in order");
         assert!(base_pos < derived_pos, "base_t must come before derived_t");
+    }
+
+    // ── Event trigger edge tests ─────────────────────────────────────────────
+
+    use crate::ir::event_trigger::{EventTrigger, EventTriggerEnabled, EventTriggerEvent};
+
+    fn make_event_trigger(name: &str, function: QualifiedName) -> EventTrigger {
+        EventTrigger {
+            name: id(name),
+            event: EventTriggerEvent::DdlCommandEnd,
+            tag_filter: vec![],
+            function,
+            enabled: EventTriggerEnabled::Enabled,
+            owner: None,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn event_trigger_node_registered() {
+        let mut c = Catalog::empty();
+        let et = make_event_trigger("audit_et", qn("app", "audit_fn"));
+        c.event_triggers.push(et);
+        let g = build_create_graph(&c);
+        assert!(
+            g.nodes()
+                .any(|n| n == &NodeId::EventTrigger(id("audit_et"))),
+            "event trigger node must be registered in the graph"
+        );
+    }
+
+    #[test]
+    fn event_trigger_depends_on_managed_function() {
+        let mut c = Catalog::empty();
+        let f = make_function("app", "audit_fn");
+        let arg_types = f.arg_types_normalized.clone();
+        c.functions.push(f);
+        let et = make_event_trigger("audit_et", qn("app", "audit_fn"));
+        c.event_triggers.push(et);
+        let g = build_create_graph(&c);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::EventTrigger(id("audit_et")),
+                &NodeId::Function(qn("app", "audit_fn"), arg_types),
+            ),
+            "event trigger must depend on the function it executes"
+        );
+    }
+
+    #[test]
+    fn event_trigger_no_edge_for_unmanaged_function() {
+        // If the function is not in the catalog, no edge is added.
+        let mut c = Catalog::empty();
+        let et = make_event_trigger("audit_et", qn("app", "unmanaged_fn"));
+        c.event_triggers.push(et);
+        let g = build_create_graph(&c);
+        // Node exists but has no dependencies.
+        assert!(
+            g.nodes()
+                .any(|n| n == &NodeId::EventTrigger(id("audit_et"))),
+            "event trigger node must still be registered even if function is unmanaged"
+        );
+        let deps: Vec<_> = g
+            .dependencies_of(&NodeId::EventTrigger(id("audit_et")))
+            .collect();
+        assert!(
+            deps.is_empty(),
+            "no edge expected for unmanaged function reference"
+        );
     }
 }

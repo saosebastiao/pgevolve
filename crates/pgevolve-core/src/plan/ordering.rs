@@ -831,6 +831,7 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Trigger(q) => format!("trigger:{q}"),
         NodeId::Publication(name) => format!("publication:{name}"),
         NodeId::Subscription(name) => format!("subscription:{name}"),
+        NodeId::EventTrigger(name) => format!("event_trigger:{name}"),
         NodeId::Statistic(q) => format!("statistic:{q}"),
         NodeId::Collation(q) => format!("collation:{q}"),
         NodeId::Function(q, args) => format!(
