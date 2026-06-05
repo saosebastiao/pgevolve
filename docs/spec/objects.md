@@ -44,7 +44,7 @@ manage. See [`../README.md`](./README.md) for the status legend.
 | `FUNCTION` (other PL languages — PL/Python, PL/Perl, etc.) | 📋 Planned, v0.4.2 | Requires support for `CREATE EXTENSION` for the language first. See [`roadmap.md`](./roadmap.md). |
 | `PROCEDURE` | ✅ Implemented | Same as functions, qname-only identity. COMMIT/ROLLBACK in body auto-detected; step runs with transactional=OutsideTransaction.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/procedure.rs::tests`; tier-C: `objects/procedures/create-simple`, `create-with-commit`, `replace-body`, `drop-procedure`, `comment-on-procedure` |
 | `TRIGGER` | ✅ Implemented | BEFORE/AFTER/INSTEAD OF; FOR EACH ROW/STATEMENT; WHEN clause; UPDATE OF columns; REFERENCING transition tables; CONSTRAINT TRIGGER with DEFERRABLE/INITIALLY DEFERRED. Any structural diff → Drop + Create.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/trigger.rs::tests`, `parse/builder/create_trigger_stmt.rs::tests`, `diff/triggers.rs::tests`, `plan/rewrite/triggers.rs::tests`, `plan/rewrite/emit/trigger.rs::tests`; tier-C: `objects/triggers/create-row-trigger-simple`, `create-statement-trigger`, `create-instead-of-on-view`, `create-with-transition-tables`, `create-constraint-trigger`, `replace-event-list`, `replace-function`, `replace-when-clause`, `drop-simple`, `comment-on` |
-| `EVENT TRIGGER` | 📋 Planned, v0.4.0 | Lower priority; intersects with admin/security tooling. See [`roadmap.md`](./roadmap.md). |
+| <a id="objects.event_trigger"></a>`EVENT TRIGGER` | ✅ Supported | Database-global object (bare name, no schema). `CREATE EVENT TRIGGER … ON <event>` with optional `WHEN TAG IN (…)` command-tag filter; `ALTER … ENABLE/DISABLE/ENABLE REPLICA/ENABLE ALWAYS`, `ALTER … OWNER TO`, `DROP`, and `COMMENT ON`. Lenient owner + lenient drop, mirroring publications/subscriptions: unmanaged event triggers surface via the `unmanaged-event-trigger` lint and are never auto-dropped. Extension-owned event triggers are excluded from introspection. change_kinds: [create_event_trigger, drop_event_trigger, alter_event_trigger_enable, alter_event_trigger_owner, comment_on_event_trigger] |
 | `AGGREGATE` | 📋 Planned, v0.4.1 | v0.4.1 adds aggregates whose state function is SQL or plpgsql. Aggregates whose state function is in a PL language pgevolve does not yet read are rejected at IR-build with a structured error; v0.4.2 PL-language wiring lifts that constraint. See [`roadmap.md`](./roadmap.md). |
 
 ## Custom types
@@ -143,7 +143,7 @@ Both edges are `DepSource::Structural`. The function edge also ensures that a fu
 ### Out of scope / notable gaps
 
 - **`ALTER TRIGGER … RENAME TO`** — not supported. Rename is treated as Drop + Create (old name disappears, new name appears).
-- **Event triggers** (`CREATE EVENT TRIGGER`) — a separate object kind; tracked as 🔮 Future in the table above.
+- **Event triggers** (`CREATE EVENT TRIGGER`) — a separate object kind, now ✅ Supported. See the [`EVENT TRIGGER`](#objects.event_trigger) row in the table above.
 - **`WHEN` clause dependency extraction** — the WHEN predicate is stored as a `NormalizedExpr` for canonical diffing but its column references are not added as explicit dep edges. Renames of referenced columns will surface as a structural diff, prompting a Drop + Create.
 
 ## Partitioning (detail)

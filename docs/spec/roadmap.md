@@ -24,6 +24,7 @@ the charter is the meaning of "done".
 | v0.3.6 | PG 18 catalog support | [`2026-05-26-postgres-18-support.md`](../superpowers/plans/2026-05-26-postgres-18-support.md) |
 | v0.3.7 | `STATISTICS` + `VIEW ... WITH CHECK OPTION` | [`2026-05-27-statistics-and-check-option.md`](../superpowers/plans/2026-05-27-statistics-and-check-option.md) |
 | v0.3.8 | `CREATE COLLATION` + `RANGE TYPE` | [`2026-05-28-collation-and-range-type.md`](../superpowers/plans/2026-05-28-collation-and-range-type.md) |
+| v0.4.0 | `EVENT TRIGGER` | [`2026-06-04-event-trigger.md`](../superpowers/plans/2026-06-04-event-trigger.md) |
 
 ## Active matrix
 
@@ -33,7 +34,6 @@ matrix is the source of truth; the charter restates it).
 
 | Target | Object / sub-feature | Plan | Notes |
 |---|---|---|---|
-| v0.4.0 | `EVENT TRIGGER` | [`_skeleton/event-trigger.md`](../superpowers/plans/_skeleton/event-trigger.md) | Independent surface |
 | v0.4.0 | `TABLESPACE` (cluster object) | [`_skeleton/cluster-tablespace.md`](../superpowers/plans/_skeleton/cluster-tablespace.md) | Reverses the "out of scope" stance in `objects.md`; see design doc. Independent (no internal deps). |
 | v0.4.0 | `TABLE ... USING <access method>` | [`_skeleton/table-access-method.md`](../superpowers/plans/_skeleton/table-access-method.md) | New `access_method` field on `Table`. Independent (no internal deps). |
 | v0.4.1 | `AGGREGATE` (SQL/plpgsql state) | [`_skeleton/aggregate.md`](../superpowers/plans/_skeleton/aggregate.md) | Constrained: v0.4.1 rejects non-readable state-function languages. Soft dep on PL-language wiring (v0.4.2) — non-SQL state-function support lands in a v0.4.2 follow-up. |

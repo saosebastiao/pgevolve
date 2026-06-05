@@ -9,6 +9,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **`EVENT TRIGGER` support.** `CREATE EVENT TRIGGER` (with `ON <event>` and `WHEN TAG IN (...)` filter), `ALTER … ENABLE/DISABLE/ENABLE REPLICA/ENABLE ALWAYS`, `ALTER … OWNER TO`, `DROP`, and `COMMENT ON`. Database-global with a lenient drop policy (unmanaged event triggers surface via the `unmanaged-event-trigger` lint, never auto-dropped), mirroring publications/subscriptions. Extension-owned event triggers are excluded from introspection.
 - **`SubscriptionOptions.connect` — CREATE-only directive.** New IR field that maps to PG's `CREATE SUBSCRIPTION ... WITH (connect = ...)` option. `connect = false` creates the subscription without dialing the publisher (the only way to construct a subscription against a publisher that may not be reachable). The option is CREATE-only — `pg_subscription` doesn't store it — so the catalog reader always returns `None` and the diff never emits an ALTER for it. Closes #14.
 
 ### Changed
