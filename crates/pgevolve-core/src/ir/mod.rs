@@ -91,6 +91,10 @@ pub enum IrError {
     #[error("statistic {0}: empty column list")]
     EmptyStatisticColumns(crate::identifier::QualifiedName),
 
+    /// Two event triggers share a name.
+    #[error("duplicate event trigger: {0}")]
+    DuplicateEventTrigger(crate::identifier::Identifier),
+
     /// A `Collation` failed canon validation (e.g. nondeterministic libc).
     #[error("collation {qname}: invalid — {reason}")]
     InvalidCollation {

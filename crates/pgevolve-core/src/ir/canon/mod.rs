@@ -31,6 +31,7 @@
 pub mod cluster;
 pub mod collations;
 pub mod default_privileges;
+pub mod event_triggers;
 pub mod filter_pg_defaults;
 pub mod grants;
 pub mod policies;
@@ -100,6 +101,7 @@ pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
         policies::run_on_table(t);
     }
     publications::run(cat)?;
+    event_triggers::run(cat)?;
     subscriptions::run(cat)?;
     statistics::run(cat)?;
     collations::run(cat)?;
