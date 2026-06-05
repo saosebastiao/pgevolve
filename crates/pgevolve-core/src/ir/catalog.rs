@@ -46,6 +46,8 @@ pub struct Catalog {
     pub triggers: Vec<Trigger>,
     /// Publications (logical-replication source-side metadata).
     pub publications: Vec<Publication>,
+    /// Database-global event triggers (lenient drop policy).
+    pub event_triggers: Vec<crate::ir::event_trigger::EventTrigger>,
     /// Multi-column statistics objects (CREATE STATISTICS).
     pub statistics: Vec<crate::ir::statistic::Statistic>,
     /// Subscriptions (logical-replication subscriber-side metadata).
@@ -73,6 +75,7 @@ impl Catalog {
             procedures: Vec::new(),
             triggers: Vec::new(),
             publications: Vec::new(),
+            event_triggers: Vec::new(),
             statistics: Vec::new(),
             subscriptions: Vec::new(),
             collations: Vec::new(),

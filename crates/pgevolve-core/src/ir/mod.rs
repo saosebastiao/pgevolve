@@ -31,6 +31,7 @@ pub mod table;
 pub use function::*;
 pub mod procedure;
 pub use procedure::*;
+pub mod event_trigger;
 pub mod trigger;
 pub mod user_type;
 pub use user_type::*;
