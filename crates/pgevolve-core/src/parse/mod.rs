@@ -24,6 +24,7 @@ pub use statement::Statement;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::IrError;
 use crate::ir::catalog::Catalog;
+use crate::ir::event_trigger::EventTrigger;
 use crate::ir::publication::Publication;
 use crate::ir::statistic::Statistic;
 use crate::ir::subscription::Subscription;
@@ -92,6 +93,9 @@ pub fn parse_directory_with_locations(
     let mut subscriptions: BTreeMap<Identifier, Subscription> = BTreeMap::new();
     // Statistics: fold CREATE + ALTER SET STATISTICS + COMMENT into one record per qname.
     let mut statistics: BTreeMap<QualifiedName, Statistic> = BTreeMap::new();
+    // Event triggers: database-global, accumulated by name. Fold CREATE +
+    // ALTER (ENABLE/DISABLE) + COMMENT + OWNER into one record per name.
+    let mut event_triggers: BTreeMap<Identifier, EventTrigger> = BTreeMap::new();
 
     for path in files {
         let contents = std::fs::read_to_string(&path).map_err(|e| ParseError::Io {
@@ -112,6 +116,7 @@ pub fn parse_directory_with_locations(
             &mut publications,
             &mut subscriptions,
             &mut statistics,
+            &mut event_triggers,
         )?;
     }
 
@@ -141,6 +146,9 @@ pub fn parse_directory_with_locations(
 
     // Flush the statistics accumulator into the catalog.
     catalog.statistics = statistics.into_values().collect();
+
+    // Flush the event-triggers accumulator into the catalog.
+    catalog.event_triggers = event_triggers.into_values().collect();
 
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
@@ -356,6 +364,7 @@ fn process_file(
     publications: &mut BTreeMap<Identifier, Publication>,
     subscriptions: &mut BTreeMap<Identifier, Subscription>,
     statistics: &mut BTreeMap<QualifiedName, Statistic>,
+    event_triggers: &mut BTreeMap<Identifier, EventTrigger>,
 ) -> Result<(), ParseError> {
     let directives = directives::extract_file_directives(contents, path)?;
     let parsed = pg_query::parse(contents).map_err(|e| ParseError::PgQuery {
@@ -459,6 +468,14 @@ fn process_file(
                     // accumulator (not deferred), because statistics are not yet in
                     // catalog at the deferred-comment application point.
                     apply_statistics_comment(&s, statistics, &location)?;
+                } else if matches!(kind, ObjectType::ObjectEventTrigger) {
+                    // COMMENT ON EVENT TRIGGER is handled inline against the
+                    // event-trigger accumulator for the same reason.
+                    builder::event_trigger_stmt::apply_event_trigger_comment(
+                        &s,
+                        &location,
+                        event_triggers,
+                    )?;
                 } else {
                     deferred_comments.push((s, location, directives.schema.clone()));
                 }
@@ -679,7 +696,20 @@ fn process_file(
                 builder::grants::apply(&s, catalog, &location)?;
             }
             Statement::AlterOwner(s) => {
-                builder::owner_stmt::apply(&s, catalog, &location)?;
+                use pg_query::protobuf::ObjectType;
+                let objtype = ObjectType::try_from(s.object_type).unwrap_or(ObjectType::Undefined);
+                if matches!(objtype, ObjectType::ObjectEventTrigger) {
+                    // ALTER EVENT TRIGGER … OWNER TO is applied inline against the
+                    // event-trigger accumulator (event triggers are not yet in the
+                    // catalog at this point).
+                    builder::event_trigger_stmt::apply_event_trigger_owner(
+                        &s,
+                        &location,
+                        event_triggers,
+                    )?;
+                } else {
+                    builder::owner_stmt::apply(&s, catalog, &location)?;
+                }
             }
             Statement::AlterDefaultPrivileges(s) => {
                 builder::default_privileges::apply(&s, catalog, &location)?;
@@ -720,6 +750,21 @@ fn process_file(
                 }
                 locations.insert(coll.qname.to_string(), location.clone());
                 catalog.collations.push(coll);
+            }
+            Statement::CreateEventTrigger(s) => {
+                builder::event_trigger_stmt::parse_create_event_trigger(
+                    &s,
+                    directives.schema.as_ref(),
+                    location,
+                    event_triggers,
+                )?;
+            }
+            Statement::AlterEventTrigger(s) => {
+                builder::event_trigger_stmt::parse_alter_event_trigger(
+                    &s,
+                    location,
+                    event_triggers,
+                )?;
             }
         }
     }

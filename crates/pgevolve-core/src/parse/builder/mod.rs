@@ -22,6 +22,7 @@ pub mod create_trigger_stmt;
 pub mod create_view_stmt;
 pub mod default_privileges;
 pub mod desugar_serial;
+pub mod event_trigger_stmt;
 pub mod grants;
 pub mod index_stmt;
 pub mod owner_stmt;

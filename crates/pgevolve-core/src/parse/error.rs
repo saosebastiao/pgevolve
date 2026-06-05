@@ -311,6 +311,48 @@ pub enum ParseError {
     /// `COMMENT ON STATISTICS s …` appeared before the matching `CREATE STATISTICS s`.
     #[error("{1}: statistic {0}: COMMENT ON STATISTICS before CREATE STATISTICS")]
     CommentOnStatisticBeforeCreate(crate::identifier::QualifiedName, SourceLocation),
+
+    // ── Event-trigger parse errors ───────────────────────────────────────────
+    /// An event trigger with this name was declared more than once.
+    #[error("{1}: event trigger {0:?} declared more than once")]
+    DuplicateEventTrigger(crate::identifier::Identifier, SourceLocation),
+
+    /// `CREATE EVENT TRIGGER … ON <event>` named an event pgevolve does not
+    /// recognize (valid: `ddl_command_start`, `ddl_command_end`, `sql_drop`,
+    /// `table_rewrite`).
+    #[error(
+        "{2}: event trigger {1:?}: unknown event {0:?} \
+         (valid: ddl_command_start, ddl_command_end, sql_drop, table_rewrite)"
+    )]
+    UnknownEventTriggerEvent(String, crate::identifier::Identifier, SourceLocation),
+
+    /// A `WHEN TAG IN (...)` filter node had an unexpected shape.
+    #[error("{1}: event trigger {0:?}: malformed WHEN clause")]
+    EventTriggerWhenClauseMalformed(crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER EVENT TRIGGER e …` set an `evtenabled` code pgevolve does not
+    /// recognize (valid: `O`, `D`, `R`, `A`).
+    #[error("{2}: event trigger {1:?}: unknown enable state {0:?} (valid: O, D, R, A)")]
+    UnknownEventTriggerEnabled(String, crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER EVENT TRIGGER e …` appeared before the matching
+    /// `CREATE EVENT TRIGGER e`.
+    #[error("{1}: event trigger {0:?}: ALTER EVENT TRIGGER before CREATE EVENT TRIGGER")]
+    AlterEventTriggerBeforeCreate(crate::identifier::Identifier, SourceLocation),
+
+    /// `COMMENT ON EVENT TRIGGER e …` appeared before the matching
+    /// `CREATE EVENT TRIGGER e`.
+    #[error("{1}: event trigger {0:?}: COMMENT ON EVENT TRIGGER before CREATE EVENT TRIGGER")]
+    CommentOnEventTriggerBeforeCreate(crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER EVENT TRIGGER e OWNER TO role` appeared before the matching
+    /// `CREATE EVENT TRIGGER e`.
+    #[error("{1}: event trigger {0:?}: OWNER TO before CREATE EVENT TRIGGER")]
+    EventTriggerOwnerBeforeCreate(crate::identifier::Identifier, SourceLocation),
+
+    /// `ALTER EVENT TRIGGER e RENAME TO f` is not supported.
+    #[error("{1}: event trigger {0:?}: RENAME is not supported in pgevolve")]
+    EventTriggerRenameNotSupported(crate::identifier::Identifier, SourceLocation),
 }
 
 fn format_resolution_errors(errs: &[crate::parse::ast_resolution::AstResolutionError]) -> String {

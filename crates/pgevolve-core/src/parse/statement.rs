@@ -69,6 +69,10 @@ pub enum Statement {
     AlterStatistics(protobuf::AlterStatsStmt),
     /// `CREATE COLLATION qname (provider = …, locale = …, …)`.
     CreateCollation(protobuf::DefineStmt),
+    /// `CREATE EVENT TRIGGER name ON event …`.
+    CreateEventTrigger(protobuf::CreateEventTrigStmt),
+    /// `ALTER EVENT TRIGGER name {ENABLE|DISABLE|ENABLE REPLICA|ENABLE ALWAYS}`.
+    AlterEventTrigger(protobuf::AlterEventTrigStmt),
 }
 
 impl Statement {
@@ -113,6 +117,8 @@ impl Statement {
             NodeEnum::AlterSubscriptionStmt(s) => Ok(Self::AlterSubscription(s)),
             NodeEnum::CreateStatsStmt(s) => Ok(Self::CreateStatistics(s)),
             NodeEnum::AlterStatsStmt(s) => Ok(Self::AlterStatistics(*s)),
+            NodeEnum::CreateEventTrigStmt(s) => Ok(Self::CreateEventTrigger(s)),
+            NodeEnum::AlterEventTrigStmt(s) => Ok(Self::AlterEventTrigger(s)),
             NodeEnum::DefineStmt(s) => {
                 let kind = ObjectType::try_from(s.kind).unwrap_or(ObjectType::Undefined);
                 if matches!(kind, ObjectType::ObjectCollation) {
@@ -146,6 +152,25 @@ impl Statement {
                                 .expect("static identifier")
                         });
                     return Err(ParseError::SubscriptionRenameNotSupported(id, location));
+                }
+                if matches!(rename_type, ObjectType::ObjectEventTrigger) {
+                    // RenameStmt for an event trigger encodes the (old) name in
+                    // `s.object` as a bare String node.
+                    let name = s
+                        .object
+                        .as_ref()
+                        .and_then(|o| o.node.as_ref())
+                        .and_then(|n| match n {
+                            NodeEnum::String(st) => Some(st.sval.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| String::from("<unknown>"));
+                    let id =
+                        crate::identifier::Identifier::from_unquoted(&name).unwrap_or_else(|_| {
+                            crate::identifier::Identifier::from_unquoted("event_trigger")
+                                .expect("static identifier")
+                        });
+                    return Err(ParseError::EventTriggerRenameNotSupported(id, location));
                 }
                 if matches!(rename_type, ObjectType::ObjectStatisticExt) {
                     // RenameStmt for statistics encodes the name in `s.subname` (the
