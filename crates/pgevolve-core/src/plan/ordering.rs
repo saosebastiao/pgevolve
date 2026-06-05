@@ -9,9 +9,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::diff::ChangeSet;
 use crate::diff::change::{
-    Change, ChangeEntry, CollationChange, FunctionChange, MvChange, ProcedureChange,
-    PublicationChange, StatisticChange, SubscriptionChange, TableChange, TriggerChange,
-    UserTypeChange, ViewChange,
+    Change, ChangeEntry, CollationChange, EventTriggerChange, FunctionChange, MvChange,
+    ProcedureChange, PublicationChange, StatisticChange, SubscriptionChange, TableChange,
+    TriggerChange, UserTypeChange, ViewChange,
 };
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::table_op::TableOp;
@@ -698,21 +698,18 @@ fn change_node(change: &Change) -> NodeId {
             CollationChange::Drop { qname } | CollationChange::CommentOn { qname, .. },
         ) => NodeId::Collation(qname.clone()),
         // Event trigger changes: event triggers are database-global objects (bare name, no schema).
-        // TODO(event-trigger Task 5): replace with NodeId::EventTrigger once the dep-graph node lands.
-        // For now, use NodeId::Publication as a stable cluster-level anchor (same unqualified-name
-        // shape; event trigger names cannot collide with publication names in the graph).
-        Change::EventTrigger(etc) => {
-            use crate::diff::change::EventTriggerChange;
-            let name = match etc {
-                EventTriggerChange::Create(et) => et.name.clone(),
-                EventTriggerChange::Replace { to, .. } => to.name.clone(),
-                EventTriggerChange::Drop { name }
-                | EventTriggerChange::AlterEnable { name, .. }
-                | EventTriggerChange::AlterOwner { name, .. }
-                | EventTriggerChange::CommentOn { name, .. } => name.clone(),
-            };
-            NodeId::Publication(name)
+        Change::EventTrigger(EventTriggerChange::Create(et)) => {
+            NodeId::EventTrigger(et.name.clone())
         }
+        Change::EventTrigger(EventTriggerChange::Replace { to, .. }) => {
+            NodeId::EventTrigger(to.name.clone())
+        }
+        Change::EventTrigger(
+            EventTriggerChange::Drop { name }
+            | EventTriggerChange::AlterEnable { name, .. }
+            | EventTriggerChange::AlterOwner { name, .. }
+            | EventTriggerChange::CommentOn { name, .. },
+        ) => NodeId::EventTrigger(name.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")
@@ -2322,5 +2319,83 @@ mod tests {
             revoke_present,
             "RevokeColumnPrivilege covering a retained column must not be elided"
         );
+    }
+
+    // ── EventTrigger change_node tests ────────────────────────────────────────
+
+    #[test]
+    fn event_trigger_create_lands_in_creates_and_adds() {
+        use crate::diff::change::EventTriggerChange;
+        use crate::ir::event_trigger::{EventTrigger, EventTriggerEnabled, EventTriggerEvent};
+
+        let et = EventTrigger {
+            name: id("audit_ddl"),
+            event: EventTriggerEvent::DdlCommandEnd,
+            tag_filter: vec![],
+            function: qn("public", "audit_fn"),
+            enabled: EventTriggerEnabled::Enabled,
+            owner: None,
+            comment: None,
+        };
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::EventTrigger(EventTriggerChange::Create(et)),
+            Destructiveness::Safe,
+        );
+
+        let result = order(
+            &Catalog::empty(),
+            &Catalog::empty(),
+            cs,
+            &PlannerPolicy::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result.creates_and_adds.len(),
+            1,
+            "EventTrigger Create must land in creates_and_adds"
+        );
+        let node = change_node(&result.creates_and_adds[0].change);
+        assert!(
+            matches!(node, NodeId::EventTrigger(_)),
+            "EventTrigger Create must map to NodeId::EventTrigger, got {node:?}"
+        );
+        assert!(result.modifies.is_empty());
+        assert!(result.drops.is_empty());
+    }
+
+    #[test]
+    fn event_trigger_drop_lands_in_drops() {
+        use crate::diff::change::EventTriggerChange;
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::EventTrigger(EventTriggerChange::Drop {
+                name: id("audit_ddl"),
+            }),
+            Destructiveness::RequiresApproval {
+                reason: "drop event trigger".into(),
+            },
+        );
+
+        let result = order(
+            &Catalog::empty(),
+            &Catalog::empty(),
+            cs,
+            &PlannerPolicy::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result.drops.len(),
+            1,
+            "EventTrigger Drop must land in drops"
+        );
+        let node = change_node(&result.drops[0].change);
+        assert!(
+            matches!(node, NodeId::EventTrigger(_)),
+            "EventTrigger Drop must map to NodeId::EventTrigger, got {node:?}"
+        );
+        assert!(result.creates_and_adds.is_empty());
+        assert!(result.modifies.is_empty());
     }
 }
