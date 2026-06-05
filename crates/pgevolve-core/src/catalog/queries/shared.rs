@@ -297,6 +297,35 @@ pub const PUBLICATIONS_QUERY: &str = "\
         ON d.classoid = 'pg_publication'::regclass AND d.objoid = p.oid AND d.objsubid = 0 \
     ORDER BY p.pubname";
 
+/// Database-global event triggers (`pg_event_trigger`).
+///
+/// Event triggers are not schema-scoped, so this query takes no parameter.
+/// Extension-owned event triggers (`pg_depend.deptype = 'e'`) are excluded.
+/// The `EXECUTE FUNCTION` target is resolved to its schema-qualified name from
+/// `pg_proc`/`pg_namespace`. `evttags` is `text[]`, NULL when there is no
+/// `WHEN TAG IN (...)` filter (decoded to an empty `Vec` by the assembler).
+/// Stable across PG 14–18 — no version variants needed.
+pub const EVENT_TRIGGERS_QUERY: &str = "\
+    SELECT \
+        e.evtname::text AS name, \
+        e.evtevent::text AS event, \
+        e.evtenabled::text AS enabled, \
+        e.evttags::text[] AS tags, \
+        fn_ns.nspname::text AS function_schema, \
+        p.proname::text AS function_name, \
+        coalesce(owner.rolname, '') AS owner, \
+        coalesce(obj_description(e.oid, 'pg_event_trigger'), '') AS comment \
+    FROM pg_event_trigger e \
+    JOIN pg_proc p ON p.oid = e.evtfoid \
+    JOIN pg_namespace fn_ns ON fn_ns.oid = p.pronamespace \
+    JOIN pg_roles owner ON owner.oid = e.evtowner \
+    WHERE NOT EXISTS ( \
+        SELECT 1 FROM pg_depend d \
+        WHERE d.classid = 'pg_event_trigger'::regclass \
+          AND d.objid = e.oid AND d.deptype = 'e' \
+    ) \
+    ORDER BY e.evtname";
+
 /// Per-table publication entries with PG 15+ row filter (`prqual`) and column list (`prattrs`).
 ///
 /// Column attnums are cast to `int8[]` so the driver returns `IntegerArray(Vec<i64>)`.

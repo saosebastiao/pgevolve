@@ -66,6 +66,7 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
             pg14::PUBLICATION_ATTRIBUTES_QUERY_PG14
         }
         (_, CatalogQuery::PublicationAttributes) => shared::PUBLICATION_ATTRIBUTES_QUERY,
+        (_, CatalogQuery::EventTriggers) => shared::EVENT_TRIGGERS_QUERY,
         (PgVersion::Pg14, CatalogQuery::Subscriptions) => pg14::SUBSCRIPTIONS_QUERY_PG14,
         (PgVersion::Pg15, CatalogQuery::Subscriptions) => pg15::SUBSCRIPTIONS_QUERY_PG15,
         (PgVersion::Pg16, CatalogQuery::Subscriptions) => pg16::SUBSCRIPTIONS_QUERY_PG16,

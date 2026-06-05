@@ -159,6 +159,13 @@ pub enum CatalogQuery {
     /// any publication. Used to resolve column attnums to names. Takes **no**
     /// parameter.
     PublicationAttributes,
+    /// `pg_event_trigger` rows for all event triggers in the database.
+    ///
+    /// Event triggers are database-global (not schema-scoped); takes **no**
+    /// `$1::text[]` parameter (`takes_text_array_param` returns `false`).
+    /// Extension-owned event triggers (`pg_depend.deptype = 'e'`) are excluded
+    /// at the SQL layer.
+    EventTriggers,
     /// `pg_subscription` rows for all subscriptions in the database.
     ///
     /// Subscriptions are database-global (not schema-scoped). Takes **no**
@@ -206,6 +213,7 @@ impl CatalogQuery {
                 | Self::PublicationRel
                 | Self::PublicationNamespace
                 | Self::PublicationAttributes
+                | Self::EventTriggers
                 | Self::Subscriptions
         )
     }
@@ -271,6 +279,7 @@ pub fn read_catalog(
     let publication_rels_rows = querier.fetch(CatalogQuery::PublicationRel, &[])?;
     let publication_namespaces_rows = querier.fetch(CatalogQuery::PublicationNamespace, &[])?;
     let publication_attributes_rows = querier.fetch(CatalogQuery::PublicationAttributes, &[])?;
+    let event_triggers_rows = querier.fetch(CatalogQuery::EventTriggers, &[])?;
 
     // `pg_subscription` is superuser-only. If the querier returns a
     // `QueryFailed` error whose message contains the PG sqlstate 42501
@@ -324,6 +333,7 @@ pub fn read_catalog(
         publication_rels: publication_rels_rows,
         publication_namespaces: publication_namespaces_rows,
         publication_attributes: publication_attributes_rows,
+        event_triggers: event_triggers_rows,
         subscriptions: subscriptions_rows,
     };
     let (mut catalog, mut drift) = assemble::assemble(raw, filter)?;

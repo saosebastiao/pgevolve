@@ -18,6 +18,7 @@
 
 pub(in crate::catalog) mod collations;
 pub(super) mod default_privileges;
+pub(super) mod event_triggers;
 mod functions;
 mod partitions;
 pub(super) mod policies;
@@ -79,6 +80,8 @@ pub struct RawRows {
     /// Column-attnum resolver rows from `pg_attribute` joined to
     /// `pg_publication_rel`.
     pub publication_attributes: Vec<Row>,
+    /// `pg_event_trigger` rows (database-global; extension-owned excluded).
+    pub event_triggers: Vec<Row>,
     /// `pg_subscription` rows. Empty when the connection lacks superuser
     /// privilege (`DriftReport::unreadable_subscriptions` is set in that case).
     pub subscriptions: Vec<Row>,
@@ -117,6 +120,7 @@ pub fn assemble(
         publication_rels,
         publication_namespaces,
         publication_attributes,
+        event_triggers,
         subscriptions: sub_rows,
     } = raw;
 
@@ -191,6 +195,10 @@ pub fn assemble(
         &publication_namespaces,
         &publication_attributes,
     )?;
+
+    // Build event triggers from pg_event_trigger (database-global;
+    // extension-owned excluded at the SQL layer).
+    catalog.event_triggers = event_triggers::assemble_event_triggers(&event_triggers)?;
 
     // Build subscriptions from pg_subscription. Rows may be empty if the
     // connection lacked superuser privilege; the drift flag is set upstream
