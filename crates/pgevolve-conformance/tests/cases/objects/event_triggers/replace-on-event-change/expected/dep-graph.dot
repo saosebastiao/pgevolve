@@ -1,0 +1,9 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "event_trigger:et_audit";
+  "function:app.audit()";
+  "schema:app";
+  "function:app.audit()" -> "schema:app" [style=solid];
+  "event_trigger:et_audit" -> "function:app.audit()" [style=solid];
+}

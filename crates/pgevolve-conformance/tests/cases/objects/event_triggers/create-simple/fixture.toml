@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE EVENT TRIGGER ON ddl_command_end"
+authoring = "objects"
+spec_refs = ["objects.event_trigger"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

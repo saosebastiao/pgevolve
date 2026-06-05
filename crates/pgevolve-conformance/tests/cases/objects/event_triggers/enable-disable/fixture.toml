@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER EVENT TRIGGER ... DISABLE — enable-state change"
+authoring = "objects"
+spec_refs = ["objects.event_trigger"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

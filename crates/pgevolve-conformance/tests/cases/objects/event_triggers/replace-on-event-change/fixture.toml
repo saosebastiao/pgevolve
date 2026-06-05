@@ -1,0 +1,12 @@
+[meta]
+title     = "Event change ddl_command_start -> sql_drop forces Replace (DROP + CREATE)"
+authoring = "objects"
+spec_refs = ["objects.event_trigger"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps      = 2
+minimality = false
