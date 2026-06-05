@@ -19,6 +19,7 @@ pub mod columns;
 pub mod constraints;
 pub mod default_privileges;
 pub mod destructiveness;
+pub mod event_triggers;
 pub mod extensions;
 pub mod grants;
 pub mod indexes;
@@ -118,6 +119,7 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
     triggers::diff_triggers(&target.triggers, &source.triggers, &mut out);
     publications::diff_publications(target, source, &mut out);
     subscriptions::diff_subscriptions(target, source, &mut out);
+    event_triggers::diff_event_triggers(target, source, &mut out);
     statistics::diff_statistics(target, source, &mut out);
     collations::diff_collations(target, source, &mut out);
 
