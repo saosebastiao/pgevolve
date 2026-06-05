@@ -293,6 +293,8 @@ pub enum Change {
     Publication(PublicationChange),
     /// A nested change to a single subscription. See [`SubscriptionChange`].
     Subscription(SubscriptionChange),
+    /// A change to an event trigger. See [`EventTriggerChange`].
+    EventTrigger(EventTriggerChange),
     /// A nested change to a single statistic. See [`StatisticChange`].
     Statistic(StatisticChange),
     /// A nested change to a single collation. See [`CollationChange`].
@@ -620,6 +622,48 @@ pub enum TriggerChange {
         /// Owning table (needed for `COMMENT ON TRIGGER name ON table`).
         table: QualifiedName,
         /// New comment value (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// A change to a single event trigger.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum EventTriggerChange {
+    /// `CREATE EVENT TRIGGER ...`
+    Create(crate::ir::event_trigger::EventTrigger),
+    /// `DROP EVENT TRIGGER old; CREATE EVENT TRIGGER new;` — used when
+    /// `event`, `tag_filter`, or `function` differ (no in-place ALTER exists).
+    Replace {
+        /// As it exists in the target (live).
+        from: crate::ir::event_trigger::EventTrigger,
+        /// As it should exist in the source.
+        to: crate::ir::event_trigger::EventTrigger,
+    },
+    /// `DROP EVENT TRIGGER name;` — destructive.
+    Drop {
+        /// Event trigger name.
+        name: Identifier,
+    },
+    /// `ALTER EVENT TRIGGER name {ENABLE|DISABLE|ENABLE REPLICA|ENABLE ALWAYS};`
+    AlterEnable {
+        /// Event trigger name.
+        name: Identifier,
+        /// Desired fire state.
+        enabled: crate::ir::event_trigger::EventTriggerEnabled,
+    },
+    /// `ALTER EVENT TRIGGER name OWNER TO role;`
+    AlterOwner {
+        /// Event trigger name.
+        name: Identifier,
+        /// Desired owner.
+        owner: Identifier,
+    },
+    /// `COMMENT ON EVENT TRIGGER name IS '...'`
+    CommentOn {
+        /// Event trigger name.
+        name: Identifier,
+        /// New comment (`None` clears it).
         comment: Option<String>,
     },
 }

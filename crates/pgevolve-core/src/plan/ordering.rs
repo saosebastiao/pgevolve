@@ -427,6 +427,17 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             ) => {
                 drops.push(entry);
             }
+            // Event trigger changes: bucket by lifecycle phase.
+            Change::EventTrigger(etc) => match etc {
+                crate::diff::change::EventTriggerChange::Create(_) => creates.push(entry),
+                crate::diff::change::EventTriggerChange::Drop { .. }
+                | crate::diff::change::EventTriggerChange::Replace { .. } => drops.push(entry),
+                crate::diff::change::EventTriggerChange::AlterEnable { .. }
+                | crate::diff::change::EventTriggerChange::AlterOwner { .. }
+                | crate::diff::change::EventTriggerChange::CommentOn { .. } => {
+                    modifies.push(entry);
+                }
+            },
             // UnsupportedDiff: abort the plan immediately.
             Change::UnsupportedDiff { reason } => {
                 return Err(PlanError::Internal(reason.clone()));
@@ -686,6 +697,22 @@ fn change_node(change: &Change) -> NodeId {
         Change::Collation(
             CollationChange::Drop { qname } | CollationChange::CommentOn { qname, .. },
         ) => NodeId::Collation(qname.clone()),
+        // Event trigger changes: event triggers are database-global objects (bare name, no schema).
+        // TODO(event-trigger Task 5): replace with NodeId::EventTrigger once the dep-graph node lands.
+        // For now, use NodeId::Publication as a stable cluster-level anchor (same unqualified-name
+        // shape; event trigger names cannot collide with publication names in the graph).
+        Change::EventTrigger(etc) => {
+            use crate::diff::change::EventTriggerChange;
+            let name = match etc {
+                EventTriggerChange::Create(et) => et.name.clone(),
+                EventTriggerChange::Replace { to, .. } => to.name.clone(),
+                EventTriggerChange::Drop { name }
+                | EventTriggerChange::AlterEnable { name, .. }
+                | EventTriggerChange::AlterOwner { name, .. }
+                | EventTriggerChange::CommentOn { name, .. } => name.clone(),
+            };
+            NodeId::Publication(name)
+        }
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")

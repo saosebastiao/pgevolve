@@ -857,6 +857,14 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             }
         },
 
+        // TODO(event-trigger Task 7): replace this no-op with the real event trigger emitter.
+        // The emit::event_trigger module does not exist yet; this arm silences the exhaustive
+        // match until Task 7 wires up the SQL renderer.
+        #[allow(unused_variables)]
+        Change::EventTrigger(_etc) => {
+            // No steps emitted until Task 7 implements the renderer.
+        }
+
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach the rewrite phase")
