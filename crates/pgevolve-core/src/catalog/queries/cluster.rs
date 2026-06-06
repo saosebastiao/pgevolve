@@ -41,6 +41,29 @@ WHERE r.rolname NOT LIKE 'pg\_%' ESCAPE '\'
 ORDER BY r.rolname
 "#;
 
+/// Query `pg_tablespace` (joined to `pg_shdescription` for comments) and return
+/// one row per managed tablespace.
+///
+/// The built-in `pg_default` / `pg_global` tablespaces and any tablespace named
+/// in `$1::text[]` (the bootstrap filter) are excluded. `location` comes from
+/// `pg_tablespace_location(oid)` (the removed-in-PG-9.2 `spclocation` column is
+/// never used); `owner` from `pg_get_userbyid(spcowner)`; `options` from the
+/// `spcoptions` `text[]` of `key=value` entries (`NULL` when none).
+pub const CLUSTER_TABLESPACES_QUERY: &str = r"
+SELECT t.spcname                                AS name,
+       pg_get_userbyid(t.spcowner)              AS owner,
+       pg_tablespace_location(t.oid)            AS location,
+       t.spcoptions                             AS options,
+       d.description                            AS comment
+FROM pg_tablespace t
+LEFT JOIN pg_shdescription d
+  ON d.objoid = t.oid
+ AND d.classoid = 'pg_tablespace'::regclass
+WHERE t.spcname NOT IN ('pg_default', 'pg_global')
+  AND t.spcname <> ALL($1::text[])
+ORDER BY t.spcname
+";
+
 /// Query `pg_auth_members` joined twice to `pg_authid` to resolve oids to names.
 ///
 /// Returns one row per (member, parent) edge where both sides are non-predefined

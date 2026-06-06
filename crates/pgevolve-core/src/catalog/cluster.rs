@@ -12,6 +12,8 @@ use crate::catalog::{CatalogQuerier, CatalogQuery};
 use crate::identifier::Identifier;
 use crate::ir::cluster::catalog::ClusterCatalog;
 use crate::ir::cluster::role::{Role, RoleAttributes};
+use crate::ir::cluster::tablespace::Tablespace;
+use std::collections::BTreeMap;
 
 /// Read the full cluster catalog from a live Postgres instance.
 ///
@@ -42,12 +44,68 @@ pub fn read_cluster_catalog(
         append_membership_edge(&mut roles, row)?;
     }
 
-    let mut cat = ClusterCatalog {
-        roles,
-        tablespaces: vec![],
-    };
+    let tablespace_rows = querier.fetch(CatalogQuery::ClusterTablespaces, &bootstrap)?;
+    let tablespaces: Vec<Tablespace> = tablespace_rows
+        .iter()
+        .map(decode_tablespace)
+        .collect::<Result<_, _>>()?;
+
+    let mut cat = ClusterCatalog { roles, tablespaces };
     cat.canonicalize()?;
     Ok(cat)
+}
+
+/// Decode a single `pg_tablespace` row (with optional `pg_shdescription`
+/// columns) into a [`Tablespace`].
+///
+/// Options arrive as a `text[]` of `key=value` entries (`NULL` when the
+/// tablespace has none); each entry is split on its **first** `'='` so a value
+/// may itself contain `'='`. An empty `owner` / `comment` is treated as absent.
+fn decode_tablespace(row: &Row) -> Result<Tablespace, CatalogError> {
+    let q = CatalogQuery::ClusterTablespaces;
+
+    let name_str = row.get_text(q, "name")?;
+    let name = Identifier::from_unquoted(&name_str).map_err(|e| CatalogError::BadColumnType {
+        query: q,
+        column: "name".to_string(),
+        message: format!("invalid tablespace name {name_str:?}: {e}"),
+    })?;
+
+    let owner = match row.get_opt_text(q, "owner")? {
+        Some(s) if !s.is_empty() => {
+            let id = Identifier::from_unquoted(&s).map_err(|e| CatalogError::BadColumnType {
+                query: q,
+                column: "owner".to_string(),
+                message: format!("invalid owner name {s:?}: {e}"),
+            })?;
+            Some(id)
+        }
+        _ => None,
+    };
+
+    let location = row.get_text(q, "location")?;
+
+    let mut options = BTreeMap::new();
+    if !row.is_null("options") {
+        for entry in row.get_text_array(q, "options")? {
+            if let Some((key, value)) = entry.split_once('=') {
+                options.insert(key.to_string(), value.to_string());
+            }
+        }
+    }
+
+    let comment = match row.get_opt_text(q, "comment")? {
+        Some(s) if !s.is_empty() => Some(s),
+        _ => None,
+    };
+
+    Ok(Tablespace {
+        name,
+        location,
+        owner,
+        options,
+        comment,
+    })
 }
 
 /// Decode a single `pg_authid` row (with optional `pg_shdescription` columns)
@@ -116,4 +174,97 @@ fn append_membership_edge(roles: &mut [Role], row: &Row) -> Result<(), CatalogEr
     // If the member role was filtered (predefined/bootstrap), skip silently.
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::rows::Value;
+
+    fn id(s: &str) -> Identifier {
+        Identifier::from_unquoted(s).expect("valid identifier")
+    }
+
+    #[test]
+    fn decode_tablespace_simple() {
+        let row = Row::new()
+            .with("name", Value::Text("fast_ssd".into()))
+            .with("owner", Value::Text("postgres".into()))
+            .with("location", Value::Text("/x".into()))
+            .with("options", Value::Null)
+            .with("comment", Value::Null);
+
+        let ts = decode_tablespace(&row).expect("decodes");
+        assert_eq!(ts.name, id("fast_ssd"));
+        assert_eq!(ts.owner, Some(id("postgres")));
+        assert_eq!(ts.location, "/x");
+        assert!(ts.options.is_empty());
+        assert_eq!(ts.comment, None);
+    }
+
+    #[test]
+    fn decode_tablespace_with_options() {
+        let row = Row::new()
+            .with("name", Value::Text("ts".into()))
+            .with("owner", Value::Text("postgres".into()))
+            .with("location", Value::Text("/x".into()))
+            .with(
+                "options",
+                Value::TextArray(vec![
+                    "seq_page_cost=2.0".into(),
+                    "random_page_cost=3".into(),
+                ]),
+            )
+            .with("comment", Value::Null);
+
+        let ts = decode_tablespace(&row).expect("decodes");
+        assert_eq!(
+            ts.options.get("seq_page_cost").map(String::as_str),
+            Some("2.0")
+        );
+        assert_eq!(
+            ts.options.get("random_page_cost").map(String::as_str),
+            Some("3")
+        );
+    }
+
+    #[test]
+    fn decode_tablespace_value_containing_equals() {
+        let row = Row::new()
+            .with("name", Value::Text("ts".into()))
+            .with("owner", Value::Text("postgres".into()))
+            .with("location", Value::Text("/x".into()))
+            .with("options", Value::TextArray(vec!["k=a=b".into()]))
+            .with("comment", Value::Null);
+
+        let ts = decode_tablespace(&row).expect("decodes");
+        assert_eq!(ts.options.get("k").map(String::as_str), Some("a=b"));
+    }
+
+    #[test]
+    fn decode_tablespace_null_options_and_comment() {
+        let row = Row::new()
+            .with("name", Value::Text("ts".into()))
+            .with("owner", Value::Text("postgres".into()))
+            .with("location", Value::Text("/x".into()))
+            .with("options", Value::Null)
+            .with("comment", Value::Null);
+
+        let ts = decode_tablespace(&row).expect("decodes");
+        assert!(ts.options.is_empty());
+        assert_eq!(ts.comment, None);
+    }
+
+    #[test]
+    fn decode_tablespace_empty_owner_is_none() {
+        let row = Row::new()
+            .with("name", Value::Text("ts".into()))
+            .with("owner", Value::Text(String::new()))
+            .with("location", Value::Text("/x".into()))
+            .with("options", Value::Null)
+            .with("comment", Value::Null);
+
+        let ts = decode_tablespace(&row).expect("decodes");
+        assert_eq!(ts.owner, None);
+    }
 }

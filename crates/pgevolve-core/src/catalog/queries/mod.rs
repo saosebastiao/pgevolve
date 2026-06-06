@@ -53,6 +53,7 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::Partitions) => partitions::SELECT_PARTITIONS,
         (_, CatalogQuery::ClusterRoles) => cluster::CLUSTER_ROLES_QUERY,
         (_, CatalogQuery::ClusterMembers) => cluster::CLUSTER_MEMBERS_QUERY,
+        (_, CatalogQuery::ClusterTablespaces) => cluster::CLUSTER_TABLESPACES_QUERY,
         (_, CatalogQuery::DefaultPrivileges) => default_privileges::DEFAULT_PRIVILEGES_QUERY,
         (_, CatalogQuery::Policies) => policies::POLICIES_QUERY,
         (_, CatalogQuery::Publications) => shared::PUBLICATIONS_QUERY,

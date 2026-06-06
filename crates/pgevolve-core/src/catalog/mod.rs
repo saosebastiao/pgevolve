@@ -128,6 +128,14 @@ pub enum CatalogQuery {
     ///
     /// Same `$1::text[]` bootstrap-role filter as [`Self::ClusterRoles`].
     ClusterMembers,
+    /// `pg_tablespace` rows (with `pg_shdescription` for comments) for managed
+    /// cluster tablespaces.
+    ///
+    /// Built-in `pg_default` / `pg_global` are always excluded. Uses
+    /// `$1::text[]` as the bootstrap filter (names to exclude), in the same
+    /// param-group as [`Self::ClusterRoles`]; `takes_text_array_param` returns
+    /// `true`.
+    ClusterTablespaces,
     /// `pg_default_acl` rows joined to `pg_authid` and `pg_namespace`.
     ///
     /// Returns one row per (`target_role`, schema, `object_type`) tuple. Rows for
