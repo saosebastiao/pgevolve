@@ -136,6 +136,16 @@ pub(super) fn build_tables(
         let rls_forced = r.get_bool(q, "rls_forced")?;
         let reloptions = r.get_text_array(q, "reloptions")?;
         let storage = crate::catalog::reloptions::decode_table_reloptions(&reloptions, q)?;
+        let access_method = r
+            .get_opt_text(q, "access_method")?
+            .filter(|s| !s.is_empty())
+            .map(|s| crate::identifier::Identifier::from_unquoted(&s))
+            .transpose()
+            .map_err(|e| CatalogError::BadColumnType {
+                query: q,
+                column: "access_method".to_string(),
+                message: format!("invalid identifier: {e}"),
+            })?;
         tables.insert(
             oid,
             Table {
@@ -151,7 +161,7 @@ pub(super) fn build_tables(
                 rls_forced,
                 policies: vec![], // populated by attach_policies after tables build
                 storage,
-                access_method: None,
+                access_method,
             },
         );
     }
@@ -697,6 +707,7 @@ pub(super) fn reparse_expression_text(text: &str) -> Result<NormalizedExpr, Cata
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::rows::Value;
 
     #[test]
     fn parse_default_recognizes_nextval() {
@@ -715,5 +726,44 @@ mod tests {
             d,
             DefaultExpr::Literal(crate::ir::default_expr::LiteralValue::Integer(0))
         ));
+    }
+
+    fn make_minimal_table_row(schema: &str, name: &str) -> Row {
+        Row::new()
+            .with("oid", Value::Integer(1))
+            .with("schema", Value::Text(schema.to_string()))
+            .with("name", Value::Text(name.to_string()))
+            .with("owner", Value::Text("postgres".to_string()))
+            .with("acl", Value::TextArray(vec![]))
+            .with("comment", Value::Null)
+            .with("rls_enabled", Value::Bool(false))
+            .with("rls_forced", Value::Bool(false))
+            .with("reloptions", Value::TextArray(vec![]))
+    }
+
+    #[test]
+    fn build_tables_access_method_columnar() {
+        let filter =
+            CatalogFilter::new(vec![Identifier::from_unquoted("app").unwrap()], vec![]).unwrap();
+        let row = make_minimal_table_row("app", "events")
+            .with("access_method", Value::Text("columnar".to_string()));
+        let tables = build_tables(vec![row], &[], &filter).unwrap();
+        assert_eq!(tables.len(), 1);
+        let table = tables.values().next().unwrap();
+        assert_eq!(
+            table.access_method,
+            Some(Identifier::from_unquoted("columnar").unwrap())
+        );
+    }
+
+    #[test]
+    fn build_tables_access_method_null_gives_none() {
+        let filter =
+            CatalogFilter::new(vec![Identifier::from_unquoted("app").unwrap()], vec![]).unwrap();
+        let row = make_minimal_table_row("app", "events").with("access_method", Value::Null);
+        let tables = build_tables(vec![row], &[], &filter).unwrap();
+        assert_eq!(tables.len(), 1);
+        let table = tables.values().next().unwrap();
+        assert!(table.access_method.is_none());
     }
 }

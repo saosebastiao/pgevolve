@@ -43,7 +43,8 @@ SELECT
   d.description AS comment,
   c.relrowsecurity::bool        AS rls_enabled,
   c.relforcerowsecurity::bool   AS rls_forced,
-  coalesce(c.reloptions, '{}'::text[]) AS reloptions
+  coalesce(c.reloptions, '{}'::text[]) AS reloptions,
+  am.amname AS access_method
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_catalog.pg_authid owner_role ON owner_role.oid = c.relowner
@@ -51,6 +52,7 @@ LEFT JOIN pg_catalog.pg_description d
   ON d.objoid = c.oid
  AND d.classoid = 'pg_catalog.pg_class'::regclass
  AND d.objsubid = 0
+LEFT JOIN pg_catalog.pg_am am ON am.oid = c.relam
 WHERE c.relkind IN ('r', 'p')
   AND n.nspname = ANY($1::text[])
   AND NOT EXISTS (
