@@ -11,11 +11,17 @@ use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
 use super::sql;
 
-/// Emit one or more [`RawStep`]s per [`ClusterChange`]. All cluster ops run
-/// [`InTransaction`](TransactionConstraint::InTransaction).
+/// Emit one or more [`RawStep`]s per [`ClusterChange`].
+///
+/// Most cluster ops run
+/// [`InTransaction`](TransactionConstraint::InTransaction); the exceptions are
+/// `CREATE TABLESPACE` and `DROP TABLESPACE`, which Postgres forbids inside a
+/// transaction block (SQLSTATE 25001), so they are emitted as
+/// [`OutsideTransaction`](TransactionConstraint::OutsideTransaction).
 ///
 /// Most changes map to exactly one step; `CreateTablespace` with a comment
-/// expands to two (the `CREATE`, then a follow-up `COMMENT ON`).
+/// expands to two (the `CREATE` outside a transaction, then a follow-up
+/// in-transaction `COMMENT ON`).
 #[must_use]
 pub fn emit_cluster_changes(cs: &ClusterChangeSet) -> Vec<RawStep> {
     cs.entries.iter().flat_map(emit_one).collect()
@@ -32,7 +38,8 @@ fn emit_one(entry: &ClusterChangeEntry) -> Vec<RawStep> {
                 intent_id: None,
                 targets: vec![],
                 sql: sql::create_tablespace(ts),
-                transactional: TransactionConstraint::InTransaction,
+                // CREATE TABLESPACE cannot run inside a transaction block.
+                transactional: TransactionConstraint::OutsideTransaction,
             }];
             // Owner + options ride inline in CREATE; only the comment needs a
             // follow-up COMMENT ON step.
@@ -58,7 +65,8 @@ fn emit_one(entry: &ClusterChangeEntry) -> Vec<RawStep> {
             intent_id: None,
             targets: vec![],
             sql: sql::drop_tablespace(name),
-            transactional: TransactionConstraint::InTransaction,
+            // DROP TABLESPACE cannot run inside a transaction block.
+            transactional: TransactionConstraint::OutsideTransaction,
         }],
         ClusterChange::AlterTablespaceOwner { name, owner } => vec![RawStep {
             step_no: 0,
@@ -252,6 +260,11 @@ mod tests {
             step.sql
         );
         assert!(!step.destructive);
+        // CREATE TABLESPACE must run outside a transaction block.
+        assert!(matches!(
+            step.transactional,
+            TransactionConstraint::OutsideTransaction
+        ));
     }
 
     #[test]
@@ -266,7 +279,17 @@ mod tests {
         assert_eq!(steps.len(), 2, "got: {steps:?}");
         assert!(matches!(steps[0].kind, StepKind::CreateTablespace));
         assert!(steps[0].sql.starts_with("CREATE TABLESPACE fast"));
+        // The CREATE runs outside a transaction; the follow-up COMMENT ON is
+        // an ordinary in-transaction step.
+        assert!(matches!(
+            steps[0].transactional,
+            TransactionConstraint::OutsideTransaction
+        ));
         assert!(matches!(steps[1].kind, StepKind::CommentOnTablespace));
+        assert!(matches!(
+            steps[1].transactional,
+            TransactionConstraint::InTransaction
+        ));
         assert_eq!(
             steps[1].sql,
             "COMMENT ON TABLESPACE fast IS 'fast storage';"
@@ -289,6 +312,11 @@ mod tests {
             Some("drops a tablespace")
         );
         assert_eq!(step.sql, "DROP TABLESPACE old;");
+        // DROP TABLESPACE must run outside a transaction block.
+        assert!(matches!(
+            step.transactional,
+            TransactionConstraint::OutsideTransaction
+        ));
     }
 
     #[test]
