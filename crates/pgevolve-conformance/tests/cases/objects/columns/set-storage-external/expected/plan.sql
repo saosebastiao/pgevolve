@@ -1,4 +1,4 @@
--- @pgevolve plan id=35a24c5a0156c3a9 version=0.3.9 ruleset=1
+-- @pgevolve plan id=0f67a4d86fda8def version=0.4.0 ruleset=1
 -- @pgevolve target=conformance-test-target
 -- @pgevolve intents_required=0
 
