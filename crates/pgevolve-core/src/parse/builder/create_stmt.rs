@@ -130,6 +130,12 @@ pub fn build_table(
     let storage =
         crate::parse::builder::reloptions::decode_table_options(&create.options, location)?;
 
+    let access_method = if create.access_method.is_empty() {
+        None
+    } else {
+        Some(shared::ident(&create.access_method, location)?)
+    };
+
     Ok(Table {
         qname,
         columns,
@@ -143,7 +149,7 @@ pub fn build_table(
         rls_forced: false,
         policies: vec![],
         storage,
-        access_method: None,
+        access_method,
     })
 }
 
@@ -1134,5 +1140,33 @@ mod tests {
         let t = build("CREATE TABLE app.t (n integer);");
         assert_eq!(t.columns[0].storage, None);
         assert_eq!(t.columns[0].compression, None);
+    }
+
+    // ------------------------------------------------------------------
+    // USING <access_method> in CREATE TABLE
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn access_method_columnar() {
+        let t = build("CREATE TABLE app.t (id bigint) USING columnar;");
+        assert_eq!(
+            t.access_method.as_ref().map(Identifier::as_str),
+            Some("columnar")
+        );
+    }
+
+    #[test]
+    fn access_method_absent_is_none() {
+        let t = build("CREATE TABLE app.t (id bigint);");
+        assert_eq!(t.access_method, None);
+    }
+
+    #[test]
+    fn access_method_heap_stored_verbatim() {
+        let t = build("CREATE TABLE app.t (id bigint) USING heap;");
+        assert_eq!(
+            t.access_method.as_ref().map(Identifier::as_str),
+            Some("heap")
+        );
     }
 }
