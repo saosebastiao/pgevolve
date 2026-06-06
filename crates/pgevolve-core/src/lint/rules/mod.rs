@@ -37,6 +37,7 @@ pub mod storage_downgrade_not_retroactive;
 pub mod subscription_feature_requires_pg_version;
 pub mod subscription_password_in_source;
 pub mod subscription_references_undeclared_publication;
+pub mod table_access_method_change;
 pub mod tablespace_location_drift;
 pub mod trigger_references_unmanaged_function;
 pub mod trigger_references_unmanaged_table;

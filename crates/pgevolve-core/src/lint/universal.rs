@@ -68,6 +68,10 @@
 //!   `FOR TABLES IN SCHEMA` publication implicitly captures tables not in source.
 //! - **`publication-row-filter-references-unmanaged-column`** — a row filter
 //!   expression references a column not declared on the target table in source.
+//! - **`table-access-method-change`** — fires (Warning) when an existing table's
+//!   access method differs between source and live. pgevolve never rewrites a
+//!   table's access method; the operator must run `ALTER TABLE … SET ACCESS
+//!   METHOD` manually (PG 15+) if intended.
 //!
 //! Changeset-level rules (inspecting the diff, run via [`check_changeset`]):
 //!
@@ -160,6 +164,7 @@ pub fn check_universal(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Findin
 pub fn run_drift_lints(source: &Catalog, target: &Catalog) -> Vec<Finding> {
     let mut out = Vec::new();
     rules::column_position_drift::check(source, target, &mut out);
+    out.extend(rules::table_access_method_change::check(source, target));
     out.extend(rules::unmanaged_reloption::check(source, target));
     out.extend(rules::unmanaged_publication::check(source, target));
     out.extend(rules::unmanaged_event_trigger::check(source, target));
