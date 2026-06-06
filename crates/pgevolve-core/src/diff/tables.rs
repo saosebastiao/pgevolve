@@ -868,4 +868,25 @@ mod tests {
         let err = try_diff(&src, &target).unwrap_err();
         assert!(err.contains("PARTITION BY"), "got: {err}");
     }
+
+    /// Changing the access method on an existing table emits NO diff changes.
+    ///
+    /// `ALTER TABLE … SET ACCESS METHOD` cannot be done online safely; a lint
+    /// (Task 6) surfaces the advisory warning instead. The differ intentionally
+    /// does not diff this field for existing tables — only `create_table`
+    /// rendering carries it for new tables.
+    #[test]
+    fn access_method_change_on_existing_table_emits_nothing() {
+        // Use two distinct non-heap AMs so canon doesn't strip either to None.
+        let mut src = sample_table_with_qname("app", "events");
+        src.access_method = Some(Identifier::from_unquoted("columnar").unwrap());
+        let mut target = sample_table_with_qname("app", "events");
+        target.access_method = Some(Identifier::from_unquoted("zheap").unwrap());
+
+        let changes = run_diff(&src, &target);
+        assert!(
+            changes.is_empty(),
+            "access_method change on an existing table must emit no Changes (lint handles it); got: {changes:?}"
+        );
+    }
 }

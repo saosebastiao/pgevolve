@@ -94,6 +94,13 @@ pub fn create_table(t: &Table) -> String {
         s.push_str(&crate::plan::rewrite::partitions::render_partition_by(pb));
     }
 
+    // USING <access_method> goes after the element list / PARTITION BY clause
+    // and before any WITH (...) / TABLESPACE options (PG grammar order).
+    if let Some(am) = &t.access_method {
+        s.push_str(" USING ");
+        s.push_str(&am.render_sql());
+    }
+
     s.push(';');
     s
 }
@@ -1068,6 +1075,40 @@ mod tests {
         assert!(
             !sql.contains("WITH ("),
             "expected no WITH clause for default storage, got: {sql}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // create_table: USING <access_method>
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn create_table_with_access_method_emits_using_clause() {
+        let mut t = empty_table(qn("app", "events"));
+        t.columns = vec![simple_col("id")];
+        t.access_method = Some(Identifier::from_unquoted("columnar").unwrap());
+        let sql = create_table(&t);
+        // USING must appear after the closing ')' of the column list
+        let paren_close = sql.find(')').expect("closing paren");
+        let using_pos = sql
+            .find(" USING columnar")
+            .expect("USING columnar not found in SQL");
+        assert!(
+            using_pos > paren_close,
+            "USING must come after the closing ')' of the column list; got: {sql}"
+        );
+        assert!(sql.ends_with(';'), "SQL must end with ';', got: {sql}");
+    }
+
+    #[test]
+    fn create_table_without_access_method_emits_no_using_clause() {
+        let mut t = empty_table(qn("app", "events"));
+        t.columns = vec![simple_col("id")];
+        // access_method is None (the default)
+        let sql = create_table(&t);
+        assert!(
+            !sql.contains("USING"),
+            "expected no USING clause when access_method is None, got: {sql}"
         );
     }
 }
