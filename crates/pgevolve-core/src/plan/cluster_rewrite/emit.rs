@@ -81,7 +81,35 @@ fn emit_one(entry: &ClusterChangeEntry) -> RawStep {
             sql: sql::comment_on_role(name, comment.as_deref()),
             transactional: TransactionConstraint::InTransaction,
         },
+
+        // TODO(tablespace Task 5): real emitter — these arms are temporary
+        // placeholders until StepKind + sql:: helpers are added in Task 5.
+        ClusterChange::CreateTablespace(_ts) => unimplemented_tablespace_step(),
+        ClusterChange::DropTablespace { name: _name } => unimplemented_tablespace_step(),
+        ClusterChange::AlterTablespaceOwner {
+            name: _name,
+            owner: _owner,
+        } => unimplemented_tablespace_step(),
+        ClusterChange::SetTablespaceOptions {
+            name: _name,
+            options: _options,
+        } => unimplemented_tablespace_step(),
+        ClusterChange::CommentOnTablespace {
+            name: _name,
+            comment: _comment,
+        } => unimplemented_tablespace_step(),
     }
+}
+
+/// Placeholder emitter used by the tablespace `ClusterChange` variants until
+/// Task 5 adds real `StepKind` entries and SQL helpers.
+///
+/// # Panics
+/// Always panics — tablespace emit is not yet implemented (Task 5).
+// TODO(tablespace Task 5): remove this helper once real arms are in place.
+#[cold]
+fn unimplemented_tablespace_step() -> RawStep {
+    panic!("tablespace emit not yet implemented — this path requires Task 5")
 }
 
 // ---------------------------------------------------------------------------

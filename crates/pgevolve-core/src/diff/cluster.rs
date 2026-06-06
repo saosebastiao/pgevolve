@@ -1,9 +1,9 @@
 //! Cluster diffing.
 //!
-//! Pair-by-name on roles; emit one [`ClusterChange`] per difference. All ops
-//! are catalog-only metadata (DDL through `pg_authid`), so they're safe by
-//! default — except `DropRole`, which is intent-gated because it can orphan
-//! grants in other DBs.
+//! Pair-by-name on roles and tablespaces; emit one [`ClusterChange`] per
+//! difference. All ops are catalog-only metadata, so they're safe by default —
+//! except `DropRole` and `DropTablespace`, which are intent-gated because they
+//! can orphan objects in other parts of the cluster.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -12,6 +12,7 @@ use crate::diff::destructiveness::Destructiveness;
 use crate::identifier::Identifier;
 use crate::ir::cluster::catalog::ClusterCatalog;
 use crate::ir::cluster::role::{Role, RoleAttributes};
+use crate::ir::cluster::tablespace::Tablespace;
 
 /// One change to apply to a cluster's role layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +53,36 @@ pub enum ClusterChange {
     /// Set or clear the comment on a role.
     CommentOnRole {
         /// Name of the role.
+        name: Identifier,
+        /// New comment value; `None` clears the existing comment.
+        comment: Option<String>,
+    },
+
+    /// `CREATE TABLESPACE …`
+    CreateTablespace(Tablespace),
+    /// `DROP TABLESPACE …` — destructive.
+    DropTablespace {
+        /// Name of the tablespace to drop.
+        name: Identifier,
+    },
+    /// `ALTER TABLESPACE name OWNER TO owner;`
+    AlterTablespaceOwner {
+        /// Name of the tablespace.
+        name: Identifier,
+        /// New owner role.
+        owner: Identifier,
+    },
+    /// `ALTER TABLESPACE name SET (k = v, …);` — only source-declared options
+    /// that differ from live (lenient: live-only options are never reset).
+    SetTablespaceOptions {
+        /// Name of the tablespace.
+        name: Identifier,
+        /// Subset of options whose value differs from live.
+        options: BTreeMap<String, String>,
+    },
+    /// `COMMENT ON TABLESPACE name IS …;`
+    CommentOnTablespace {
+        /// Name of the tablespace.
         name: Identifier,
         /// New comment value; `None` clears the existing comment.
         comment: Option<String>,
@@ -116,6 +147,82 @@ pub fn diff_cluster(target: &ClusterCatalog, source: &ClusterCatalog) -> Cluster
                 },
             }),
             Some(source_role) => diff_role(target_role, source_role, &mut entries),
+        }
+    }
+
+    // Tablespaces. Lenient owner/options; location is immutable in PG
+    // (drift → tablespace-location-drift lint, not a change).
+    let target_ts: BTreeMap<&Identifier, &Tablespace> =
+        target.tablespaces.iter().map(|t| (&t.name, t)).collect();
+    let source_ts: BTreeMap<&Identifier, &Tablespace> =
+        source.tablespaces.iter().map(|t| (&t.name, t)).collect();
+
+    for (name, s) in &source_ts {
+        match target_ts.get(name) {
+            None => entries.push(ClusterChangeEntry {
+                change: ClusterChange::CreateTablespace((*s).clone()),
+                destructiveness: Destructiveness::Safe,
+            }),
+            Some(t) => {
+                // Owner (lenient): only emit if source declares an owner and it
+                // differs from live.
+                if let Some(src_owner) = &s.owner
+                    && t.owner.as_ref() != Some(src_owner)
+                {
+                    entries.push(ClusterChangeEntry {
+                        change: ClusterChange::AlterTablespaceOwner {
+                            name: (*name).clone(),
+                            owner: src_owner.clone(),
+                        },
+                        destructiveness: Destructiveness::Safe,
+                    });
+                }
+
+                // Options (lenient): emit only source options whose value
+                // differs from live; never reset live-only options.
+                let mut set: BTreeMap<String, String> = BTreeMap::new();
+                for (k, v) in &s.options {
+                    if t.options.get(k) != Some(v) {
+                        set.insert(k.clone(), v.clone());
+                    }
+                }
+                if !set.is_empty() {
+                    entries.push(ClusterChangeEntry {
+                        change: ClusterChange::SetTablespaceOptions {
+                            name: (*name).clone(),
+                            options: set,
+                        },
+                        destructiveness: Destructiveness::Safe,
+                    });
+                }
+
+                // Comment.
+                if t.comment != s.comment {
+                    entries.push(ClusterChangeEntry {
+                        change: ClusterChange::CommentOnTablespace {
+                            name: (*name).clone(),
+                            comment: s.comment.clone(),
+                        },
+                        destructiveness: Destructiveness::Safe,
+                    });
+                }
+
+                // Location: immutable in PG — drift is handled by the
+                // tablespace-location-drift lint, NOT a change here.
+            }
+        }
+    }
+
+    for name in target_ts.keys() {
+        if !source_ts.contains_key(name) {
+            entries.push(ClusterChangeEntry {
+                change: ClusterChange::DropTablespace {
+                    name: (*name).clone(),
+                },
+                destructiveness: Destructiveness::RequiresApprovalAndDataLossWarning {
+                    reason: format!("drops tablespace {name} — objects using it will fail"),
+                },
+            });
         }
     }
 
@@ -314,5 +421,170 @@ mod tests {
             cs.entries[0].change,
             ClusterChange::CommentOnRole { .. }
         ));
+    }
+
+    // -----------------------------------------------------------------------
+    // Tablespace tests
+    // -----------------------------------------------------------------------
+
+    fn ts(name: &str) -> Tablespace {
+        Tablespace {
+            name: id(name),
+            location: "/mnt/ssd".to_string(),
+            owner: None,
+            options: BTreeMap::new(),
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn source_only_tablespace_creates() {
+        let target = ClusterCatalog::empty();
+        let source = ClusterCatalog {
+            roles: vec![],
+            tablespaces: vec![ts("fast")],
+        };
+        let cs = diff_cluster(&target, &source);
+        assert_eq!(cs.entries.len(), 1);
+        assert!(matches!(
+            cs.entries[0].change,
+            ClusterChange::CreateTablespace(_)
+        ));
+        assert_eq!(cs.entries[0].destructiveness, Destructiveness::Safe);
+    }
+
+    #[test]
+    fn live_only_tablespace_drops_with_intent_gate() {
+        let target = ClusterCatalog {
+            roles: vec![],
+            tablespaces: vec![ts("fast")],
+        };
+        let source = ClusterCatalog::empty();
+        let cs = diff_cluster(&target, &source);
+        assert_eq!(cs.entries.len(), 1);
+        assert!(matches!(
+            cs.entries[0].change,
+            ClusterChange::DropTablespace { .. }
+        ));
+        assert!(cs.entries[0].destructiveness.requires_approval());
+        assert!(cs.entries[0].destructiveness.data_loss_risk());
+    }
+
+    #[test]
+    fn owner_change_emits_alter_owner() {
+        let t = ts("fast");
+        let mut s = ts("fast");
+        s.owner = Some(id("dba"));
+        let cs = diff_cluster(
+            &ClusterCatalog {
+                roles: vec![],
+                tablespaces: vec![t],
+            },
+            &ClusterCatalog {
+                roles: vec![],
+                tablespaces: vec![s],
+            },
+        );
+        assert_eq!(cs.entries.len(), 1);
+        assert!(matches!(
+            cs.entries[0].change,
+            ClusterChange::AlterTablespaceOwner { .. }
+        ));
+        assert_eq!(cs.entries[0].destructiveness, Destructiveness::Safe);
+    }
+
+    #[test]
+    fn source_owner_none_emits_nothing_even_if_live_has_owner() {
+        // Lenient: source owner = None means "unmanaged" — do not emit an alter.
+        let mut t = ts("fast");
+        t.owner = Some(id("postgres"));
+        let s = ts("fast"); // owner = None
+        let cs = diff_cluster(
+            &ClusterCatalog {
+                roles: vec![],
+                tablespaces: vec![t],
+            },
+            &ClusterCatalog {
+                roles: vec![],
+                tablespaces: vec![s],
+            },
+        );
+        assert!(cs.is_empty());
+    }
+
+    #[test]
+    fn options_diff_emits_only_source_options() {
+        // source has {a:1, b:2}, live has {a:1, c:9}
+        // → emit SetTablespaceOptions for {b:2} only; live-only c is NOT reset.
+        let mut t = ts("fast");
+        t.options.insert("a".to_string(), "1".to_string());
+        t.options.insert("c".to_string(), "9".to_string());
+        let mut s = ts("fast");
+        s.options.insert("a".to_string(), "1".to_string());
+        s.options.insert("b".to_string(), "2".to_string());
+        let cs = diff_cluster(
+            &ClusterCatalog {
+                roles: vec![],
+                tablespaces: vec![t],
+            },
+            &ClusterCatalog {
+                roles: vec![],
+                tablespaces: vec![s],
+            },
+        );
+        assert_eq!(cs.entries.len(), 1);
+        match &cs.entries[0].change {
+            ClusterChange::SetTablespaceOptions { name, options } => {
+                assert_eq!(name.as_str(), "fast");
+                assert_eq!(options.len(), 1);
+                assert_eq!(options.get("b").map(String::as_str), Some("2"));
+            }
+            other => panic!("expected SetTablespaceOptions, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn comment_change_emits_comment_on_tablespace() {
+        let t = ts("fast");
+        let mut s = ts("fast");
+        s.comment = Some("fast storage".to_string());
+        let cs = diff_cluster(
+            &ClusterCatalog {
+                roles: vec![],
+                tablespaces: vec![t],
+            },
+            &ClusterCatalog {
+                roles: vec![],
+                tablespaces: vec![s],
+            },
+        );
+        assert_eq!(cs.entries.len(), 1);
+        assert!(matches!(
+            cs.entries[0].change,
+            ClusterChange::CommentOnTablespace { .. }
+        ));
+    }
+
+    #[test]
+    fn location_change_emits_nothing() {
+        // PG cannot relocate a tablespace; drift is handled by the
+        // tablespace-location-drift lint, not a ClusterChange.
+        let t = ts("fast"); // location = "/mnt/ssd"
+        let mut s = ts("fast");
+        s.location = "/mnt/nvme".to_string();
+        let cs = diff_cluster(
+            &ClusterCatalog {
+                roles: vec![],
+                tablespaces: vec![t],
+            },
+            &ClusterCatalog {
+                roles: vec![],
+                tablespaces: vec![s],
+            },
+        );
+        assert!(
+            cs.is_empty(),
+            "location drift must not produce a change; got {cs:?}"
+        );
     }
 }

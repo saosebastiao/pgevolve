@@ -748,6 +748,30 @@ fn apply_cluster_changes_in_memory(
                     r.comment.clone_from(comment);
                 }
             }
+
+            // TODO(tablespace Task 5): implement real in-memory apply once
+            // full tablespace diffing is exercised by the round-trip property.
+            ClusterChange::CreateTablespace(ts) => cat.tablespaces.push(ts.clone()),
+            ClusterChange::DropTablespace { name } => {
+                cat.tablespaces.retain(|t| &t.name != name);
+            }
+            ClusterChange::AlterTablespaceOwner { name, owner } => {
+                if let Some(t) = cat.tablespaces.iter_mut().find(|t| &t.name == name) {
+                    t.owner = Some(owner.clone());
+                }
+            }
+            ClusterChange::SetTablespaceOptions { name, options } => {
+                if let Some(t) = cat.tablespaces.iter_mut().find(|t| &t.name == name) {
+                    for (k, v) in options {
+                        t.options.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            ClusterChange::CommentOnTablespace { name, comment } => {
+                if let Some(t) = cat.tablespaces.iter_mut().find(|t| &t.name == name) {
+                    t.comment.clone_from(comment);
+                }
+            }
         }
     }
 }
