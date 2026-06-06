@@ -6,8 +6,11 @@
 
 use std::fmt::Write as _;
 
+use std::collections::BTreeMap;
+
 use crate::identifier::Identifier;
 use crate::ir::cluster::role::{Role, RoleAttributes};
+use crate::ir::cluster::tablespace::Tablespace;
 
 /// `CREATE ROLE r WITH <options>;`
 ///
@@ -107,8 +110,88 @@ pub fn comment_on_role(name: &Identifier, comment: Option<&str>) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Tablespaces
+// ---------------------------------------------------------------------------
+
+/// `CREATE TABLESPACE name [OWNER owner] LOCATION '/path' [WITH (k = v, …)];`
+///
+/// `OWNER` is omitted when [`Tablespace::owner`] is `None`; the `WITH (...)`
+/// clause is omitted when [`Tablespace::options`] is empty. Options ride
+/// inline (the `BTreeMap` is already key-sorted). The location is
+/// single-quote-escaped per the SQL standard.
+#[must_use]
+pub fn create_tablespace(ts: &Tablespace) -> String {
+    let mut out = format!("CREATE TABLESPACE {}", ts.name.render_sql());
+    if let Some(owner) = &ts.owner {
+        let _ = write!(out, " OWNER {}", owner.render_sql());
+    }
+    let _ = write!(out, " LOCATION '{}'", ts.location.replace('\'', "''"));
+    if !ts.options.is_empty() {
+        let _ = write!(out, " WITH ({})", render_options(&ts.options));
+    }
+    out.push(';');
+    out
+}
+
+/// `DROP TABLESPACE name;`
+#[must_use]
+pub fn drop_tablespace(name: &Identifier) -> String {
+    format!("DROP TABLESPACE {};", name.render_sql())
+}
+
+/// `ALTER TABLESPACE name OWNER TO owner;`
+#[must_use]
+pub fn alter_tablespace_owner(name: &Identifier, owner: &Identifier) -> String {
+    format!(
+        "ALTER TABLESPACE {} OWNER TO {};",
+        name.render_sql(),
+        owner.render_sql()
+    )
+}
+
+/// `ALTER TABLESPACE name SET (k = v, …);`
+///
+/// Options are key-sorted by the `BTreeMap` iteration order.
+#[must_use]
+pub fn alter_tablespace_set(name: &Identifier, options: &BTreeMap<String, String>) -> String {
+    format!(
+        "ALTER TABLESPACE {} SET ({});",
+        name.render_sql(),
+        render_options(options)
+    )
+}
+
+/// `COMMENT ON TABLESPACE name IS '...';` or `IS NULL` to clear.
+///
+/// Single quotes inside `comment` are escaped by doubling (`''`). `None`
+/// emits `IS NULL` which clears any existing comment.
+#[must_use]
+pub fn comment_on_tablespace(name: &Identifier, comment: Option<&str>) -> String {
+    comment.map_or_else(
+        || format!("COMMENT ON TABLESPACE {} IS NULL;", name.render_sql()),
+        |text| {
+            format!(
+                "COMMENT ON TABLESPACE {} IS '{}';",
+                name.render_sql(),
+                text.replace('\'', "''")
+            )
+        },
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Internal helper
 // ---------------------------------------------------------------------------
+
+/// Render a key-sorted option map as `k = v, k = v`. The `BTreeMap` guarantees
+/// keys are iterated in sorted order, keeping output deterministic.
+fn render_options(options: &BTreeMap<String, String>) -> String {
+    options
+        .iter()
+        .map(|(k, v)| format!("{k} = {v}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 /// Append ` WITH <all option flags>` to `out`, emitting every attribute
 /// unconditionally. Used by [`create_role`] which always writes the full set.
@@ -277,5 +360,90 @@ mod tests {
         };
         let sql = alter_role_attributes(&id("app_user"), &from, &to);
         assert!(sql.contains("CONNECTION LIMIT 50"), "got: {sql}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Tablespace render tests
+    // -----------------------------------------------------------------------
+
+    fn ts(name: &str, location: &str) -> Tablespace {
+        Tablespace {
+            name: id(name),
+            location: location.to_string(),
+            owner: None,
+            options: BTreeMap::new(),
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn create_tablespace_simple() {
+        let sql = create_tablespace(&ts("ts", "/x"));
+        assert_eq!(sql, "CREATE TABLESPACE ts LOCATION '/x';");
+    }
+
+    #[test]
+    fn create_tablespace_with_owner_and_options() {
+        let mut t = ts("ts", "/x");
+        t.owner = Some(id("app_owner"));
+        t.options
+            .insert("seq_page_cost".to_string(), "2.0".to_string());
+        t.options
+            .insert("random_page_cost".to_string(), "1.5".to_string());
+        let sql = create_tablespace(&t);
+        // Options key-sorted: random_page_cost before seq_page_cost.
+        assert_eq!(
+            sql,
+            "CREATE TABLESPACE ts OWNER app_owner LOCATION '/x' \
+             WITH (random_page_cost = 1.5, seq_page_cost = 2.0);"
+        );
+    }
+
+    #[test]
+    fn create_tablespace_escapes_location_quotes() {
+        let sql = create_tablespace(&ts("ts", "/it's"));
+        assert_eq!(sql, "CREATE TABLESPACE ts LOCATION '/it''s';");
+    }
+
+    #[test]
+    fn drop_tablespace_renders() {
+        let sql = drop_tablespace(&id("ts"));
+        assert_eq!(sql, "DROP TABLESPACE ts;");
+    }
+
+    #[test]
+    fn alter_tablespace_owner_renders() {
+        let sql = alter_tablespace_owner(&id("ts"), &id("dba"));
+        assert_eq!(sql, "ALTER TABLESPACE ts OWNER TO dba;");
+    }
+
+    #[test]
+    fn alter_tablespace_set_multi_option_key_sorted() {
+        let mut options = BTreeMap::new();
+        options.insert("seq_page_cost".to_string(), "2.0".to_string());
+        options.insert("random_page_cost".to_string(), "1.5".to_string());
+        let sql = alter_tablespace_set(&id("ts"), &options);
+        assert_eq!(
+            sql,
+            "ALTER TABLESPACE ts SET (random_page_cost = 1.5, seq_page_cost = 2.0);"
+        );
+    }
+
+    #[test]
+    fn comment_on_tablespace_set() {
+        let sql = comment_on_tablespace(&id("ts"), Some("fast storage"));
+        assert_eq!(sql, "COMMENT ON TABLESPACE ts IS 'fast storage';");
+    }
+
+    #[test]
+    fn comment_on_tablespace_escapes_apostrophes() {
+        let sql = comment_on_tablespace(&id("ts"), Some("it's fast"));
+        assert_eq!(sql, "COMMENT ON TABLESPACE ts IS 'it''s fast';");
+    }
+
+    #[test]
+    fn comment_on_tablespace_none_emits_is_null() {
+        let sql = comment_on_tablespace(&id("ts"), None);
+        assert_eq!(sql, "COMMENT ON TABLESPACE ts IS NULL;");
     }
 }

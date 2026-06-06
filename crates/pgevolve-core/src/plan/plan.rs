@@ -472,6 +472,11 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::GrantRoleMembership => "grant_role_membership",
         K::RevokeRoleMembership => "revoke_role_membership",
         K::CommentOnRole => "comment_on_role",
+        K::CreateTablespace => "create_tablespace",
+        K::DropTablespace => "drop_tablespace",
+        K::AlterTablespaceOwner => "alter_tablespace_owner",
+        K::SetTablespaceOptions => "set_tablespace_options",
+        K::CommentOnTablespace => "comment_on_tablespace",
         K::AlterObjectOwner => "alter_object_owner",
         K::GrantObjectPrivilege => "grant_object_privilege",
         K::RevokeObjectPrivilege => "revoke_object_privilege",
@@ -597,6 +602,11 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "grant_role_membership" => K::GrantRoleMembership,
         "revoke_role_membership" => K::RevokeRoleMembership,
         "comment_on_role" => K::CommentOnRole,
+        "create_tablespace" => K::CreateTablespace,
+        "drop_tablespace" => K::DropTablespace,
+        "alter_tablespace_owner" => K::AlterTablespaceOwner,
+        "set_tablespace_options" => K::SetTablespaceOptions,
+        "comment_on_tablespace" => K::CommentOnTablespace,
         "alter_object_owner" => K::AlterObjectOwner,
         "grant_object_privilege" => K::GrantObjectPrivilege,
         "revoke_object_privilege" => K::RevokeObjectPrivilege,
@@ -889,6 +899,21 @@ mod tests {
             StepKind::CreateOrReplaceProcedure,
             StepKind::DropProcedure,
             StepKind::CommentOnProcedure,
+        ] {
+            let n = kind_name(k);
+            let parsed = parse_kind_name(n).unwrap();
+            assert_eq!(parsed, k, "round-trip failed for {n}");
+        }
+    }
+
+    #[test]
+    fn tablespace_step_kinds_round_trip_through_kind_name() {
+        for k in [
+            StepKind::CreateTablespace,
+            StepKind::DropTablespace,
+            StepKind::AlterTablespaceOwner,
+            StepKind::SetTablespaceOptions,
+            StepKind::CommentOnTablespace,
         ] {
             let n = kind_name(k);
             let parsed = parse_kind_name(n).unwrap();

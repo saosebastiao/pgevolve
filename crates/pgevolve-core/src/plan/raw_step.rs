@@ -194,6 +194,18 @@ pub enum StepKind {
     /// `COMMENT ON ROLE`.
     CommentOnRole,
 
+    // --- v0.4 tablespace step kinds ---
+    /// `CREATE TABLESPACE`.
+    CreateTablespace,
+    /// `DROP TABLESPACE` — destructive.
+    DropTablespace,
+    /// `ALTER TABLESPACE … OWNER TO …`.
+    AlterTablespaceOwner,
+    /// `ALTER TABLESPACE … SET (…)`.
+    SetTablespaceOptions,
+    /// `COMMENT ON TABLESPACE`.
+    CommentOnTablespace,
+
     // --- v0.3.1 grant / ownership step kinds ---
     /// `ALTER <kind> qname OWNER TO new_owner`.
     AlterObjectOwner,
@@ -415,6 +427,11 @@ mod tests {
             StepKind::GrantRoleMembership,
             StepKind::RevokeRoleMembership,
             StepKind::CommentOnRole,
+            StepKind::CreateTablespace,
+            StepKind::DropTablespace,
+            StepKind::AlterTablespaceOwner,
+            StepKind::SetTablespaceOptions,
+            StepKind::CommentOnTablespace,
             StepKind::AlterObjectOwner,
             StepKind::GrantObjectPrivilege,
             StepKind::RevokeObjectPrivilege,

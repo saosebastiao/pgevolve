@@ -52,14 +52,13 @@ fn describe(change: &ClusterChange) -> String {
         }
         ClusterChange::CommentOnRole { name, .. } => format!("~ COMMENT ON ROLE {name}"),
 
-        // TODO(tablespace Task 5): real describe strings once emit is wired up.
-        ClusterChange::CreateTablespace(_ts) => "+ CREATE TABLESPACE (pending)".to_owned(),
+        ClusterChange::CreateTablespace(ts) => format!("+ CREATE TABLESPACE {}", ts.name),
         ClusterChange::DropTablespace { name } => format!("- DROP TABLESPACE {name}"),
-        ClusterChange::AlterTablespaceOwner { name, .. } => {
-            format!("~ ALTER TABLESPACE {name} OWNER TO …")
+        ClusterChange::AlterTablespaceOwner { name, owner } => {
+            format!("~ ALTER TABLESPACE {name} OWNER TO {owner}")
         }
         ClusterChange::SetTablespaceOptions { name, .. } => {
-            format!("~ ALTER TABLESPACE {name} SET (…)")
+            format!("~ ALTER TABLESPACE {name} SET (...)")
         }
         ClusterChange::CommentOnTablespace { name, .. } => {
             format!("~ COMMENT ON TABLESPACE {name}")

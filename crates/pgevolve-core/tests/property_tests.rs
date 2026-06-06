@@ -749,8 +749,8 @@ fn apply_cluster_changes_in_memory(
                 }
             }
 
-            // TODO(tablespace Task 5): implement real in-memory apply once
-            // full tablespace diffing is exercised by the round-trip property.
+            // In-memory tablespace apply mirrors the role arms above: create
+            // pushes, drop removes by name, owner/options/comment mutate in place.
             ClusterChange::CreateTablespace(ts) => cat.tablespaces.push(ts.clone()),
             ClusterChange::DropTablespace { name } => {
                 cat.tablespaces.retain(|t| &t.name != name);
