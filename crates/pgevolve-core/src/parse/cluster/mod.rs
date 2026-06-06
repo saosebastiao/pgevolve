@@ -5,11 +5,20 @@ mod alter_role;
 mod create_role;
 mod grant_membership;
 mod shared;
+mod tablespace_stmt;
 
 use std::path::Path;
 
+use pg_query::protobuf::ObjectType;
+
 use crate::ir::cluster::catalog::ClusterCatalog;
 use crate::parse::error::{ParseError, SourceLocation};
+
+/// Compare a raw `ObjectType` discriminant (`i32`) against a known variant,
+/// mirroring [`apply_comment`]'s decode-then-compare style.
+fn object_type_is(raw: i32, want: ObjectType) -> bool {
+    ObjectType::try_from(raw).unwrap_or(ObjectType::Undefined) == want
+}
 
 /// Parse every `*.sql` file under `roles_dir`, alphabetical order. Returns a
 /// canonicalized [`ClusterCatalog`].
@@ -65,6 +74,33 @@ fn apply_file(sql: &str, path: &Path, cat: &mut ClusterCatalog) -> Result<(), Pa
             pg_query::NodeEnum::AlterRoleStmt(s) => alter_role::apply(s, cat, &loc)?,
             pg_query::NodeEnum::GrantRoleStmt(s) => grant_membership::apply(s, cat, &loc)?,
             pg_query::NodeEnum::CommentStmt(s) => apply_comment(s, cat, &loc)?,
+            pg_query::NodeEnum::CreateTableSpaceStmt(s) => {
+                tablespace_stmt::apply_create(s, cat, &loc)?;
+            }
+            pg_query::NodeEnum::AlterTableSpaceOptionsStmt(s) => {
+                tablespace_stmt::apply_set(s, cat, &loc)?;
+            }
+            pg_query::NodeEnum::AlterOwnerStmt(s)
+                if object_type_is(s.object_type, ObjectType::ObjectTablespace) =>
+            {
+                tablespace_stmt::apply_owner(s, cat, &loc)?;
+            }
+            pg_query::NodeEnum::RenameStmt(s)
+                if object_type_is(s.rename_type, ObjectType::ObjectTablespace) =>
+            {
+                return Err(ParseError::Structural {
+                    location: loc,
+                    message: "ALTER TABLESPACE … RENAME is not supported — rename is drop+create"
+                        .into(),
+                });
+            }
+            pg_query::NodeEnum::DropTableSpaceStmt(_) => {
+                return Err(ParseError::Structural {
+                    location: loc,
+                    message: "DROP TABLESPACE in source is not supported — drops happen via diff"
+                        .into(),
+                });
+            }
             pg_query::NodeEnum::DropRoleStmt(_) => {
                 return Err(ParseError::Structural {
                     location: loc,
@@ -91,20 +127,25 @@ fn apply_comment(
     cat: &mut ClusterCatalog,
     loc: &SourceLocation,
 ) -> Result<(), ParseError> {
-    use pg_query::protobuf::ObjectType;
     let kind = ObjectType::try_from(s.objtype).unwrap_or(ObjectType::Undefined);
-    if kind != ObjectType::ObjectRole {
-        return Err(ParseError::Structural {
-            location: loc.clone(),
-            message: "only COMMENT ON ROLE is supported in cluster source".into(),
-        });
-    }
-    let role_name = shared::extract_role_name_from_object_node(s.object.as_deref(), loc)?;
     let comment = if s.comment.is_empty() {
         None
     } else {
         Some(s.comment.clone())
     };
+    if kind == ObjectType::ObjectTablespace {
+        let name = comment_target_string(s.object.as_deref(), loc)?;
+        return tablespace_stmt::apply_comment(cat, &name, comment, loc);
+    }
+    if kind != ObjectType::ObjectRole {
+        return Err(ParseError::Structural {
+            location: loc.clone(),
+            message: "only COMMENT ON ROLE and COMMENT ON TABLESPACE are supported in cluster \
+                      source"
+                .into(),
+        });
+    }
+    let role_name = shared::extract_role_name_from_object_node(s.object.as_deref(), loc)?;
     let role = cat
         .roles
         .iter_mut()
@@ -115,4 +156,19 @@ fn apply_comment(
         })?;
     role.comment = comment;
     Ok(())
+}
+
+/// Extract a bare-`String` comment target (`COMMENT ON TABLESPACE name …` keeps
+/// the object name as a plain `String` node, not a `RoleSpec`).
+fn comment_target_string(
+    node: Option<&pg_query::protobuf::Node>,
+    loc: &SourceLocation,
+) -> Result<String, ParseError> {
+    match node.and_then(|n| n.node.as_ref()) {
+        Some(pg_query::NodeEnum::String(s)) => Ok(s.sval.clone()),
+        other => Err(ParseError::Structural {
+            location: loc.clone(),
+            message: format!("unexpected COMMENT ON TABLESPACE target {other:?}"),
+        }),
+    }
 }
