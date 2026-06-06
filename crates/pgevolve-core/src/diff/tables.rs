@@ -57,6 +57,7 @@ pub fn diff_tables(
                 rls_forced: false,
                 policies: vec![],
                 storage: crate::ir::reloptions::TableStorageOptions::default(),
+                access_method: None,
             };
             emit_table_attribute_changes(&empty_target, source_table, managed_roles, out);
         }
@@ -474,6 +475,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         }
     }
 
@@ -590,6 +592,7 @@ mod tests {
                 fillfactor: Some(70),
                 ..Default::default()
             },
+            access_method: None,
         };
         source.tables.push(table);
 
@@ -735,6 +738,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         }
     }
 

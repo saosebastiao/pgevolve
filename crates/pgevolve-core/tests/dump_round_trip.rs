@@ -111,6 +111,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         // users table with various features.
@@ -169,6 +170,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         // Standalone index.

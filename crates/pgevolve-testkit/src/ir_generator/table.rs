@@ -137,6 +137,7 @@ fn arbitrary_table(
                         rls_forced,
                         policies,
                         storage,
+                        access_method: None,
                     }
                 },
             )

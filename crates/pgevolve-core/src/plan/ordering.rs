@@ -990,6 +990,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         source
             .indexes
@@ -1044,6 +1045,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
@@ -1064,6 +1066,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1123,6 +1126,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         source.tables.push(Table {
             qname: qn("app", "b"),
@@ -1143,6 +1147,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1202,6 +1207,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         target
             .indexes
@@ -1255,6 +1261,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1290,6 +1297,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         source.tables.push(Table {
             qname: qn("app", "users"),
@@ -1304,6 +1312,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let mk_cs = |reversed: bool| {
@@ -1347,6 +1356,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         source
             .indexes
@@ -1419,6 +1429,7 @@ mod tests {
                 rls_forced: false,
                 policies: vec![],
                 storage: crate::ir::reloptions::TableStorageOptions::default(),
+                access_method: None,
             });
         }
         // Add FKs forming a cycle: a -> b, b -> c, c -> a.
@@ -1470,6 +1481,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         target.tables.push(Table {
             qname: QualifiedName::new(id("b"), id("t2")),
@@ -1484,6 +1496,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1562,6 +1575,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         target.indexes.push(Index {
             qname: qn("app", "users_deleted_at_idx"),
@@ -1598,6 +1612,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1658,6 +1673,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         // Index on `email`, but the column being dropped is `unused`.
         target.indexes.push(Index {
@@ -1698,6 +1714,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         // Source still has the email index, but it's being dropped from the
         // source for an unrelated reason (simulate user removing it).
@@ -1759,6 +1776,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         target.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -1798,6 +1816,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -1977,6 +1996,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let mut cs = ChangeSet::new();
@@ -2136,6 +2156,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         // source (desired): settings without created_at, and without the grant.
@@ -2154,6 +2175,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         // Build the changeset the differ would produce: AlterTable(DropColumn)
@@ -2246,6 +2268,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let mut source = Catalog::empty();
@@ -2271,6 +2294,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         // The differ would emit: DropColumn(created_at) + RevokeColumnPrivilege

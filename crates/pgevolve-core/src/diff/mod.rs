@@ -213,14 +213,13 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         c
     }
 
-    fn catalog_with_indexes_and_fks() -> Catalog {
-        let mut c = Catalog::empty();
-        c.schemas.push(Schema::new(id("app")));
-        c.tables.push(Table {
+    fn table_orgs() -> Table {
+        Table {
             qname: qn("app", "orgs"),
             columns: vec![col("id", ColumnType::BigInt, false)],
             constraints: vec![Constraint {
@@ -241,7 +240,14 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
-        });
+            access_method: None,
+        }
+    }
+
+    fn catalog_with_indexes_and_fks() -> Catalog {
+        let mut c = Catalog::empty();
+        c.schemas.push(Schema::new(id("app")));
+        c.tables.push(table_orgs());
         c.tables.push(Table {
             qname: qn("app", "users"),
             columns: vec![
@@ -282,6 +288,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         c.indexes.push(Index {
             qname: qn("app", "users_email_idx"),

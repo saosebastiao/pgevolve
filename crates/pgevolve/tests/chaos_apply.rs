@@ -135,6 +135,7 @@ async fn aborted_mid_apply_recovers_after_replan() {
             rls_forced: false,
             policies: vec![],
             storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
     }
     let canonical = catalog.canonicalize().unwrap();

@@ -39,6 +39,9 @@ pub struct Table {
     /// Storage parameters (`WITH (fillfactor = …, autovacuum_* = …, …)`).
     /// Default is the empty/no-overrides state.
     pub storage: crate::ir::reloptions::TableStorageOptions,
+    /// Table access method (`CREATE TABLE … USING <am>`). `None` = inherit the
+    /// cluster default (`heap`). Canon normalizes `Some("heap")` → `None`.
+    pub access_method: Option<Identifier>,
 }
 
 impl Diff for Table {
@@ -228,6 +231,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         }
     }
 
@@ -333,5 +337,26 @@ mod tests {
             ..Default::default()
         };
         assert!(base().diff(&b).iter().any(|x| x.path == "storage"));
+    }
+
+    #[test]
+    fn access_method_field_roundtrips() {
+        let mut t = base();
+        assert!(
+            t.access_method.is_none(),
+            "default access_method must be None"
+        );
+        t.access_method = Some(Identifier::from_unquoted("columnar").unwrap());
+        assert_eq!(
+            t.access_method.as_ref().map(Identifier::as_str),
+            Some("columnar"),
+        );
+        // JSON round-trip preserves the field.
+        let json = serde_json::to_string(&t).unwrap();
+        let restored: Table = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            restored.access_method.as_ref().map(Identifier::as_str),
+            Some("columnar"),
+        );
     }
 }

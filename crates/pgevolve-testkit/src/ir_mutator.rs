@@ -341,6 +341,7 @@ fn add_table(c: &mut Catalog, seed: usize) {
         rls_forced: false,
         policies: vec![],
         storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
+        access_method: None,
     });
 }
 
@@ -931,6 +932,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let mut catalog = Catalog {
             schemas: vec![Schema {

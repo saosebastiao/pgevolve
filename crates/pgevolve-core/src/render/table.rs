@@ -46,6 +46,7 @@ pub fn render_table(t: &Table) -> String {
         rls_forced: false,
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
+        access_method: None,
     };
 
     out.push_str(&rewrite_sql::create_table(&table_without_fks));
@@ -194,6 +195,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let sql = render_table(&t);
         assert!(sql.contains("CREATE TABLE app.users"));
@@ -244,6 +246,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let sql = render_table(&t);
         assert!(
@@ -290,6 +293,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let sql = render_table(&t);
         assert!(sql.contains("COMMENT ON TABLE app.orgs IS 'organization records';"));
@@ -313,6 +317,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let sql = render_table(&t);
         assert!(sql.contains("COMMENT ON COLUMN app.users.email IS 'email address';"));
@@ -337,6 +342,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let sql = render_table(&t);
         assert!(sql.contains("DEFAULT true"));
@@ -360,6 +366,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let sql = render_table(&t);
         // nullable columns must not have NOT NULL.
@@ -392,6 +399,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let sql = render_table(&t);
         assert!(sql.contains("CHECK"), "expected CHECK in CREATE TABLE");
@@ -424,6 +432,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let sql = render_table(&t);
         // Must NOT appear inline in the CREATE TABLE body.
@@ -457,6 +466,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let sql = render_table(&t);
         assert!(sql.contains("COMPRESSION lz4"), "got: {sql}");
@@ -479,6 +489,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let sql = render_table(&t);
         assert!(!sql.contains("STORAGE"), "got: {sql}");

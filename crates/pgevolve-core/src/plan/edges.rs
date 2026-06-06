@@ -667,6 +667,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -724,6 +725,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -749,6 +751,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         c.indexes.push(Index {
             qname: qn("app", "users_idx"),
@@ -793,6 +796,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         c.tables.push(Table {
             qname: qn("app", "users"),
@@ -821,6 +825,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         let g = build_create_graph(&c);
         let fk_node = NodeId::Constraint {
@@ -874,6 +879,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         let g = build_create_graph(&c);
         assert!(has_edge(
@@ -899,6 +905,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         c.sequences.push(Sequence {
             qname: qn("app", "users_id_seq"),
@@ -941,6 +948,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         let g = build_create_graph(&c);
         let pk_node = NodeId::Constraint {
@@ -967,6 +975,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         // Same edges; equality is structural via topological output.
         let cg = build_create_graph(&c);
@@ -1006,6 +1015,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         c.tables.push(Table {
             qname: qn("app", "b"),
@@ -1034,6 +1044,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         let g = build_create_graph(&c);
         let err = g.topological_sort().unwrap_err();
@@ -1076,6 +1087,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         let g = build_create_graph(&c);
         assert!(g.topological_sort().is_ok());
@@ -1108,6 +1120,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         c.tables.push(parent);
 
@@ -1128,6 +1141,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         c.tables.push(child);
 
@@ -1231,6 +1245,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         let g = build_create_graph(&c);
         assert!(
@@ -1479,6 +1494,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         }
     }
 

@@ -50,6 +50,7 @@ fn catalog_with_columns(order: &[&str]) -> Catalog {
         rls_forced: false,
         policies: vec![],
         storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
+        access_method: None,
     });
     c
 }

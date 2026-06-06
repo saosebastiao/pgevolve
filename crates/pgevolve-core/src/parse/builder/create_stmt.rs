@@ -143,6 +143,7 @@ pub fn build_table(
         rls_forced: false,
         policies: vec![],
         storage,
+        access_method: None,
     })
 }
 

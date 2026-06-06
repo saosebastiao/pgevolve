@@ -119,6 +119,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: TableStorageOptions::default(),
+            access_method: None,
         }
     }
 

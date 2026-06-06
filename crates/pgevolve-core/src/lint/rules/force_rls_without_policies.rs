@@ -53,6 +53,7 @@ mod tests {
             rls_forced,
             policies,
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         }
     }
 

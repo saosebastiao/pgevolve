@@ -178,6 +178,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         let rendered = render_catalog(&cat);
         let schema_pos = rendered.find("CREATE SCHEMA").unwrap();
@@ -222,6 +223,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         cat.tables.push(Table {
             qname: qn("app", "users"),
@@ -284,6 +286,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let rendered = render_catalog(&cat);
@@ -336,6 +339,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),
@@ -404,6 +408,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
 
         let rendered = render_catalog(&cat);
@@ -462,6 +467,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         cat.indexes.push(Index {
             qname: qn("app", "users_email_idx"),

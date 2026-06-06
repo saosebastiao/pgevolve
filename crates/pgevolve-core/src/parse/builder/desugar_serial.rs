@@ -130,6 +130,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         }
     }
 
@@ -209,6 +210,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         };
         let seqs = desugar_serials_in_table(&mut t, &loc()).unwrap();
         assert!(seqs.is_empty());

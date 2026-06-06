@@ -324,6 +324,7 @@ mod tests {
             rls_forced: false,
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
         });
         c.functions.push(make_function_bare("app", "audit_fn"));
         c.triggers.push(make_trigger(
