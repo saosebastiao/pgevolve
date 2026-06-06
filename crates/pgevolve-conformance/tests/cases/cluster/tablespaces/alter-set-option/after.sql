@@ -1,0 +1,1 @@
+CREATE TABLESPACE ts_app LOCATION '${TABLESPACE_DIR}' WITH (random_page_cost = 1.5);

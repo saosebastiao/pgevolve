@@ -23,6 +23,38 @@ use pgevolve_core::plan::{
 /// across runs.
 pub const TEST_TARGET_IDENTITY: &str = "conformance-test-target";
 
+/// Placeholder token in fixture SQL that the harness rewrites to a concrete
+/// tablespace `LOCATION` directory before parsing or applying.
+///
+/// `CREATE TABLESPACE … LOCATION '<dir>'` requires `<dir>` to already exist
+/// inside the Postgres data host (empty, postgres-owned). Fixtures cannot
+/// hard-code such a path, so they write [`TABLESPACE_DIR_PLACEHOLDER`] and the
+/// harness substitutes [`tablespace_dir`] — the *same* value into both
+/// `before.sql` (applied / parsed as the live target) and `after.sql` (parsed
+/// as the desired source) so the rendered plan's `LOCATION` matches what
+/// `before.sql` declared.
+pub const TABLESPACE_DIR_PLACEHOLDER: &str = "${TABLESPACE_DIR}";
+
+/// The concrete directory that [`TABLESPACE_DIR_PLACEHOLDER`] expands to.
+///
+/// Deterministic and constant: the cluster pipeline is pure (it never touches
+/// a real container), and every ephemeral Postgres in the apply path is a
+/// fresh instance, so a single fixed path cannot collide across fixtures. A
+/// constant keeps the blessed `plan.sql` goldens — which embed this path in
+/// `LOCATION '<dir>'` — stable across every run.
+#[must_use]
+pub const fn tablespace_dir() -> &'static str {
+    "/tmp/pgev_ts_fixture"
+}
+
+/// Rewrite every [`TABLESPACE_DIR_PLACEHOLDER`] occurrence in `sql` to
+/// [`tablespace_dir`]. A no-op (cheap clone) when the placeholder is absent,
+/// so non-tablespace fixtures are unaffected.
+#[must_use]
+pub fn substitute_tablespace_dir(sql: &str) -> String {
+    sql.replace(TABLESPACE_DIR_PLACEHOLDER, tablespace_dir())
+}
+
 /// Errors produced by the pipeline.
 #[derive(Debug, thiserror::Error)]
 pub enum PipelineError {
@@ -127,8 +159,14 @@ pub fn render_cluster_plan(
     before_sql: &str,
     after_sql: &str,
 ) -> Result<ClusterPipelineOutput, PipelineError> {
-    let target = parse_one_cluster_source(before_sql)?;
-    let source = parse_one_cluster_source(after_sql)?;
+    // Substitute `${TABLESPACE_DIR}` identically into both sides so the
+    // rendered `CREATE TABLESPACE … LOCATION '<dir>'` (from the source/after
+    // parse) matches the live tablespace declared by before.sql. Threading the
+    // same value through both parses is the load-bearing invariant here.
+    let before_sql = substitute_tablespace_dir(before_sql);
+    let after_sql = substitute_tablespace_dir(after_sql);
+    let target = parse_one_cluster_source(&before_sql)?;
+    let source = parse_one_cluster_source(&after_sql)?;
     let changes = pgevolve_core::diff::cluster::diff_cluster(&target, &source);
     let advisory_findings =
         pgevolve_core::lint::universal::check_cluster_changeset(&source, &target, &changes);

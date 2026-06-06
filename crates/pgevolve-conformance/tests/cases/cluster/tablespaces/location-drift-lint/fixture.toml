@@ -1,0 +1,14 @@
+[meta]
+title     = "TABLESPACE LOCATION drift emits no step + fires advisory lint"
+authoring = "cluster"
+spec_refs = ["cluster.tablespace.alter", "lint.tablespace-location-drift"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 0
+
+[expect.advisory]
+rule_ids = ["tablespace-location-drift"]

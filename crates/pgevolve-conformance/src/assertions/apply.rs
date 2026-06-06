@@ -186,7 +186,23 @@ async fn seed_before(pg: &EphemeralPostgres, before_sql: &str) -> anyhow::Result
         return Ok(());
     }
     let client = pg.connect().await?;
-    client.batch_execute(before_sql).await?;
+    // `CREATE TABLESPACE … LOCATION '<dir>'` requires <dir> to already exist
+    // (empty, postgres-owned). When the fixture uses the `${TABLESPACE_DIR}`
+    // placeholder, provision that directory over the superuser connection and
+    // substitute the same path the cluster pipeline uses, so an applied
+    // CREATE TABLESPACE finds its location. No-op for non-tablespace fixtures.
+    let before_sql = if before_sql.contains(crate::planning::TABLESPACE_DIR_PLACEHOLDER) {
+        let dir = crate::planning::tablespace_dir();
+        client
+            .batch_execute(&format!(
+                "COPY (SELECT 1) TO PROGRAM 'mkdir -p {dir} && chmod 700 {dir}';"
+            ))
+            .await?;
+        crate::planning::substitute_tablespace_dir(before_sql)
+    } else {
+        before_sql.to_string()
+    };
+    client.batch_execute(&before_sql).await?;
     Ok(())
 }
 

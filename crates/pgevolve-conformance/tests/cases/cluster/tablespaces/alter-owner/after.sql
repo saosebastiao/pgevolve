@@ -1,0 +1,2 @@
+CREATE ROLE app_owner;
+CREATE TABLESPACE ts_app OWNER app_owner LOCATION '${TABLESPACE_DIR}';

@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER TABLESPACE OWNER TO emits one step"
+authoring = "cluster"
+spec_refs = ["cluster.tablespace.alter-owner"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

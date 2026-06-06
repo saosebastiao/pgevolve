@@ -1,0 +1,11 @@
+[meta]
+title     = "ALTER TABLESPACE SET adds a reloption"
+authoring = "cluster"
+spec_refs = ["cluster.tablespace.set-options"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1

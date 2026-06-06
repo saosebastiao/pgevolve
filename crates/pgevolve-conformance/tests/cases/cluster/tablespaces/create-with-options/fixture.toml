@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE TABLESPACE with reloptions"
+authoring = "cluster"
+spec_refs = ["cluster.tablespace.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.plan]
+steps = 1
