@@ -26,15 +26,24 @@ Brainstorming decisions:
 - **Lenient.** A source that does not declare an access method
   (`access_method = None`) is unmanaged: the diff emits nothing, never
   changing a live table's AM the user didn't ask about.
-- **Change is version-gated.** `ALTER TABLE … SET ACCESS METHOD` is **PG 15+**
-  and performs a full-table rewrite. On PG 15+ an AM change emits that ALTER,
-  destructive and intent-gated. On PG 14 (no ALTER form) the diff emits no
-  change and a `table-access-method-change-unsupported` advisory lint.
+- **An AM change is advisory-only — pgevolve never auto-rewrites a table's
+  access method.** When an existing table's access method differs from source,
+  the diff emits no change and a `table-access-method-change` advisory lint.
+  Rationale: changing a table's AM is a heavy full-table rewrite, and the
+  planner is deliberately version-agnostic (it emits plans valid across the
+  whole PG 14–18 support window). The statement that performs the change,
+  `ALTER TABLE … SET ACCESS METHOD`, is PG 15+ with no PG-14-compatible form,
+  so there is no support-window-wide step to emit — and auto-rewriting a table
+  is exactly the kind of heavy operation pgevolve leaves to the operator
+  (cf. tablespace location-drift). The advisory points the user at the manual
+  `ALTER TABLE … SET ACCESS METHOD` (PG 15+).
 
-A consequence of `heap` being the only access method that ships with
-Postgres: a non-`heap` AM cannot be applied in CI (no extension provides
-one), so the ALTER/rewrite path is unit-tested only; end-to-end coverage is
-limited to proving `USING heap` is a no-op.
+`CREATE TABLE … USING <am>` *is* valid across all of PG 14–18, so a new table
+carries its access method inline. Because `heap` is the only access method
+that ships with Postgres, a non-`heap` AM cannot be applied in CI (no
+extension provides one); the parser/reader/canon/diff/lint paths are
+unit-tested, and end-to-end coverage is limited to proving `USING heap` is a
+no-op.
 
 ---
 
@@ -76,37 +85,31 @@ live IR, so the two normalize identically.
 
 `crates/pgevolve-core/src/diff/tables.rs`:
 - **New table** (not in target): `access_method` rides inline in the
-  `CreateTable` change → rendered as `USING <am>`.
+  `CreateTable` change → rendered as `USING <am>` (§6). No separate change.
 - **Existing table**, `source.access_method` is `Some(am)` and differs from
-  `target.access_method`:
-  - **PG 15+**: emit `AlterTableAccessMethod { qname, method }`, destructiveness
-    `RequiresApprovalAndDataLossWarning` (full-table rewrite), intent-gated.
-  - **PG 14**: emit no change; record a `table-access-method-change-unsupported`
-    advisory (§7).
+  `target.access_method`: emit **no change**. The `table-access-method-change`
+  lint (§7) surfaces it. (Add a code comment: pgevolve does not auto-rewrite a
+  table's access method.)
 - **Lenient**: `source.access_method == None` → no change, regardless of live.
 
-The PG-major gate uses the planner's existing target-version mechanism (the
-same one that gates column `STORAGE` inline-vs-ALTER and subscription
-`streaming`). The diff/plan layer that has the version decides which arm to
-take; mirror the existing version-gated site.
+No new `Change` variant, `StepKind`, or `ALTER TABLE` step is introduced — the
+only emitted SQL is the inline `USING` on `CreateTable`.
 
-## §6. Render + plan
+## §6. Render
 
-- `CREATE TABLE … (cols) USING <am>` — the create renderer appends
-  `USING <am>` when `access_method` is `Some` (after the column/constraint
-  list, before `WITH (...)`/`TABLESPACE`, per PG grammar).
-- `ALTER TABLE <qname> SET ACCESS METHOD <am>;` — new `StepKind`
-  `AlterTableAccessMethod`, destructive (rewrite). Standard in-transaction
-  step (PG allows `SET ACCESS METHOD` inside a transaction).
+`CREATE TABLE … (cols) USING <am>` — the create-table renderer appends
+`USING <am>` when `access_method` is `Some` (after the column/constraint list,
+in the position PG's grammar accepts: after `)` and before `WITH (...)` /
+`TABLESPACE`). No other rendering changes.
 
 ## §7. Lint
 
-`table-access-method-change-unsupported` (per-DB lint): when the live and
-source tables have differing access methods AND the target is PG 14, emit an
-advisory ("cannot change access method of `<table>` on PG 14 — `ALTER TABLE …
-SET ACCESS METHOD` requires PG 15+; rebuild the table manually if intended").
-Informational; never blocks. (On PG 15+ the change is handled by the ALTER, so
-no lint fires.)
+`table-access-method-change` (per-DB lint): when a table exists in both source
+and live with differing access methods, emit an advisory ("table `<name>`
+access method differs: live=`<a>`, source=`<b>` — pgevolve does not rewrite a
+table's access method; run `ALTER TABLE … SET ACCESS METHOD` manually (PG 15+)
+if intended"). Informational; never blocks. (Does not fire for a brand-new
+table — that's handled by the inline `USING` on create.)
 
 ## §8. Tests
 
@@ -115,14 +118,16 @@ no lint fires.)
   normalization; this is the only AM exercisable against real PG).
 - **Unit tests**: parser (`USING foo` → `Some("foo")`, no clause → `None`);
   reader (`relam`/`amname` decode); canon (`Some("heap")` → `None`, `Some("foo")`
-  preserved); diff (new table inline; AM change on PG 15+ → AlterTableAccessMethod
-  intent-gated; on PG 14 → no change + lint; source `None` → nothing); render
-  (`CREATE … USING foo`, `ALTER TABLE … SET ACCESS METHOD foo;`).
+  preserved); diff (new table renders inline `USING`; AM change on an existing
+  table → no change; source `None` → nothing); lint (`table-access-method-change`
+  fires on a differing-AM existing table, silent for new table / matching AM);
+  render (`CREATE … USING foo`).
 
 ## §9. Out of scope / non-goals
 
 - `CREATE ACCESS METHOD` (AM definitions — extension territory).
 - Real-PG apply of a non-`heap` AM (none ships with Postgres; unit-tested only).
-- Changing AM on PG 14 (advisory only — no Postgres mechanism short of a manual
-  rebuild).
+- **Auto-changing a table's access method** — advisory only (heavy rewrite;
+  `ALTER TABLE … SET ACCESS METHOD` is PG 15+ with no support-window-wide form,
+  and the planner is version-agnostic by design). The operator runs it manually.
 - Storing `heap` explicitly (normalized to `None`).
