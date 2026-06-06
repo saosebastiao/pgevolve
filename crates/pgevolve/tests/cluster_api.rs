@@ -8,7 +8,9 @@
 //! Stage 9 of the cluster-roles implementation plan.
 
 use pgevolve::api::build_cluster_plan;
-use pgevolve::cluster_config::{Bootstrap, ClusterConfig, ClusterConnection, ClusterProject};
+use pgevolve::cluster_config::{
+    Bootstrap, ClusterConfig, ClusterConnection, ClusterProject, TablespacesConfig,
+};
 use pgevolve_core::plan::raw_step::StepKind;
 use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, default_pg_version, docker_available};
 
@@ -46,6 +48,7 @@ async fn build_cluster_plan_empty_roles_dir() {
         bootstrap: Bootstrap {
             roles: vec!["postgres".into(), "pgevolve".into()],
         },
+        tablespaces: TablespacesConfig::default(),
     };
 
     let plan = build_cluster_plan(tmp.path(), &cfg)
@@ -101,6 +104,7 @@ async fn build_cluster_plan_surfaces_role_loses_superuser_finding() {
         bootstrap: Bootstrap {
             roles: vec!["postgres".into(), "pgevolve".into()],
         },
+        tablespaces: TablespacesConfig::default(),
     };
 
     let plan = build_cluster_plan(tmp.path(), &cfg)
@@ -146,6 +150,7 @@ async fn build_cluster_plan_creates_new_role() {
         bootstrap: Bootstrap {
             roles: vec!["postgres".into(), "pgevolve".into()],
         },
+        tablespaces: TablespacesConfig::default(),
     };
 
     let plan = build_cluster_plan(tmp.path(), &cfg)

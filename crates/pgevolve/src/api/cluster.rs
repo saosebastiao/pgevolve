@@ -13,7 +13,7 @@ use pgevolve_core::diff::cluster::{ClusterChangeSet, diff_cluster};
 use pgevolve_core::ir::cluster::catalog::ClusterCatalog;
 use pgevolve_core::lint::Finding;
 use pgevolve_core::lint::universal::check_cluster_changeset;
-use pgevolve_core::parse::cluster::parse_cluster_directory;
+use pgevolve_core::parse::cluster::parse_cluster_sources;
 use pgevolve_core::plan::cluster_rewrite::emit_cluster_changes;
 use pgevolve_core::plan::raw_step::RawStep;
 
@@ -116,7 +116,11 @@ pub async fn build_cluster_plan(
 ) -> Result<ClusterPlan, ClusterPlanError> {
     // --- Step 1: parse source ---
     let roles_dir = project_root.join("roles");
-    let source = parse_cluster_directory(&roles_dir)?;
+    let tablespaces_dir = cfg.tablespaces.dir.clone().map_or_else(
+        || project_root.join("tablespaces"),
+        |d| project_root.join(d),
+    );
+    let source = parse_cluster_sources(&roles_dir, &tablespaces_dir)?;
 
     // --- Step 2: connect + read live catalog ---
     let (client, connection) = tokio_postgres::connect(&cfg.connection.dsn, tokio_postgres::NoTls)

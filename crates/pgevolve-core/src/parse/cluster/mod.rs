@@ -24,19 +24,50 @@ fn object_type_is(raw: i32, want: ObjectType) -> bool {
 /// canonicalized [`ClusterCatalog`].
 pub fn parse_cluster_directory(roles_dir: &Path) -> Result<ClusterCatalog, ParseError> {
     let mut cat = ClusterCatalog::empty();
-    let entries = collect_sql_files(roles_dir)?;
-    for path in entries {
-        let sql = std::fs::read_to_string(&path).map_err(|e| ParseError::Io {
-            path: path.clone(),
-            source: e,
-        })?;
-        apply_file(&sql, &path, &mut cat)?;
-    }
+    apply_dir_into(roles_dir, &mut cat)?;
     cat.canonicalize().map_err(|e| ParseError::Structural {
         location: SourceLocation::new(roles_dir.to_path_buf(), 0, 0),
         message: e.to_string(),
     })?;
     Ok(cat)
+}
+
+/// Parse cluster source from both the roles and tablespaces directories into one [`ClusterCatalog`].
+///
+/// A directory that does not exist is skipped. Roles are parsed first, then
+/// tablespaces; the result is canonicalized once.
+pub fn parse_cluster_sources(
+    roles_dir: &Path,
+    tablespaces_dir: &Path,
+) -> Result<ClusterCatalog, ParseError> {
+    let mut cat = ClusterCatalog::empty();
+    apply_dir_into(roles_dir, &mut cat)?;
+    apply_dir_into(tablespaces_dir, &mut cat)?;
+    // Use the roles_dir as the location anchor for structural errors (it's the
+    // primary source directory).
+    cat.canonicalize().map_err(|e| ParseError::Structural {
+        location: SourceLocation::new(roles_dir.to_path_buf(), 0, 0),
+        message: e.to_string(),
+    })?;
+    Ok(cat)
+}
+
+/// Append every `*.sql` file from `dir` into `cat`, alphabetical order.
+/// If the directory does not exist, returns `Ok(())` immediately.
+/// Does **not** canonicalize — callers are responsible for that.
+fn apply_dir_into(dir: &Path, cat: &mut ClusterCatalog) -> Result<(), ParseError> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    let entries = collect_sql_files(dir)?;
+    for path in entries {
+        let sql = std::fs::read_to_string(&path).map_err(|e| ParseError::Io {
+            path: path.clone(),
+            source: e,
+        })?;
+        apply_file(&sql, &path, cat)?;
+    }
+    Ok(())
 }
 
 fn collect_sql_files(dir: &Path) -> Result<Vec<std::path::PathBuf>, ParseError> {
@@ -170,5 +201,85 @@ fn comment_target_string(
             location: loc.clone(),
             message: format!("unexpected COMMENT ON TABLESPACE target {other:?}"),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `parse_cluster_sources` combines roles and tablespaces from separate dirs
+    /// into a single catalog.
+    #[test]
+    fn parse_cluster_sources_combines_roles_and_tablespaces() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let roles_dir = tmp.path().join("roles");
+        let tablespaces_dir = tmp.path().join("tablespaces");
+        std::fs::create_dir_all(&roles_dir).unwrap();
+        std::fs::create_dir_all(&tablespaces_dir).unwrap();
+
+        std::fs::write(roles_dir.join("r.sql"), "CREATE ROLE cluster_test_role;\n").unwrap();
+        std::fs::write(
+            tablespaces_dir.join("t.sql"),
+            "CREATE TABLESPACE cluster_test_ts LOCATION '/tmp/cluster_test_ts';\n",
+        )
+        .unwrap();
+
+        let cat =
+            parse_cluster_sources(&roles_dir, &tablespaces_dir).expect("parse_cluster_sources ok");
+
+        assert!(
+            cat.roles
+                .iter()
+                .any(|r| r.name.as_str() == "cluster_test_role"),
+            "expected role cluster_test_role in catalog; got roles: {:?}",
+            cat.roles
+                .iter()
+                .map(|r| r.name.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            cat.tablespaces
+                .iter()
+                .any(|t| t.name.as_str() == "cluster_test_ts"),
+            "expected tablespace cluster_test_ts in catalog; got tablespaces: {:?}",
+            cat.tablespaces
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// A missing tablespaces directory is silently skipped; only the role appears.
+    #[test]
+    fn parse_cluster_sources_skips_missing_tablespaces_dir() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let roles_dir = tmp.path().join("roles");
+        let tablespaces_dir = tmp.path().join("tablespaces"); // not created
+        std::fs::create_dir_all(&roles_dir).unwrap();
+
+        std::fs::write(roles_dir.join("r.sql"), "CREATE ROLE cluster_only_role;\n").unwrap();
+
+        let cat =
+            parse_cluster_sources(&roles_dir, &tablespaces_dir).expect("parse_cluster_sources ok");
+
+        assert!(
+            cat.roles
+                .iter()
+                .any(|r| r.name.as_str() == "cluster_only_role"),
+            "expected role cluster_only_role in catalog; got roles: {:?}",
+            cat.roles
+                .iter()
+                .map(|r| r.name.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            cat.tablespaces.is_empty(),
+            "expected no tablespaces when dir is missing, got: {:?}",
+            cat.tablespaces
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>()
+        );
     }
 }

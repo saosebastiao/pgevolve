@@ -17,6 +17,9 @@ pub struct ClusterConfig {
     /// `[bootstrap]` section. Optional; defaults to `["postgres"]`.
     #[serde(default)]
     pub bootstrap: Bootstrap,
+    /// `[tablespaces]` section. Optional; defaults to `<project>/tablespaces`.
+    #[serde(default)]
+    pub tablespaces: TablespacesConfig,
 }
 
 /// `[project]` section of `pgevolve-cluster.toml`.
@@ -32,6 +35,14 @@ pub struct ClusterConnection {
     /// Postgres DSN. Must connect with sufficient privileges to read
     /// `pg_authid` (typically superuser).
     pub dsn: String,
+}
+
+/// `[tablespaces]` section of `pgevolve-cluster.toml`.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub struct TablespacesConfig {
+    /// Directory of tablespace `.sql` files; default `<project>/tablespaces`.
+    pub dir: Option<std::path::PathBuf>,
 }
 
 /// `[bootstrap]` section of `pgevolve-cluster.toml`.

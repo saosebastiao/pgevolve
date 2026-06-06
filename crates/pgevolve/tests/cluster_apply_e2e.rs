@@ -10,7 +10,9 @@
 #![cfg(test)]
 
 use pgevolve::api::cluster::build_cluster_plan;
-use pgevolve::cluster_config::{Bootstrap, ClusterConfig, ClusterConnection, ClusterProject};
+use pgevolve::cluster_config::{
+    Bootstrap, ClusterConfig, ClusterConnection, ClusterProject, TablespacesConfig,
+};
 use pgevolve::executor::{ApplyOverrides, apply_cluster_plan};
 use pgevolve::target_identity::compute_cluster_target_identity;
 use pgevolve_core::plan::{PlanId, read_plan_dir, write_plan_dir};
@@ -35,6 +37,7 @@ fn cluster_cfg_for(pg: &EphemeralPostgres) -> ClusterConfig {
             // it alongside "postgres" so it never appears in the diff.
             roles: vec!["postgres".into(), "pgevolve".into()],
         },
+        tablespaces: TablespacesConfig::default(),
     }
 }
 
