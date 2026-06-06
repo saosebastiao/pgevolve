@@ -12,7 +12,7 @@ use crate::catalog::{CatalogQuerier, CatalogQuery};
 use crate::identifier::Identifier;
 use crate::ir::cluster::catalog::ClusterCatalog;
 use crate::ir::cluster::role::{Role, RoleAttributes};
-use crate::ir::cluster::tablespace::Tablespace;
+use crate::ir::cluster::tablespace::{Tablespace, normalize_location};
 use std::collections::BTreeMap;
 
 /// Read the full cluster catalog from a live Postgres instance.
@@ -83,7 +83,7 @@ fn decode_tablespace(row: &Row) -> Result<Tablespace, CatalogError> {
         _ => None,
     };
 
-    let location = row.get_text(q, "location")?;
+    let location = normalize_location(&row.get_text(q, "location")?);
 
     let mut options = BTreeMap::new();
     if !row.is_null("options") {

@@ -203,6 +203,31 @@ async fn cluster_apply_tablespace_clean_path_succeeds() {
         .await
         .expect("query pg_tablespace");
     assert!(row.is_some(), "ts_e2e should exist in pg_tablespace");
+
+    // --- Idempotency check: second plan must be empty ---
+    // Build the plan again against the now-live DB.  The source still contains
+    // the same `CREATE TABLESPACE ts_e2e LOCATION '/tmp/pgev_e2e_ts'` — the
+    // tablespace now exists in the catalog, so the diff should produce zero
+    // steps and zero `tablespace-location-drift` advisory findings.
+    let idempotency_plan = build_cluster_plan(tmp.path(), &cfg)
+        .await
+        .expect("second build_cluster_plan for idempotency check");
+
+    assert!(
+        idempotency_plan.steps.is_empty(),
+        "idempotency check failed: second plan is non-empty (steps: {:?})",
+        idempotency_plan.steps
+    );
+
+    let drift_findings: Vec<_> = idempotency_plan
+        .advisory_findings
+        .iter()
+        .filter(|f| f.rule == "tablespace-location-drift")
+        .collect();
+    assert!(
+        drift_findings.is_empty(),
+        "idempotency check failed: second plan has tablespace-location-drift findings: {drift_findings:?}"
+    );
 }
 
 /// Intent-blocked apply: a DROP ROLE plan with unapproved intent must be

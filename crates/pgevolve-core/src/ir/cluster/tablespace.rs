@@ -8,6 +8,34 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::Identifier;
 use crate::ir::eq::DiffMacro;
 
+/// Normalize a tablespace `LOCATION` path so that source and live catalog
+/// always agree even when a trailing slash is present in the source SQL.
+///
+/// `pg_tablespace_location()` never returns a trailing slash, so a source
+/// `LOCATION '/data/ts/'` would forever mismatch the live `/data/ts`.
+///
+/// Rules:
+/// - Trailing `/` characters are stripped.
+/// - The root path `"/"` (and any string that reduces to empty after stripping)
+///   is preserved as `"/"`.
+/// - An empty string is returned as-is (the parser rejects empty locations
+///   before normalizing, but we handle it for symmetry).
+#[must_use]
+pub(crate) fn normalize_location(s: &str) -> String {
+    let trimmed = s.trim_end_matches('/');
+    if trimmed.is_empty() {
+        // Either the string was empty or it was all slashes (e.g. "/" or "///").
+        // Preserve a single "/" for root; empty stays empty.
+        if s.is_empty() {
+            String::new()
+        } else {
+            "/".to_string()
+        }
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// A `CREATE TABLESPACE` object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
 pub struct Tablespace {
@@ -33,6 +61,35 @@ pub struct Tablespace {
 mod tests {
     use super::*;
     use crate::ir::eq::Diff;
+
+    // --- normalize_location ---
+
+    #[test]
+    fn normalize_location_strips_single_trailing_slash() {
+        assert_eq!(normalize_location("/data/ts/"), "/data/ts");
+    }
+
+    #[test]
+    fn normalize_location_strips_multiple_trailing_slashes() {
+        assert_eq!(normalize_location("/data/ts///"), "/data/ts");
+    }
+
+    #[test]
+    fn normalize_location_no_trailing_slash_unchanged() {
+        assert_eq!(normalize_location("/data/ts"), "/data/ts");
+    }
+
+    #[test]
+    fn normalize_location_root_preserved() {
+        assert_eq!(normalize_location("/"), "/");
+    }
+
+    #[test]
+    fn normalize_location_empty_preserved() {
+        assert_eq!(normalize_location(""), "");
+    }
+
+    // --- Tablespace diff ---
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()

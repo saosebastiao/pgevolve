@@ -38,7 +38,9 @@ pub struct ClusterPlan {
     pub target: ClusterCatalog,
     /// Full changeset produced by the differ.
     pub changes: ClusterChangeSet,
-    /// Advisory lint findings. Non-blocking but must be shown to the user.
+    /// Advisory lint findings (role-loses-superuser, role-membership-cycle,
+    /// tablespace-location-drift, …). Non-blocking but must be shown to the
+    /// user.
     ///
     /// CRITICAL: this field is always populated by
     /// [`check_cluster_changeset`] — do not skip the lint call.
@@ -146,10 +148,11 @@ pub async fn build_cluster_plan(
     let changes = diff_cluster(&target, &source);
 
     // --- Step 4: lint (CRITICAL — must not be skipped) ---
-    // check_cluster_changeset fires role-loses-superuser and
-    // role-membership-cycle rules. The findings are advisory (non-blocking),
-    // but the user must see them. They flow to ClusterPlan::advisory_findings
-    // here and the CLI prints them to stderr in Stage 10.
+    // check_cluster_changeset fires role-loses-superuser,
+    // role-membership-cycle, and tablespace-location-drift rules. The findings
+    // are advisory (non-blocking), but the user must see them. They flow to
+    // ClusterPlan::advisory_findings here and the CLI prints them to stderr in
+    // Stage 10.
     let advisory_findings = check_cluster_changeset(&source, &target, &changes);
 
     // --- Step 5: emit steps ---

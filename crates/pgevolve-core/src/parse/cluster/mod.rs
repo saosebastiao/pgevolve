@@ -1,5 +1,9 @@
-//! Cluster-level source parser. Reads `roles/*.sql` (alphabetical) into a
-//! [`ClusterCatalog`]. Mirrors the shape of the per-DB `parse::parse_directory`.
+//! Cluster-level source parser — per-file SQL router for cluster objects.
+//!
+//! [`parse_cluster_sources`] reads both `roles/*.sql` and `tablespaces/*.sql`
+//! (alphabetical) into a single [`ClusterCatalog`];
+//! [`parse_cluster_directory`] reads a single directory.
+//! Mirrors the shape of the per-DB `parse::parse_directory`.
 
 mod alter_role;
 mod create_role;
@@ -20,8 +24,12 @@ fn object_type_is(raw: i32, want: ObjectType) -> bool {
     ObjectType::try_from(raw).unwrap_or(ObjectType::Undefined) == want
 }
 
-/// Parse every `*.sql` file under `roles_dir`, alphabetical order. Returns a
+/// Parse every `*.sql` file under `dir`, alphabetical order. Returns a
 /// canonicalized [`ClusterCatalog`].
+///
+/// For reading both roles and tablespaces together, use
+/// [`parse_cluster_sources`] instead — it combines both directories into a
+/// single catalog.
 pub fn parse_cluster_directory(roles_dir: &Path) -> Result<ClusterCatalog, ParseError> {
     let mut cat = ClusterCatalog::empty();
     apply_dir_into(roles_dir, &mut cat)?;

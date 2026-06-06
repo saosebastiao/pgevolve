@@ -12,7 +12,7 @@ use pg_query::protobuf::{
 
 use crate::identifier::Identifier;
 use crate::ir::cluster::catalog::ClusterCatalog;
-use crate::ir::cluster::tablespace::Tablespace;
+use crate::ir::cluster::tablespace::{Tablespace, normalize_location};
 use crate::parse::error::{ParseError, SourceLocation};
 
 /// `CREATE TABLESPACE name [OWNER role] LOCATION '/path' [WITH (opt = val …)]`.
@@ -36,10 +36,11 @@ pub(super) fn apply_create(
     }
     let owner = role_spec_to_owner(s.owner.as_ref(), loc)?;
     let options = def_elems_to_map(&s.options, loc)?;
+    let location = normalize_location(&s.location);
 
     cat.tablespaces.push(Tablespace {
         name,
-        location: s.location.clone(),
+        location,
         owner,
         options,
         comment: None,
