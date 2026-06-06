@@ -347,7 +347,8 @@
         "user_catalog_table": null,
         "vacuum_truncate": null,
         "extra": {}
-      }
+      },
+      "access_method": null
     }
   ],
   "indexes": [],

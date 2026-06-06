@@ -106,7 +106,8 @@
         "user_catalog_table": null,
         "vacuum_truncate": null,
         "extra": {}
-      }
+      },
+      "access_method": null
     },
     {
       "qname": {
@@ -205,7 +206,8 @@
         "user_catalog_table": null,
         "vacuum_truncate": null,
         "extra": {}
-      }
+      },
+      "access_method": null
     },
     {
       "qname": {
@@ -299,7 +301,8 @@
         "user_catalog_table": null,
         "vacuum_truncate": null,
         "extra": {}
-      }
+      },
+      "access_method": null
     }
   ],
   "indexes": [],

@@ -1,0 +1,16 @@
+[meta]
+title     = "CREATE TABLE USING heap is a no-op"
+authoring = "objects"
+spec_refs = ["objects.table.access_method"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+steps = 0
+# No golden needed — empty plan (canon normalizes USING heap -> None on both sides)
+golden = false
