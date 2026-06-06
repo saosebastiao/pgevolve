@@ -19,6 +19,7 @@ use crate::ir::column::StorageKind;
 use crate::ir::column_type::ColumnType;
 use crate::ir::function::Function;
 use crate::ir::sequence::Sequence;
+use crate::ir::table::Table;
 use crate::ir::user_type::{UserType, UserTypeKind};
 
 /// Run every default-elision rule.
@@ -27,6 +28,7 @@ pub fn run(cat: &mut Catalog) {
         normalize_sequence_defaults(seq);
     }
     for table in &mut cat.tables {
+        normalize_table_access_method(table);
         for col in &mut table.columns {
             normalize_column_collation(col);
             normalize_column_storage(col);
@@ -159,6 +161,18 @@ fn normalize_column_storage(col: &mut crate::ir::column::Column) {
         && s == type_default_storage(&col.ty)
     {
         col.storage = None;
+    }
+}
+
+/// `heap` is PG's default table access method; strip it so a `USING heap`
+/// source matches a live default-heap table — no spurious diff.
+fn normalize_table_access_method(table: &mut Table) {
+    if table
+        .access_method
+        .as_ref()
+        .is_some_and(|am| am.as_str() == "heap")
+    {
+        table.access_method = None;
     }
 }
 
@@ -745,6 +759,44 @@ mod tests {
         run(&mut cat);
         let after = format!("{:?}", cat.types[0]);
         assert_eq!(before, after, "non-range types must not be mutated");
+    }
+
+    // ── normalize_table_access_method tests ─────────────────────────────────
+
+    fn bare_table(name: &str, access_method: Option<Identifier>) -> Table {
+        Table {
+            qname: qn("app", name),
+            columns: vec![],
+            constraints: vec![],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: None,
+            grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method,
+        }
+    }
+
+    #[test]
+    fn strips_heap_access_method() {
+        let mut cat = Catalog::empty();
+        cat.tables.push(bare_table("t_heap", Some(id("heap"))));
+        cat.tables
+            .push(bare_table("t_columnar", Some(id("columnar"))));
+        run(&mut cat);
+        assert_eq!(
+            cat.tables[0].access_method, None,
+            "`heap` is PG's default — should be stripped to None"
+        );
+        assert_eq!(
+            cat.tables[1].access_method,
+            Some(id("columnar")),
+            "non-default access method must be preserved"
+        );
     }
 
     /// Run is idempotent: applying canon twice yields the same result.
