@@ -698,9 +698,9 @@ proptest! {
         let changes = diff_cluster(&a, &b);
         let mut applied = a.clone();
         apply_cluster_changes_in_memory(&mut applied, &changes);
-        applied.canonicalize();
+        applied.canonicalize().unwrap();
         let mut expected = b.clone();
-        expected.canonicalize();
+        expected.canonicalize().unwrap();
         prop_assert_eq!(
             applied,
             expected,

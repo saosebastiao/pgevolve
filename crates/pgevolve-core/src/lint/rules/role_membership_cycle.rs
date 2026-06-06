@@ -129,6 +129,7 @@ mod tests {
         // a -> b already exists in source. Pending: b -> a. Cycle.
         let src = ClusterCatalog {
             roles: vec![role("a", vec!["b"]), role("b", vec![])],
+            tablespaces: vec![],
         };
         let cs = ClusterChangeSet {
             entries: vec![grant("b", "a")],
@@ -143,6 +144,7 @@ mod tests {
     fn self_cycle_fires() {
         let src = ClusterCatalog {
             roles: vec![role("a", vec![])],
+            tablespaces: vec![],
         };
         let cs = ClusterChangeSet {
             entries: vec![grant("a", "a")],
@@ -155,6 +157,7 @@ mod tests {
     fn dag_silent() {
         let src = ClusterCatalog {
             roles: vec![role("a", vec![]), role("b", vec![])],
+            tablespaces: vec![],
         };
         let cs = ClusterChangeSet {
             entries: vec![grant("a", "b")],
@@ -168,6 +171,7 @@ mod tests {
         // means no cycle is reachable; no pending grants, so no findings.
         let src = ClusterCatalog {
             roles: vec![role("a", vec!["b"]), role("b", vec!["a"])],
+            tablespaces: vec![],
         };
         let cs = ClusterChangeSet {
             entries: vec![ClusterChangeEntry {

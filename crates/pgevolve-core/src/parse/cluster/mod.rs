@@ -23,7 +23,10 @@ pub fn parse_cluster_directory(roles_dir: &Path) -> Result<ClusterCatalog, Parse
         })?;
         apply_file(&sql, &path, &mut cat)?;
     }
-    cat.canonicalize();
+    cat.canonicalize().map_err(|e| ParseError::Structural {
+        location: SourceLocation::new(roles_dir.to_path_buf(), 0, 0),
+        message: e.to_string(),
+    })?;
     Ok(cat)
 }
 

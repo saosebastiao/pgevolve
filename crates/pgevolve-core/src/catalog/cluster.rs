@@ -42,8 +42,11 @@ pub fn read_cluster_catalog(
         append_membership_edge(&mut roles, row)?;
     }
 
-    let mut cat = ClusterCatalog { roles };
-    cat.canonicalize();
+    let mut cat = ClusterCatalog {
+        roles,
+        tablespaces: vec![],
+    };
+    cat.canonicalize()?;
     Ok(cat)
 }
 

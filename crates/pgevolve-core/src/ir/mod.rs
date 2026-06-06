@@ -95,6 +95,10 @@ pub enum IrError {
     #[error("duplicate event trigger: {0}")]
     DuplicateEventTrigger(crate::identifier::Identifier),
 
+    /// Two tablespaces share a name.
+    #[error("duplicate tablespace: {0}")]
+    DuplicateTablespace(crate::identifier::Identifier),
+
     /// A `Collation` failed canon validation (e.g. nondeterministic libc).
     #[error("collation {qname}: invalid — {reason}")]
     InvalidCollation {

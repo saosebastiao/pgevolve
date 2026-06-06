@@ -189,6 +189,7 @@ mod tests {
     fn equal_catalogs_yield_no_changes() {
         let c = ClusterCatalog {
             roles: vec![role("a")],
+            tablespaces: vec![],
         };
         let cs = diff_cluster(&c, &c);
         assert!(cs.is_empty());
@@ -199,6 +200,7 @@ mod tests {
         let target = ClusterCatalog::empty();
         let source = ClusterCatalog {
             roles: vec![role("a")],
+            tablespaces: vec![],
         };
         let cs = diff_cluster(&target, &source);
         assert_eq!(cs.entries.len(), 1);
@@ -210,6 +212,7 @@ mod tests {
     fn removed_role_drops_with_intent_gate() {
         let target = ClusterCatalog {
             roles: vec![role("a")],
+            tablespaces: vec![],
         };
         let source = ClusterCatalog::empty();
         let cs = diff_cluster(&target, &source);
@@ -228,8 +231,14 @@ mod tests {
         let mut s = role("a");
         s.attributes.login = true;
         let cs = diff_cluster(
-            &ClusterCatalog { roles: vec![t] },
-            &ClusterCatalog { roles: vec![s] },
+            &ClusterCatalog {
+                roles: vec![t],
+                tablespaces: vec![],
+            },
+            &ClusterCatalog {
+                roles: vec![s],
+                tablespaces: vec![],
+            },
         );
         assert_eq!(cs.entries.len(), 1);
         assert!(matches!(
@@ -244,8 +253,14 @@ mod tests {
         let mut s = role("a");
         s.member_of.push(id("readers"));
         let cs = diff_cluster(
-            &ClusterCatalog { roles: vec![t] },
-            &ClusterCatalog { roles: vec![s] },
+            &ClusterCatalog {
+                roles: vec![t],
+                tablespaces: vec![],
+            },
+            &ClusterCatalog {
+                roles: vec![s],
+                tablespaces: vec![],
+            },
         );
         assert_eq!(cs.entries.len(), 1);
         match &cs.entries[0].change {
@@ -263,8 +278,14 @@ mod tests {
         let s = role("a");
         t.member_of.push(id("readers"));
         let cs = diff_cluster(
-            &ClusterCatalog { roles: vec![t] },
-            &ClusterCatalog { roles: vec![s] },
+            &ClusterCatalog {
+                roles: vec![t],
+                tablespaces: vec![],
+            },
+            &ClusterCatalog {
+                roles: vec![s],
+                tablespaces: vec![],
+            },
         );
         assert_eq!(cs.entries.len(), 1);
         assert!(matches!(
@@ -279,8 +300,14 @@ mod tests {
         let mut s = role("a");
         s.comment = Some("hello".into());
         let cs = diff_cluster(
-            &ClusterCatalog { roles: vec![t] },
-            &ClusterCatalog { roles: vec![s] },
+            &ClusterCatalog {
+                roles: vec![t],
+                tablespaces: vec![],
+            },
+            &ClusterCatalog {
+                roles: vec![s],
+                tablespaces: vec![],
+            },
         );
         assert_eq!(cs.entries.len(), 1);
         assert!(matches!(

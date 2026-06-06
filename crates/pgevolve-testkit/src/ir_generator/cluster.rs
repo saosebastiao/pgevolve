@@ -139,8 +139,12 @@ pub fn arbitrary_cluster_catalog() -> impl Strategy<Value = ClusterCatalog> {
                 })
                 .collect();
             strategies.prop_map(|roles| {
-                let mut cat = ClusterCatalog { roles };
-                cat.canonicalize();
+                let mut cat = ClusterCatalog {
+                    roles,
+                    tablespaces: vec![],
+                };
+                cat.canonicalize()
+                    .expect("generated catalog should canonicalize");
                 cat
             })
         })
