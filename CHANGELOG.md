@@ -5,7 +5,7 @@ All notable changes to pgevolve are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] — 2026-06-06
 
 ### Added
 
@@ -714,6 +714,6 @@ columns/constraints/comments), indexes, and sequences** against Postgres
   bearing objects so the cross-check has nothing to do beyond a
   trivial structural-edge count; v0.2 sub-specs deepen it.
 
-[Unreleased]: https://github.com/saosebastiao/pgevolve/compare/v0.2.0...HEAD
+[0.4.0]: https://github.com/saosebastiao/pgevolve/compare/v0.3.9...v0.4.0
 [0.2.0]: https://github.com/saosebastiao/pgevolve/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/saosebastiao/pgevolve/releases/tag/v0.1.0
