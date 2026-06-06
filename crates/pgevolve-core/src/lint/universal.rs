@@ -95,6 +95,10 @@
 //!   source IR + pending grants/revokes and checks that no pending grant creates
 //!   a cycle. Postgres rejects cycles at apply time; pre-plan detection gives a
 //!   better error.
+//! - **`tablespace-location-drift`** — fires (Warning) when a tablespace exists
+//!   in both source and live with a different `LOCATION`. Postgres cannot
+//!   relocate tablespaces; pgevolve never auto-changes it, so the finding is
+//!   advisory — the operator must recreate the tablespace manually.
 //!
 //! Cluster-aware source-tree rules (run via [`check_universal_with_cluster`]):
 //!
@@ -263,16 +267,28 @@ pub fn check_universal_with_cluster(
     out
 }
 
-/// Run all cluster changeset-level lint rules. Mirrors [`check_changeset`]
-/// for per-DB lints. Takes both `source` (for membership graph context) and
-/// `cs` (the pending cluster changeset).
+/// Run all cluster changeset-level lint rules.
+///
+/// Mirrors [`check_changeset`] for per-DB lints. Takes both `source` (desired
+/// state) and `target` (live state) cluster catalogs for catalog-comparison
+/// rules, plus `cs` (the pending cluster changeset) for changeset rules.
+///
+/// Rules run here:
+/// - **`role-loses-superuser`** — fires when `AlterRoleAttributes` flips
+///   `SUPERUSER` from `true` to `false`.
+/// - **`role-membership-cycle`** — detects post-apply membership graph cycles.
+/// - **`tablespace-location-drift`** — fires when a tablespace exists in both
+///   source and target with a different `LOCATION` (Postgres cannot relocate
+///   tablespaces; the user must recreate manually).
 pub fn check_cluster_changeset(
     source: &crate::ir::cluster::catalog::ClusterCatalog,
+    target: &crate::ir::cluster::catalog::ClusterCatalog,
     cs: &crate::diff::cluster::ClusterChangeSet,
 ) -> Vec<Finding> {
     let mut out = Vec::new();
     out.extend(rules::role_loses_superuser::check(cs));
     out.extend(rules::role_membership_cycle::check(source, cs));
+    out.extend(rules::tablespace_location_drift::check(source, target));
     out
 }
 

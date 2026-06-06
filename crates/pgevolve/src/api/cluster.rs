@@ -146,7 +146,7 @@ pub async fn build_cluster_plan(
     // role-membership-cycle rules. The findings are advisory (non-blocking),
     // but the user must see them. They flow to ClusterPlan::advisory_findings
     // here and the CLI prints them to stderr in Stage 10.
-    let advisory_findings = check_cluster_changeset(&source, &changes);
+    let advisory_findings = check_cluster_changeset(&source, &target, &changes);
 
     // --- Step 5: emit steps ---
     let steps = emit_cluster_changes(&changes);

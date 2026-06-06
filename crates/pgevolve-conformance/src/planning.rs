@@ -131,7 +131,7 @@ pub fn render_cluster_plan(
     let source = parse_one_cluster_source(after_sql)?;
     let changes = pgevolve_core::diff::cluster::diff_cluster(&target, &source);
     let advisory_findings =
-        pgevolve_core::lint::universal::check_cluster_changeset(&source, &changes);
+        pgevolve_core::lint::universal::check_cluster_changeset(&source, &target, &changes);
     let steps = pgevolve_core::plan::cluster_rewrite::emit_cluster_changes(&changes);
     Ok(ClusterPipelineOutput {
         source,
