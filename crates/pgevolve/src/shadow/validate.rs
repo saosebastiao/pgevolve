@@ -324,7 +324,8 @@ fn node_id_to_key(node: &NodeId) -> String {
         | NodeId::Procedure(q)
         | NodeId::Statistic(q)
         | NodeId::Collation(q)
-        | NodeId::Function(q, _) => q.to_string(),
+        | NodeId::Function(q, _)
+        | NodeId::Aggregate(q, _) => q.to_string(),
         NodeId::Schema(id)
         | NodeId::Extension(id)
         | NodeId::Publication(id)

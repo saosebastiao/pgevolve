@@ -71,7 +71,7 @@ fn format_node_chain(nodes: &[crate::plan::edges::NodeId]) -> String {
 
 fn render_node(n: &crate::plan::edges::NodeId) -> String {
     use crate::plan::edges::NodeId::{
-        Collation, Constraint, EventTrigger, Extension, Function, Index, Mv, Procedure,
+        Aggregate, Collation, Constraint, EventTrigger, Extension, Function, Index, Mv, Procedure,
         Publication, Schema, Sequence, Statistic, Subscription, Table, Trigger, Type, View,
     };
     match n {
@@ -82,7 +82,7 @@ fn render_node(n: &crate::plan::edges::NodeId) -> String {
         | Statistic(q) | Collation(q) => q.to_string(),
         Trigger(qname) => format!("trigger {qname}"),
         Constraint { table, name } => format!("{}.{}", table, name.as_str()),
-        Function(q, args) => format!(
+        Function(q, args) | Aggregate(q, args) => format!(
             "{}({})",
             q,
             args.types

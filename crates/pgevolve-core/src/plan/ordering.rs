@@ -438,9 +438,14 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                     modifies.push(entry);
                 }
             },
-            // TODO(aggregate Task 4): bucket aggregate changes by lifecycle phase.
-            // Create -> creates, Drop/Replace -> drops, AlterOwner/CommentOn -> modifies.
-            Change::Aggregate(_agg) => modifies.push(entry),
+            // Aggregate changes: bucket by lifecycle phase.
+            Change::Aggregate(agg) => match agg {
+                crate::diff::change::AggregateChange::Create(_) => creates.push(entry),
+                crate::diff::change::AggregateChange::Drop { .. }
+                | crate::diff::change::AggregateChange::Replace { .. } => drops.push(entry),
+                crate::diff::change::AggregateChange::AlterOwner { .. }
+                | crate::diff::change::AggregateChange::CommentOn { .. } => modifies.push(entry),
+            },
             // UnsupportedDiff: abort the plan immediately.
             Change::UnsupportedDiff { reason } => {
                 return Err(PlanError::Internal(reason.clone()));
@@ -713,20 +718,31 @@ fn change_node(change: &Change) -> NodeId {
             | EventTriggerChange::AlterOwner { name, .. }
             | EventTriggerChange::CommentOn { name, .. },
         ) => NodeId::EventTrigger(name.clone()),
-        // TODO(aggregate Task 4): map aggregate changes to a NodeId::Aggregate once
-        // the Aggregate node variant is added to the dependency graph.
-        // For now, use the owning schema as the ordering anchor.
-        Change::Aggregate(crate::diff::change::AggregateChange::Create(agg)) => {
-            NodeId::Schema(agg.qname.schema.clone())
-        }
+        // Aggregate node mapping — identity is (qname, normalized arg types),
+        // mirroring NodeId::Function. The graph edges (aggregate → sfunc /
+        // finalfunc managed functions) are added in `edges.rs`.
+        Change::Aggregate(crate::diff::change::AggregateChange::Create(agg)) => NodeId::Aggregate(
+            agg.qname.clone(),
+            crate::plan::edges::aggregate_arg_types(&agg.arg_types),
+        ),
         Change::Aggregate(crate::diff::change::AggregateChange::Replace { to, .. }) => {
-            NodeId::Schema(to.qname.schema.clone())
+            NodeId::Aggregate(
+                to.qname.clone(),
+                crate::plan::edges::aggregate_arg_types(&to.arg_types),
+            )
         }
         Change::Aggregate(
-            crate::diff::change::AggregateChange::Drop { qname, .. }
-            | crate::diff::change::AggregateChange::AlterOwner { qname, .. }
-            | crate::diff::change::AggregateChange::CommentOn { qname, .. },
-        ) => NodeId::Schema(qname.schema.clone()),
+            crate::diff::change::AggregateChange::Drop { qname, arg_types }
+            | crate::diff::change::AggregateChange::AlterOwner {
+                qname, arg_types, ..
+            }
+            | crate::diff::change::AggregateChange::CommentOn {
+                qname, arg_types, ..
+            },
+        ) => NodeId::Aggregate(
+            qname.clone(),
+            crate::plan::edges::aggregate_arg_types(arg_types),
+        ),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")
@@ -850,6 +866,15 @@ fn render_node(n: &NodeId) -> String {
         NodeId::Collation(q) => format!("collation:{q}"),
         NodeId::Function(q, args) => format!(
             "function:{}({})",
+            q,
+            args.types
+                .iter()
+                .map(crate::ir::column_type::ColumnType::render_sql)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        NodeId::Aggregate(q, args) => format!(
+            "aggregate:{}({})",
             q,
             args.types
                 .iter()

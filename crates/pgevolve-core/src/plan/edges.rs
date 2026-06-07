@@ -79,6 +79,88 @@ pub enum NodeId {
     /// domain / range / composite-attribute → collation) are added in a
     /// follow-up stage.
     Collation(QualifiedName),
+    /// A user-defined aggregate — disambiguated by argument types (aggregates
+    /// are overloadable, like functions). The aggregate depends on its state
+    /// function (`SFUNC`) and optional final function (`FINALFUNC`), both of
+    /// which are managed [`NodeId::Function`] nodes.
+    Aggregate(QualifiedName, NormalizedArgTypes),
+}
+
+/// Find the managed function that backs an aggregate's `sfunc`/`finalfunc`.
+///
+/// An aggregate's `sfunc` has the implied signature `(state_type, arg_types…)`
+/// and its `finalfunc` has `(state_type)`. We locate the exact managed function
+/// overload so the edge points at the right [`NodeId::Function`]:
+///
+/// 1. Filter `catalog.functions` to those whose `qname == fn_qname`.
+/// 2. If exactly one matches, use it (no signature matching needed).
+/// 3. Otherwise narrow to overloads whose IN-arg count equals the implied
+///    signature's arg count.
+/// 4. If still ambiguous, match by comparing each declared arg type to the
+///    implied types.
+///
+/// Returns `None` if no managed function matches (the closed-world check in a
+/// later task surfaces this drift; here we simply skip the edge, mirroring the
+/// event-trigger edge's behavior when its function is unmanaged).
+fn find_sfunc<'a>(
+    catalog: &'a Catalog,
+    fn_qname: &QualifiedName,
+    implied_arg_types: &[ColumnType],
+) -> Option<&'a crate::ir::function::Function> {
+    let candidates: Vec<&crate::ir::function::Function> = catalog
+        .functions
+        .iter()
+        .filter(|f| &f.qname == fn_qname)
+        .collect();
+    match candidates.as_slice() {
+        [] => None,
+        [only] => Some(only),
+        many => {
+            let by_arity: Vec<&crate::ir::function::Function> = many
+                .iter()
+                .copied()
+                .filter(|f| positional_arg_types(f).len() == implied_arg_types.len())
+                .collect();
+            match by_arity.as_slice() {
+                [] => None,
+                [only] => Some(only),
+                still_many => still_many.iter().copied().find(|f| {
+                    positional_arg_types(f)
+                        .into_iter()
+                        .eq(implied_arg_types.iter())
+                }),
+            }
+        }
+    }
+}
+
+/// Positional (IN/INOUT/VARIADIC) argument types of `f`, in declaration order —
+/// the call signature, matching how `NormalizedArgTypes` is built.
+fn positional_arg_types(f: &crate::ir::function::Function) -> Vec<&ColumnType> {
+    use crate::ir::function::ArgMode;
+    f.args
+        .iter()
+        .filter(|a| matches!(a.mode, ArgMode::In | ArgMode::InOut | ArgMode::Variadic))
+        .map(|a| &a.ty)
+        .collect()
+}
+
+/// Build the `NormalizedArgTypes` identity for an aggregate from its raw
+/// argument types. Aggregate args are always positional (`IN`), so we wrap
+/// each `ColumnType` in an `IN` [`crate::ir::function::FunctionArg`] and reuse
+/// `NormalizedArgTypes::from_args` for an identical hash to the function side.
+pub(crate) fn aggregate_arg_types(arg_types: &[ColumnType]) -> NormalizedArgTypes {
+    use crate::ir::function::{ArgMode, FunctionArg};
+    let args: Vec<FunctionArg> = arg_types
+        .iter()
+        .map(|ty| FunctionArg {
+            name: None,
+            mode: ArgMode::In,
+            ty: ty.clone(),
+            default: None,
+        })
+        .collect();
+    NormalizedArgTypes::from_args(&args)
 }
 
 /// Returns `true` iff `qname` refers to a managed collation in `catalog` —
@@ -238,6 +320,42 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
         let coll_node = NodeId::Collation(c.qname.clone());
         g.add_node(coll_node.clone());
         g.add_edge(coll_node, NodeId::Schema(c.qname.schema.clone()));
+    }
+    // Register aggregates and wire each to the managed function(s) it relies on:
+    // the state function (`SFUNC`, implied signature `(state_type, arg_types…)`)
+    // and the optional final function (`FINALFUNC`, implied signature
+    // `(state_type)`). The edge direction is aggregate (dependent) → function
+    // (dependency), so the function is created before the aggregate and dropped
+    // after it — mirroring the event-trigger → function edge.
+    for agg in &catalog.aggregates {
+        let agg_node = NodeId::Aggregate(agg.qname.clone(), aggregate_arg_types(&agg.arg_types));
+        g.add_node(agg_node.clone());
+        // sfunc implied signature: (state_type, arg_types…)
+        let mut sfunc_sig = Vec::with_capacity(1 + agg.arg_types.len());
+        sfunc_sig.push(agg.state_type.clone());
+        sfunc_sig.extend(agg.arg_types.iter().cloned());
+        if let Some(sfunc) = find_sfunc(catalog, &agg.sfunc, &sfunc_sig) {
+            g.add_edge(
+                agg_node.clone(),
+                NodeId::Function(sfunc.qname.clone(), sfunc.arg_types_normalized.clone()),
+            );
+        }
+        // finalfunc implied signature: (state_type)
+        if let Some(finalfunc_qname) = &agg.finalfunc
+            && let Some(finalfunc) = find_sfunc(
+                catalog,
+                finalfunc_qname,
+                std::slice::from_ref(&agg.state_type),
+            )
+        {
+            g.add_edge(
+                agg_node,
+                NodeId::Function(
+                    finalfunc.qname.clone(),
+                    finalfunc.arg_types_normalized.clone(),
+                ),
+            );
+        }
     }
 
     // Phase 1b.0: type → schema edges. Every user-defined type lives inside
@@ -1873,6 +1991,208 @@ mod tests {
                 .next()
                 .is_none(),
             "no edge expected for unmanaged function reference"
+        );
+    }
+
+    // ── Aggregate edge tests ─────────────────────────────────────────────────
+
+    use crate::ir::aggregate::Aggregate;
+    use crate::ir::function::{ArgMode, Function, FunctionArg};
+
+    /// Build a managed function with the given positional (IN) argument types.
+    fn make_function_with_args(schema: &str, name: &str, arg_types: &[ColumnType]) -> Function {
+        let mut f = make_function(schema, name);
+        f.args = arg_types
+            .iter()
+            .map(|ty| FunctionArg {
+                name: None,
+                mode: ArgMode::In,
+                ty: ty.clone(),
+                default: None,
+            })
+            .collect();
+        f.arg_types_normalized = NormalizedArgTypes::from_args(&f.args);
+        f
+    }
+
+    fn make_aggregate(
+        schema: &str,
+        name: &str,
+        arg_types: Vec<ColumnType>,
+        state_type: ColumnType,
+        sfunc: QualifiedName,
+        finalfunc: Option<QualifiedName>,
+    ) -> Aggregate {
+        Aggregate {
+            qname: qn(schema, name),
+            arg_types,
+            state_type,
+            sfunc,
+            finalfunc,
+            initcond: None,
+            owner: None,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn aggregate_node_registered() {
+        let mut c = Catalog::empty();
+        c.aggregates.push(make_aggregate(
+            "app",
+            "my_sum",
+            vec![ColumnType::Integer],
+            ColumnType::BigInt,
+            qn("app", "my_sfunc"),
+            None,
+        ));
+        let g = build_create_graph(&c);
+        let agg_node = NodeId::Aggregate(
+            qn("app", "my_sum"),
+            aggregate_arg_types(&[ColumnType::Integer]),
+        );
+        assert!(
+            g.nodes().any(|n| n == &agg_node),
+            "aggregate node must be registered in the graph"
+        );
+    }
+
+    #[test]
+    fn aggregate_depends_on_managed_sfunc() {
+        let mut c = Catalog::empty();
+        // sfunc implied signature: (state_type, arg_types…) = (bigint, integer)
+        let sfunc = make_function_with_args(
+            "app",
+            "my_sfunc",
+            &[ColumnType::BigInt, ColumnType::Integer],
+        );
+        let sfunc_norm = sfunc.arg_types_normalized.clone();
+        c.functions.push(sfunc);
+        c.aggregates.push(make_aggregate(
+            "app",
+            "my_sum",
+            vec![ColumnType::Integer],
+            ColumnType::BigInt,
+            qn("app", "my_sfunc"),
+            None,
+        ));
+        let g = build_create_graph(&c);
+        let agg_node = NodeId::Aggregate(
+            qn("app", "my_sum"),
+            aggregate_arg_types(&[ColumnType::Integer]),
+        );
+        assert!(
+            has_edge(
+                &g,
+                &agg_node,
+                &NodeId::Function(qn("app", "my_sfunc"), sfunc_norm),
+            ),
+            "aggregate must depend on its managed state function"
+        );
+    }
+
+    #[test]
+    fn aggregate_depends_on_managed_finalfunc() {
+        let mut c = Catalog::empty();
+        let sfunc = make_function_with_args(
+            "app",
+            "my_sfunc",
+            &[ColumnType::BigInt, ColumnType::Integer],
+        );
+        c.functions.push(sfunc);
+        // finalfunc implied signature: (state_type) = (bigint)
+        let finalfunc = make_function_with_args("app", "my_final", &[ColumnType::BigInt]);
+        let final_norm = finalfunc.arg_types_normalized.clone();
+        c.functions.push(finalfunc);
+        c.aggregates.push(make_aggregate(
+            "app",
+            "my_sum",
+            vec![ColumnType::Integer],
+            ColumnType::BigInt,
+            qn("app", "my_sfunc"),
+            Some(qn("app", "my_final")),
+        ));
+        let g = build_create_graph(&c);
+        let agg_node = NodeId::Aggregate(
+            qn("app", "my_sum"),
+            aggregate_arg_types(&[ColumnType::Integer]),
+        );
+        assert!(
+            has_edge(
+                &g,
+                &agg_node,
+                &NodeId::Function(qn("app", "my_final"), final_norm),
+            ),
+            "aggregate must depend on its managed final function"
+        );
+    }
+
+    #[test]
+    fn aggregate_sfunc_overload_resolved_by_signature() {
+        // Two overloads of `agg_sf`; only the (bigint, integer) one matches the
+        // aggregate's implied sfunc signature.
+        let mut c = Catalog::empty();
+        let wrong = make_function_with_args("app", "agg_sf", &[ColumnType::Text, ColumnType::Text]);
+        let right =
+            make_function_with_args("app", "agg_sf", &[ColumnType::BigInt, ColumnType::Integer]);
+        let right_norm = right.arg_types_normalized.clone();
+        let wrong_norm = wrong.arg_types_normalized.clone();
+        c.functions.push(wrong);
+        c.functions.push(right);
+        c.aggregates.push(make_aggregate(
+            "app",
+            "my_sum",
+            vec![ColumnType::Integer],
+            ColumnType::BigInt,
+            qn("app", "agg_sf"),
+            None,
+        ));
+        let g = build_create_graph(&c);
+        let agg_node = NodeId::Aggregate(
+            qn("app", "my_sum"),
+            aggregate_arg_types(&[ColumnType::Integer]),
+        );
+        assert!(
+            has_edge(
+                &g,
+                &agg_node,
+                &NodeId::Function(qn("app", "agg_sf"), right_norm),
+            ),
+            "edge must point at the (bigint, integer) overload"
+        );
+        assert!(
+            !has_edge(
+                &g,
+                &agg_node,
+                &NodeId::Function(qn("app", "agg_sf"), wrong_norm),
+            ),
+            "edge must NOT point at the (text, text) overload"
+        );
+    }
+
+    #[test]
+    fn aggregate_no_edge_for_unmanaged_sfunc() {
+        let mut c = Catalog::empty();
+        c.aggregates.push(make_aggregate(
+            "app",
+            "my_sum",
+            vec![ColumnType::Integer],
+            ColumnType::BigInt,
+            qn("app", "unmanaged_sfunc"),
+            None,
+        ));
+        let g = build_create_graph(&c);
+        let agg_node = NodeId::Aggregate(
+            qn("app", "my_sum"),
+            aggregate_arg_types(&[ColumnType::Integer]),
+        );
+        assert!(
+            g.nodes().any(|n| n == &agg_node),
+            "aggregate node must still be registered even if sfunc is unmanaged"
+        );
+        assert!(
+            g.dependencies_of(&agg_node).next().is_none(),
+            "no edge expected for unmanaged sfunc reference"
         );
     }
 }

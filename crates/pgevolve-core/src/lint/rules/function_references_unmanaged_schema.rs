@@ -55,7 +55,8 @@ pub fn check(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Finding> {
                 | NodeId::Subscription(_)
                 | NodeId::EventTrigger(_)
                 | NodeId::Statistic(_)
-                | NodeId::Collation(_) => continue,
+                | NodeId::Collation(_)
+                | NodeId::Aggregate(..) => continue,
             };
 
             if BUILTIN_SCHEMAS.contains(&target_schema) {

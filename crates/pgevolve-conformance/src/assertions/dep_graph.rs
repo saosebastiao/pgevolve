@@ -105,6 +105,15 @@ fn node_label(n: &NodeId) -> String {
         NodeId::Statistic(q) => format!("statistic:{q}"),
         NodeId::Collation(q) => format!("collation:{q}"),
         NodeId::EventTrigger(n) => format!("event_trigger:{}", n.as_str()),
+        NodeId::Aggregate(q, args) => format!(
+            "aggregate:{}({})",
+            q,
+            args.types
+                .iter()
+                .map(pgevolve_core::ir::column_type::ColumnType::render_sql)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
     }
 }
 
