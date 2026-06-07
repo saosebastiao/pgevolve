@@ -5,6 +5,7 @@
 //! variant to a `pub(super) fn` here. Future v0.2 sub-specs (extensions,
 //! triggers, partitioning) add new files in this directory.
 
+pub(super) mod aggregate;
 pub(super) mod constraint;
 pub(super) mod deferred_fk;
 pub(super) mod event_trigger;

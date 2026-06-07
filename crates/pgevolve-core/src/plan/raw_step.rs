@@ -315,6 +315,16 @@ pub enum StepKind {
     AlterEventTriggerOwner,
     /// `COMMENT ON EVENT TRIGGER name IS '...';`.
     CommentOnEventTrigger,
+
+    // --- v0.4 aggregate step kinds ---
+    /// `CREATE AGGREGATE qname(argtypes) (SFUNC = …, STYPE = …);`.
+    CreateAggregate,
+    /// `DROP AGGREGATE qname(argtypes);`.
+    DropAggregate,
+    /// `ALTER AGGREGATE qname(argtypes) OWNER TO role;`.
+    AlterAggregateOwner,
+    /// `COMMENT ON AGGREGATE qname(argtypes) IS '...';`.
+    CommentOnAggregate,
 }
 
 /// One unit of work the executor will attempt.
@@ -479,6 +489,10 @@ mod tests {
             StepKind::AlterEventTriggerEnable,
             StepKind::AlterEventTriggerOwner,
             StepKind::CommentOnEventTrigger,
+            StepKind::CreateAggregate,
+            StepKind::DropAggregate,
+            StepKind::AlterAggregateOwner,
+            StepKind::CommentOnAggregate,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

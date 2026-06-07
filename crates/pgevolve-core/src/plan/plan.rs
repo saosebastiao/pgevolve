@@ -524,6 +524,10 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::AlterEventTriggerEnable => "alter_event_trigger_enable",
         K::AlterEventTriggerOwner => "alter_event_trigger_owner",
         K::CommentOnEventTrigger => "comment_on_event_trigger",
+        K::CreateAggregate => "create_aggregate",
+        K::DropAggregate => "drop_aggregate",
+        K::AlterAggregateOwner => "alter_aggregate_owner",
+        K::CommentOnAggregate => "comment_on_aggregate",
     }
 }
 
@@ -654,6 +658,10 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "alter_event_trigger_enable" => K::AlterEventTriggerEnable,
         "alter_event_trigger_owner" => K::AlterEventTriggerOwner,
         "comment_on_event_trigger" => K::CommentOnEventTrigger,
+        "create_aggregate" => K::CreateAggregate,
+        "drop_aggregate" => K::DropAggregate,
+        "alter_aggregate_owner" => K::AlterAggregateOwner,
+        "comment_on_aggregate" => K::CommentOnAggregate,
         _ => return None,
     })
 }
