@@ -1035,6 +1035,7 @@ mod tests {
             subscriptions: vec![],
             collations: vec![],
             default_privileges: vec![],
+            aggregates: vec![],
         };
 
         // Try every seed in 0..16 (covering all column-pick positions and

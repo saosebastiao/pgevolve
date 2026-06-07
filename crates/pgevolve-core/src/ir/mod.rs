@@ -4,6 +4,7 @@
 //! parser and the catalog reader produce these types; the differ, dependency
 //! analyzer, and planner consume them.
 
+pub mod aggregate;
 pub mod canon;
 pub mod catalog;
 pub mod cluster;
@@ -94,6 +95,10 @@ pub enum IrError {
     /// Two event triggers share a name.
     #[error("duplicate event trigger: {0}")]
     DuplicateEventTrigger(crate::identifier::Identifier),
+
+    /// Two aggregates share the same `(qname, arg_types)` overload identity.
+    #[error("duplicate aggregate overload: {0} (same name and argument types)")]
+    DuplicateAggregate(crate::identifier::QualifiedName),
 
     /// Two tablespaces share a name.
     #[error("duplicate tablespace: {0}")]

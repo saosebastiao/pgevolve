@@ -56,6 +56,8 @@ pub struct Catalog {
     pub collations: Vec<crate::ir::collation::Collation>,
     /// `ALTER DEFAULT PRIVILEGES` rules. Canonicalized.
     pub default_privileges: Vec<crate::ir::default_privileges::DefaultPrivilegeRule>,
+    /// User-defined aggregates (`CREATE AGGREGATE`).
+    pub aggregates: Vec<crate::ir::aggregate::Aggregate>,
 }
 
 impl Catalog {
@@ -80,6 +82,7 @@ impl Catalog {
             subscriptions: Vec::new(),
             collations: Vec::new(),
             default_privileges: Vec::new(),
+            aggregates: Vec::new(),
         }
     }
 
