@@ -1,7 +1,7 @@
 //! User-defined aggregate catalog query.
 //!
 //! One row per ordinary aggregate (`pg_aggregate` joined to its wrapper
-//! `pg_proc` entry via `aggfnoid`). The assembler ([`crate::catalog::assemble`])
+//! `pg_proc` entry via `aggfnoid`). The assembler (`catalog::assemble`)
 //! skips ordered-set / hypothetical-set aggregates (`aggkind <> 'n'`) and any
 //! aggregate whose state or final function is written in a language pgevolve
 //! does not manage (anything other than `sql` / `plpgsql`), recording those in

@@ -4,7 +4,7 @@
 //! from source IS auto-dropped — unlike lenient objects such as event triggers
 //! or statistics.
 //!
-//! Identity is `(qname, arg_types)`. Because [`ColumnType`] does not implement
+//! Identity is `(qname, arg_types)`. Because [`ColumnType`](crate::ir::column_type::ColumnType) does not implement
 //! [`Ord`], the `BTreeMap` key is `(QualifiedName, Vec<String>)` where each
 //! `String` is `ColumnType::render_sql()` — a stable, canonical representation.
 //!
