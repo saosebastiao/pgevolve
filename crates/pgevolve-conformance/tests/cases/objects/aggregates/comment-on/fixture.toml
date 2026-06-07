@@ -1,0 +1,11 @@
+[meta]
+title     = "COMMENT ON AGGREGATE — add comment to an existing aggregate"
+authoring = "objects"
+spec_refs = ["objects.aggregate"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

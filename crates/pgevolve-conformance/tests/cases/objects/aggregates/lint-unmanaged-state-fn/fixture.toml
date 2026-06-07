@@ -1,0 +1,27 @@
+[meta]
+title     = "lint aggregate-references-unmanaged-function — SFUNC is not a managed function"
+authoring = "objects"
+spec_refs = ["objects.aggregate"]
+
+# The `aggregate-references-unmanaged-function` lint rule has Error severity
+# (not LintAtPlan). It fires in check_universal() during CLI execution because
+# the SFUNC (`app.ghost_sfunc`) is not declared as a managed SQL/plpgsql
+# function in source — so the aggregate → function dependency is unmanageable.
+# It does not block the in-process planner used by the conformance suite, so the
+# CREATE AGGREGATE step is still produced. The rule is unit-tested in
+# pgevolve-core/src/lint/rules/aggregate_unmanaged_state_function.rs.
+# This fixture confirms the planner still produces a valid CREATE AGGREGATE step.
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1
+
+[expect.apply]
+# app.ghost_sfunc is not declared in SQL, so CREATE AGGREGATE fails at apply
+# time against a real Postgres. This is the expected behavior — the unmanaged
+# state function does not exist for the aggregate to bind to.
+succeeds = false
+error_contains = ["ghost_sfunc"]

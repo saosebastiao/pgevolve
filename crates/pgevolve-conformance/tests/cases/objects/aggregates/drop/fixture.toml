@@ -1,0 +1,11 @@
+[meta]
+title     = "DROP AGGREGATE — aggregate removed from source, its managed sfunc retained"
+authoring = "objects"
+spec_refs = ["objects.aggregate"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

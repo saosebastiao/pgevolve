@@ -1,0 +1,12 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "aggregate:app.my_sum(integer)";
+  "function:app.sum_ffunc(bigint)";
+  "function:app.sum_sfunc(bigint,integer)";
+  "schema:app";
+  "function:app.sum_ffunc(bigint)" -> "schema:app" [style=solid];
+  "function:app.sum_sfunc(bigint,integer)" -> "schema:app" [style=solid];
+  "aggregate:app.my_sum(integer)" -> "function:app.sum_ffunc(bigint)" [style=solid];
+  "aggregate:app.my_sum(integer)" -> "function:app.sum_sfunc(bigint,integer)" [style=solid];
+}
