@@ -861,6 +861,11 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             emit::event_trigger::emit(etc, destructive, destructive_reason, out);
         }
 
+        // TODO(aggregate Task 5): emit SQL for aggregate changes.
+        Change::Aggregate(_agg) => {
+            // No-op placeholder until the aggregate SQL emitter is implemented in Task 5.
+        }
+
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach the rewrite phase")

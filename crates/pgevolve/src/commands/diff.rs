@@ -617,6 +617,31 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            // TODO(aggregate Task 9): implement human-readable display for aggregate changes.
+            pgevolve_core::diff::change::Change::Aggregate(ac) => {
+                use pgevolve_core::diff::change::AggregateChange;
+                match ac {
+                    AggregateChange::Create(agg) => {
+                        println!("      + CREATE AGGREGATE {}", agg.qname);
+                    }
+                    AggregateChange::Replace { to, .. } => {
+                        println!("      ~ REPLACE AGGREGATE {} (DROP + CREATE)", to.qname);
+                    }
+                    AggregateChange::Drop { qname, .. } => {
+                        println!("      - DROP AGGREGATE {qname}");
+                    }
+                    AggregateChange::AlterOwner { qname, owner, .. } => {
+                        println!("      ~ ALTER AGGREGATE {qname} OWNER TO {owner}");
+                    }
+                    AggregateChange::CommentOn { qname, comment, .. } => {
+                        if comment.is_some() {
+                            println!("      ~ COMMENT ON AGGREGATE {qname}");
+                        } else {
+                            println!("      ~ COMMENT ON AGGREGATE {qname} IS NULL");
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -868,5 +893,21 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::EventTrigger(pgevolve_core::diff::change::EventTriggerChange::CommentOn {
             ..
         }) => "comment_on_event_trigger",
+        // TODO(aggregate Task 9): use dedicated kind names per variant.
+        Change::Aggregate(pgevolve_core::diff::change::AggregateChange::Create(_)) => {
+            "create_aggregate"
+        }
+        Change::Aggregate(pgevolve_core::diff::change::AggregateChange::Replace { .. }) => {
+            "replace_aggregate"
+        }
+        Change::Aggregate(pgevolve_core::diff::change::AggregateChange::Drop { .. }) => {
+            "drop_aggregate"
+        }
+        Change::Aggregate(pgevolve_core::diff::change::AggregateChange::AlterOwner { .. }) => {
+            "alter_aggregate_owner"
+        }
+        Change::Aggregate(pgevolve_core::diff::change::AggregateChange::CommentOn { .. }) => {
+            "comment_on_aggregate"
+        }
     }
 }

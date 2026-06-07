@@ -438,6 +438,9 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                     modifies.push(entry);
                 }
             },
+            // TODO(aggregate Task 4): bucket aggregate changes by lifecycle phase.
+            // Create -> creates, Drop/Replace -> drops, AlterOwner/CommentOn -> modifies.
+            Change::Aggregate(_agg) => modifies.push(entry),
             // UnsupportedDiff: abort the plan immediately.
             Change::UnsupportedDiff { reason } => {
                 return Err(PlanError::Internal(reason.clone()));
@@ -710,6 +713,20 @@ fn change_node(change: &Change) -> NodeId {
             | EventTriggerChange::AlterOwner { name, .. }
             | EventTriggerChange::CommentOn { name, .. },
         ) => NodeId::EventTrigger(name.clone()),
+        // TODO(aggregate Task 4): map aggregate changes to a NodeId::Aggregate once
+        // the Aggregate node variant is added to the dependency graph.
+        // For now, use the owning schema as the ordering anchor.
+        Change::Aggregate(crate::diff::change::AggregateChange::Create(agg)) => {
+            NodeId::Schema(agg.qname.schema.clone())
+        }
+        Change::Aggregate(crate::diff::change::AggregateChange::Replace { to, .. }) => {
+            NodeId::Schema(to.qname.schema.clone())
+        }
+        Change::Aggregate(
+            crate::diff::change::AggregateChange::Drop { qname, .. }
+            | crate::diff::change::AggregateChange::AlterOwner { qname, .. }
+            | crate::diff::change::AggregateChange::CommentOn { qname, .. },
+        ) => NodeId::Schema(qname.schema.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")

@@ -300,6 +300,9 @@ pub enum Change {
     /// A nested change to a single collation. See [`CollationChange`].
     Collation(CollationChange),
 
+    /// A nested change to a single aggregate. See [`AggregateChange`].
+    Aggregate(AggregateChange),
+
     /// A change that cannot be performed in-place.
     ///
     /// Emitted by the differ when it detects a structural difference that has
@@ -622,6 +625,48 @@ pub enum TriggerChange {
         /// Owning table (needed for `COMMENT ON TRIGGER name ON table`).
         table: QualifiedName,
         /// New comment value (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// A change to a single aggregate (identity = `(qname, arg_types)`).
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum AggregateChange {
+    /// `CREATE AGGREGATE …`
+    Create(crate::ir::aggregate::Aggregate),
+    /// `DROP AGGREGATE old; CREATE AGGREGATE new;` — any structural change
+    /// (`state_type`/`sfunc`/`finalfunc`/`initcond`) has no in-place ALTER.
+    Replace {
+        /// As it exists in the target (live).
+        from: crate::ir::aggregate::Aggregate,
+        /// As it should exist in the source.
+        to: crate::ir::aggregate::Aggregate,
+    },
+    /// `DROP AGGREGATE name (argtypes);`
+    Drop {
+        /// Aggregate name.
+        qname: QualifiedName,
+        /// Argument types (identity).
+        arg_types: Vec<ColumnType>,
+    },
+    /// `ALTER AGGREGATE name (argtypes) OWNER TO owner;`
+    AlterOwner {
+        /// Aggregate name.
+        qname: QualifiedName,
+        /// Argument types (identity).
+        arg_types: Vec<ColumnType>,
+        /// Desired owner.
+        owner: Identifier,
+    },
+    /// `COMMENT ON AGGREGATE name (argtypes) IS …;`
+    CommentOn {
+        /// Aggregate name.
+        qname: QualifiedName,
+        /// Argument types (identity).
+        arg_types: Vec<ColumnType>,
+        /// New comment (`None` clears it).
         comment: Option<String>,
     },
 }
