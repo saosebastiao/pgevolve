@@ -617,7 +617,6 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
-            // TODO(aggregate Task 9): implement human-readable display for aggregate changes.
             pgevolve_core::diff::change::Change::Aggregate(ac) => {
                 use pgevolve_core::diff::change::AggregateChange;
                 match ac {
@@ -893,7 +892,6 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::EventTrigger(pgevolve_core::diff::change::EventTriggerChange::CommentOn {
             ..
         }) => "comment_on_event_trigger",
-        // TODO(aggregate Task 9): use dedicated kind names per variant.
         Change::Aggregate(pgevolve_core::diff::change::AggregateChange::Create(_)) => {
             "create_aggregate"
         }
