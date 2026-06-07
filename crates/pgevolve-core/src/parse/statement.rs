@@ -69,6 +69,8 @@ pub enum Statement {
     AlterStatistics(protobuf::AlterStatsStmt),
     /// `CREATE COLLATION qname (provider = …, locale = …, …)`.
     CreateCollation(protobuf::DefineStmt),
+    /// `CREATE AGGREGATE qname(args) (SFUNC = …, STYPE = …, …)`.
+    CreateAggregate(protobuf::DefineStmt),
     /// `CREATE EVENT TRIGGER name ON event …`.
     CreateEventTrigger(protobuf::CreateEventTrigStmt),
     /// `ALTER EVENT TRIGGER name {ENABLE|DISABLE|ENABLE REPLICA|ENABLE ALWAYS}`.
@@ -121,10 +123,10 @@ impl Statement {
             NodeEnum::AlterEventTrigStmt(s) => Ok(Self::AlterEventTrigger(s)),
             NodeEnum::DefineStmt(s) => {
                 let kind = ObjectType::try_from(s.kind).unwrap_or(ObjectType::Undefined);
-                if matches!(kind, ObjectType::ObjectCollation) {
-                    Ok(Self::CreateCollation(s))
-                } else {
-                    Err(unsupported(location, "CREATE AGGREGATE/OPERATOR/etc."))
+                match kind {
+                    ObjectType::ObjectCollation => Ok(Self::CreateCollation(s)),
+                    ObjectType::ObjectAggregate => Ok(Self::CreateAggregate(s)),
+                    _ => Err(unsupported(location, "CREATE OPERATOR/etc.")),
                 }
             }
             NodeEnum::RenameStmt(s) => {
@@ -172,6 +174,14 @@ impl Statement {
                         });
                     return Err(ParseError::EventTriggerRenameNotSupported(id, location));
                 }
+                if matches!(rename_type, ObjectType::ObjectAggregate) {
+                    return Err(ParseError::Structural {
+                        location,
+                        message: "ALTER AGGREGATE … RENAME TO is not supported in pgevolve \
+                                  (pgevolve never models renames)"
+                            .into(),
+                    });
+                }
                 if matches!(rename_type, ObjectType::ObjectStatisticExt) {
                     // RenameStmt for statistics encodes the name in `s.subname` (the
                     // new name) and `s.relation` (the old qualified name).
@@ -210,6 +220,14 @@ impl Statement {
                     return Err(ParseError::Structural {
                         location,
                         message: "DROP POLICY in source is not supported — drops happen \
+                                  via diff"
+                            .into(),
+                    });
+                }
+                if matches!(kind, ObjectType::ObjectAggregate) {
+                    return Err(ParseError::Structural {
+                        location,
+                        message: "DROP AGGREGATE in source is not supported — drops happen \
                                   via diff"
                             .into(),
                     });

@@ -23,6 +23,7 @@ pub use statement::Statement;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::IrError;
+use crate::ir::aggregate::Aggregate;
 use crate::ir::catalog::Catalog;
 use crate::ir::event_trigger::EventTrigger;
 use crate::ir::publication::Publication;
@@ -96,6 +97,10 @@ pub fn parse_directory_with_locations(
     // Event triggers: database-global, accumulated by name. Fold CREATE +
     // ALTER (ENABLE/DISABLE) + COMMENT + OWNER into one record per name.
     let mut event_triggers: BTreeMap<Identifier, EventTrigger> = BTreeMap::new();
+    // Aggregates: identity is `(qname, arg_types)` (overloadable), so they are
+    // accumulated in a Vec and ALTER OWNER / COMMENT are folded by matching that
+    // identity. Duplicate identities are rejected at CREATE time.
+    let mut aggregates: Vec<Aggregate> = Vec::new();
 
     for path in files {
         let contents = std::fs::read_to_string(&path).map_err(|e| ParseError::Io {
@@ -117,6 +122,7 @@ pub fn parse_directory_with_locations(
             &mut subscriptions,
             &mut statistics,
             &mut event_triggers,
+            &mut aggregates,
         )?;
     }
 
@@ -149,6 +155,9 @@ pub fn parse_directory_with_locations(
 
     // Flush the event-triggers accumulator into the catalog.
     catalog.event_triggers = event_triggers.into_values().collect();
+
+    // Flush the aggregates accumulator into the catalog.
+    catalog.aggregates = aggregates;
 
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
@@ -365,6 +374,7 @@ fn process_file(
     subscriptions: &mut BTreeMap<Identifier, Subscription>,
     statistics: &mut BTreeMap<QualifiedName, Statistic>,
     event_triggers: &mut BTreeMap<Identifier, EventTrigger>,
+    aggregates: &mut Vec<Aggregate>,
 ) -> Result<(), ParseError> {
     let directives = directives::extract_file_directives(contents, path)?;
     let parsed = pg_query::parse(contents).map_err(|e| ParseError::PgQuery {
@@ -475,6 +485,15 @@ fn process_file(
                         &s,
                         &location,
                         event_triggers,
+                    )?;
+                } else if matches!(kind, ObjectType::ObjectAggregate) {
+                    // COMMENT ON AGGREGATE is applied inline by `(qname, arg_types)`
+                    // identity against the aggregate accumulator.
+                    builder::aggregate_stmt::apply_comment(
+                        &s,
+                        directives.schema.as_ref(),
+                        &location,
+                        aggregates,
                     )?;
                 } else {
                     deferred_comments.push((s, location, directives.schema.clone()));
@@ -707,6 +726,15 @@ fn process_file(
                         &location,
                         event_triggers,
                     )?;
+                } else if matches!(objtype, ObjectType::ObjectAggregate) {
+                    // ALTER AGGREGATE … OWNER TO is applied inline by identity
+                    // against the aggregate accumulator.
+                    builder::aggregate_stmt::apply_owner(
+                        &s,
+                        directives.schema.as_ref(),
+                        &location,
+                        aggregates,
+                    )?;
                 } else {
                     builder::owner_stmt::apply(&s, catalog, &location)?;
                 }
@@ -750,6 +778,14 @@ fn process_file(
                 }
                 locations.insert(coll.qname.to_string(), location.clone());
                 catalog.collations.push(coll);
+            }
+            Statement::CreateAggregate(s) => {
+                builder::aggregate_stmt::parse_create(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                    aggregates,
+                )?;
             }
             Statement::CreateEventTrigger(s) => {
                 builder::event_trigger_stmt::parse_create_event_trigger(
