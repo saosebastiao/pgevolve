@@ -16,6 +16,7 @@
 //!   `Sequence.owned_by` and the column-side `Identity`/`Default::Sequence`
 //!   linkage so source-IR and catalog-IR converge on the same shape.
 
+mod aggregates;
 pub(in crate::catalog) mod collations;
 pub(super) mod default_privileges;
 pub(super) mod event_triggers;
@@ -65,6 +66,8 @@ pub struct RawRows {
     pub domain_checks: Vec<Row>,
     pub composite_attributes: Vec<Row>,
     pub functions: Vec<Row>,
+    /// `pg_aggregate` rows joined to their wrapper `pg_proc` entry.
+    pub aggregates: Vec<Row>,
     pub extensions: Vec<Row>,
     pub triggers: Vec<Row>,
     pub partitioned_tables: Vec<Row>,
@@ -110,6 +113,7 @@ pub fn assemble(
         domain_checks,
         composite_attributes,
         functions,
+        aggregates,
         extensions,
         triggers,
         partitioned_tables,
@@ -175,6 +179,11 @@ pub fn assemble(
     let (fns, procs) = functions::build_functions_and_procedures(&functions, filter, &mut drift)?;
     catalog.functions = fns;
     catalog.procedures = procs;
+
+    // Build aggregates from pg_aggregate. Ordered-set / hypothetical-set
+    // aggregates and aggregates with unmanaged-language state/final functions
+    // are skipped and recorded in `drift.unmanaged_aggregates`.
+    catalog.aggregates = aggregates::assemble_aggregates(&aggregates, filter, &mut drift)?;
 
     // Build extensions from pg_extension.
     catalog.extensions = build_extensions(&extensions)?;

@@ -49,6 +49,9 @@ use crate::ir::catalog::Catalog;
 ///   manage these; they are surfaced in the drift report so callers can
 ///   inspect them. The associated row is skipped and never appears in
 ///   `catalog.functions` / `catalog.procedures`.
+/// - `unmanaged_aggregates`: ordered-set / hypothetical-set aggregates, or
+///   aggregates whose state/final function is in an unmanaged language. The
+///   associated row is skipped and never appears in `catalog.aggregates`.
 /// - `unreadable_subscriptions`: the connection used for the catalog read had
 ///   insufficient privilege to query `pg_subscription` (sqlstate 42501). The
 ///   subscription list in the returned catalog is empty; the operator must use
@@ -67,6 +70,12 @@ pub struct DriftReport {
     /// Routines whose `LANGUAGE` is not `sql` or `plpgsql`.
     /// Identified by `(qname, language_name)`.
     pub unmanaged_language_routines: Vec<(QualifiedName, String)>,
+    /// Aggregates pgevolve does not manage: ordered-set / hypothetical-set
+    /// aggregates (`aggkind <> 'n'`), or aggregates whose state / final
+    /// function is in a language other than `sql` / `plpgsql`. Identified by
+    /// the aggregate qname. The associated row is skipped and never appears in
+    /// `catalog.aggregates`.
+    pub unmanaged_aggregates: Vec<QualifiedName>,
     /// `pg_subscription` was unreadable due to insufficient privilege (sqlstate
     /// 42501). `catalog.subscriptions` will be empty when this is `true`.
     pub unreadable_subscriptions: bool,
@@ -110,6 +119,13 @@ pub enum CatalogQuery {
     CompositeAttributes,
     /// `pg_proc` rows for functions and procedures (prokind IN 'f','p').
     Functions,
+    /// `pg_aggregate` rows joined to their wrapper `pg_proc` entry.
+    ///
+    /// Schema-filtered via `$1::text[]` (same param group as [`Self::Functions`]).
+    /// The assembler skips ordered-set / hypothetical-set aggregates and any
+    /// aggregate whose state/final function is in an unmanaged language,
+    /// recording those in [`DriftReport::unmanaged_aggregates`].
+    Aggregates,
     /// `pg_extension` rows for installed extensions.
     Extensions,
     /// `pg_trigger` rows for user triggers (excluding internal + extension-owned).
@@ -277,6 +293,7 @@ pub fn read_catalog(
     let domain_checks_rows = querier.fetch(CatalogQuery::DomainChecks, &managed)?;
     let composite_attributes_rows = querier.fetch(CatalogQuery::CompositeAttributes, &managed)?;
     let functions_rows = querier.fetch(CatalogQuery::Functions, &managed)?;
+    let aggregates_rows = querier.fetch(CatalogQuery::Aggregates, &managed)?;
     let extensions_rows = querier.fetch(CatalogQuery::Extensions, &managed)?;
     let triggers_rows = querier.fetch(CatalogQuery::Triggers, &managed)?;
     let partitioned_tables_rows = querier.fetch(CatalogQuery::PartitionedTables, &managed)?;
@@ -331,6 +348,7 @@ pub fn read_catalog(
         domain_checks: domain_checks_rows,
         composite_attributes: composite_attributes_rows,
         functions: functions_rows,
+        aggregates: aggregates_rows,
         extensions: extensions_rows,
         triggers: triggers_rows,
         partitioned_tables: partitioned_tables_rows,
