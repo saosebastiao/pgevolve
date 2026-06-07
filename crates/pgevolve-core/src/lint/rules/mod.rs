@@ -5,6 +5,7 @@
 //! This module is `pub(crate)` from `lint::` so all items are effectively
 //! crate-internal despite being marked `pub`.
 
+pub mod aggregate_unmanaged_state_function;
 pub mod builtin_provider_requires_pg_17;
 pub mod closed_world_references;
 pub mod column_position_drift;
