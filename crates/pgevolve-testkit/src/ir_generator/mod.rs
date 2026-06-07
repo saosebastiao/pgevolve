@@ -106,6 +106,7 @@ use pgevolve_core::plan::edges::{DepEdge, DepSource, NodeId};
 
 pub mod cluster;
 pub mod collation;
+pub mod event_trigger;
 pub mod grants;
 pub mod index;
 pub mod policy;
@@ -127,6 +128,7 @@ pub use table::arbitrary_column_type;
 pub(crate) use index::is_btree_indexable;
 
 use collation::arb_collations_for_schemas;
+use event_trigger::arb_event_triggers;
 use grants::{SEQUENCE_PRIVS, TABLE_PRIVS, arb_object_grants, arb_owner, arb_table_grants};
 use index::arbitrary_indexes_for_table;
 use publication::arb_publications;
@@ -227,6 +229,12 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
             let collations_strategy = arb_collations_for_schemas(&schema_names);
             let user_types_strategy = arb_user_types_for_schemas(&schema_names);
 
+            // Event triggers, each paired with its dedicated `RETURNS
+            // event_trigger` function. The function's schema is drawn from the
+            // managed schema pool. Nothing else in the generator produces
+            // functions today, so these are the catalog's only functions.
+            let event_triggers_strategy = arb_event_triggers(schema_names);
+
             (
                 index_strategies,
                 seq_owner_grant_strategies,
@@ -235,6 +243,7 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
                 statistics_strategy,
                 collations_strategy,
                 user_types_strategy,
+                event_triggers_strategy,
             )
                 .prop_flat_map(
                     move |(
@@ -245,6 +254,7 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
                         statistics,
                         collations,
                         user_types,
+                        event_triggers,
                     )| {
                         // Build the publication-name pool for subscription generation
                         // from the publications just generated for this catalog.
@@ -255,6 +265,7 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
                         let indexes_c = idx_per_table;
                         let schemas_c = schemas.clone();
                         let tables_c = tables.clone();
+                        let (et_functions, event_triggers) = event_triggers;
 
                         subscriptions_strategy.prop_map(move |subscriptions| {
                             let indexes: Vec<Index> =
@@ -287,6 +298,13 @@ pub fn arbitrary_catalog(cfg: IRGeneratorConfig) -> impl Strategy<Value = Catalo
                             // Attach 0–2 user types per schema (Enum /
                             // Composite / Range mix at ~10 % Range weight).
                             catalog.types = user_types.clone();
+                            // Append the event-trigger backing functions (the
+                            // only functions the generator produces) and attach
+                            // the 0–3 event triggers that reference them. Done
+                            // before canonicalize so the function references
+                            // resolve in the closed-world check.
+                            catalog.functions.extend(et_functions.clone());
+                            catalog.event_triggers = event_triggers.clone();
                             catalog
                                 .canonicalize()
                                 .expect("generator produced invalid catalog")
@@ -504,6 +522,35 @@ mod tests {
             assert!(!catalog.schemas.is_empty());
             assert!(!catalog.tables.is_empty());
         }
+    }
+
+    #[test]
+    fn generator_produces_event_triggers_with_backing_functions() {
+        let mut runner = TestRunner::default();
+        let mut saw_event_trigger = false;
+        for _ in 0..200 {
+            let catalog = arbitrary_catalog(IRGeneratorConfig::default())
+                .new_tree(&mut runner)
+                .unwrap()
+                .current();
+            // Every event trigger must reference a function that exists in the
+            // catalog (the closed-world invariant the soak relies on).
+            for et in &catalog.event_triggers {
+                assert!(
+                    catalog.functions.iter().any(|f| f.qname == et.function),
+                    "event trigger '{}' references missing function '{}'",
+                    et.name.as_str(),
+                    et.function.render_sql(),
+                );
+            }
+            if !catalog.event_triggers.is_empty() {
+                saw_event_trigger = true;
+            }
+        }
+        assert!(
+            saw_event_trigger,
+            "expected at least one generated catalog to contain event triggers",
+        );
     }
 
     #[test]

@@ -373,9 +373,32 @@ fn drop_schema(c: &mut Catalog, seed: usize) {
     if c.schemas.is_empty() {
         return;
     }
-    let pick = seed % c.schemas.len();
-    let dropped = c.schemas[pick].name.clone();
-    c.schemas.remove(pick);
+    // Event triggers are *lenient-drop*: the differ never emits a
+    // `DROP EVENT TRIGGER` for a live trigger absent from source (it surfaces
+    // via the `unmanaged-event-trigger` lint instead). Their backing functions
+    // are NOT lenient, so if we dropped a schema hosting an event-trigger
+    // function, the plan would emit `DROP FUNCTION` while the live event
+    // trigger still depended on it — PG rejects that with SQLSTATE 2BP01
+    // ("other objects depend on it"). Such a schema is therefore effectively
+    // undroppable through pgevolve without first removing the event trigger,
+    // so the soak must not attempt it: restrict the candidate set to schemas
+    // that host no event-trigger function. If none qualify, no-op.
+    let et_fn_schemas: std::collections::BTreeSet<Identifier> = c
+        .event_triggers
+        .iter()
+        .map(|et| et.function.schema.clone())
+        .collect();
+    let droppable: Vec<Identifier> = c
+        .schemas
+        .iter()
+        .map(|s| s.name.clone())
+        .filter(|name| !et_fn_schemas.contains(name))
+        .collect();
+    if droppable.is_empty() {
+        return;
+    }
+    let dropped = droppable[seed % droppable.len()].clone();
+    c.schemas.retain(|s| s.name != dropped);
     let owned_table_qnames: Vec<QualifiedName> = c
         .tables
         .iter()
@@ -398,6 +421,13 @@ fn drop_schema(c: &mut Catalog, seed: usize) {
     // error 3F000 (schema does not exist) when the DDL is applied.
     c.types.retain(|ty| ty.qname.schema != dropped);
     c.collations.retain(|col| col.qname.schema != dropped);
+    // Functions live in a schema; dropping the schema cascade-drops them. The
+    // only functions the generator emits today are event-trigger backing
+    // functions, and the candidate filter above guarantees `dropped` hosts none
+    // of those — so these retains are no-ops in practice but kept defensively so
+    // a future non-event-trigger function generator still cascades correctly.
+    c.functions.retain(|f| f.qname.schema != dropped);
+    c.event_triggers.retain(|et| et.function.schema != dropped);
     // A statistic is dropped when it lives in the dropped schema *or* when its
     // target table does (the table goes, so PG cascade-drops the statistic).
     c.statistics
@@ -858,6 +888,54 @@ mod tests {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Event triggers are global but their backing function is schema-scoped:
+    /// dropping the function's schema cascade-drops the event trigger. Over 256
+    /// mutated catalogs assert (1) every `event_trigger.function` still resolves
+    /// to a function in `mutated.functions`, and (2) every event-trigger
+    /// function's schema is still declared in `mutated.schemas`. A failure here
+    /// means a mutation orphaned an event trigger or its function.
+    #[test]
+    fn drop_cascades_to_event_triggers_and_functions() {
+        use std::collections::BTreeSet;
+
+        let mut runner = TestRunner::default();
+        for _ in 0..256 {
+            let seed = arbitrary_catalog(IRGeneratorConfig::default())
+                .new_tree(&mut runner)
+                .unwrap()
+                .current();
+            let mutated = arbitrary_mutation(seed.clone())
+                .new_tree(&mut runner)
+                .unwrap()
+                .current();
+
+            let function_qnames: BTreeSet<&QualifiedName> =
+                mutated.functions.iter().map(|f| &f.qname).collect();
+            let schema_names: BTreeSet<&Identifier> =
+                mutated.schemas.iter().map(|s| &s.name).collect();
+
+            // 1. Every event trigger references a function that still exists.
+            for et in &mutated.event_triggers {
+                assert!(
+                    function_qnames.contains(&et.function),
+                    "event trigger '{}' references missing function '{}'",
+                    et.name.as_str(),
+                    et.function.render_sql(),
+                );
+            }
+
+            // 2. Every event-trigger function lives in a declared schema.
+            for f in &mutated.functions {
+                assert!(
+                    schema_names.contains(&f.qname.schema),
+                    "function '{}' lives in undeclared schema '{}'",
+                    f.qname.render_sql(),
+                    f.qname.schema.as_str(),
+                );
             }
         }
     }

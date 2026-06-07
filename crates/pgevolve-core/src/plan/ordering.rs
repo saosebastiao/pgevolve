@@ -1242,6 +1242,88 @@ mod tests {
         assert!(table_pos < schema_pos);
     }
 
+    /// Regression: when both an event trigger and its backing function are
+    /// dropped in the same plan, the event trigger must be dropped first.
+    /// Otherwise PG rejects `DROP FUNCTION` with SQLSTATE 2BP01 ("other objects
+    /// depend on it: event trigger … depends on function …"). The event-trigger
+    /// → function edge lives in the (old) target catalog's drop graph, so the
+    /// reverse-topological order places the dependent (event trigger) first.
+    #[test]
+    fn event_trigger_dropped_before_its_function() {
+        use crate::diff::change::{EventTriggerChange, FunctionChange};
+        use crate::ir::event_trigger::{EventTrigger, EventTriggerEnabled, EventTriggerEvent};
+        use crate::ir::function::{
+            Function, FunctionLanguage, NormalizedArgTypes, ParallelSafety, ReturnType,
+            SecurityMode, Volatility,
+        };
+        use crate::parse::normalize_body::NormalizedBody;
+
+        // Old (live) catalog holds schema, the event-trigger function, and the
+        // event trigger referencing it. New (desired) catalog is empty → both
+        // are dropped.
+        let mut target = Catalog::empty();
+        target.schemas.push(Schema::new(id("audit")));
+        let fn_qname = qn("audit", "et_fn");
+        let arg_types = NormalizedArgTypes::from_args(&[]);
+        target.functions.push(Function {
+            qname: fn_qname.clone(),
+            args: vec![],
+            arg_types_normalized: arg_types.clone(),
+            return_type: ReturnType::EventTrigger,
+            language: FunctionLanguage::PlPgSql,
+            body: NormalizedBody::from_sql("SELECT 1").unwrap(),
+            body_dependencies: vec![],
+            volatility: Volatility::Volatile,
+            strict: false,
+            security: SecurityMode::Invoker,
+            parallel: ParallelSafety::Unsafe,
+            leakproof: false,
+            cost: None,
+            rows: None,
+            comment: None,
+            owner: None,
+            grants: vec![],
+        });
+        target.event_triggers.push(EventTrigger {
+            name: id("et"),
+            event: EventTriggerEvent::DdlCommandEnd,
+            tag_filter: vec![],
+            function: fn_qname.clone(),
+            enabled: EventTriggerEnabled::Enabled,
+            owner: None,
+            comment: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::Function(FunctionChange::Drop {
+                qname: fn_qname,
+                args: arg_types,
+            }),
+            Destructiveness::RequiresApproval {
+                reason: "drop fn".into(),
+            },
+        );
+        cs.push(
+            Change::EventTrigger(EventTriggerChange::Drop { name: id("et") }),
+            Destructiveness::RequiresApproval {
+                reason: "drop et".into(),
+            },
+        );
+
+        let result = order(&target, &Catalog::empty(), cs, &PlannerPolicy::default()).unwrap();
+        let et_pos = pos(&result.drops, |c| {
+            matches!(c, Change::EventTrigger(EventTriggerChange::Drop { .. }))
+        });
+        let fn_pos = pos(&result.drops, |c| {
+            matches!(c, Change::Function(FunctionChange::Drop { .. }))
+        });
+        assert!(
+            et_pos < fn_pos,
+            "event trigger must drop before its function (et_pos={et_pos}, fn_pos={fn_pos})",
+        );
+    }
+
     #[test]
     fn drop_fk_constraint_handled_via_alter_table_modify_bucket() {
         // ALTER TABLE entries land in `modifies`. Confirm modify-bucket
