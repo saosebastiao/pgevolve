@@ -6,16 +6,18 @@ sub_spec: virtual-generated-columns
 
 # `VIRTUAL` generated columns (PG 18) — design
 
-> **BLOCKED (2026-06-07):** This feature cannot be implemented yet. The `pg_query`
-> Rust crate's latest crates.io release is 6.1.1, which wraps libpg_query **17**
-> and rejects `GENERATED ALWAYS AS (expr) VIRTUAL` with `syntax error at or near
-> "VIRTUAL"`. The libpg_query **C** library has an `18.0.0` tag (2026-05-21) but
-> no Rust `pg_query` release wraps it yet, and `cargo publish` forbids git
-> dependencies — so a published release cannot parse PG 18 syntax. The design
-> below is complete and ready; unblock by bumping `pg_query` once a PG-18
-> crates.io release lands, then proceed to writing-plans. The constitution
-> mandates the official `pg_query` parser (no hand-rolled SQL), so there is no
-> in-tree workaround.
+> **BLOCKED (2026-06-07):** This feature cannot be implemented yet. The Rust
+> `pg_query` crate (the binding pgevolve uses, mandated by the constitution)
+> wraps libpg_query **17** and rejects `GENERATED ALWAYS AS (expr) VIRTUAL` with
+> `syntax error at or near "VIRTUAL"`. The libpg_query **C** library has an
+> `18.0.0` tag (2026-05-21), but the gap is the Rust binding (`pganalyze/pg_query.rs`):
+> as of 2026-06-07 its latest crates.io release **and its `main` branch** are
+> both still `6.1.1` (libpg_query 17), with no PG-18 integration even merged
+> (latest commit 2026-03-18 is unrelated build-caching work). So there is no
+> workaround: no crates.io release to bump to, no `main` to git-depend on (and
+> `cargo publish` forbids git deps anyway), and the constitution rules out
+> hand-rolled SQL parsing. The design below is complete and ready; unblock by
+> bumping `pg_query` once it ships a PG-18 release, then proceed to writing-plans.
 
 Adds support for PostgreSQL 18 *virtual* generated columns
 (`GENERATED ALWAYS AS (expr) VIRTUAL`), a v0.4.1 roadmap row. A virtual
