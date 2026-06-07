@@ -27,6 +27,7 @@ the charter is the meaning of "done".
 | v0.4.0 | `EVENT TRIGGER` | [`2026-06-04-event-trigger.md`](../superpowers/plans/2026-06-04-event-trigger.md) |
 | v0.4.0 | `TABLESPACE` (cluster object) | [`2026-06-05-tablespace.md`](../superpowers/plans/2026-06-05-tablespace.md) |
 | v0.4.0 | `TABLE ... USING <access method>` | [`2026-06-06-table-access-method.md`](../superpowers/plans/2026-06-06-table-access-method.md) |
+| v0.4.1 | `AGGREGATE` (ordinary: SFUNC + STYPE) | [`2026-06-06-aggregate.md`](../superpowers/plans/2026-06-06-aggregate.md) |
 
 ## Active matrix
 
@@ -36,7 +37,6 @@ matrix is the source of truth; the charter restates it).
 
 | Target | Object / sub-feature | Plan | Notes |
 |---|---|---|---|
-| v0.4.1 | `AGGREGATE` (SQL/plpgsql state) | [`_skeleton/aggregate.md`](../superpowers/plans/_skeleton/aggregate.md) | Constrained: v0.4.1 rejects non-readable state-function languages. Soft dep on PL-language wiring (v0.4.2) — non-SQL state-function support lands in a v0.4.2 follow-up. |
 | v0.4.1 | PG 18 virtual generated columns | [`_skeleton/virtual-generated-columns.md`](../superpowers/plans/_skeleton/virtual-generated-columns.md) | New `GeneratedKind` variant. Depends on: PG 18 catalog support (shipped v0.3.6). |
 | v0.4.2 | Per-partition `TABLESPACE` | [`_skeleton/per-partition-tablespace.md`](../superpowers/plans/_skeleton/per-partition-tablespace.md) | `tablespace` override on partition children. Depends on: `TABLESPACE` (cluster object), shipped v0.4.0. |
 | v0.4.2 | PL-language wiring → non-SQL `FUNCTION` bodies | [`_skeleton/pl-language-wiring.md`](../superpowers/plans/_skeleton/pl-language-wiring.md) | Enables PL/Python, PL/Perl, etc. Depends on: `CREATE EXTENSION` (shipped v0.2.x) for the language extension. |

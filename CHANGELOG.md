@@ -5,6 +5,12 @@ All notable changes to pgevolve are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`AGGREGATE` support.** User-defined aggregates via `CREATE AGGREGATE` (ordinary form: SFUNC + STYPE + optional FINALFUNC/INITCOND), `ALTER … OWNER TO`, `DROP`, and `COMMENT ON`. State and final functions must be managed SQL/plpgsql functions; source rejects references to unmanaged or built-in functions via the `aggregate-references-unmanaged-function` lint. The reader skips ordered-set aggregates, moving aggregates, and aggregates whose state function is in an unreadable language. Rename is drop + create; identity is `(schema, name, arg_types)`.
+
 ## [0.4.0] — 2026-06-06
 
 ### Added

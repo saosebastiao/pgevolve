@@ -326,5 +326,6 @@
   "statistics": [],
   "subscriptions": [],
   "collations": [],
-  "default_privileges": []
+  "default_privileges": [],
+  "aggregates": []
 }
