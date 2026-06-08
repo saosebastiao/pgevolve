@@ -528,6 +528,9 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::DropAggregate => "drop_aggregate",
         K::AlterAggregateOwner => "alter_aggregate_owner",
         K::CommentOnAggregate => "comment_on_aggregate",
+        K::CreateCast => "create_cast",
+        K::DropCast => "drop_cast",
+        K::CommentOnCast => "comment_on_cast",
     }
 }
 
@@ -662,6 +665,9 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "drop_aggregate" => K::DropAggregate,
         "alter_aggregate_owner" => K::AlterAggregateOwner,
         "comment_on_aggregate" => K::CommentOnAggregate,
+        "create_cast" => K::CreateCast,
+        "drop_cast" => K::DropCast,
+        "comment_on_cast" => K::CommentOnCast,
         _ => return None,
     })
 }

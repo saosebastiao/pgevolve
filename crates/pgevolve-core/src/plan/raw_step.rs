@@ -325,6 +325,14 @@ pub enum StepKind {
     AlterAggregateOwner,
     /// `COMMENT ON AGGREGATE qname(argtypes) IS '...';`.
     CommentOnAggregate,
+
+    // --- v0.4 cast step kinds ---
+    /// `CREATE CAST (source AS target) …;`.
+    CreateCast,
+    /// `DROP CAST (source AS target);`.
+    DropCast,
+    /// `COMMENT ON CAST (source AS target) IS '...';`.
+    CommentOnCast,
 }
 
 /// One unit of work the executor will attempt.
@@ -493,6 +501,9 @@ mod tests {
             StepKind::DropAggregate,
             StepKind::AlterAggregateOwner,
             StepKind::CommentOnAggregate,
+            StepKind::CreateCast,
+            StepKind::DropCast,
+            StepKind::CommentOnCast,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();
