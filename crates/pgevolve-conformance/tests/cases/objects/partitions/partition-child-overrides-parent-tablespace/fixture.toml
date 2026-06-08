@@ -1,0 +1,17 @@
+[meta]
+title     = "Partition child TABLESPACE — child declared TABLESPACE ts overrides parent default"
+authoring = "objects"
+spec_refs = ["objects.table.tablespace", "partitioning.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.logs",
+  "app.logs_hot",
+]
+
+[expect.plan]
+steps = 2

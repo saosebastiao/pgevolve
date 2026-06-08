@@ -1,0 +1,15 @@
+[meta]
+title     = "TABLESPACE pg_default normalises to no-tablespace — plan is empty"
+authoring = "objects"
+spec_refs = ["objects.table.tablespace"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = []
+
+[expect.plan]
+steps = 0
+minimality = false

@@ -1,0 +1,16 @@
+[meta]
+title     = "Partitioned parent SET TABLESPACE is Safe — metadata-only, no table rewrite"
+authoring = "objects"
+spec_refs = ["objects.table.tablespace", "partitioning.alter"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.metrics.tablespace",
+]
+
+[expect.plan]
+steps = 1

@@ -1,0 +1,21 @@
+[meta]
+title     = "ALTER TABLE … SET TABLESPACE — leaf table move is RequiresApproval (ACCESS EXCLUSIVE)"
+authoring = "objects"
+spec_refs = ["objects.table.tablespace"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "app.orders.tablespace",
+]
+
+[expect.plan]
+steps = 1
+
+[[expect.intent]]
+kind             = "alter_table_set_tablespace"
+target           = "app.orders"
+reason_contains  = ["ACCESS EXCLUSIVE"]
