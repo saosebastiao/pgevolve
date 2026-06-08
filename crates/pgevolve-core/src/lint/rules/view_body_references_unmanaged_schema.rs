@@ -42,7 +42,7 @@ pub fn check(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Finding> {
                 | NodeId::Function(q, _) => q.schema.as_str(),
                 NodeId::Schema(s) | NodeId::Extension(s) => s.as_str(),
                 NodeId::Constraint { table, .. } => table.schema.as_str(),
-                // Publications, subscriptions, and event triggers are not
+                // Publications, subscriptions, event triggers, and casts are not
                 // schema-qualified and cannot appear as view body dependency
                 // targets; skip. Statistics and collations are schema-qualified
                 // but not referenced by view bodies.
@@ -51,7 +51,8 @@ pub fn check(tree: &SourceTree, managed: &ManagedConfig) -> Vec<Finding> {
                 | NodeId::EventTrigger(_)
                 | NodeId::Statistic(_)
                 | NodeId::Collation(_)
-                | NodeId::Aggregate(..) => continue,
+                | NodeId::Aggregate(..)
+                | NodeId::Cast(..) => continue,
             };
 
             if BUILTIN_SCHEMAS.contains(&target_schema) {

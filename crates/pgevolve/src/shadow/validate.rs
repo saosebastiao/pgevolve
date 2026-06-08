@@ -332,5 +332,8 @@ fn node_id_to_key(node: &NodeId) -> String {
         | NodeId::Subscription(id)
         | NodeId::EventTrigger(id) => id.to_string(),
         NodeId::Constraint { table, name } => format!("{table}.{name}"),
+        // Casts are identified by (source, target) pair — not schema-qualified.
+        // Use the same format as the render_node label in ordering.rs.
+        NodeId::Cast(src, tgt) => format!("cast:{src}_as_{tgt}"),
     }
 }

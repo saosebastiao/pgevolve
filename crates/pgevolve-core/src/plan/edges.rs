@@ -84,6 +84,11 @@ pub enum NodeId {
     /// function (`SFUNC`) and optional final function (`FINALFUNC`), both of
     /// which are managed [`NodeId::Function`] nodes.
     Aggregate(QualifiedName, NormalizedArgTypes),
+    /// A `CREATE CAST` — identified by `(source_type, target_type)`. Not
+    /// schema-scoped; casts are database-global objects. Depends on the
+    /// conversion function (when `WITH FUNCTION`) and on managed source/target
+    /// types (when the types are user-defined and in the managed catalog).
+    Cast(QualifiedName, QualifiedName),
 }
 
 /// Find the managed function that backs an aggregate's `sfunc`/`finalfunc`.
@@ -355,6 +360,36 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
                     finalfunc.arg_types_normalized.clone(),
                 ),
             );
+        }
+    }
+    // Register casts and wire each to:
+    //   1. The conversion function (only `WITH FUNCTION`): find the managed
+    //      function overload whose qname and positional arg types match the
+    //      cast's recorded `arg_types`. Skip the edge if no managed overload
+    //      matches (closed-world drift is surfaced later, not here).
+    //   2. Managed source / target types: if either type is a user-defined type
+    //      present in `catalog.types`, add a dependency edge so the type is
+    //      created before the cast and dropped after it. Built-in pg_catalog
+    //      types are absent from `catalog.types` → no edge for them.
+    for cast in &catalog.casts {
+        let cast_node = NodeId::Cast(cast.source.clone(), cast.target.clone());
+        g.add_node(cast_node.clone());
+        // Edge to conversion function (WITH FUNCTION only).
+        if let crate::ir::cast::CastMethod::Function { name, arg_types } = &cast.method
+            && let Some(func) = find_sfunc(catalog, name, arg_types)
+        {
+            g.add_edge(
+                cast_node.clone(),
+                NodeId::Function(func.qname.clone(), func.arg_types_normalized.clone()),
+            );
+        }
+        // Edge to source type if it is a managed user-defined type.
+        if catalog.types.iter().any(|t| t.qname == cast.source) {
+            g.add_edge(cast_node.clone(), NodeId::Type(cast.source.clone()));
+        }
+        // Edge to target type if it is a managed user-defined type.
+        if catalog.types.iter().any(|t| t.qname == cast.target) {
+            g.add_edge(cast_node.clone(), NodeId::Type(cast.target.clone()));
         }
     }
 
@@ -2193,6 +2228,165 @@ mod tests {
         assert!(
             g.dependencies_of(&agg_node).next().is_none(),
             "no edge expected for unmanaged sfunc reference"
+        );
+    }
+
+    // ── Cast edge tests ──────────────────────────────────────────────────────
+
+    use crate::ir::cast::{Cast, CastContext, CastMethod};
+
+    fn make_cast_with_function(
+        src_schema: &str,
+        src_name: &str,
+        tgt_schema: &str,
+        tgt_name: &str,
+        fn_schema: &str,
+        fn_name: &str,
+        fn_arg_types: Vec<ColumnType>,
+    ) -> Cast {
+        Cast {
+            source: qn(src_schema, src_name),
+            target: qn(tgt_schema, tgt_name),
+            method: CastMethod::Function {
+                name: qn(fn_schema, fn_name),
+                arg_types: fn_arg_types,
+            },
+            context: CastContext::Explicit,
+            comment: None,
+        }
+    }
+
+    fn make_cast_binary(
+        src_schema: &str,
+        src_name: &str,
+        tgt_schema: &str,
+        tgt_name: &str,
+    ) -> Cast {
+        Cast {
+            source: qn(src_schema, src_name),
+            target: qn(tgt_schema, tgt_name),
+            method: CastMethod::Binary,
+            context: CastContext::Implicit,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn cast_node_registered() {
+        let mut c = Catalog::empty();
+        c.casts
+            .push(make_cast_binary("app", "src_t", "app", "tgt_t"));
+        let g = build_create_graph(&c);
+        let cast_node = NodeId::Cast(qn("app", "src_t"), qn("app", "tgt_t"));
+        assert!(
+            g.nodes().any(|n| n == &cast_node),
+            "cast node must be registered in the graph"
+        );
+    }
+
+    #[test]
+    fn cast_depends_on_managed_function() {
+        let mut c = Catalog::empty();
+        // The conversion function takes (app.src_t) as a single arg.
+        let func = make_function_with_args(
+            "app",
+            "src_to_tgt",
+            &[ColumnType::UserDefined(qn("app", "src_t"))],
+        );
+        let func_norm = func.arg_types_normalized.clone();
+        c.functions.push(func);
+        c.casts.push(make_cast_with_function(
+            "app",
+            "src_t",
+            "app",
+            "tgt_t",
+            "app",
+            "src_to_tgt",
+            vec![ColumnType::UserDefined(qn("app", "src_t"))],
+        ));
+        let g = build_create_graph(&c);
+        let cast_node = NodeId::Cast(qn("app", "src_t"), qn("app", "tgt_t"));
+        assert!(
+            has_edge(
+                &g,
+                &cast_node,
+                &NodeId::Function(qn("app", "src_to_tgt"), func_norm),
+            ),
+            "cast must depend on its managed conversion function"
+        );
+    }
+
+    #[test]
+    fn cast_depends_on_managed_source_and_target_types() {
+        let mut c = Catalog::empty();
+        c.types.push(make_enum("app", "src_t"));
+        c.types.push(make_enum("app", "tgt_t"));
+        c.casts
+            .push(make_cast_binary("app", "src_t", "app", "tgt_t"));
+        let g = build_create_graph(&c);
+        let cast_node = NodeId::Cast(qn("app", "src_t"), qn("app", "tgt_t"));
+        assert!(
+            has_edge(&g, &cast_node, &NodeId::Type(qn("app", "src_t"))),
+            "cast must depend on the managed source type"
+        );
+        assert!(
+            has_edge(&g, &cast_node, &NodeId::Type(qn("app", "tgt_t"))),
+            "cast must depend on the managed target type"
+        );
+    }
+
+    #[test]
+    fn cast_no_type_edge_for_builtin_target() {
+        // Source is managed; target is a pg_catalog built-in — no edge for target.
+        let mut c = Catalog::empty();
+        c.types.push(make_enum("app", "src_t"));
+        // Target pg_catalog.text is not in catalog.types → no type edge.
+        let cast = Cast {
+            source: qn("app", "src_t"),
+            target: qn("pg_catalog", "text"),
+            method: CastMethod::Inout,
+            context: CastContext::Assignment,
+            comment: None,
+        };
+        c.casts.push(cast);
+        let g = build_create_graph(&c);
+        let cast_node = NodeId::Cast(qn("app", "src_t"), qn("pg_catalog", "text"));
+        // Source type edge present.
+        assert!(
+            has_edge(&g, &cast_node, &NodeId::Type(qn("app", "src_t"))),
+            "cast must depend on the managed source type"
+        );
+        // No edge for the built-in target.
+        assert!(
+            !has_edge(&g, &cast_node, &NodeId::Type(qn("pg_catalog", "text"))),
+            "no type edge expected for a built-in (pg_catalog) target type"
+        );
+    }
+
+    #[test]
+    fn cast_no_edge_for_unmanaged_function() {
+        // Conversion function not in catalog → cast node registered but no
+        // function edge (identical behavior to aggregate unmanaged sfunc).
+        let mut c = Catalog::empty();
+        c.casts.push(make_cast_with_function(
+            "app",
+            "src_t",
+            "pg_catalog",
+            "text",
+            "app",
+            "unmanaged_fn",
+            vec![ColumnType::UserDefined(qn("app", "src_t"))],
+        ));
+        let g = build_create_graph(&c);
+        let cast_node = NodeId::Cast(qn("app", "src_t"), qn("pg_catalog", "text"));
+        assert!(
+            g.nodes().any(|n| n == &cast_node),
+            "cast node must be registered even when function is unmanaged"
+        );
+        // The only edge would be to the function; no types are managed here.
+        assert!(
+            g.dependencies_of(&cast_node).next().is_none(),
+            "no edge expected when conversion function is unmanaged"
         );
     }
 }

@@ -114,6 +114,7 @@ fn node_label(n: &NodeId) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+        NodeId::Cast(src, tgt) => format!("cast:{src}_as_{tgt}"),
     }
 }
 

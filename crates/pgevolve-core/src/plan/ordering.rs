@@ -446,8 +446,8 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                 crate::diff::change::AggregateChange::AlterOwner { .. }
                 | crate::diff::change::AggregateChange::CommentOn { .. } => modifies.push(entry),
             },
-            // TODO(cast Task 4): Cast ordering — bucket by lifecycle phase.
-            // Casts are schema-independent global objects; Create → creates,
+            // Cast changes: bucket by lifecycle phase. Casts are
+            // database-global objects; Create → creates,
             // Replace/Drop → drops, CommentOn → modifies.
             Change::Cast(cc) => match cc {
                 crate::diff::change::CastChange::Create(_) => creates.push(entry),
@@ -752,21 +752,19 @@ fn change_node(change: &Change) -> NodeId {
             qname.clone(),
             crate::plan::edges::aggregate_arg_types(arg_types),
         ),
-        // TODO(cast Task 4): Replace with NodeId::Cast once that variant is added to NodeId.
-        // Casts are global objects identified by (source_type, target_type). Until Task 4
-        // introduces NodeId::Cast, anchor to the source type's schema node so the entry has
-        // a valid node in the dep-graph and lands in the correct lifecycle bucket.
-        Change::Cast(cc) => {
-            let source_schema = match cc {
-                crate::diff::change::CastChange::Create(c) => c.source.schema.clone(),
-                crate::diff::change::CastChange::Replace { to, .. } => to.source.schema.clone(),
-                crate::diff::change::CastChange::Drop { source, .. }
-                | crate::diff::change::CastChange::CommentOn { source, .. } => {
-                    source.schema.clone()
-                }
-            };
-            NodeId::Schema(source_schema)
+        // Cast node mapping — identity is (source_type, target_type). Casts are
+        // database-global (no schema scope); the graph edges (cast → function /
+        // managed source/target types) are wired in `edges.rs`.
+        Change::Cast(crate::diff::change::CastChange::Create(c)) => {
+            NodeId::Cast(c.source.clone(), c.target.clone())
         }
+        Change::Cast(crate::diff::change::CastChange::Replace { to, .. }) => {
+            NodeId::Cast(to.source.clone(), to.target.clone())
+        }
+        Change::Cast(
+            crate::diff::change::CastChange::Drop { source, target }
+            | crate::diff::change::CastChange::CommentOn { source, target, .. },
+        ) => NodeId::Cast(source.clone(), target.clone()),
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")
@@ -906,6 +904,7 @@ fn render_node(n: &NodeId) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+        NodeId::Cast(src, tgt) => format!("cast:{src}_as_{tgt}"),
     }
 }
 

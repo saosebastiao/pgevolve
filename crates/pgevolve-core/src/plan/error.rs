@@ -71,8 +71,9 @@ fn format_node_chain(nodes: &[crate::plan::edges::NodeId]) -> String {
 
 fn render_node(n: &crate::plan::edges::NodeId) -> String {
     use crate::plan::edges::NodeId::{
-        Aggregate, Collation, Constraint, EventTrigger, Extension, Function, Index, Mv, Procedure,
-        Publication, Schema, Sequence, Statistic, Subscription, Table, Trigger, Type, View,
+        Aggregate, Cast, Collation, Constraint, EventTrigger, Extension, Function, Index, Mv,
+        Procedure, Publication, Schema, Sequence, Statistic, Subscription, Table, Trigger, Type,
+        View,
     };
     match n {
         Schema(s) | Extension(s) | Publication(s) | Subscription(s) | EventTrigger(s) => {
@@ -91,5 +92,6 @@ fn render_node(n: &crate::plan::edges::NodeId) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+        Cast(src, tgt) => format!("cast({src} as {tgt})"),
     }
 }
