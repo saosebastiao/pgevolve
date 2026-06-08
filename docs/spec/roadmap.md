@@ -29,6 +29,7 @@ the charter is the meaning of "done".
 | v0.4.0 | `TABLE ... USING <access method>` | [`2026-06-06-table-access-method.md`](../superpowers/plans/2026-06-06-table-access-method.md) |
 | v0.4.1 | `AGGREGATE` (ordinary: SFUNC + STYPE) | [`2026-06-06-aggregate.md`](../superpowers/plans/2026-06-06-aggregate.md) |
 | v0.4.2 | `CAST` | [`2026-06-07-cast.md`](../superpowers/plans/2026-06-07-cast.md) |
+| Unreleased | Per-partition `TABLESPACE` | [`2026-06-08-table-tablespace.md`](../superpowers/plans/2026-06-08-table-tablespace.md) |
 
 ## Active matrix
 
@@ -39,7 +40,6 @@ matrix is the source of truth; the charter restates it).
 | Target | Object / sub-feature | Plan | Notes |
 |---|---|---|---|
 | blocked | PG 18 virtual generated columns | [`2026-06-07-virtual-generated-columns-design.md`](../superpowers/specs/2026-06-07-virtual-generated-columns-design.md) | Design complete; **blocked upstream**. The `pg_query` crate (latest 6.1.1) wraps libpg_query 17 and rejects `VIRTUAL` syntax; libpg_query C has an `18.0.0` tag but no Rust release wraps it, and `cargo publish` forbids git deps. Unblock by bumping `pg_query` once a PG-18 crates.io release lands, then proceed to writing-plans. |
-| v0.4.2 | Per-partition `TABLESPACE` | [`_skeleton/per-partition-tablespace.md`](../superpowers/plans/_skeleton/per-partition-tablespace.md) | `tablespace` override on partition children. Depends on: `TABLESPACE` (cluster object), shipped v0.4.0. |
 | v0.4.2 | PL-language wiring → non-SQL `FUNCTION` bodies | [`_skeleton/pl-language-wiring.md`](../superpowers/plans/_skeleton/pl-language-wiring.md) | Enables PL/Python, PL/Perl, etc. Depends on: `CREATE EXTENSION` (shipped v0.2.x) for the language extension. |
 | v0.4.3 | `TEXT SEARCH` family | [`_skeleton/text-search.md`](../superpowers/plans/_skeleton/text-search.md) | Configuration / dictionary / parser / template. Depends on: `CREATE COLLATION` (shipped v0.3.8). |
 | v0.5.0 | FDW family | [`_skeleton/fdw-family.md`](../superpowers/plans/_skeleton/fdw-family.md) | `FDW`, `SERVER`, `USER MAPPING`, `FOREIGN TABLE`, `IMPORT FOREIGN SCHEMA`; includes secrets handling. Internal slot order within v0.5.0: FDW → SERVER → USER MAPPING → FOREIGN TABLE → IMPORT FOREIGN SCHEMA. |

@@ -348,7 +348,8 @@
         "vacuum_truncate": null,
         "extra": {}
       },
-      "access_method": null
+      "access_method": null,
+      "tablespace": null
     }
   ],
   "indexes": [],

@@ -5,6 +5,12 @@ All notable changes to pgevolve are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Table `TABLESPACE` placement.** `CREATE TABLE … TABLESPACE <ts>` and `CREATE TABLE … PARTITION OF … TABLESPACE <ts>` on regular tables, partitioned parents, and partition children. `ALTER TABLE … SET TABLESPACE` is RequiresApproval on a leaf table (full rewrite + `ACCESS EXCLUSIVE` lock) and Safe on a partitioned parent (metadata-only, no rewrite). `pg_default` is normalized to the implicit default — declaring `TABLESPACE pg_default` produces no spurious diff. Per-partition `TABLESPACE` overrides are tracked independently of the parent on the `Table.tablespace` field.
+
 ## [0.4.2] — 2026-06-08
 
 ### Added
