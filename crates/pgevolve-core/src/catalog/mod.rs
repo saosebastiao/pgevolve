@@ -236,6 +236,16 @@ pub enum CatalogQuery {
     /// dictionaries only (extension-owned dictionaries are filtered out at the
     /// SQL layer). Takes `$1::text[]` (managed schema names).
     TsDictionaries,
+    /// `pg_ts_config` rows for managed schemas — one row per user-defined
+    /// text-search configuration. Extension-owned configurations are filtered
+    /// at the SQL layer. Takes `$1::text[]` (managed schema names).
+    TsConfigurations,
+    /// `pg_ts_config_map` rows for managed schemas — one row per
+    /// (config, `token_type`, dictionary) triple, ordered by
+    /// `(config_schema, config_name, token_alias, mapseqno)`. Token types are
+    /// resolved to alias strings via `ts_token_type(cfgparser)` lateral.
+    /// Takes `$1::text[]` (managed schema names).
+    TsConfigMappings,
 }
 
 impl CatalogQuery {
@@ -361,6 +371,11 @@ pub fn read_catalog(
     // Text-search dictionaries — schema-scoped. Extension-owned excluded at SQL.
     let ts_dictionaries_rows = querier.fetch(CatalogQuery::TsDictionaries, &managed)?;
 
+    // Text-search configurations + their token-type→dict mappings.
+    // Two separate queries; the assembler groups them by config qname.
+    let ts_configurations_rows = querier.fetch(CatalogQuery::TsConfigurations, &managed)?;
+    let ts_config_mappings_rows = querier.fetch(CatalogQuery::TsConfigMappings, &managed)?;
+
     let raw = assemble::RawRows {
         version,
         schemas: schemas_rows,
@@ -392,6 +407,8 @@ pub fn read_catalog(
         event_triggers: event_triggers_rows,
         subscriptions: subscriptions_rows,
         ts_dictionaries: ts_dictionaries_rows,
+        ts_configurations: ts_configurations_rows,
+        ts_config_mappings: ts_config_mappings_rows,
     };
     let (mut catalog, mut drift) = assemble::assemble(raw, filter)?;
     drift.unreadable_subscriptions = unreadable_subscriptions;

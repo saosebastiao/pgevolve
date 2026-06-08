@@ -29,6 +29,7 @@ pub(in crate::catalog) mod statistics;
 pub(super) mod subscriptions;
 mod tables;
 mod triggers;
+mod ts_configurations;
 mod ts_dictionaries;
 mod user_types;
 mod views;
@@ -92,6 +93,12 @@ pub struct RawRows {
     pub subscriptions: Vec<Row>,
     /// `pg_ts_dict` rows for managed schemas (extension-owned excluded).
     pub ts_dictionaries: Vec<Row>,
+    /// `pg_ts_config` rows for managed schemas (extension-owned excluded).
+    pub ts_configurations: Vec<Row>,
+    /// `pg_ts_config_map` rows for managed schemas, one row per
+    /// (config, `token_type`, dict) triple ordered by
+    /// `(config_schema, config_name, token_alias, mapseqno)`.
+    pub ts_config_mappings: Vec<Row>,
 }
 
 /// Convert raw rows into a [`Catalog`] and a [`DriftReport`]. Caller is
@@ -131,6 +138,8 @@ pub fn assemble(
         event_triggers,
         subscriptions: sub_rows,
         ts_dictionaries: ts_dict_rows,
+        ts_configurations: ts_cfg_rows,
+        ts_config_mappings: ts_cfg_mapping_rows,
     } = raw;
 
     let mut catalog = Catalog::empty();
@@ -222,6 +231,11 @@ pub fn assemble(
     // Build text-search dictionaries from pg_ts_dict (schema-scoped;
     // extension-owned excluded at the SQL layer).
     catalog.ts_dictionaries = ts_dictionaries::assemble_ts_dictionaries(&ts_dict_rows)?;
+
+    // Build text-search configurations from pg_ts_config + pg_ts_config_map
+    // (schema-scoped; extension-owned excluded at the SQL layer).
+    catalog.ts_configurations =
+        ts_configurations::assemble_ts_configurations(&ts_cfg_rows, &ts_cfg_mapping_rows)?;
 
     // Statistics are assembled by `read_catalog` directly (not via RawRows)
     // because the expression-decode step requires a live querier. The field

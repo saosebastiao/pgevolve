@@ -21,6 +21,7 @@ pub mod pg18;
 pub mod policies;
 pub mod shared;
 pub mod triggers;
+pub mod ts_configurations;
 pub mod ts_dictionaries;
 pub mod types;
 pub mod views;
@@ -88,6 +89,8 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         }
         (_, CatalogQuery::Casts) => casts::SELECT_CASTS,
         (_, CatalogQuery::TsDictionaries) => ts_dictionaries::SELECT_TS_DICTIONARIES,
+        (_, CatalogQuery::TsConfigurations) => ts_configurations::SELECT_TS_CONFIGURATIONS,
+        (_, CatalogQuery::TsConfigMappings) => ts_configurations::SELECT_TS_CONFIG_MAPPINGS,
     }
 }
 
