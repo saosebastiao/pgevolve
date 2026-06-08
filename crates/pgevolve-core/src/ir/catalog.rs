@@ -60,6 +60,10 @@ pub struct Catalog {
     pub aggregates: Vec<crate::ir::aggregate::Aggregate>,
     /// User-defined casts (`CREATE CAST`).
     pub casts: Vec<crate::ir::cast::Cast>,
+    /// `TEXT SEARCH DICTIONARY` objects.
+    pub ts_dictionaries: Vec<crate::ir::text_search::TsDictionary>,
+    /// `TEXT SEARCH CONFIGURATION` objects.
+    pub ts_configurations: Vec<crate::ir::text_search::TsConfiguration>,
 }
 
 impl Catalog {
@@ -86,6 +90,8 @@ impl Catalog {
             default_privileges: Vec::new(),
             aggregates: Vec::new(),
             casts: Vec::new(),
+            ts_dictionaries: Vec::new(),
+            ts_configurations: Vec::new(),
         }
     }
 

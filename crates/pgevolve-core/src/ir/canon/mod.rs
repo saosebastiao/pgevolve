@@ -45,6 +45,7 @@ pub mod sentinel_view_columns;
 pub mod sort_and_dedupe;
 pub mod statistics;
 pub mod subscriptions;
+pub mod text_search;
 
 use crate::ir::IrError;
 use crate::ir::catalog::Catalog;
@@ -106,6 +107,7 @@ pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
     event_triggers::run(cat)?;
     aggregates::run(cat)?;
     casts::run(cat)?;
+    text_search::run(cat)?;
     subscriptions::run(cat)?;
     statistics::run(cat)?;
     collations::run(cat)?;

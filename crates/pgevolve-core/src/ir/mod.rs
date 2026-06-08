@@ -34,6 +34,7 @@ pub use function::*;
 pub mod procedure;
 pub use procedure::*;
 pub mod event_trigger;
+pub mod text_search;
 pub mod trigger;
 pub mod user_type;
 pub use user_type::*;
@@ -100,6 +101,14 @@ pub enum IrError {
     /// Two aggregates share the same `(qname, arg_types)` overload identity.
     #[error("duplicate aggregate overload: {0} (same name and argument types)")]
     DuplicateAggregate(crate::identifier::QualifiedName),
+
+    /// Two `TEXT SEARCH DICTIONARY` objects share the same `qname`.
+    #[error("duplicate text search dictionary: {0}")]
+    DuplicateTsDictionary(crate::identifier::QualifiedName),
+
+    /// Two `TEXT SEARCH CONFIGURATION` objects share the same `qname`.
+    #[error("duplicate text search configuration: {0}")]
+    DuplicateTsConfiguration(crate::identifier::QualifiedName),
 
     /// Two casts share the same `(source, target)` identity.
     #[error("duplicate cast ({src} AS {tgt})")]

@@ -1040,6 +1040,8 @@ mod tests {
             default_privileges: vec![],
             aggregates: vec![],
             casts: vec![],
+            ts_dictionaries: vec![],
+            ts_configurations: vec![],
         };
 
         // Try every seed in 0..16 (covering all column-pick positions and
