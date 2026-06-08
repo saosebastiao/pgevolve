@@ -136,6 +136,12 @@ pub fn build_table(
         Some(shared::ident(&create.access_method, location)?)
     };
 
+    let tablespace = if create.tablespacename.is_empty() {
+        None
+    } else {
+        Some(shared::ident(&create.tablespacename, location)?)
+    };
+
     Ok(Table {
         qname,
         columns,
@@ -150,7 +156,7 @@ pub fn build_table(
         policies: vec![],
         storage,
         access_method,
-        tablespace: None,
+        tablespace,
     })
 }
 
@@ -1169,5 +1175,32 @@ mod tests {
             t.access_method.as_ref().map(Identifier::as_str),
             Some("heap")
         );
+    }
+
+    // ------------------------------------------------------------------
+    // TABLESPACE clause in CREATE TABLE
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn tablespace_stored_on_create_table() {
+        let t = build("CREATE TABLE app.t (id int) TABLESPACE ts;");
+        assert_eq!(t.tablespace.as_ref().map(Identifier::as_str), Some("ts"));
+    }
+
+    #[test]
+    fn tablespace_absent_is_none() {
+        let t = build("CREATE TABLE app.t (id int);");
+        assert_eq!(t.tablespace, None);
+    }
+
+    #[test]
+    fn tablespace_on_partition_of() {
+        let t = build(
+            "CREATE TABLE app.orders_2024 \
+             PARTITION OF app.orders \
+             FOR VALUES FROM ('2024-01-01') TO ('2025-01-01') \
+             TABLESPACE ts;",
+        );
+        assert_eq!(t.tablespace.as_ref().map(Identifier::as_str), Some("ts"));
     }
 }

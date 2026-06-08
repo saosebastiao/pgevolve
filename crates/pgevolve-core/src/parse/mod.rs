@@ -82,6 +82,7 @@ pub fn parse_directory_with_locations(
     let mut pending_owners: Vec<builder::alter_table_stmt::PendingOwner> = Vec::new();
     let mut pending_rls_toggles: Vec<builder::alter_table_stmt::PendingRlsToggle> = Vec::new();
     let mut pending_rel_options: Vec<builder::alter_table_stmt::PendingRelOptions> = Vec::new();
+    let mut pending_tablespaces: Vec<builder::alter_table_stmt::PendingTablespace> = Vec::new();
     let mut deferred_comments: Vec<(
         pg_query::protobuf::CommentStmt,
         SourceLocation,
@@ -121,6 +122,7 @@ pub fn parse_directory_with_locations(
             &mut pending_owners,
             &mut pending_rls_toggles,
             &mut pending_rel_options,
+            &mut pending_tablespaces,
             &mut deferred_comments,
             &mut publications,
             &mut subscriptions,
@@ -148,6 +150,7 @@ pub fn parse_directory_with_locations(
     apply_pending_owners(&mut catalog, pending_owners)?;
     apply_pending_rls_toggles(&mut catalog, pending_rls_toggles)?;
     apply_pending_rel_options(&mut catalog, pending_rel_options)?;
+    apply_pending_tablespaces(&mut catalog, pending_tablespaces)?;
 
     // Flush the publications accumulator into the catalog.
     catalog.publications = publications.into_values().collect();
@@ -337,6 +340,17 @@ fn apply_pending_rel_options(
     builder::alter_table_stmt::apply_pending_rel_options(catalog, pending, &loc)
 }
 
+/// Apply accumulated `ALTER TABLE … SET TABLESPACE` updates to the catalog.
+///
+/// Called after all tables are built.
+fn apply_pending_tablespaces(
+    catalog: &mut Catalog,
+    pending: Vec<builder::alter_table_stmt::PendingTablespace>,
+) -> Result<(), ParseError> {
+    let loc = SourceLocation::new(PathBuf::new(), 0, 0);
+    builder::alter_table_stmt::apply_pending_tablespaces(catalog, pending, &loc)
+}
+
 /// Apply accumulated RLS mode toggles from ALTER TABLE statements.
 ///
 /// Called after all tables are built so that the tables exist in the catalog.
@@ -373,6 +387,7 @@ fn process_file(
     pending_owners: &mut Vec<builder::alter_table_stmt::PendingOwner>,
     pending_rls_toggles: &mut Vec<builder::alter_table_stmt::PendingRlsToggle>,
     pending_rel_options: &mut Vec<builder::alter_table_stmt::PendingRelOptions>,
+    pending_tablespaces: &mut Vec<builder::alter_table_stmt::PendingTablespace>,
     deferred_comments: &mut Vec<(
         pg_query::protobuf::CommentStmt,
         SourceLocation,
@@ -478,6 +493,7 @@ fn process_file(
                 pending_owners.extend(alter_out.pending_owners);
                 pending_rls_toggles.extend(alter_out.pending_rls_toggles);
                 pending_rel_options.extend(alter_out.pending_rel_options);
+                pending_tablespaces.extend(alter_out.pending_tablespaces);
             }
             Statement::Comment(s) => {
                 use pg_query::protobuf::ObjectType;

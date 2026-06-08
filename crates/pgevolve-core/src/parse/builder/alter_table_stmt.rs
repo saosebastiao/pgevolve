@@ -91,6 +91,16 @@ pub struct PendingRelOptions {
     pub options: TableStorageOptions,
 }
 
+/// A tablespace assignment from `ALTER TABLE … SET TABLESPACE <name>`, pending
+/// merge into the target table's `tablespace` field.
+#[derive(Debug, Clone)]
+pub struct PendingTablespace {
+    /// Table whose tablespace should be updated.
+    pub target: QualifiedName,
+    /// The new tablespace name.
+    pub tablespace: crate::identifier::Identifier,
+}
+
 /// The combined output of processing one `ALTER TABLE` statement.
 #[derive(Debug, Default)]
 pub struct AlterTableOutput {
@@ -104,6 +114,8 @@ pub struct AlterTableOutput {
     pub pending_rls_toggles: Vec<PendingRlsToggle>,
     /// Reloption SET (...) updates to apply after all tables/MVs are parsed.
     pub pending_rel_options: Vec<PendingRelOptions>,
+    /// Tablespace assignments from `ALTER TABLE … SET TABLESPACE <name>`.
+    pub pending_tablespaces: Vec<PendingTablespace>,
 }
 
 /// Process an `ALTER TABLE` statement.
@@ -172,6 +184,10 @@ fn process_cmd(
         AlterTableType::AtSetRelOptions => {
             let pending = process_set_rel_options_cmd(cmd, target, location)?;
             out.pending_rel_options.push(pending);
+        }
+        AlterTableType::AtSetTableSpace => {
+            let pending = process_set_tablespace_cmd(cmd, target, location)?;
+            out.pending_tablespaces.push(pending);
         }
         AlterTableType::AtResetRelOptions | AlterTableType::AtReplaceRelOptions => {
             return Err(ParseError::Structural {
@@ -316,6 +332,27 @@ fn process_set_rel_options_cmd(
     Ok(PendingRelOptions {
         target: target.clone(),
         options,
+    })
+}
+
+/// Decode an `AT_SetTableSpace` sub-command.
+///
+/// `pg_query` encodes the tablespace name in `cmd.name` for this subtype.
+fn process_set_tablespace_cmd(
+    cmd: &AlterTableCmd,
+    target: &QualifiedName,
+    location: &SourceLocation,
+) -> Result<PendingTablespace, ParseError> {
+    if cmd.name.is_empty() {
+        return Err(ParseError::Structural {
+            location: location.clone(),
+            message: "ALTER TABLE SET TABLESPACE missing tablespace name".into(),
+        });
+    }
+    let tablespace = shared::ident(&cmd.name, location)?;
+    Ok(PendingTablespace {
+        target: target.clone(),
+        tablespace,
     })
 }
 
@@ -499,6 +536,31 @@ pub fn apply_pending_rls_toggles(
     Ok(())
 }
 
+/// Apply accumulated `ALTER TABLE … SET TABLESPACE` updates to the catalog.
+///
+/// Called from `parse/mod.rs` after all tables are built.
+pub fn apply_pending_tablespaces(
+    catalog: &mut crate::ir::catalog::Catalog,
+    pending: Vec<PendingTablespace>,
+    location: &SourceLocation,
+) -> Result<(), ParseError> {
+    for p in pending {
+        let table = catalog
+            .tables
+            .iter_mut()
+            .find(|t| t.qname == p.target)
+            .ok_or_else(|| ParseError::Structural {
+                location: location.clone(),
+                message: format!(
+                    "ALTER TABLE … SET TABLESPACE referenced unknown table {}",
+                    p.target
+                ),
+            })?;
+        table.tablespace = Some(p.tablespace);
+    }
+    Ok(())
+}
+
 /// Extract the String node from `cmd.def` and return its `sval`.
 fn def_as_string(cmd: &AlterTableCmd, location: &SourceLocation) -> Result<String, ParseError> {
     cmd.def
@@ -531,7 +593,7 @@ fn unsupported_alter(location: &SourceLocation) -> ParseError {
     ParseError::Structural {
         location: location.clone(),
         message: "ALTER TABLE in source DDL is restricted to ADD CONSTRAINT FOREIGN KEY, \
-                 ALTER COLUMN SET STORAGE/COMPRESSION, and SET (reloptions); \
+                 ALTER COLUMN SET STORAGE/COMPRESSION, SET (reloptions), and SET TABLESPACE; \
                  pgevolve treats source SQL as declarative — express the desired schema \
                  state via CREATE statements"
             .into(),
@@ -815,5 +877,16 @@ mod tests {
             matches!(err, ParseError::Structural { ref message, .. } if message.contains("out of range")),
             "unexpected error: {err:?}"
         );
+    }
+
+    // ── SET TABLESPACE tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn alter_table_set_tablespace_produces_pending() {
+        let out = build("ALTER TABLE app.t SET TABLESPACE ts;").expect("builds");
+        assert_eq!(out.pending_tablespaces.len(), 1);
+        let p = &out.pending_tablespaces[0];
+        assert_eq!(p.target.to_string(), "app.t");
+        assert_eq!(p.tablespace.as_str(), "ts");
     }
 }
