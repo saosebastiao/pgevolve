@@ -865,6 +865,12 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             emit::aggregate::emit(agg, destructive, destructive_reason, out);
         }
 
+        // TODO(cast Task 5): emit SQL for cast changes (CREATE CAST / DROP CAST / COMMENT ON CAST).
+        // Until Task 5 wires up the cast SQL emitter, this arm is intentionally a no-op so the
+        // workspace compiles. The ordering phase ensures cast entries are routed here; the emitter
+        // will produce zero steps until Task 5 replaces this placeholder.
+        Change::Cast(_) => {}
+
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach the rewrite phase")

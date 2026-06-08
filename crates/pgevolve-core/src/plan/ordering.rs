@@ -446,6 +446,15 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                 crate::diff::change::AggregateChange::AlterOwner { .. }
                 | crate::diff::change::AggregateChange::CommentOn { .. } => modifies.push(entry),
             },
+            // TODO(cast Task 4): Cast ordering — bucket by lifecycle phase.
+            // Casts are schema-independent global objects; Create → creates,
+            // Replace/Drop → drops, CommentOn → modifies.
+            Change::Cast(cc) => match cc {
+                crate::diff::change::CastChange::Create(_) => creates.push(entry),
+                crate::diff::change::CastChange::Drop { .. }
+                | crate::diff::change::CastChange::Replace { .. } => drops.push(entry),
+                crate::diff::change::CastChange::CommentOn { .. } => modifies.push(entry),
+            },
             // UnsupportedDiff: abort the plan immediately.
             Change::UnsupportedDiff { reason } => {
                 return Err(PlanError::Internal(reason.clone()));
@@ -743,6 +752,21 @@ fn change_node(change: &Change) -> NodeId {
             qname.clone(),
             crate::plan::edges::aggregate_arg_types(arg_types),
         ),
+        // TODO(cast Task 4): Replace with NodeId::Cast once that variant is added to NodeId.
+        // Casts are global objects identified by (source_type, target_type). Until Task 4
+        // introduces NodeId::Cast, anchor to the source type's schema node so the entry has
+        // a valid node in the dep-graph and lands in the correct lifecycle bucket.
+        Change::Cast(cc) => {
+            let source_schema = match cc {
+                crate::diff::change::CastChange::Create(c) => c.source.schema.clone(),
+                crate::diff::change::CastChange::Replace { to, .. } => to.source.schema.clone(),
+                crate::diff::change::CastChange::Drop { source, .. }
+                | crate::diff::change::CastChange::CommentOn { source, .. } => {
+                    source.schema.clone()
+                }
+            };
+            NodeId::Schema(source_schema)
+        }
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")

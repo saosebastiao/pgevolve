@@ -11,6 +11,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::cast::Cast;
 use crate::ir::collation::Collation;
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::NormalizedExpr;
@@ -302,6 +303,9 @@ pub enum Change {
 
     /// A nested change to a single aggregate. See [`AggregateChange`].
     Aggregate(AggregateChange),
+
+    /// A nested change to a single cast. See [`CastChange`].
+    Cast(CastChange),
 
     /// A change that cannot be performed in-place.
     ///
@@ -666,6 +670,42 @@ pub enum AggregateChange {
         qname: QualifiedName,
         /// Argument types (identity).
         arg_types: Vec<ColumnType>,
+        /// New comment (`None` clears it).
+        comment: Option<String>,
+    },
+}
+
+/// A change to a single cast (identity = `(source, target)`).
+///
+/// Casts are global (non-schema-scoped) objects with no owner.
+/// Any structural difference requires `DROP CAST … CASCADE` + `CREATE CAST`
+/// because Postgres has no `ALTER CAST` for method or context changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum CastChange {
+    /// `CREATE CAST (source AS target) …`
+    Create(Cast),
+    /// `DROP CAST (source AS target); CREATE CAST (source AS target) …;`
+    /// — any structural change has no in-place ALTER.
+    Replace {
+        /// As it exists in the target (live).
+        from: Cast,
+        /// As it should exist in the source.
+        to: Cast,
+    },
+    /// `DROP CAST (source AS target);`
+    Drop {
+        /// Source type (part of identity).
+        source: QualifiedName,
+        /// Target type (part of identity).
+        target: QualifiedName,
+    },
+    /// `COMMENT ON CAST (source AS target) IS …;`
+    CommentOn {
+        /// Source type (part of identity).
+        source: QualifiedName,
+        /// Target type (part of identity).
+        target: QualifiedName,
         /// New comment (`None` clears it).
         comment: Option<String>,
     },
