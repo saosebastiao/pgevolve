@@ -146,6 +146,16 @@ pub(super) fn build_tables(
                 column: "access_method".to_string(),
                 message: format!("invalid identifier: {e}"),
             })?;
+        let tablespace = r
+            .get_opt_text(q, "tablespace")?
+            .filter(|s| !s.is_empty())
+            .map(|s| crate::identifier::Identifier::from_unquoted(&s))
+            .transpose()
+            .map_err(|e| CatalogError::BadColumnType {
+                query: q,
+                column: "tablespace".to_string(),
+                message: format!("invalid identifier: {e}"),
+            })?;
         tables.insert(
             oid,
             Table {
@@ -162,7 +172,7 @@ pub(super) fn build_tables(
                 policies: vec![], // populated by attach_policies after tables build
                 storage,
                 access_method,
-                tablespace: None,
+                tablespace,
             },
         );
     }
@@ -766,5 +776,31 @@ mod tests {
         assert_eq!(tables.len(), 1);
         let table = tables.values().next().unwrap();
         assert!(table.access_method.is_none());
+    }
+
+    #[test]
+    fn build_tables_tablespace_set() {
+        let filter =
+            CatalogFilter::new(vec![Identifier::from_unquoted("app").unwrap()], vec![]).unwrap();
+        let row = make_minimal_table_row("app", "events")
+            .with("tablespace", Value::Text("fast".to_string()));
+        let tables = build_tables(vec![row], &[], &filter).unwrap();
+        assert_eq!(tables.len(), 1);
+        let table = tables.values().next().unwrap();
+        assert_eq!(
+            table.tablespace,
+            Some(Identifier::from_unquoted("fast").unwrap())
+        );
+    }
+
+    #[test]
+    fn build_tables_tablespace_null_gives_none() {
+        let filter =
+            CatalogFilter::new(vec![Identifier::from_unquoted("app").unwrap()], vec![]).unwrap();
+        let row = make_minimal_table_row("app", "events").with("tablespace", Value::Null);
+        let tables = build_tables(vec![row], &[], &filter).unwrap();
+        assert_eq!(tables.len(), 1);
+        let table = tables.values().next().unwrap();
+        assert!(table.tablespace.is_none());
     }
 }
