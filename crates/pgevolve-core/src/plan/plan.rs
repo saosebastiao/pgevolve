@@ -537,6 +537,13 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::AlterTsDictionary => "alter_ts_dictionary",
         K::AlterTsDictionaryOwner => "alter_ts_dictionary_owner",
         K::CommentOnTsDictionary => "comment_on_ts_dictionary",
+        K::CreateTsConfiguration => "create_ts_configuration",
+        K::DropTsConfiguration => "drop_ts_configuration",
+        K::AddTsConfigMapping => "add_ts_config_mapping",
+        K::AlterTsConfigMapping => "alter_ts_config_mapping",
+        K::DropTsConfigMapping => "drop_ts_config_mapping",
+        K::AlterTsConfigurationOwner => "alter_ts_configuration_owner",
+        K::CommentOnTsConfiguration => "comment_on_ts_configuration",
     }
 }
 
@@ -680,6 +687,13 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "alter_ts_dictionary" => K::AlterTsDictionary,
         "alter_ts_dictionary_owner" => K::AlterTsDictionaryOwner,
         "comment_on_ts_dictionary" => K::CommentOnTsDictionary,
+        "create_ts_configuration" => K::CreateTsConfiguration,
+        "drop_ts_configuration" => K::DropTsConfiguration,
+        "add_ts_config_mapping" => K::AddTsConfigMapping,
+        "alter_ts_config_mapping" => K::AlterTsConfigMapping,
+        "drop_ts_config_mapping" => K::DropTsConfigMapping,
+        "alter_ts_configuration_owner" => K::AlterTsConfigurationOwner,
+        "comment_on_ts_configuration" => K::CommentOnTsConfiguration,
         _ => return None,
     })
 }
@@ -891,6 +905,23 @@ mod tests {
             StepKind::AddCheckForNotNull,
         ] {
             assert_eq!(parse_kind_name(kind_name(k)), Some(k));
+        }
+    }
+
+    #[test]
+    fn ts_configuration_step_kinds_round_trip_through_kind_name() {
+        for k in [
+            StepKind::CreateTsConfiguration,
+            StepKind::DropTsConfiguration,
+            StepKind::AddTsConfigMapping,
+            StepKind::AlterTsConfigMapping,
+            StepKind::DropTsConfigMapping,
+            StepKind::AlterTsConfigurationOwner,
+            StepKind::CommentOnTsConfiguration,
+        ] {
+            let n = kind_name(k);
+            let parsed = parse_kind_name(n).unwrap();
+            assert_eq!(parsed, k, "round-trip failed for {n}");
         }
     }
 

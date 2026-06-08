@@ -347,6 +347,22 @@ pub enum StepKind {
     AlterTsDictionaryOwner,
     /// `COMMENT ON TEXT SEARCH DICTIONARY qname IS '...';`.
     CommentOnTsDictionary,
+
+    // --- v0.4 text-search configuration step kinds ---
+    /// `CREATE TEXT SEARCH CONFIGURATION qname (PARSER = parser);`.
+    CreateTsConfiguration,
+    /// `DROP TEXT SEARCH CONFIGURATION qname;`.
+    DropTsConfiguration,
+    /// `ALTER TEXT SEARCH CONFIGURATION qname ADD MAPPING FOR token_type WITH dict, …;`.
+    AddTsConfigMapping,
+    /// `ALTER TEXT SEARCH CONFIGURATION qname ALTER MAPPING FOR token_type WITH dict, …;`.
+    AlterTsConfigMapping,
+    /// `ALTER TEXT SEARCH CONFIGURATION qname DROP MAPPING IF EXISTS FOR token_type;`.
+    DropTsConfigMapping,
+    /// `ALTER TEXT SEARCH CONFIGURATION qname OWNER TO role;`.
+    AlterTsConfigurationOwner,
+    /// `COMMENT ON TEXT SEARCH CONFIGURATION qname IS '...';`.
+    CommentOnTsConfiguration,
 }
 
 /// One unit of work the executor will attempt.
@@ -524,6 +540,13 @@ mod tests {
             StepKind::AlterTsDictionary,
             StepKind::AlterTsDictionaryOwner,
             StepKind::CommentOnTsDictionary,
+            StepKind::CreateTsConfiguration,
+            StepKind::DropTsConfiguration,
+            StepKind::AddTsConfigMapping,
+            StepKind::AlterTsConfigMapping,
+            StepKind::DropTsConfigMapping,
+            StepKind::AlterTsConfigurationOwner,
+            StepKind::CommentOnTsConfiguration,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

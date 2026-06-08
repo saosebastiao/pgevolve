@@ -19,6 +19,7 @@ pub(super) mod schema;
 pub(super) mod sequence;
 pub(super) mod table;
 pub(super) mod trigger;
+pub(super) mod ts_configuration;
 pub(super) mod ts_dictionary;
 pub(super) mod user_type;
 pub(super) mod view;

@@ -873,12 +873,8 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             emit::ts_dictionary::emit(dc, destructive, destructive_reason, out);
         }
 
-        // TODO(textsearch Task 7): wire TsConfigurationChange into emit::ts_configuration::emit.
-        Change::TsConfiguration(_) => {
-            unreachable!(
-                "TsConfiguration changes must not reach the rewrite phase \
-                 until emit support is added (Task 7)"
-            )
+        Change::TsConfiguration(c) => {
+            emit::ts_configuration::emit(c, destructive, destructive_reason, out);
         }
 
         // UnsupportedDiff is intercepted by the ordering phase and never reaches here.
