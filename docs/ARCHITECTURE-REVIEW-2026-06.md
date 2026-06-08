@@ -49,7 +49,7 @@ domain model later is costly," not "must, because frozen."
 | 10 | Lint catalogue | **No formal freeze.** Rules may keep growing on judgment; no policy gate added. | — |
 | 11 | Ordering leak in diff | **Move to plan.** Relocate the revoke-before-grant contract and `subscriptions.rs`'s `out.sort()` into plan so `ChangeSet`'s "unordered" contract becomes true. | impl plan |
 | 12 | `lib.rs` "I/O-free" doc | **Fix** (soften to "no network I/O; DB access injected via `CatalogQuerier`"). Folded into cleanup. | impl plan |
-| 13a | IR slimming | **Simplify both.** Collapse the typed autovacuum reloption matrix into the existing `extra` map; drop the Subscription CREATE-only fields that never round-trip. | impl plan |
+| 13a | IR slimming | **Autovacuum only.** Collapse the typed autovacuum reloption matrix into the existing `extra` map. Subscription `connect`/`create_slot`/`copy_data` are **kept** — planning showed they are intentional write-only CREATE options the testkit depends on, not dead surface; the read-asymmetry is already handled without bugs. | impl plan |
 | 13b | "Full Postgres support" scope | **Keep full support.** Cast/Aggregate/Range stay as-is; no Constitution amendment. Simplicity applies to not adding *new* sophistication, not removing working, tested features. | — |
 
 Recommendations the maintainer declined or narrowed are recorded above (10: no
