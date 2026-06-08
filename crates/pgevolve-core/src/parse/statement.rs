@@ -77,6 +77,14 @@ pub enum Statement {
     AlterEventTrigger(protobuf::AlterEventTrigStmt),
     /// `CREATE CAST (src AS tgt) WITH FUNCTION …` / `WITH INOUT` / `WITHOUT FUNCTION`.
     CreateCast(protobuf::CreateCastStmt),
+    /// `CREATE TEXT SEARCH DICTIONARY qname (TEMPLATE = …, …)`.
+    CreateTsDictionary(protobuf::DefineStmt),
+    /// `CREATE TEXT SEARCH CONFIGURATION qname (PARSER = …)`.
+    CreateTsConfiguration(protobuf::DefineStmt),
+    /// `ALTER TEXT SEARCH DICTIONARY name (opts)`.
+    AlterTsDictionary(protobuf::AlterTsDictionaryStmt),
+    /// `ALTER TEXT SEARCH CONFIGURATION name ADD/ALTER/DROP/REPLACE MAPPING …`.
+    AlterTsConfiguration(protobuf::AlterTsConfigurationStmt),
 }
 
 impl Statement {
@@ -129,6 +137,8 @@ impl Statement {
                 match kind {
                     ObjectType::ObjectCollation => Ok(Self::CreateCollation(s)),
                     ObjectType::ObjectAggregate => Ok(Self::CreateAggregate(s)),
+                    ObjectType::ObjectTsdictionary => Ok(Self::CreateTsDictionary(s)),
+                    ObjectType::ObjectTsconfiguration => Ok(Self::CreateTsConfiguration(s)),
                     _ => Err(unsupported(location, "CREATE OPERATOR/etc.")),
                 }
             }
@@ -217,6 +227,8 @@ impl Statement {
                           happen via diff; use CREATE POLICY in source"
                     .into(),
             }),
+            NodeEnum::AlterTsdictionaryStmt(s) => Ok(Self::AlterTsDictionary(s)),
+            NodeEnum::AlterTsconfigurationStmt(s) => Ok(Self::AlterTsConfiguration(s)),
             NodeEnum::DropStmt(s) => {
                 let kind = ObjectType::try_from(s.remove_type).unwrap_or(ObjectType::Undefined);
                 if matches!(kind, ObjectType::ObjectPolicy) {
@@ -239,6 +251,22 @@ impl Statement {
                     return Err(ParseError::Structural {
                         location,
                         message: "DROP CAST in source is not supported — drops happen via diff"
+                            .into(),
+                    });
+                }
+                if matches!(kind, ObjectType::ObjectTsdictionary) {
+                    return Err(ParseError::Structural {
+                        location,
+                        message: "DROP TEXT SEARCH DICTIONARY in source is not supported — \
+                                  drops happen via diff"
+                            .into(),
+                    });
+                }
+                if matches!(kind, ObjectType::ObjectTsconfiguration) {
+                    return Err(ParseError::Structural {
+                        location,
+                        message: "DROP TEXT SEARCH CONFIGURATION in source is not supported — \
+                                  drops happen via diff"
                             .into(),
                     });
                 }

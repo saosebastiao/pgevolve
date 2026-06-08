@@ -35,6 +35,7 @@ pub mod reloptions;
 pub mod shared;
 pub mod statistic_stmt;
 pub mod subscription_stmt;
+pub mod text_search_stmt;
 
 use std::collections::HashMap;
 

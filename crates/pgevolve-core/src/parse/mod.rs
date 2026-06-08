@@ -30,6 +30,7 @@ use crate::ir::event_trigger::EventTrigger;
 use crate::ir::publication::Publication;
 use crate::ir::statistic::Statistic;
 use crate::ir::subscription::Subscription;
+use crate::ir::text_search::{TsConfiguration, TsDictionary};
 
 /// Parse every `*.sql` file under `root`, recursively, and produce a fully-
 /// populated [`Catalog`]. Files matching any pattern in `ignores` are skipped.
@@ -106,6 +107,13 @@ pub fn parse_directory_with_locations(
     // Casts: identity is `(source, target)`. Not overloadable. COMMENT ON CAST
     // is folded inline. Duplicate identities are rejected at CREATE time.
     let mut casts: Vec<Cast> = Vec::new();
+    // Text-search dictionaries: identity is `qname`. COMMENT ON / ALTER OWNER /
+    // ALTER … options are folded inline by qname. Duplicate qnames are rejected
+    // at CREATE time.
+    let mut ts_dictionaries: Vec<TsDictionary> = Vec::new();
+    // Text-search configurations: identity is `qname`. ALTER TEXT SEARCH
+    // CONFIGURATION sub-commands mutate the in-progress record inline.
+    let mut ts_configurations: Vec<TsConfiguration> = Vec::new();
 
     for path in files {
         let contents = std::fs::read_to_string(&path).map_err(|e| ParseError::Io {
@@ -130,6 +138,8 @@ pub fn parse_directory_with_locations(
             &mut event_triggers,
             &mut aggregates,
             &mut casts,
+            &mut ts_dictionaries,
+            &mut ts_configurations,
         )?;
     }
 
@@ -169,6 +179,10 @@ pub fn parse_directory_with_locations(
 
     // Flush the casts accumulator into the catalog.
     catalog.casts = casts;
+
+    // Flush the text-search accumulators into the catalog.
+    catalog.ts_dictionaries = ts_dictionaries;
+    catalog.ts_configurations = ts_configurations;
 
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
@@ -399,6 +413,8 @@ fn process_file(
     event_triggers: &mut BTreeMap<Identifier, EventTrigger>,
     aggregates: &mut Vec<Aggregate>,
     casts: &mut Vec<Cast>,
+    ts_dictionaries: &mut Vec<TsDictionary>,
+    ts_configurations: &mut Vec<TsConfiguration>,
 ) -> Result<(), ParseError> {
     let directives = directives::extract_file_directives(contents, path)?;
     let parsed = pg_query::parse(contents).map_err(|e| ParseError::PgQuery {
@@ -528,6 +544,23 @@ fn process_file(
                         directives.schema.as_ref(),
                         &location,
                         casts,
+                    )?;
+                } else if matches!(kind, ObjectType::ObjectTsdictionary) {
+                    // COMMENT ON TEXT SEARCH DICTIONARY is applied inline against the
+                    // ts_dictionaries accumulator (not yet in catalog at defer point).
+                    builder::text_search_stmt::apply_dictionary_comment(
+                        &s,
+                        directives.schema.as_ref(),
+                        &location,
+                        ts_dictionaries,
+                    )?;
+                } else if matches!(kind, ObjectType::ObjectTsconfiguration) {
+                    // COMMENT ON TEXT SEARCH CONFIGURATION — same inline strategy.
+                    builder::text_search_stmt::apply_configuration_comment(
+                        &s,
+                        directives.schema.as_ref(),
+                        &location,
+                        ts_configurations,
                     )?;
                 } else {
                     deferred_comments.push((s, location, directives.schema.clone()));
@@ -769,6 +802,22 @@ fn process_file(
                         &location,
                         aggregates,
                     )?;
+                } else if matches!(objtype, ObjectType::ObjectTsdictionary) {
+                    // ALTER TEXT SEARCH DICTIONARY … OWNER TO applied inline.
+                    builder::text_search_stmt::apply_dictionary_owner(
+                        &s,
+                        directives.schema.as_ref(),
+                        &location,
+                        ts_dictionaries,
+                    )?;
+                } else if matches!(objtype, ObjectType::ObjectTsconfiguration) {
+                    // ALTER TEXT SEARCH CONFIGURATION … OWNER TO applied inline.
+                    builder::text_search_stmt::apply_configuration_owner(
+                        &s,
+                        directives.schema.as_ref(),
+                        &location,
+                        ts_configurations,
+                    )?;
                 } else {
                     builder::owner_stmt::apply(&s, catalog, &location)?;
                 }
@@ -838,6 +887,38 @@ fn process_file(
             }
             Statement::CreateCast(s) => {
                 builder::cast_stmt::parse_create(&s, directives.schema.as_ref(), &location, casts)?;
+            }
+            Statement::CreateTsDictionary(s) => {
+                builder::text_search_stmt::parse_create_dictionary(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                    ts_dictionaries,
+                )?;
+            }
+            Statement::CreateTsConfiguration(s) => {
+                builder::text_search_stmt::parse_create_configuration(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                    ts_configurations,
+                )?;
+            }
+            Statement::AlterTsDictionary(s) => {
+                builder::text_search_stmt::apply_alter_dictionary(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                    ts_dictionaries,
+                )?;
+            }
+            Statement::AlterTsConfiguration(s) => {
+                builder::text_search_stmt::apply_alter_configuration(
+                    &s,
+                    directives.schema.as_ref(),
+                    &location,
+                    ts_configurations,
+                )?;
             }
         }
     }
