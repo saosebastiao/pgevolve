@@ -1,0 +1,12 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "cast:app.label_as_app.tag";
+  "schema:app";
+  "type:app.label";
+  "type:app.tag";
+  "type:app.label" -> "schema:app" [style=solid];
+  "type:app.tag" -> "schema:app" [style=solid];
+  "cast:app.label_as_app.tag" -> "type:app.label" [style=solid];
+  "cast:app.label_as_app.tag" -> "type:app.tag" [style=solid];
+}

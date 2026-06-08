@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE CAST — WITH FUNCTION (managed plpgsql conversion function)"
+authoring = "objects"
+spec_refs = ["objects.cast"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

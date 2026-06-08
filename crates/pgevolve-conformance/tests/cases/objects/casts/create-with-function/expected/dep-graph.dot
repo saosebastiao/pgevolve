@@ -1,0 +1,13 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "cast:app.celsius_as_pg_catalog.text";
+  "function:app.celsius_to_text(app.celsius)";
+  "schema:app";
+  "type:app.celsius";
+  "type:app.celsius" -> "schema:app" [style=solid];
+  "function:app.celsius_to_text(app.celsius)" -> "schema:app" [style=solid];
+  "function:app.celsius_to_text(app.celsius)" -> "type:app.celsius" [style=solid];
+  "cast:app.celsius_as_pg_catalog.text" -> "type:app.celsius" [style=solid];
+  "cast:app.celsius_as_pg_catalog.text" -> "function:app.celsius_to_text(app.celsius)" [style=solid];
+}

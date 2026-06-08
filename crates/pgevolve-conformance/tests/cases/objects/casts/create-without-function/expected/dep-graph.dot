@@ -1,0 +1,12 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "cast:app.user_id_as_app.account_id";
+  "schema:app";
+  "type:app.account_id";
+  "type:app.user_id";
+  "type:app.account_id" -> "schema:app" [style=solid];
+  "type:app.user_id" -> "schema:app" [style=solid];
+  "cast:app.user_id_as_app.account_id" -> "type:app.account_id" [style=solid];
+  "cast:app.user_id_as_app.account_id" -> "type:app.user_id" [style=solid];
+}

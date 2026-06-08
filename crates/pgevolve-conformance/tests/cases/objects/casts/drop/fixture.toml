@@ -1,0 +1,11 @@
+[meta]
+title     = "DROP CAST — cast removed from source, its managed function retained"
+authoring = "objects"
+spec_refs = ["objects.cast"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

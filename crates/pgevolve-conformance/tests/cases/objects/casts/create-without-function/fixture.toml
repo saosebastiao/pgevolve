@@ -1,0 +1,18 @@
+[meta]
+title     = "CREATE CAST — WITHOUT FUNCTION (binary-coercible domains over same base type)"
+authoring = "objects"
+spec_refs = ["objects.cast"]
+
+# PostgreSQL rejects WITHOUT FUNCTION between domain types at apply time
+# ([42P17] domain data types must not be marked binary-compatible).
+# The planner correctly generates the CREATE CAST WITHOUT FUNCTION step;
+# we disable apply so the fixture validates plan-generation only.
+[fixture]
+apply = false
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

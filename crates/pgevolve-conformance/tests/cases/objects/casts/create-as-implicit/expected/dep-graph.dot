@@ -1,0 +1,13 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "cast:app.score_as_pg_catalog.int8";
+  "function:app.score_to_bigint(app.score)";
+  "schema:app";
+  "type:app.score";
+  "type:app.score" -> "schema:app" [style=solid];
+  "function:app.score_to_bigint(app.score)" -> "schema:app" [style=solid];
+  "function:app.score_to_bigint(app.score)" -> "type:app.score" [style=solid];
+  "cast:app.score_as_pg_catalog.int8" -> "type:app.score" [style=solid];
+  "cast:app.score_as_pg_catalog.int8" -> "function:app.score_to_bigint(app.score)" [style=solid];
+}
