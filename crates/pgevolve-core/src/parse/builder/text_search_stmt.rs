@@ -384,21 +384,26 @@ fn qname_from_defelem_typename(
             location: location.clone(),
             message: format!("TEXT SEARCH object {context_qname}: option `{option}` has no value"),
         })?;
+    // An unqualified template/parser name resolves to `pg_catalog` — that is
+    // the implicit home of every built-in template (`snowball`, `simple`, …)
+    // and parser (`default`), and is exactly what the reader produces from
+    // `pg_ts_template`/`pg_ts_parser`. Defaulting to the object's own schema
+    // instead would make `TEMPLATE = snowball` round-trip as `<schema>.snowball`
+    // and diverge from the reader's `pg_catalog.snowball` on every run. Mirrors
+    // the unqualified-type default in `cast_stmt`.
+    let pg_catalog = Identifier::from_unquoted("pg_catalog").expect("static identifier");
     match arg {
         NodeEnum::TypeName(tn) => {
-            // Use the default schema from the object's own schema if unqualified.
-            let default = Some(context_qname.schema.clone());
-            shared::qname_from_string_list(&tn.names, default.as_ref(), location)
+            shared::qname_from_string_list(&tn.names, Some(&pg_catalog), location)
         }
         NodeEnum::List(list) => {
             // Some pg_query versions encode the name as a raw List of Strings.
-            let default = Some(context_qname.schema.clone());
-            shared::qname_from_string_list(&list.items, default.as_ref(), location)
+            shared::qname_from_string_list(&list.items, Some(&pg_catalog), location)
         }
         NodeEnum::String(s) => {
-            // Bare unqualified keyword — treat as name in the object's schema.
+            // Bare unqualified keyword — built-in template/parser in pg_catalog.
             let name = shared::ident(&s.sval, location)?;
-            Ok(QualifiedName::new(context_qname.schema.clone(), name))
+            Ok(QualifiedName::new(pg_catalog, name))
         }
         other => Err(ParseError::Structural {
             location: location.clone(),
@@ -516,22 +521,25 @@ fn dict_qname_from_node(
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
 ) -> Result<QualifiedName, ParseError> {
+    // An unqualified mapping dictionary defaults to `pg_catalog` (the home of
+    // the built-in dictionaries — `simple`, `english_stem`, …, the common
+    // unqualified case — and what the reader produces for them). A managed
+    // dictionary in a user schema must be written qualified (`WITH app.en`),
+    // matching the reader's qualified output. A qualified `[schema, name]` list
+    // ignores the default. Consistent with the template/parser default above.
+    let pg_catalog = Identifier::from_unquoted("pg_catalog").expect("static identifier");
+    let default = default_schema.unwrap_or(&pg_catalog);
     match node.node.as_ref() {
         Some(NodeEnum::List(list)) => {
-            shared::qname_from_string_list(&list.items, default_schema, location)
+            shared::qname_from_string_list(&list.items, Some(default), location)
         }
         Some(NodeEnum::TypeName(tn)) => {
-            shared::qname_from_string_list(&tn.names, default_schema, location)
+            shared::qname_from_string_list(&tn.names, Some(default), location)
         }
         Some(NodeEnum::String(s)) => {
-            // Single unqualified name — needs default schema.
+            // Single unqualified name — built-in dictionary in pg_catalog.
             let name = shared::ident(&s.sval, location)?;
-            let schema = default_schema
-                .cloned()
-                .ok_or_else(|| ParseError::UnqualifiedName {
-                    location: location.clone(),
-                })?;
-            Ok(QualifiedName::new(schema, name))
+            Ok(QualifiedName::new(default.clone(), name))
         }
         other => Err(ParseError::Structural {
             location: location.clone(),
@@ -705,7 +713,10 @@ mod tests {
         assert_eq!(cat.ts_dictionaries.len(), 1);
         let d = &cat.ts_dictionaries[0];
         assert_eq!(d.qname.to_string(), "app.d");
-        assert_eq!(d.template.to_string(), "app.snowball");
+        // Unqualified `TEMPLATE = snowball` resolves to the built-in's home
+        // (`pg_catalog`), matching what the reader produces — not the dict's
+        // own schema (which would diff-loop forever).
+        assert_eq!(d.template.to_string(), "pg_catalog.snowball");
         assert_eq!(d.options.len(), 1);
         assert_eq!(
             d.options[0],
@@ -917,7 +928,7 @@ mod tests {
         let mut acc: Vec<TsDictionary> = Vec::new();
         parse_create_dictionary(&stmt, None, &loc(), &mut acc).expect("ok");
         assert_eq!(acc.len(), 1);
-        assert_eq!(acc[0].template.to_string(), "app.snowball");
+        assert_eq!(acc[0].template.to_string(), "pg_catalog.snowball");
         assert_eq!(acc[0].options[0].0, "language");
         assert_eq!(acc[0].options[0].1, "english");
     }
