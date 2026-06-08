@@ -9,7 +9,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **`CAST` support.** Custom casts via `CREATE CAST` (`WITH FUNCTION` / `WITHOUT FUNCTION` / `WITH INOUT`; `EXPLICIT` / `ASSIGNMENT` / `IMPLICIT` contexts), `DROP`, and `COMMENT ON`. Managed: casts are auto-dropped when removed from source. `WITH FUNCTION` is constrained to managed SQL/plpgsql functions — source rejects references to unmanaged or built-in functions via the `cast-references-unmanaged-function` lint. System casts (function `oid < 16384`) and extension-owned casts are excluded from introspection. No `ALTER CAST` in Postgres, so any structural change is drop + create; identity is `(source_type, target_type)`.
+- **`CAST` support.** Custom casts via `CREATE CAST` (`WITH FUNCTION` / `WITHOUT FUNCTION` / `WITH INOUT`; `EXPLICIT` / `ASSIGNMENT` / `IMPLICIT` contexts), `DROP`, and `COMMENT ON`. Managed: casts are auto-dropped when removed from source. `WITH FUNCTION` is constrained to managed SQL/plpgsql functions — source rejects references to unmanaged or built-in functions via the `cast-references-unmanaged-function` lint. Built-in/system casts (`pg_cast.oid < 16384`) and extension-owned casts are excluded from introspection. No `ALTER CAST` in Postgres, so any structural change is drop + create; identity is `(source_type, target_type)`.
 
 ## [0.4.1] — 2026-06-07
 

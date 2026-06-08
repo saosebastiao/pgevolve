@@ -678,7 +678,7 @@ pub enum AggregateChange {
 /// A change to a single cast (identity = `(source, target)`).
 ///
 /// Casts are global (non-schema-scoped) objects with no owner.
-/// Any structural difference requires `DROP CAST … CASCADE` + `CREATE CAST`
+/// Any structural difference requires `DROP CAST` + `CREATE CAST`
 /// because Postgres has no `ALTER CAST` for method or context changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
