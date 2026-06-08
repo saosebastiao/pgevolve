@@ -257,8 +257,7 @@ fn comment_sql(qname: &QualifiedName, comment: Option<&str>) -> String {
 /// safe).
 fn render_token_type(token_type: &str) -> String {
     Identifier::from_unquoted(token_type)
-        .map(|i| i.render_sql())
-        .unwrap_or_else(|_| token_type.to_string())
+        .map_or_else(|_| token_type.to_string(), |i| i.render_sql())
 }
 
 /// Render a comma-separated list of dictionary qualified names.
