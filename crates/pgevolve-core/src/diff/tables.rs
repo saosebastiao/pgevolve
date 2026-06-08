@@ -58,6 +58,7 @@ pub fn diff_tables(
                 policies: vec![],
                 storage: crate::ir::reloptions::TableStorageOptions::default(),
                 access_method: None,
+                tablespace: None,
             };
             emit_table_attribute_changes(&empty_target, source_table, managed_roles, out);
         }
@@ -476,6 +477,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         }
     }
 
@@ -593,6 +595,7 @@ mod tests {
                 ..Default::default()
             },
             access_method: None,
+            tablespace: None,
         };
         source.tables.push(table);
 
@@ -739,6 +742,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         }
     }
 

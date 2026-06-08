@@ -205,6 +205,7 @@ fn create_table_emits_full_create_with_columns_and_pk() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     };
     let mut cs = ChangeSet::new();
     cs.push(Change::CreateTable(t), Destructiveness::Safe);
@@ -653,6 +654,7 @@ fn create_index_on_existing_table_rewrites_to_concurrent() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
 
     let idx = make_index("users_idx", qn("app", "users"), false);
@@ -713,6 +715,7 @@ fn unique_create_index_does_not_rewrite_to_concurrent() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
 
     let idx = make_index("users_email_idx", qn("app", "users"), true);
@@ -749,6 +752,7 @@ fn atomic_policy_disables_concurrent_index_rewrite() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
 
     let idx = make_index("users_idx", qn("app", "users"), false);
@@ -880,6 +884,7 @@ fn add_fk_on_existing_table_emits_two_steps() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
     target.tables.push(Table {
         qname: qn("app", "orgs"),
@@ -895,6 +900,7 @@ fn add_fk_on_existing_table_emits_two_steps() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
 
     let mut cs = ChangeSet::new();
@@ -974,6 +980,7 @@ fn add_fk_with_atomic_policy_stays_inline() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
 
     let mut cs = ChangeSet::new();
@@ -1023,6 +1030,7 @@ fn add_unique_constraint_on_existing_table_does_not_trigger_fk_rewrite() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
 
     let mut cs = ChangeSet::new();
@@ -1088,6 +1096,7 @@ fn add_check_on_existing_table_emits_two_steps() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
 
     let mut cs = ChangeSet::new();
@@ -1158,6 +1167,7 @@ fn add_check_with_atomic_policy_stays_inline() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
 
     let mut cs = ChangeSet::new();
@@ -1208,6 +1218,7 @@ fn target_with_users_and_email() -> Catalog {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
     target
 }
@@ -1368,6 +1379,7 @@ fn rewrite_preserves_bucket_order_creates_modifies_drops() {
         policies: vec![],
         storage: crate::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
 
     let mut cs = ChangeSet::new();

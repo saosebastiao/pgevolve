@@ -54,6 +54,7 @@ mod tests {
             policies,
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         }
     }
 

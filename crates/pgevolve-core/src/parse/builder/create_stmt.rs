@@ -150,6 +150,7 @@ pub fn build_table(
         policies: vec![],
         storage,
         access_method,
+        tablespace: None,
     })
 }
 

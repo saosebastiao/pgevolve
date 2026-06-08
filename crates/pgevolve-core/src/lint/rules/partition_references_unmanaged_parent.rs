@@ -73,6 +73,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
 
         // Child partition referencing the parent.
@@ -93,6 +94,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
 
         let tree = empty_tree(c);
@@ -130,6 +132,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
 
         let tree = empty_tree(c);
@@ -172,6 +175,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
 
         let tree = empty_tree(c);

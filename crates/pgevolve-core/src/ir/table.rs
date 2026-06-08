@@ -42,6 +42,8 @@ pub struct Table {
     /// Table access method (`CREATE TABLE … USING <am>`). `None` = inherit the
     /// cluster default (`heap`). Canon normalizes `Some("heap")` → `None`.
     pub access_method: Option<Identifier>,
+    /// Tablespace placement (`TABLESPACE <name>`). `None` = the database default (`pg_default`). Applies to regular tables, partitioned parents (default for future partitions), and partition children (overrides parent default).
+    pub tablespace: Option<Identifier>,
 }
 
 impl Diff for Table {
@@ -92,6 +94,16 @@ impl Diff for Table {
             "storage",
             &format!("{:?}", self.storage),
             &format!("{:?}", other.storage),
+        ));
+        out.extend(diff_field(
+            "access_method",
+            &format!("{:?}", self.access_method),
+            &format!("{:?}", other.access_method),
+        ));
+        out.extend(diff_field(
+            "tablespace",
+            &format!("{:?}", self.tablespace),
+            &format!("{:?}", other.tablespace),
         ));
         out.extend(diff_columns(&self.columns, &other.columns));
         out.extend(diff_constraints(&self.constraints, &other.constraints));
@@ -232,6 +244,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         }
     }
 
@@ -357,6 +370,21 @@ mod tests {
         assert_eq!(
             restored.access_method.as_ref().map(Identifier::as_str),
             Some("columnar"),
+        );
+    }
+
+    #[test]
+    fn tablespace_field_roundtrips() {
+        let mut t = base();
+        assert!(t.tablespace.is_none(), "default tablespace must be None");
+        t.tablespace = Some(Identifier::from_unquoted("fast").unwrap());
+        assert_eq!(t.tablespace.as_ref().map(Identifier::as_str), Some("fast"),);
+        // JSON round-trip preserves the field.
+        let json = serde_json::to_string(&t).unwrap();
+        let restored: Table = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            restored.tablespace.as_ref().map(Identifier::as_str),
+            Some("fast"),
         );
     }
 }

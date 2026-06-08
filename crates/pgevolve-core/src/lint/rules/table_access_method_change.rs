@@ -69,6 +69,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: am.map(id),
+            tablespace: None,
         }
     }
 

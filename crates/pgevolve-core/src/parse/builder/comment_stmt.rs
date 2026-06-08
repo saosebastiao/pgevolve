@@ -567,6 +567,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         c.indexes.push(IrIndex {
             qname: qn("users_email_idx"),

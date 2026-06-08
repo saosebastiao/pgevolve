@@ -131,6 +131,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         }
     }
 
@@ -211,6 +212,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         };
         let seqs = desugar_serials_in_table(&mut t, &loc()).unwrap();
         assert!(seqs.is_empty());

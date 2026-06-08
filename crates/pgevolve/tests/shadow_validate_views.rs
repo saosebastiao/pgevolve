@@ -112,6 +112,7 @@ fn small_catalog_with_view() -> Catalog {
         policies: vec![],
         storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
 
     // A view that selects from app.users.
@@ -229,6 +230,7 @@ async fn shadow_validate_strict_fails_on_missing_ast_edge() {
         policies: vec![],
         storage: pgevolve_core::ir::reloptions::TableStorageOptions::default(),
         access_method: None,
+        tablespace: None,
     });
     // View body references app.users but body_dependencies claims a
     // non-existent table — this produces extra_ast_edges.

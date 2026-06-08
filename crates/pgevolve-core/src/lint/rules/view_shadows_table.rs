@@ -72,6 +72,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         // View with the same qname as the table.
         c.views.push(View {
@@ -122,6 +123,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         // MV with the same qname as the table.
         c.materialized_views.push(MaterializedView {
@@ -165,6 +167,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         c.views.push(View {
             qname: qn("app", "active_users"),

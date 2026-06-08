@@ -156,6 +156,7 @@ mod tests {
             policies: vec![],
             storage: TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         }
     }
 

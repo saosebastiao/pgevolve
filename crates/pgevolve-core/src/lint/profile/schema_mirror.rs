@@ -116,6 +116,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         let mut locs = HashMap::new();
         locs.insert(ObjectKey::Schema(id("app")), loc("schema/app/_schema.sql"));
@@ -145,6 +146,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         let mut locs = HashMap::new();
         locs.insert(
@@ -175,6 +177,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         c.tables.push(Table {
             qname: qn("app", "orgs"),
@@ -190,6 +193,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         let mut locs = HashMap::new();
         locs.insert(

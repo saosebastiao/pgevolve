@@ -29,6 +29,7 @@ pub fn run(cat: &mut Catalog) {
     }
     for table in &mut cat.tables {
         normalize_table_access_method(table);
+        normalize_table_tablespace(table);
         for col in &mut table.columns {
             normalize_column_collation(col);
             normalize_column_storage(col);
@@ -173,6 +174,18 @@ fn normalize_table_access_method(table: &mut Table) {
         .is_some_and(|am| am.as_str() == "heap")
     {
         table.access_method = None;
+    }
+}
+
+/// `pg_default` is PG's default tablespace; strip it so an explicit
+/// `TABLESPACE pg_default` in source round-trips equal to the reader's `None`.
+fn normalize_table_tablespace(table: &mut Table) {
+    if table
+        .tablespace
+        .as_ref()
+        .is_some_and(|ts| ts.as_str() == "pg_default")
+    {
+        table.tablespace = None;
     }
 }
 
@@ -339,6 +352,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, None);
@@ -373,6 +387,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         run(&mut cat);
         assert_eq!(cat.tables[0].columns[0].collation, Some(explicit));
@@ -761,7 +776,7 @@ mod tests {
         assert_eq!(before, after, "non-range types must not be mutated");
     }
 
-    // ── normalize_table_access_method tests ─────────────────────────────────
+    // ── normalize_table_access_method / normalize_table_tablespace tests ────
 
     fn bare_table(name: &str, access_method: Option<Identifier>) -> Table {
         Table {
@@ -778,6 +793,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method,
+            tablespace: None,
         }
     }
 
@@ -796,6 +812,33 @@ mod tests {
             cat.tables[1].access_method,
             Some(id("columnar")),
             "non-default access method must be preserved"
+        );
+    }
+
+    #[test]
+    fn strips_pg_default_tablespace() {
+        let mut cat = Catalog::empty();
+        let mut t = bare_table("t_pgdefault", None);
+        t.tablespace = Some(id("pg_default"));
+        cat.tables.push(t);
+        run(&mut cat);
+        assert_eq!(
+            cat.tables[0].tablespace, None,
+            "`pg_default` is PG's default tablespace — should be stripped to None"
+        );
+    }
+
+    #[test]
+    fn keeps_non_default_tablespace() {
+        let mut cat = Catalog::empty();
+        let mut t = bare_table("t_fast", None);
+        t.tablespace = Some(id("fast"));
+        cat.tables.push(t);
+        run(&mut cat);
+        assert_eq!(
+            cat.tables[0].tablespace,
+            Some(id("fast")),
+            "non-default tablespace must be preserved"
         );
     }
 

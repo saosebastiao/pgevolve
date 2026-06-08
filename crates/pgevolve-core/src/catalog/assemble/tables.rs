@@ -162,6 +162,7 @@ pub(super) fn build_tables(
                 policies: vec![], // populated by attach_policies after tables build
                 storage,
                 access_method,
+                tablespace: None,
             },
         );
     }

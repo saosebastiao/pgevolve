@@ -260,6 +260,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         let mut locs = HashMap::new();
         locs.insert(
@@ -288,6 +289,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         let mut locs = HashMap::new();
         locs.insert(
@@ -316,6 +318,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         let mut locs = HashMap::new();
         locs.insert(

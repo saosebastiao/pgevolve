@@ -138,6 +138,7 @@ fn arbitrary_table(
                         policies,
                         storage,
                         access_method: None,
+                        tablespace: None,
                     }
                 },
             )

@@ -66,6 +66,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         // An enum type that collides with the table.
         c.types.push(UserType {
@@ -115,6 +116,7 @@ mod tests {
             policies: vec![],
             storage: crate::ir::reloptions::TableStorageOptions::default(),
             access_method: None,
+            tablespace: None,
         });
         c.types.push(UserType {
             qname: qn("app", "user_status"),
