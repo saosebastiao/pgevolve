@@ -326,5 +326,15 @@ pub fn op(
             sql: sql::comment_on_table(qname, comment.as_deref()),
             transactional: TransactionConstraint::InTransaction,
         }),
+        TableOp::SetTableSpace { name } => out.push(RawStep {
+            step_no: 0,
+            kind: StepKind::AlterTableSetTablespace,
+            destructive,
+            destructive_reason,
+            intent_id: None,
+            targets: vec![qname.clone()],
+            sql: sql::alter_table_set_tablespace(qname, name.as_ref()),
+            transactional: TransactionConstraint::InTransaction,
+        }),
     }
 }

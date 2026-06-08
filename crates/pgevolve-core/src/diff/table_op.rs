@@ -123,6 +123,12 @@ pub enum TableOp {
         /// New comment (`None` clears).
         comment: Option<String>,
     },
+
+    /// Move the table to a different tablespace (`None` = `pg_default`).
+    SetTableSpace {
+        /// New tablespace name; `None` means the cluster default (`pg_default`).
+        name: Option<Identifier>,
+    },
 }
 
 #[cfg(test)]

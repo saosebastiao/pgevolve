@@ -101,6 +101,12 @@ pub fn create_table(t: &Table) -> String {
         s.push_str(&am.render_sql());
     }
 
+    // TABLESPACE clause — omit when None (use cluster default implicitly).
+    if let Some(ts) = &t.tablespace {
+        s.push_str(" TABLESPACE ");
+        s.push_str(&ts.render_sql());
+    }
+
     s.push(';');
     s
 }
@@ -108,6 +114,15 @@ pub fn create_table(t: &Table) -> String {
 /// `DROP TABLE schema.name;`
 pub fn drop_table(qname: &QualifiedName) -> String {
     format!("DROP TABLE {};", qname.render_sql())
+}
+
+/// `ALTER TABLE qname SET TABLESPACE name;`
+///
+/// When `name` is `None` the literal `pg_default` is used (the cluster default
+/// tablespace).
+pub fn alter_table_set_tablespace(qname: &QualifiedName, name: Option<&Identifier>) -> String {
+    let ts = name.map_or_else(|| "pg_default".to_owned(), Identifier::render_sql);
+    format!("ALTER TABLE {} SET TABLESPACE {};", qname.render_sql(), ts)
 }
 
 /// `COMMENT ON TABLE qname IS '...';`
@@ -1110,6 +1125,47 @@ mod tests {
         assert!(
             !sql.contains("USING"),
             "expected no USING clause when access_method is None, got: {sql}"
+        );
+    }
+
+    // --- tablespace tests ---
+
+    #[test]
+    fn alter_table_set_tablespace_with_name() {
+        let qname = qn("app", "orders");
+        let ts = id("fast");
+        let sql = alter_table_set_tablespace(&qname, Some(&ts));
+        assert_eq!(sql, "ALTER TABLE app.orders SET TABLESPACE fast;");
+    }
+
+    #[test]
+    fn alter_table_set_tablespace_none_uses_pg_default() {
+        let qname = qn("app", "orders");
+        let sql = alter_table_set_tablespace(&qname, None);
+        assert_eq!(sql, "ALTER TABLE app.orders SET TABLESPACE pg_default;");
+    }
+
+    #[test]
+    fn create_table_with_tablespace_appends_clause() {
+        let mut t = empty_table(qn("app", "events"));
+        t.columns = vec![simple_col("id")];
+        t.tablespace = Some(id("fast_ssd"));
+        let sql = create_table(&t);
+        assert!(
+            sql.ends_with(" TABLESPACE fast_ssd;"),
+            "expected TABLESPACE clause at end, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn create_table_without_tablespace_omits_clause() {
+        let mut t = empty_table(qn("app", "events"));
+        t.columns = vec![simple_col("id")];
+        // tablespace is None (the default)
+        let sql = create_table(&t);
+        assert!(
+            !sql.contains("TABLESPACE"),
+            "expected no TABLESPACE clause when tablespace is None, got: {sql}"
         );
     }
 }

@@ -44,6 +44,8 @@ pub enum StepKind {
     DropTable,
     /// `COMMENT ON TABLE`.
     AlterTableSetComment,
+    /// `ALTER TABLE … SET TABLESPACE …`.
+    AlterTableSetTablespace,
 
     /// `ALTER TABLE ... ADD COLUMN`.
     AddColumn,
@@ -381,6 +383,7 @@ mod tests {
             StepKind::CreateTable,
             StepKind::DropTable,
             StepKind::AlterTableSetComment,
+            StepKind::AlterTableSetTablespace,
             StepKind::AddColumn,
             StepKind::DropColumn,
             StepKind::AlterColumnType,
