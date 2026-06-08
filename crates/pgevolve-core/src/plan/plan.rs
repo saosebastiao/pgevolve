@@ -532,6 +532,11 @@ pub const fn kind_name(k: crate::plan::raw_step::StepKind) -> &'static str {
         K::CreateCast => "create_cast",
         K::DropCast => "drop_cast",
         K::CommentOnCast => "comment_on_cast",
+        K::CreateTsDictionary => "create_ts_dictionary",
+        K::DropTsDictionary => "drop_ts_dictionary",
+        K::AlterTsDictionary => "alter_ts_dictionary",
+        K::AlterTsDictionaryOwner => "alter_ts_dictionary_owner",
+        K::CommentOnTsDictionary => "comment_on_ts_dictionary",
     }
 }
 
@@ -670,6 +675,11 @@ pub fn parse_kind_name(s: &str) -> Option<crate::plan::raw_step::StepKind> {
         "create_cast" => K::CreateCast,
         "drop_cast" => K::DropCast,
         "comment_on_cast" => K::CommentOnCast,
+        "create_ts_dictionary" => K::CreateTsDictionary,
+        "drop_ts_dictionary" => K::DropTsDictionary,
+        "alter_ts_dictionary" => K::AlterTsDictionary,
+        "alter_ts_dictionary_owner" => K::AlterTsDictionaryOwner,
+        "comment_on_ts_dictionary" => K::CommentOnTsDictionary,
         _ => return None,
     })
 }

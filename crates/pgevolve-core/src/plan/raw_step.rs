@@ -335,6 +335,18 @@ pub enum StepKind {
     DropCast,
     /// `COMMENT ON CAST (source AS target) IS '...';`.
     CommentOnCast,
+
+    // --- v0.4 text-search dictionary step kinds ---
+    /// `CREATE TEXT SEARCH DICTIONARY qname (TEMPLATE = …[, opt = val, …]);`.
+    CreateTsDictionary,
+    /// `DROP TEXT SEARCH DICTIONARY qname;`.
+    DropTsDictionary,
+    /// `ALTER TEXT SEARCH DICTIONARY qname (opt = val, …);`.
+    AlterTsDictionary,
+    /// `ALTER TEXT SEARCH DICTIONARY qname OWNER TO role;`.
+    AlterTsDictionaryOwner,
+    /// `COMMENT ON TEXT SEARCH DICTIONARY qname IS '...';`.
+    CommentOnTsDictionary,
 }
 
 /// One unit of work the executor will attempt.
@@ -507,6 +519,11 @@ mod tests {
             StepKind::CreateCast,
             StepKind::DropCast,
             StepKind::CommentOnCast,
+            StepKind::CreateTsDictionary,
+            StepKind::DropTsDictionary,
+            StepKind::AlterTsDictionary,
+            StepKind::AlterTsDictionaryOwner,
+            StepKind::CommentOnTsDictionary,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: StepKind = serde_json::from_str(&json).unwrap();

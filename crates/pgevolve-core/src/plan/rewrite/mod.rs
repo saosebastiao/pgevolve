@@ -869,14 +869,15 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             emit::cast::emit(cc, destructive, destructive_reason, out);
         }
 
-        // TODO(textsearch Task 6): wire TsDictionaryChange into emit::ts_dictionary::emit.
+        Change::TsDictionary(dc) => {
+            emit::ts_dictionary::emit(dc, destructive, destructive_reason, out);
+        }
+
         // TODO(textsearch Task 7): wire TsConfigurationChange into emit::ts_configuration::emit.
-        // Placeholder: these arms will never be reached until the differ (Task 3/4) emits
-        // TsDictionary / TsConfiguration changes, so an unreachable here is safe for now.
-        Change::TsDictionary(_) | Change::TsConfiguration(_) => {
+        Change::TsConfiguration(_) => {
             unreachable!(
-                "TsDictionary/TsConfiguration changes must not reach the rewrite phase \
-                 until emit support is added (Tasks 6/7)"
+                "TsConfiguration changes must not reach the rewrite phase \
+                 until emit support is added (Task 7)"
             )
         }
 
