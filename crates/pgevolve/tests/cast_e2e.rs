@@ -40,7 +40,7 @@ use common::{apply_diff, assert_convergent, connect_and_bootstrap, introspect, s
 ///
 /// This exercises the parser ↔ reader round-trip for:
 /// - source type: `app.celsius` (user-defined domain)
-/// - target type: `pg_catalog.text` (built-in, schema-qualified by pg_query)
+/// - target type: `pg_catalog.text` (built-in, schema-qualified by `pg_query`)
 /// - cast function arg type: `app.celsius` (domain, decoded via
 ///   `pg_get_function_identity_arguments`)
 ///
