@@ -58,6 +58,8 @@ pub struct Catalog {
     pub default_privileges: Vec<crate::ir::default_privileges::DefaultPrivilegeRule>,
     /// User-defined aggregates (`CREATE AGGREGATE`).
     pub aggregates: Vec<crate::ir::aggregate::Aggregate>,
+    /// User-defined casts (`CREATE CAST`).
+    pub casts: Vec<crate::ir::cast::Cast>,
 }
 
 impl Catalog {
@@ -83,6 +85,7 @@ impl Catalog {
             collations: Vec::new(),
             default_privileges: Vec::new(),
             aggregates: Vec::new(),
+            casts: Vec::new(),
         }
     }
 

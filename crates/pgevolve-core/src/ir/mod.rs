@@ -6,6 +6,7 @@
 
 pub mod aggregate;
 pub mod canon;
+pub mod cast;
 pub mod catalog;
 pub mod cluster;
 pub mod collation;
@@ -99,6 +100,15 @@ pub enum IrError {
     /// Two aggregates share the same `(qname, arg_types)` overload identity.
     #[error("duplicate aggregate overload: {0} (same name and argument types)")]
     DuplicateAggregate(crate::identifier::QualifiedName),
+
+    /// Two casts share the same `(source, target)` identity.
+    #[error("duplicate cast ({src} AS {tgt})")]
+    DuplicateCast {
+        /// Source type of the duplicate cast.
+        src: crate::identifier::QualifiedName,
+        /// Target type of the duplicate cast.
+        tgt: crate::identifier::QualifiedName,
+    },
 
     /// Two tablespaces share a name.
     #[error("duplicate tablespace: {0}")]

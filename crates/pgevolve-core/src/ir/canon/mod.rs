@@ -29,6 +29,7 @@
 //! See `docs/superpowers/specs/2026-05-19-canon-consolidation-design.md`.
 
 pub mod aggregates;
+pub mod casts;
 pub mod cluster;
 pub mod collations;
 pub mod default_privileges;
@@ -104,6 +105,7 @@ pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
     publications::run(cat)?;
     event_triggers::run(cat)?;
     aggregates::run(cat)?;
+    casts::run(cat)?;
     subscriptions::run(cat)?;
     statistics::run(cat)?;
     collations::run(cat)?;

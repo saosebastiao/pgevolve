@@ -945,6 +945,7 @@ mod tests {
     /// ("data type json has no default operator class for access method
     /// 'btree'"). Confirms the mutator now filters columns by
     /// `is_btree_indexable` before picking.
+    #[allow(clippy::too_many_lines)] // full Catalog struct literal needs all fields; each new object kind adds one line
     #[test]
     fn add_index_skips_non_btree_indexable_columns() {
         use pgevolve_core::ir::column::Column;
@@ -1036,6 +1037,7 @@ mod tests {
             collations: vec![],
             default_privileges: vec![],
             aggregates: vec![],
+            casts: vec![],
         };
 
         // Try every seed in 0..16 (covering all column-pick positions and
