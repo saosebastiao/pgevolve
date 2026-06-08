@@ -29,8 +29,8 @@ the charter is the meaning of "done".
 | v0.4.0 | `TABLE ... USING <access method>` | [`2026-06-06-table-access-method.md`](../superpowers/plans/2026-06-06-table-access-method.md) |
 | v0.4.1 | `AGGREGATE` (ordinary: SFUNC + STYPE) | [`2026-06-06-aggregate.md`](../superpowers/plans/2026-06-06-aggregate.md) |
 | v0.4.2 | `CAST` | [`2026-06-07-cast.md`](../superpowers/plans/2026-06-07-cast.md) |
-| Unreleased | Per-partition `TABLESPACE` | [`2026-06-08-table-tablespace.md`](../superpowers/plans/2026-06-08-table-tablespace.md) |
-| Unreleased | `TEXT SEARCH` family (`DICTIONARY` + `CONFIGURATION`) | [`2026-06-08-text-search.md`](../superpowers/plans/2026-06-08-text-search.md) |
+| v0.4.3 | Per-partition `TABLESPACE` | [`2026-06-08-table-tablespace.md`](../superpowers/plans/2026-06-08-table-tablespace.md) |
+| v0.4.3 | `TEXT SEARCH` family (`DICTIONARY` + `CONFIGURATION`) | [`2026-06-08-text-search.md`](../superpowers/plans/2026-06-08-text-search.md) |
 
 ## Active matrix
 
