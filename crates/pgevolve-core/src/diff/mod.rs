@@ -12,6 +12,7 @@
 //! in `*.sql` files; running the resulting plan converges target to source.
 
 pub mod aggregates;
+pub mod casts;
 pub mod change;
 pub mod changeset;
 pub mod cluster;
@@ -123,6 +124,7 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
     subscriptions::diff_subscriptions(target, source, &mut out);
     event_triggers::diff_event_triggers(target, source, &mut out);
     aggregates::diff_aggregates(target, source, &mut out);
+    casts::diff_casts(target, source, &mut out);
     statistics::diff_statistics(target, source, &mut out);
     collations::diff_collations(target, source, &mut out);
 
