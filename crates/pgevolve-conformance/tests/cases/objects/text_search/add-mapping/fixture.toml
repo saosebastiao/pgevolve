@@ -1,0 +1,14 @@
+[meta]
+title     = "ADD MAPPING — managed dictionary must be created before the mapping that references it"
+authoring = "objects"
+spec_refs = ["objects.ts_configuration", "objects.ts_dictionary"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 4
+order = [
+  "app.en < app.cfg",
+]

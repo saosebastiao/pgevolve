@@ -1,0 +1,7 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "schema:app";
+  "ts_configuration:app.cfg";
+  "ts_configuration:app.cfg" -> "schema:app" [style=solid];
+}

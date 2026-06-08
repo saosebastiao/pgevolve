@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE TEXT SEARCH DICTIONARY — snowball stemmer with language option"
+authoring = "objects"
+spec_refs = ["objects.ts_dictionary"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

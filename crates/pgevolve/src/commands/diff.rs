@@ -669,8 +669,6 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
-            // TODO(textsearch Task 11): add detailed per-variant display for
-            // TsDictionary and TsConfiguration once the CLI describe phase lands.
             pgevolve_core::diff::change::Change::TsDictionary(tsd) => {
                 use pgevolve_core::diff::change::TsDictionaryChange;
                 match tsd {
@@ -1023,7 +1021,6 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Cast(pgevolve_core::diff::change::CastChange::CommentOn { .. }) => {
             "comment_on_cast"
         }
-        // TODO(textsearch Task 11): expand to per-variant names once the CLI describe phase lands.
         Change::TsDictionary(pgevolve_core::diff::change::TsDictionaryChange::Create(_)) => {
             "create_ts_dictionary"
         }

@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE TEXT SEARCH CONFIGURATION — default parser"
+authoring = "objects"
+spec_refs = ["objects.ts_configuration"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1

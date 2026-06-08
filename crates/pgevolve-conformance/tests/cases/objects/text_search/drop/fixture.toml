@@ -1,0 +1,11 @@
+[meta]
+title     = "DROP TEXT SEARCH DICTIONARY and CONFIGURATION"
+authoring = "objects"
+spec_refs = ["objects.ts_dictionary", "objects.ts_configuration"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 2

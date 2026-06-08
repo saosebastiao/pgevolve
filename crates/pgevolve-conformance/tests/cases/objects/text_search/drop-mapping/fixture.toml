@@ -1,0 +1,11 @@
+[meta]
+title     = "DROP MAPPING — remove token-type mappings from a configuration"
+authoring = "objects"
+spec_refs = ["objects.ts_configuration"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.plan]
+steps = 1
