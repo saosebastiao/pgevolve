@@ -5,6 +5,7 @@
 //! per-version submodules; [`query_for`] dispatches.
 
 pub mod aggregates;
+pub mod casts;
 pub mod cluster;
 pub mod collations;
 pub mod default_privileges;
@@ -84,6 +85,7 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (PgVersion::Pg17 | PgVersion::Pg18, CatalogQuery::Collations) => {
             collations::SELECT_COLLATIONS_PG17_PLUS
         }
+        (_, CatalogQuery::Casts) => casts::SELECT_CASTS,
     }
 }
 

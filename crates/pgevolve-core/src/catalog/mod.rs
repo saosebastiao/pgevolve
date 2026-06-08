@@ -52,6 +52,9 @@ use crate::ir::catalog::Catalog;
 /// - `unmanaged_aggregates`: ordered-set / hypothetical-set aggregates, or
 ///   aggregates whose state/final function is in an unmanaged language. The
 ///   associated row is skipped and never appears in `catalog.aggregates`.
+/// - `unmanaged_casts`: `WITH FUNCTION` casts whose conversion function is in
+///   a language other than `sql` / `plpgsql`. The associated row is skipped
+///   and never appears in `catalog.casts`.
 /// - `unreadable_subscriptions`: the connection used for the catalog read had
 ///   insufficient privilege to query `pg_subscription` (sqlstate 42501). The
 ///   subscription list in the returned catalog is empty; the operator must use
@@ -76,6 +79,11 @@ pub struct DriftReport {
     /// the aggregate qname. The associated row is skipped and never appears in
     /// `catalog.aggregates`.
     pub unmanaged_aggregates: Vec<QualifiedName>,
+    /// Casts pgevolve does not manage: `WITH FUNCTION` casts whose conversion
+    /// function is in a language other than `sql` / `plpgsql`. Identified by
+    /// `(source_qname, target_qname)`. The associated row is skipped and never
+    /// appears in `catalog.casts`.
+    pub unmanaged_casts: Vec<(QualifiedName, QualifiedName)>,
     /// `pg_subscription` was unreadable due to insufficient privilege (sqlstate
     /// 42501). `catalog.subscriptions` will be empty when this is `true`.
     pub unreadable_subscriptions: bool,
@@ -214,6 +222,16 @@ pub enum CatalogQuery {
     /// (built-in and extension-owned collations are filtered out at the SQL
     /// layer). Takes `$1::text[]` (managed schema names).
     Collations,
+    /// `pg_cast` rows for all user-defined casts in the database.
+    ///
+    /// Casts are database-global (not schema-scoped); takes **no**
+    /// `$1::text[]` parameter (`takes_text_array_param` returns `false`).
+    /// System / built-in casts (`oid < 16384`) and extension-owned casts
+    /// (`pg_depend.deptype = 'e'`) are excluded at the SQL layer. The
+    /// assembler skips casts whose conversion function is in an unmanaged
+    /// language (anything other than `sql` / `plpgsql`), recording those in
+    /// [`DriftReport::unmanaged_casts`].
+    Casts,
 }
 
 impl CatalogQuery {
@@ -239,6 +257,7 @@ impl CatalogQuery {
                 | Self::PublicationAttributes
                 | Self::EventTriggers
                 | Self::Subscriptions
+                | Self::Casts
         )
     }
 
@@ -331,6 +350,10 @@ pub fn read_catalog(
     // owned collations filtered at the SQL layer.
     let collations_rows = querier.fetch(CatalogQuery::Collations, &managed)?;
 
+    // Casts — database-global. System / extension-owned casts excluded at the
+    // SQL layer. Takes no schema param.
+    let casts_rows = querier.fetch(CatalogQuery::Casts, &[])?;
+
     let raw = assemble::RawRows {
         version,
         schemas: schemas_rows,
@@ -375,6 +398,9 @@ pub fn read_catalog(
 
     // Assemble collations from the bulk-fetched rows.
     catalog.collations = assemble::collations::build_collations(&collations_rows)?;
+
+    // Assemble casts from the bulk-fetched rows.
+    catalog.casts = assemble::casts::assemble_casts(&casts_rows, &mut drift)?;
 
     Ok((catalog.canonicalize()?, drift))
 }

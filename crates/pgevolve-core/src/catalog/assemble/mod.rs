@@ -17,6 +17,7 @@
 //!   linkage so source-IR and catalog-IR converge on the same shape.
 
 mod aggregates;
+pub(in crate::catalog) mod casts;
 pub(in crate::catalog) mod collations;
 pub(super) mod default_privileges;
 pub(super) mod event_triggers;

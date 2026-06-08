@@ -4,7 +4,8 @@
 //! from source IS auto-dropped — unlike lenient objects such as event triggers
 //! or statistics.
 //!
-//! Identity is `(source, target)`. Because [`QualifiedName`] does not implement
+//! Identity is `(source, target)`. Because
+//! [`QualifiedName`](crate::identifier::QualifiedName) does not implement
 //! [`Ord`], the `BTreeMap` key is `(String, String)` where each `String` is
 //! `QualifiedName::render_sql()` — a stable, canonical representation.
 //!
