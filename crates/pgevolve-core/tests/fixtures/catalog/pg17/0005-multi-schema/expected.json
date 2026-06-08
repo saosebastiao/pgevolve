@@ -224,5 +224,6 @@
   "subscriptions": [],
   "collations": [],
   "default_privileges": [],
-  "aggregates": []
+  "aggregates": [],
+  "casts": []
 }

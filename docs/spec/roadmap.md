@@ -28,6 +28,7 @@ the charter is the meaning of "done".
 | v0.4.0 | `TABLESPACE` (cluster object) | [`2026-06-05-tablespace.md`](../superpowers/plans/2026-06-05-tablespace.md) |
 | v0.4.0 | `TABLE ... USING <access method>` | [`2026-06-06-table-access-method.md`](../superpowers/plans/2026-06-06-table-access-method.md) |
 | v0.4.1 | `AGGREGATE` (ordinary: SFUNC + STYPE) | [`2026-06-06-aggregate.md`](../superpowers/plans/2026-06-06-aggregate.md) |
+| Unreleased | `CAST` | [`2026-06-07-cast.md`](../superpowers/plans/2026-06-07-cast.md) |
 
 ## Active matrix
 
@@ -43,7 +44,6 @@ matrix is the source of truth; the charter restates it).
 | v0.4.3 | `TEXT SEARCH` family | [`_skeleton/text-search.md`](../superpowers/plans/_skeleton/text-search.md) | Configuration / dictionary / parser / template. Depends on: `CREATE COLLATION` (shipped v0.3.8). |
 | v0.5.0 | FDW family | [`_skeleton/fdw-family.md`](../superpowers/plans/_skeleton/fdw-family.md) | `FDW`, `SERVER`, `USER MAPPING`, `FOREIGN TABLE`, `IMPORT FOREIGN SCHEMA`; includes secrets handling. Internal slot order within v0.5.0: FDW → SERVER → USER MAPPING → FOREIGN TABLE → IMPORT FOREIGN SCHEMA. |
 | v0.5.1 | `OPERATOR` / `OPERATOR CLASS` / `OPERATOR FAMILY` | [`_skeleton/operator-family.md`](../superpowers/plans/_skeleton/operator-family.md) | Heavy admin surface. Depends on: functions + custom types (both shipped v0.2.x). |
-| v0.5.2 | `CAST` | [`_skeleton/cast.md`](../superpowers/plans/_skeleton/cast.md) | Depends on: custom types + functions (both shipped v0.2.x). |
 | v0.5.3 | Recursive views (`WITH RECURSIVE`) | [`_skeleton/recursive-views.md`](../superpowers/plans/_skeleton/recursive-views.md) | Depends on: planner cycle-aware dep-graph work (internal, no roadmap row). |
 
 ## Future (no version commitment)
