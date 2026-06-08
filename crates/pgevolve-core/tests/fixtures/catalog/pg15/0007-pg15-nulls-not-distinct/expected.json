@@ -124,5 +124,7 @@
   "collations": [],
   "default_privileges": [],
   "aggregates": [],
-  "casts": []
+  "casts": [],
+  "ts_dictionaries": [],
+  "ts_configurations": []
 }
