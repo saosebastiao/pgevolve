@@ -641,7 +641,6 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
-            // TODO(cast Task 9): human-readable cast change descriptions.
             pgevolve_core::diff::change::Change::Cast(cc) => {
                 use pgevolve_core::diff::change::CastChange;
                 match cc {
@@ -936,7 +935,6 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Aggregate(pgevolve_core::diff::change::AggregateChange::CommentOn { .. }) => {
             "comment_on_aggregate"
         }
-        // TODO(cast Task 9): cast kind names used in diff output and JSON format.
         Change::Cast(pgevolve_core::diff::change::CastChange::Create(_)) => "create_cast",
         Change::Cast(pgevolve_core::diff::change::CastChange::Replace { .. }) => "replace_cast",
         Change::Cast(pgevolve_core::diff::change::CastChange::Drop { .. }) => "drop_cast",
