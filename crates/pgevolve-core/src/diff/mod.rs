@@ -38,6 +38,7 @@ pub mod subscriptions;
 pub mod table_op;
 pub mod tables;
 pub mod triggers;
+pub mod ts_dictionaries;
 pub mod types;
 pub mod views;
 
@@ -124,6 +125,7 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
     subscriptions::diff_subscriptions(target, source, &mut out);
     event_triggers::diff_event_triggers(target, source, &mut out);
     aggregates::diff_aggregates(target, source, &mut out);
+    ts_dictionaries::diff_ts_dictionaries(target, source, &mut out);
     casts::diff_casts(target, source, &mut out);
     statistics::diff_statistics(target, source, &mut out);
     collations::diff_collations(target, source, &mut out);
