@@ -232,6 +232,10 @@ pub enum CatalogQuery {
     /// language (anything other than `sql` / `plpgsql`), recording those in
     /// [`DriftReport::unmanaged_casts`].
     Casts,
+    /// `pg_ts_dict` rows for managed schemas — user-defined text-search
+    /// dictionaries only (extension-owned dictionaries are filtered out at the
+    /// SQL layer). Takes `$1::text[]` (managed schema names).
+    TsDictionaries,
 }
 
 impl CatalogQuery {
@@ -354,6 +358,9 @@ pub fn read_catalog(
     // SQL layer. Takes no schema param.
     let casts_rows = querier.fetch(CatalogQuery::Casts, &[])?;
 
+    // Text-search dictionaries — schema-scoped. Extension-owned excluded at SQL.
+    let ts_dictionaries_rows = querier.fetch(CatalogQuery::TsDictionaries, &managed)?;
+
     let raw = assemble::RawRows {
         version,
         schemas: schemas_rows,
@@ -384,6 +391,7 @@ pub fn read_catalog(
         publication_attributes: publication_attributes_rows,
         event_triggers: event_triggers_rows,
         subscriptions: subscriptions_rows,
+        ts_dictionaries: ts_dictionaries_rows,
     };
     let (mut catalog, mut drift) = assemble::assemble(raw, filter)?;
     drift.unreadable_subscriptions = unreadable_subscriptions;

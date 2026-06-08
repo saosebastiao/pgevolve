@@ -21,6 +21,7 @@ pub mod pg18;
 pub mod policies;
 pub mod shared;
 pub mod triggers;
+pub mod ts_dictionaries;
 pub mod types;
 pub mod views;
 
@@ -86,6 +87,7 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
             collations::SELECT_COLLATIONS_PG17_PLUS
         }
         (_, CatalogQuery::Casts) => casts::SELECT_CASTS,
+        (_, CatalogQuery::TsDictionaries) => ts_dictionaries::SELECT_TS_DICTIONARIES,
     }
 }
 
