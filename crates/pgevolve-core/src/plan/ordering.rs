@@ -455,10 +455,8 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                 | crate::diff::change::CastChange::Replace { .. } => drops.push(entry),
                 crate::diff::change::CastChange::CommentOn { .. } => modifies.push(entry),
             },
-            // TODO(textsearch Task 5): wire TsDictionary/TsConfiguration into
-            // the ordering graph once NodeId::TsDictionary / NodeId::TsConfiguration
-            // are added. For now, all text-search changes are non-destructive
-            // modifies (Create → creates, Drop/Replace → drops, alter/comment → modifies).
+            // TsDictionary: bucket by lifecycle phase.
+            // Create → creates, Drop/Replace → drops, alter/comment → modifies.
             Change::TsDictionary(tsd) => match tsd {
                 crate::diff::change::TsDictionaryChange::Create(_) => creates.push(entry),
                 crate::diff::change::TsDictionaryChange::Drop { .. }
@@ -469,6 +467,8 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                     modifies.push(entry);
                 }
             },
+            // TsConfiguration: bucket by lifecycle phase.
+            // Create → creates, Drop/Replace → drops, mapping/owner/comment → modifies.
             Change::TsConfiguration(tsc) => match tsc {
                 crate::diff::change::TsConfigurationChange::Create(_) => creates.push(entry),
                 crate::diff::change::TsConfigurationChange::Drop { .. }
@@ -791,10 +791,8 @@ fn change_node(change: &Change) -> NodeId {
             crate::diff::change::CastChange::Drop { source, target }
             | crate::diff::change::CastChange::CommentOn { source, target, .. },
         ) => NodeId::Cast(source.clone(), target.clone()),
-        // TODO(textsearch Task 5): add NodeId::TsDictionary / NodeId::TsConfiguration
-        // and route these properly once the dep-graph variants land.
-        // For now, anchor to the owning schema node (same fallback used for
-        // routine grants, which also lack a dedicated NodeId variant at this stage).
+        // TsDictionary node mapping: route each sub-variant to
+        // NodeId::TsDictionary keyed by the dictionary's qualified name.
         Change::TsDictionary(tsd) => {
             use crate::diff::change::TsDictionaryChange;
             let qname = match tsd {
@@ -806,8 +804,10 @@ fn change_node(change: &Change) -> NodeId {
                 | TsDictionaryChange::AlterOwner { qname, .. }
                 | TsDictionaryChange::CommentOn { qname, .. } => qname,
             };
-            NodeId::Schema(qname.schema.clone())
+            NodeId::TsDictionary(qname.clone())
         }
+        // TsConfiguration node mapping: route each sub-variant to
+        // NodeId::TsConfiguration keyed by the configuration's qualified name.
         Change::TsConfiguration(tsc) => {
             use crate::diff::change::TsConfigurationChange;
             let qname = match tsc {
@@ -821,7 +821,7 @@ fn change_node(change: &Change) -> NodeId {
                 | TsConfigurationChange::AlterOwner { qname, .. }
                 | TsConfigurationChange::CommentOn { qname, .. } => qname,
             };
-            NodeId::Schema(qname.schema.clone())
+            NodeId::TsConfiguration(qname.clone())
         }
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
@@ -963,6 +963,8 @@ fn render_node(n: &NodeId) -> String {
                 .join(",")
         ),
         NodeId::Cast(src, tgt) => format!("cast:{src}_as_{tgt}"),
+        NodeId::TsDictionary(q) => format!("ts_dictionary:{}", q.render_sql()),
+        NodeId::TsConfiguration(q) => format!("ts_configuration:{}", q.render_sql()),
     }
 }
 

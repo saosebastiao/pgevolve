@@ -89,6 +89,12 @@ pub enum NodeId {
     /// conversion function (when `WITH FUNCTION`) and on managed source/target
     /// types (when the types are user-defined and in the managed catalog).
     Cast(QualifiedName, QualifiedName),
+    /// A `CREATE TEXT SEARCH DICTIONARY` — schema-scoped.
+    TsDictionary(QualifiedName),
+    /// A `CREATE TEXT SEARCH CONFIGURATION` — schema-scoped. Depends on any
+    /// managed [`NodeId::TsDictionary`] objects referenced in its token-type
+    /// mappings.
+    TsConfiguration(QualifiedName),
 }
 
 /// Find the managed function that backs an aggregate's `sfunc`/`finalfunc`.
@@ -390,6 +396,42 @@ pub fn build_create_graph(catalog: &Catalog) -> Graph<NodeId> {
         // Edge to target type if it is a managed user-defined type.
         if catalog.types.iter().any(|t| t.qname == cast.target) {
             g.add_edge(cast_node.clone(), NodeId::Type(cast.target.clone()));
+        }
+    }
+
+    // Register text-search dictionaries; each depends on its schema (same
+    // pattern as collations). No edges to the template — templates are always
+    // unmanaged (e.g. pg_catalog.snowball).
+    for d in &catalog.ts_dictionaries {
+        let dict_node = NodeId::TsDictionary(d.qname.clone());
+        g.add_node(dict_node.clone());
+        g.add_edge(dict_node, NodeId::Schema(d.qname.schema.clone()));
+    }
+    // Register text-search configurations; each depends on its schema and on
+    // every managed dictionary referenced in its token-type mappings.
+    // A mapping may list built-in/extension dicts (e.g. pg_catalog.simple)
+    // that are absent from catalog.ts_dictionaries — skip those edges.
+    // Deduplicate: a dict referenced by multiple token-type mappings gets
+    // only one edge (use a HashSet to track seen qnames).
+    for cfg in &catalog.ts_configurations {
+        let cfg_node = NodeId::TsConfiguration(cfg.qname.clone());
+        g.add_node(cfg_node.clone());
+        g.add_edge(cfg_node.clone(), NodeId::Schema(cfg.qname.schema.clone()));
+        let mut seen: std::collections::HashSet<&QualifiedName> = std::collections::HashSet::new();
+        for mapping in &cfg.mappings {
+            for dict_qname in &mapping.dictionaries {
+                if seen.contains(dict_qname) {
+                    continue;
+                }
+                if catalog
+                    .ts_dictionaries
+                    .iter()
+                    .any(|d| &d.qname == dict_qname)
+                {
+                    g.add_edge(cfg_node.clone(), NodeId::TsDictionary(dict_qname.clone()));
+                    seen.insert(dict_qname);
+                }
+            }
         }
     }
 
@@ -2403,6 +2445,177 @@ mod tests {
         assert!(
             g.dependencies_of(&cast_node).next().is_none(),
             "no edge expected when conversion function is unmanaged"
+        );
+    }
+
+    // ── Text-search dictionary / configuration edge tests ────────────────────
+
+    use crate::ir::text_search::{TsConfiguration, TsDictionary, TsMapping};
+
+    fn make_ts_dictionary(schema: &str, name: &str) -> TsDictionary {
+        TsDictionary {
+            qname: qn(schema, name),
+            template: qn("pg_catalog", "snowball"),
+            options: vec![],
+            owner: None,
+            comment: None,
+        }
+    }
+
+    fn make_ts_configuration(
+        schema: &str,
+        name: &str,
+        mappings: Vec<TsMapping>,
+    ) -> TsConfiguration {
+        TsConfiguration {
+            qname: qn(schema, name),
+            parser: qn("pg_catalog", "default"),
+            mappings,
+            owner: None,
+            comment: None,
+        }
+    }
+
+    #[test]
+    fn ts_dictionary_node_registered_with_schema_edge() {
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        c.ts_dictionaries
+            .push(make_ts_dictionary("app", "english_stem"));
+        let g = build_create_graph(&c);
+        // schema + dictionary nodes; one structural edge dictionary -> schema.
+        assert_eq!(g.node_count(), 2);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::TsDictionary(qn("app", "english_stem")),
+                &NodeId::Schema(id("app")),
+            ),
+            "ts dictionary must depend on its schema"
+        );
+    }
+
+    #[test]
+    fn ts_configuration_depends_on_managed_dictionary() {
+        // A configuration whose mapping references a managed dictionary gets an
+        // edge to that dictionary.
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        c.ts_dictionaries
+            .push(make_ts_dictionary("app", "english_stem"));
+        c.ts_configurations.push(make_ts_configuration(
+            "app",
+            "english_cfg",
+            vec![TsMapping {
+                token_type: "word".to_string(),
+                dictionaries: vec![qn("app", "english_stem")],
+            }],
+        ));
+        let g = build_create_graph(&c);
+        assert!(
+            has_edge(
+                &g,
+                &NodeId::TsConfiguration(qn("app", "english_cfg")),
+                &NodeId::TsDictionary(qn("app", "english_stem")),
+            ),
+            "ts configuration must depend on its managed dictionary"
+        );
+    }
+
+    #[test]
+    fn ts_configuration_no_edge_for_builtin_dictionary() {
+        // A configuration referencing only a pg_catalog (built-in) dictionary
+        // must not add an edge — and must not panic.
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        // No managed dictionaries in catalog.
+        c.ts_configurations.push(make_ts_configuration(
+            "app",
+            "simple_cfg",
+            vec![TsMapping {
+                token_type: "word".to_string(),
+                dictionaries: vec![qn("pg_catalog", "simple")],
+            }],
+        ));
+        let g = build_create_graph(&c);
+        let cfg_node = NodeId::TsConfiguration(qn("app", "simple_cfg"));
+        assert!(
+            g.nodes().any(|n| n == &cfg_node),
+            "ts configuration node must be registered even when all dicts are unmanaged"
+        );
+        // The only dependency should be the schema edge.
+        let deps: Vec<&NodeId> = g.dependencies_of(&cfg_node).collect();
+        assert_eq!(
+            deps,
+            vec![&NodeId::Schema(id("app"))],
+            "only a schema edge expected; no edge to a built-in dictionary"
+        );
+    }
+
+    #[test]
+    fn ts_configuration_deduplicates_dictionary_edges() {
+        // A dictionary referenced by multiple token types must produce only one
+        // edge from the configuration to that dictionary.
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        c.ts_dictionaries
+            .push(make_ts_dictionary("app", "english_stem"));
+        c.ts_configurations.push(make_ts_configuration(
+            "app",
+            "english_cfg",
+            vec![
+                TsMapping {
+                    token_type: "word".to_string(),
+                    dictionaries: vec![qn("app", "english_stem")],
+                },
+                TsMapping {
+                    token_type: "asciiword".to_string(),
+                    dictionaries: vec![qn("app", "english_stem")],
+                },
+            ],
+        ));
+        let g = build_create_graph(&c);
+        let cfg_node = NodeId::TsConfiguration(qn("app", "english_cfg"));
+        let dict_node = NodeId::TsDictionary(qn("app", "english_stem"));
+        // Exactly one edge from config to dictionary (deduplicated).
+        assert_eq!(
+            g.dependencies_of(&cfg_node)
+                .filter(|n| *n == &dict_node)
+                .count(),
+            1,
+            "same dictionary referenced by two token types should produce exactly one edge"
+        );
+    }
+
+    #[test]
+    fn ts_configuration_ordered_after_its_dictionary() {
+        // Topological sort must place the dictionary before the configuration
+        // that references it.
+        let mut c = Catalog::empty();
+        c.schemas.push(crate::ir::schema::Schema::new(id("app")));
+        c.ts_dictionaries
+            .push(make_ts_dictionary("app", "english_stem"));
+        c.ts_configurations.push(make_ts_configuration(
+            "app",
+            "english_cfg",
+            vec![TsMapping {
+                token_type: "word".to_string(),
+                dictionaries: vec![qn("app", "english_stem")],
+            }],
+        ));
+        let g = build_create_graph(&c);
+        let order = g.topological_sort().expect("no cycle");
+        let dict_pos = order
+            .iter()
+            .position(|n| n == &NodeId::TsDictionary(qn("app", "english_stem")))
+            .expect("dictionary in order");
+        let cfg_pos = order
+            .iter()
+            .position(|n| n == &NodeId::TsConfiguration(qn("app", "english_cfg")))
+            .expect("configuration in order");
+        assert!(
+            dict_pos < cfg_pos,
+            "dictionary must be created before the configuration that references it"
         );
     }
 }

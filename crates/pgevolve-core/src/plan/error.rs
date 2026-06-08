@@ -72,8 +72,8 @@ fn format_node_chain(nodes: &[crate::plan::edges::NodeId]) -> String {
 fn render_node(n: &crate::plan::edges::NodeId) -> String {
     use crate::plan::edges::NodeId::{
         Aggregate, Cast, Collation, Constraint, EventTrigger, Extension, Function, Index, Mv,
-        Procedure, Publication, Schema, Sequence, Statistic, Subscription, Table, Trigger, Type,
-        View,
+        Procedure, Publication, Schema, Sequence, Statistic, Subscription, Table, Trigger,
+        TsConfiguration, TsDictionary, Type, View,
     };
     match n {
         Schema(s) | Extension(s) | Publication(s) | Subscription(s) | EventTrigger(s) => {
@@ -93,5 +93,7 @@ fn render_node(n: &crate::plan::edges::NodeId) -> String {
                 .join(",")
         ),
         Cast(src, tgt) => format!("cast({src} as {tgt})"),
+        TsDictionary(q) => format!("ts_dictionary:{}", q.render_sql()),
+        TsConfiguration(q) => format!("ts_configuration:{}", q.render_sql()),
     }
 }

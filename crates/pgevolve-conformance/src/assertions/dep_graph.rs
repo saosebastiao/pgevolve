@@ -115,6 +115,8 @@ fn node_label(n: &NodeId) -> String {
                 .join(",")
         ),
         NodeId::Cast(src, tgt) => format!("cast:{src}_as_{tgt}"),
+        NodeId::TsDictionary(q) => format!("ts_dictionary:{}", q.render_sql()),
+        NodeId::TsConfiguration(q) => format!("ts_configuration:{}", q.render_sql()),
     }
 }
 
