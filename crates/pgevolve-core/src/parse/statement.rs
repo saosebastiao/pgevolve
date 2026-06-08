@@ -75,6 +75,8 @@ pub enum Statement {
     CreateEventTrigger(protobuf::CreateEventTrigStmt),
     /// `ALTER EVENT TRIGGER name {ENABLE|DISABLE|ENABLE REPLICA|ENABLE ALWAYS}`.
     AlterEventTrigger(protobuf::AlterEventTrigStmt),
+    /// `CREATE CAST (src AS tgt) WITH FUNCTION …` / `WITH INOUT` / `WITHOUT FUNCTION`.
+    CreateCast(protobuf::CreateCastStmt),
 }
 
 impl Statement {
@@ -121,6 +123,7 @@ impl Statement {
             NodeEnum::AlterStatsStmt(s) => Ok(Self::AlterStatistics(*s)),
             NodeEnum::CreateEventTrigStmt(s) => Ok(Self::CreateEventTrigger(s)),
             NodeEnum::AlterEventTrigStmt(s) => Ok(Self::AlterEventTrigger(s)),
+            NodeEnum::CreateCastStmt(s) => Ok(Self::CreateCast(s)),
             NodeEnum::DefineStmt(s) => {
                 let kind = ObjectType::try_from(s.kind).unwrap_or(ObjectType::Undefined);
                 match kind {
@@ -229,6 +232,13 @@ impl Statement {
                         location,
                         message: "DROP AGGREGATE in source is not supported — drops happen \
                                   via diff"
+                            .into(),
+                    });
+                }
+                if matches!(kind, ObjectType::ObjectCast) {
+                    return Err(ParseError::Structural {
+                        location,
+                        message: "DROP CAST in source is not supported — drops happen via diff"
                             .into(),
                     });
                 }

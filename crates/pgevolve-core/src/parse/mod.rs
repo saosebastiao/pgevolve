@@ -24,6 +24,7 @@ pub use statement::Statement;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::IrError;
 use crate::ir::aggregate::Aggregate;
+use crate::ir::cast::Cast;
 use crate::ir::catalog::Catalog;
 use crate::ir::event_trigger::EventTrigger;
 use crate::ir::publication::Publication;
@@ -101,6 +102,9 @@ pub fn parse_directory_with_locations(
     // accumulated in a Vec and ALTER OWNER / COMMENT are folded by matching that
     // identity. Duplicate identities are rejected at CREATE time.
     let mut aggregates: Vec<Aggregate> = Vec::new();
+    // Casts: identity is `(source, target)`. Not overloadable. COMMENT ON CAST
+    // is folded inline. Duplicate identities are rejected at CREATE time.
+    let mut casts: Vec<Cast> = Vec::new();
 
     for path in files {
         let contents = std::fs::read_to_string(&path).map_err(|e| ParseError::Io {
@@ -123,6 +127,7 @@ pub fn parse_directory_with_locations(
             &mut statistics,
             &mut event_triggers,
             &mut aggregates,
+            &mut casts,
         )?;
     }
 
@@ -158,6 +163,9 @@ pub fn parse_directory_with_locations(
 
     // Flush the aggregates accumulator into the catalog.
     catalog.aggregates = aggregates;
+
+    // Flush the casts accumulator into the catalog.
+    catalog.casts = casts;
 
     // AST resolution pass: validate that all structural references (FKs,
     // sequence defaults) resolve against the declared IR, before any DB touch.
@@ -375,6 +383,7 @@ fn process_file(
     statistics: &mut BTreeMap<QualifiedName, Statistic>,
     event_triggers: &mut BTreeMap<Identifier, EventTrigger>,
     aggregates: &mut Vec<Aggregate>,
+    casts: &mut Vec<Cast>,
 ) -> Result<(), ParseError> {
     let directives = directives::extract_file_directives(contents, path)?;
     let parsed = pg_query::parse(contents).map_err(|e| ParseError::PgQuery {
@@ -494,6 +503,15 @@ fn process_file(
                         directives.schema.as_ref(),
                         &location,
                         aggregates,
+                    )?;
+                } else if matches!(kind, ObjectType::ObjectCast) {
+                    // COMMENT ON CAST is applied inline by `(source, target)` identity
+                    // against the cast accumulator.
+                    builder::cast_stmt::apply_comment(
+                        &s,
+                        directives.schema.as_ref(),
+                        &location,
+                        casts,
                     )?;
                 } else {
                     deferred_comments.push((s, location, directives.schema.clone()));
@@ -801,6 +819,9 @@ fn process_file(
                     location,
                     event_triggers,
                 )?;
+            }
+            Statement::CreateCast(s) => {
+                builder::cast_stmt::parse_create(&s, directives.schema.as_ref(), &location, casts)?;
             }
         }
     }
