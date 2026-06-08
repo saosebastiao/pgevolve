@@ -115,6 +115,22 @@ pub fn diff_tables(
                     });
                 }
 
+                if target_table.tablespace != source_table.tablespace {
+                    let destructiveness = if source_table.partition_by.is_some() {
+                        Destructiveness::Safe
+                    } else {
+                        Destructiveness::RequiresApproval {
+                            reason: "SET TABLESPACE rewrites the table and takes an ACCESS EXCLUSIVE lock".into(),
+                        }
+                    };
+                    ops.push(TableOpEntry {
+                        op: super::table_op::TableOp::SetTableSpace {
+                            name: source_table.tablespace.clone(),
+                        },
+                        destructiveness,
+                    });
+                }
+
                 if !ops.is_empty() {
                     out.push(
                         Change::AlterTable {
@@ -891,6 +907,151 @@ mod tests {
         assert!(
             changes.is_empty(),
             "access_method change on an existing table must emit no Changes (lint handles it); got: {changes:?}"
+        );
+    }
+
+    // ---- tablespace diff tests ----
+
+    /// Helper: run a tablespace change diff between two `Table`s, returning the
+    /// single `TableOpEntry` for `SetTableSpace`. Panics with a descriptive
+    /// message if the shape is wrong.
+    fn extract_set_tablespace_op(source: &Table, target: &Table) -> TableOpEntry {
+        let mut src_catalog = Catalog::empty();
+        src_catalog.tables.push(source.clone());
+        let mut tgt_catalog = Catalog::empty();
+        tgt_catalog.tables.push(target.clone());
+        let mut cs = ChangeSet::new();
+        diff_tables(&tgt_catalog, &src_catalog, &mut cs, &BTreeSet::new());
+        assert_eq!(cs.len(), 1, "expected 1 Change entry, got {}", cs.len());
+        let entry = &cs.entries[0];
+        match &entry.change {
+            Change::AlterTable { ops, .. } => {
+                let ts_ops: Vec<&TableOpEntry> = ops
+                    .iter()
+                    .filter(|o| {
+                        matches!(o.op, super::super::table_op::TableOp::SetTableSpace { .. })
+                    })
+                    .collect();
+                assert_eq!(
+                    ts_ops.len(),
+                    1,
+                    "expected exactly 1 SetTableSpace op, got {}: {ops:?}",
+                    ts_ops.len()
+                );
+                (*ts_ops[0]).clone()
+            }
+            other => panic!("expected AlterTable, got {other:?}"),
+        }
+    }
+
+    /// A plain leaf table (no `partition_by`, no `partition_of`) changing tablespace
+    /// must emit `SetTableSpace` with `RequiresApproval`.
+    #[test]
+    fn leaf_table_tablespace_change_requires_approval() {
+        let mut src = sample_table_with_qname("app", "orders");
+        src.tablespace = Some(id("fast_ssd"));
+        let target = sample_table_with_qname("app", "orders");
+        // target.tablespace is None (default)
+
+        let op_entry = extract_set_tablespace_op(&src, &target);
+        assert!(
+            matches!(
+                op_entry.op,
+                super::super::table_op::TableOp::SetTableSpace { .. }
+            ),
+            "expected SetTableSpace op"
+        );
+        assert!(
+            matches!(
+                op_entry.destructiveness,
+                Destructiveness::RequiresApproval { .. }
+            ),
+            "leaf table tablespace change must be RequiresApproval; got {:?}",
+            op_entry.destructiveness
+        );
+    }
+
+    /// A partition child (`partition_of` set, `partition_by` None) changing
+    /// tablespace must emit `SetTableSpace` with `RequiresApproval`.
+    #[test]
+    fn partition_child_tablespace_change_requires_approval() {
+        let mut src = sample_table_with_qname("app", "orders_2024");
+        src.partition_of = Some(po_default("app", "orders"));
+        src.tablespace = Some(id("fast_ssd"));
+        let mut target = sample_table_with_qname("app", "orders_2024");
+        target.partition_of = Some(po_default("app", "orders"));
+        // target.tablespace is None (default)
+
+        let op_entry = extract_set_tablespace_op(&src, &target);
+        assert!(
+            matches!(
+                op_entry.op,
+                super::super::table_op::TableOp::SetTableSpace { .. }
+            ),
+            "expected SetTableSpace op"
+        );
+        assert!(
+            matches!(
+                op_entry.destructiveness,
+                Destructiveness::RequiresApproval { .. }
+            ),
+            "partition child tablespace change must be RequiresApproval; got {:?}",
+            op_entry.destructiveness
+        );
+    }
+
+    /// A partitioned parent (`partition_by` set) changing tablespace must emit
+    /// `SetTableSpace` with `Destructiveness::Safe` (only metadata + `pg_default` moves).
+    #[test]
+    fn partitioned_parent_tablespace_change_is_safe() {
+        let mut src = sample_table_with_qname("app", "orders");
+        src.partition_by = Some(pb_list("region"));
+        src.tablespace = Some(id("fast_ssd"));
+        let mut target = sample_table_with_qname("app", "orders");
+        target.partition_by = Some(pb_list("region"));
+        // target.tablespace is None
+
+        let op_entry = extract_set_tablespace_op(&src, &target);
+        assert!(
+            matches!(
+                op_entry.op,
+                super::super::table_op::TableOp::SetTableSpace { .. }
+            ),
+            "expected SetTableSpace op"
+        );
+        assert_eq!(
+            op_entry.destructiveness,
+            Destructiveness::Safe,
+            "partitioned parent tablespace change must be Safe; got {:?}",
+            op_entry.destructiveness
+        );
+    }
+
+    /// Equal tablespaces (both `None`) emit no `SetTableSpace` op.
+    #[test]
+    fn equal_tablespace_none_emits_no_op() {
+        let src = sample_table_with_qname("app", "orders");
+        let target = sample_table_with_qname("app", "orders");
+        // Both have tablespace: None
+        let changes = run_diff(&src, &target);
+        assert!(
+            changes.is_empty(),
+            "equal tablespace (both None) must emit no Changes; got: {changes:?}"
+        );
+    }
+
+    /// Equal tablespaces (both `Some("x")`) emit no `SetTableSpace` op.
+    #[test]
+    fn equal_tablespace_some_emits_no_op() {
+        let mut src = sample_table_with_qname("app", "orders");
+        src.tablespace = Some(id("fast_ssd"));
+        let mut target = sample_table_with_qname("app", "orders");
+        target.tablespace = Some(id("fast_ssd"));
+
+        let changes = run_diff(&src, &target);
+        assert!(
+            changes.is_empty(),
+            "equal tablespace (both Some) must emit no Changes; got: {changes:?}"
         );
     }
 }
