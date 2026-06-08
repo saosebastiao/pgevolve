@@ -44,7 +44,7 @@ pub mod views;
 pub use change::{
     AggregateChange, CastChange, Change, ChangeEntry, CollationChange, EventTriggerChange,
     ExtensionChange, FunctionChange, MvChange, ProcedureChange, TableChange, TriggerChange,
-    UserTypeChange, ViewChange,
+    TsConfigurationChange, TsDictionaryChange, UserTypeChange, ViewChange,
 };
 pub use changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 pub use cluster::{ClusterChange, ClusterChangeEntry, ClusterChangeSet, diff_cluster};

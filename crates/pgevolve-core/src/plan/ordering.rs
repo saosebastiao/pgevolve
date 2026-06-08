@@ -455,6 +455,32 @@ fn partition(changes: ChangeSet) -> PartitionResult {
                 | crate::diff::change::CastChange::Replace { .. } => drops.push(entry),
                 crate::diff::change::CastChange::CommentOn { .. } => modifies.push(entry),
             },
+            // TODO(textsearch Task 5): wire TsDictionary/TsConfiguration into
+            // the ordering graph once NodeId::TsDictionary / NodeId::TsConfiguration
+            // are added. For now, all text-search changes are non-destructive
+            // modifies (Create → creates, Drop/Replace → drops, alter/comment → modifies).
+            Change::TsDictionary(tsd) => match tsd {
+                crate::diff::change::TsDictionaryChange::Create(_) => creates.push(entry),
+                crate::diff::change::TsDictionaryChange::Drop { .. }
+                | crate::diff::change::TsDictionaryChange::Replace { .. } => drops.push(entry),
+                crate::diff::change::TsDictionaryChange::AlterOptions { .. }
+                | crate::diff::change::TsDictionaryChange::AlterOwner { .. }
+                | crate::diff::change::TsDictionaryChange::CommentOn { .. } => {
+                    modifies.push(entry);
+                }
+            },
+            Change::TsConfiguration(tsc) => match tsc {
+                crate::diff::change::TsConfigurationChange::Create(_) => creates.push(entry),
+                crate::diff::change::TsConfigurationChange::Drop { .. }
+                | crate::diff::change::TsConfigurationChange::Replace { .. } => drops.push(entry),
+                crate::diff::change::TsConfigurationChange::AddMapping { .. }
+                | crate::diff::change::TsConfigurationChange::AlterMapping { .. }
+                | crate::diff::change::TsConfigurationChange::DropMapping { .. }
+                | crate::diff::change::TsConfigurationChange::AlterOwner { .. }
+                | crate::diff::change::TsConfigurationChange::CommentOn { .. } => {
+                    modifies.push(entry);
+                }
+            },
             // UnsupportedDiff: abort the plan immediately.
             Change::UnsupportedDiff { reason } => {
                 return Err(PlanError::Internal(reason.clone()));
@@ -765,6 +791,38 @@ fn change_node(change: &Change) -> NodeId {
             crate::diff::change::CastChange::Drop { source, target }
             | crate::diff::change::CastChange::CommentOn { source, target, .. },
         ) => NodeId::Cast(source.clone(), target.clone()),
+        // TODO(textsearch Task 5): add NodeId::TsDictionary / NodeId::TsConfiguration
+        // and route these properly once the dep-graph variants land.
+        // For now, anchor to the owning schema node (same fallback used for
+        // routine grants, which also lack a dedicated NodeId variant at this stage).
+        Change::TsDictionary(tsd) => {
+            use crate::diff::change::TsDictionaryChange;
+            let qname = match tsd {
+                TsDictionaryChange::Create(d) | TsDictionaryChange::Replace { to: d, .. } => {
+                    &d.qname
+                }
+                TsDictionaryChange::Drop { qname }
+                | TsDictionaryChange::AlterOptions { qname, .. }
+                | TsDictionaryChange::AlterOwner { qname, .. }
+                | TsDictionaryChange::CommentOn { qname, .. } => qname,
+            };
+            NodeId::Schema(qname.schema.clone())
+        }
+        Change::TsConfiguration(tsc) => {
+            use crate::diff::change::TsConfigurationChange;
+            let qname = match tsc {
+                TsConfigurationChange::Create(c) | TsConfigurationChange::Replace { to: c, .. } => {
+                    &c.qname
+                }
+                TsConfigurationChange::Drop { qname }
+                | TsConfigurationChange::AddMapping { qname, .. }
+                | TsConfigurationChange::AlterMapping { qname, .. }
+                | TsConfigurationChange::DropMapping { qname, .. }
+                | TsConfigurationChange::AlterOwner { qname, .. }
+                | TsConfigurationChange::CommentOn { qname, .. } => qname,
+            };
+            NodeId::Schema(qname.schema.clone())
+        }
         // UnsupportedDiff is intercepted in `partition()` before `change_node` is called.
         Change::UnsupportedDiff { .. } => {
             unreachable!("UnsupportedDiff must never reach change_node")

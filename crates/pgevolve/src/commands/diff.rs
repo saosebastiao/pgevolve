@@ -669,6 +669,88 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
+            // TODO(textsearch Task 11): add detailed per-variant display for
+            // TsDictionary and TsConfiguration once the CLI describe phase lands.
+            pgevolve_core::diff::change::Change::TsDictionary(tsd) => {
+                use pgevolve_core::diff::change::TsDictionaryChange;
+                match tsd {
+                    TsDictionaryChange::Create(d) => {
+                        println!("      + CREATE TEXT SEARCH DICTIONARY {}", d.qname);
+                    }
+                    TsDictionaryChange::Replace { to, .. } => {
+                        println!(
+                            "      ~ REPLACE TEXT SEARCH DICTIONARY {} (DROP + CREATE)",
+                            to.qname
+                        );
+                    }
+                    TsDictionaryChange::Drop { qname } => {
+                        println!("      - DROP TEXT SEARCH DICTIONARY {qname}");
+                    }
+                    TsDictionaryChange::AlterOptions { qname, .. } => {
+                        println!("      ~ ALTER TEXT SEARCH DICTIONARY {qname} (options)");
+                    }
+                    TsDictionaryChange::AlterOwner { qname, owner } => {
+                        println!("      ~ ALTER TEXT SEARCH DICTIONARY {qname} OWNER TO {owner}");
+                    }
+                    TsDictionaryChange::CommentOn { qname, comment } => {
+                        if comment.is_some() {
+                            println!("      ~ COMMENT ON TEXT SEARCH DICTIONARY {qname}");
+                        } else {
+                            println!("      ~ COMMENT ON TEXT SEARCH DICTIONARY {qname} IS NULL");
+                        }
+                    }
+                }
+            }
+            pgevolve_core::diff::change::Change::TsConfiguration(tsc) => {
+                use pgevolve_core::diff::change::TsConfigurationChange;
+                match tsc {
+                    TsConfigurationChange::Create(c) => {
+                        println!("      + CREATE TEXT SEARCH CONFIGURATION {}", c.qname);
+                    }
+                    TsConfigurationChange::Replace { to, .. } => {
+                        println!(
+                            "      ~ REPLACE TEXT SEARCH CONFIGURATION {} (DROP + CREATE)",
+                            to.qname
+                        );
+                    }
+                    TsConfigurationChange::Drop { qname } => {
+                        println!("      - DROP TEXT SEARCH CONFIGURATION {qname}");
+                    }
+                    TsConfigurationChange::AddMapping {
+                        qname, token_type, ..
+                    } => {
+                        println!(
+                            "      ~ ALTER TEXT SEARCH CONFIGURATION {qname} ADD MAPPING FOR {token_type}"
+                        );
+                    }
+                    TsConfigurationChange::AlterMapping {
+                        qname, token_type, ..
+                    } => {
+                        println!(
+                            "      ~ ALTER TEXT SEARCH CONFIGURATION {qname} ALTER MAPPING FOR {token_type}"
+                        );
+                    }
+                    TsConfigurationChange::DropMapping { qname, token_type } => {
+                        println!(
+                            "      ~ ALTER TEXT SEARCH CONFIGURATION {qname} DROP MAPPING FOR {token_type}"
+                        );
+                    }
+                    TsConfigurationChange::AlterOwner { qname, owner } => {
+                        println!(
+                            "      ~ ALTER TEXT SEARCH CONFIGURATION {qname} OWNER TO {owner}"
+                        );
+                    }
+                    TsConfigurationChange::CommentOn { qname, comment } => {
+                        if comment.is_some() {
+                            println!("      ~ COMMENT ON TEXT SEARCH CONFIGURATION {qname}");
+                        } else {
+                            println!(
+                                "      ~ COMMENT ON TEXT SEARCH CONFIGURATION {qname} IS NULL"
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -941,5 +1023,48 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Cast(pgevolve_core::diff::change::CastChange::CommentOn { .. }) => {
             "comment_on_cast"
         }
+        // TODO(textsearch Task 11): expand to per-variant names once the CLI describe phase lands.
+        Change::TsDictionary(pgevolve_core::diff::change::TsDictionaryChange::Create(_)) => {
+            "create_ts_dictionary"
+        }
+        Change::TsDictionary(pgevolve_core::diff::change::TsDictionaryChange::Replace {
+            ..
+        }) => "replace_ts_dictionary",
+        Change::TsDictionary(pgevolve_core::diff::change::TsDictionaryChange::Drop { .. }) => {
+            "drop_ts_dictionary"
+        }
+        Change::TsDictionary(pgevolve_core::diff::change::TsDictionaryChange::AlterOptions {
+            ..
+        }) => "alter_ts_dictionary_options",
+        Change::TsDictionary(pgevolve_core::diff::change::TsDictionaryChange::AlterOwner {
+            ..
+        }) => "alter_ts_dictionary_owner",
+        Change::TsDictionary(pgevolve_core::diff::change::TsDictionaryChange::CommentOn {
+            ..
+        }) => "comment_on_ts_dictionary",
+        Change::TsConfiguration(pgevolve_core::diff::change::TsConfigurationChange::Create(_)) => {
+            "create_ts_configuration"
+        }
+        Change::TsConfiguration(pgevolve_core::diff::change::TsConfigurationChange::Replace {
+            ..
+        }) => "replace_ts_configuration",
+        Change::TsConfiguration(pgevolve_core::diff::change::TsConfigurationChange::Drop {
+            ..
+        }) => "drop_ts_configuration",
+        Change::TsConfiguration(
+            pgevolve_core::diff::change::TsConfigurationChange::AddMapping { .. },
+        ) => "alter_ts_configuration_add_mapping",
+        Change::TsConfiguration(
+            pgevolve_core::diff::change::TsConfigurationChange::AlterMapping { .. },
+        ) => "alter_ts_configuration_alter_mapping",
+        Change::TsConfiguration(
+            pgevolve_core::diff::change::TsConfigurationChange::DropMapping { .. },
+        ) => "alter_ts_configuration_drop_mapping",
+        Change::TsConfiguration(
+            pgevolve_core::diff::change::TsConfigurationChange::AlterOwner { .. },
+        ) => "alter_ts_configuration_owner",
+        Change::TsConfiguration(
+            pgevolve_core::diff::change::TsConfigurationChange::CommentOn { .. },
+        ) => "comment_on_ts_configuration",
     }
 }

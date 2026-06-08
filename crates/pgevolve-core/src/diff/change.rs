@@ -25,6 +25,8 @@ use crate::ir::procedure::Procedure;
 use crate::ir::schema::Schema;
 use crate::ir::sequence::Sequence;
 use crate::ir::table::Table;
+use crate::ir::text_search::configuration::TsConfiguration;
+use crate::ir::text_search::dictionary::TsDictionary;
 use crate::ir::trigger::Trigger;
 use crate::ir::user_type::{CompositeAttribute, DomainCheck, UserType};
 use crate::ir::view::{MaterializedView, View};
@@ -306,6 +308,12 @@ pub enum Change {
 
     /// A nested change to a single cast. See [`CastChange`].
     Cast(CastChange),
+
+    /// A nested change to a single text-search dictionary. See [`TsDictionaryChange`].
+    TsDictionary(TsDictionaryChange),
+
+    /// A nested change to a single text-search configuration. See [`TsConfigurationChange`].
+    TsConfiguration(TsConfigurationChange),
 
     /// A change that cannot be performed in-place.
     ///
@@ -941,6 +949,131 @@ pub enum StatisticChange {
         /// Schema-qualified statistic name.
         qname: QualifiedName,
         /// New comment value (`None` clears the comment).
+        comment: Option<String>,
+    },
+}
+
+/// A structural change to a single text-search dictionary.
+///
+/// Identity = `qname`. No structural field requires `CASCADE` or prevents
+/// in-place alteration; all changes are [`Destructiveness::Safe`].
+///
+/// [`Destructiveness::Safe`]: super::destructiveness::Destructiveness::Safe
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum TsDictionaryChange {
+    /// `CREATE TEXT SEARCH DICTIONARY …`
+    Create(TsDictionary),
+    /// `DROP TEXT SEARCH DICTIONARY old; CREATE TEXT SEARCH DICTIONARY new;`
+    ///
+    /// Emitted when the `template` field changes (no in-place `ALTER` for
+    /// template changes in PG).
+    Replace {
+        /// As it exists in the target (live).
+        from: TsDictionary,
+        /// As it should exist in the source.
+        to: TsDictionary,
+    },
+    /// `DROP TEXT SEARCH DICTIONARY name;`
+    Drop {
+        /// Dictionary name.
+        qname: QualifiedName,
+    },
+    /// `ALTER TEXT SEARCH DICTIONARY name (option = value, …);`
+    ///
+    /// Emitted when only the `options` field changes (template is unchanged).
+    AlterOptions {
+        /// Dictionary name.
+        qname: QualifiedName,
+        /// Desired full options list (not a delta; the emitter uses `ALTER …
+        /// (key = val, …)` which replaces all options atomically in PG).
+        options: Vec<(String, String)>,
+    },
+    /// `ALTER TEXT SEARCH DICTIONARY name OWNER TO owner;`
+    AlterOwner {
+        /// Dictionary name.
+        qname: QualifiedName,
+        /// Desired owner.
+        owner: Identifier,
+    },
+    /// `COMMENT ON TEXT SEARCH DICTIONARY name IS '…';`
+    CommentOn {
+        /// Dictionary name.
+        qname: QualifiedName,
+        /// New comment (`None` clears it).
+        comment: Option<String>,
+    },
+}
+
+/// A structural change to a single text-search configuration.
+///
+/// Identity = `qname`. Mapping changes use `ADD MAPPING` / `ALTER MAPPING` /
+/// `DROP MAPPING`; all changes are [`Destructiveness::Safe`].
+///
+/// [`Destructiveness::Safe`]: super::destructiveness::Destructiveness::Safe
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum TsConfigurationChange {
+    /// `CREATE TEXT SEARCH CONFIGURATION …`
+    Create(TsConfiguration),
+    /// `DROP TEXT SEARCH CONFIGURATION old; CREATE TEXT SEARCH CONFIGURATION new;`
+    ///
+    /// Emitted when the `parser` field changes (no in-place `ALTER` for
+    /// parser changes in PG).
+    Replace {
+        /// As it exists in the target (live).
+        from: TsConfiguration,
+        /// As it should exist in the source.
+        to: TsConfiguration,
+    },
+    /// `DROP TEXT SEARCH CONFIGURATION name;`
+    Drop {
+        /// Configuration name.
+        qname: QualifiedName,
+    },
+    /// `ALTER TEXT SEARCH CONFIGURATION name ADD MAPPING FOR token_type WITH dict, …;`
+    ///
+    /// Emitted for a token type that exists in the source but not in the target.
+    AddMapping {
+        /// Configuration name.
+        qname: QualifiedName,
+        /// Token type alias (e.g. `word`, `asciiword`).
+        token_type: String,
+        /// Desired dictionary chain.
+        dictionaries: Vec<QualifiedName>,
+    },
+    /// `ALTER TEXT SEARCH CONFIGURATION name ALTER MAPPING FOR token_type WITH dict, …;`
+    ///
+    /// Emitted for a token type whose dictionary chain has changed.
+    AlterMapping {
+        /// Configuration name.
+        qname: QualifiedName,
+        /// Token type alias.
+        token_type: String,
+        /// Desired dictionary chain.
+        dictionaries: Vec<QualifiedName>,
+    },
+    /// `ALTER TEXT SEARCH CONFIGURATION name DROP MAPPING FOR token_type;`
+    ///
+    /// Emitted for a token type that exists in the target but not in the source.
+    DropMapping {
+        /// Configuration name.
+        qname: QualifiedName,
+        /// Token type alias to remove.
+        token_type: String,
+    },
+    /// `ALTER TEXT SEARCH CONFIGURATION name OWNER TO owner;`
+    AlterOwner {
+        /// Configuration name.
+        qname: QualifiedName,
+        /// Desired owner.
+        owner: Identifier,
+    },
+    /// `COMMENT ON TEXT SEARCH CONFIGURATION name IS '…';`
+    CommentOn {
+        /// Configuration name.
+        qname: QualifiedName,
+        /// New comment (`None` clears it).
         comment: Option<String>,
     },
 }
