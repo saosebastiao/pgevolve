@@ -24,6 +24,41 @@ do real damage. That section is first.**
 
 ---
 
+## 0. Decision log (resolved 2026-06-08)
+
+The review below is the analysis. This section is the **binding outcome** —
+the maintainer walked the recommendations one by one and decided each. Where a
+decision is binding it has been written into the cited doc; the rest feed the
+implementation plan. A note on stability: per [`v1.md`](./v1.md) §2 the
+`pgevolve-core` library API and the catalog JSON schema are *unstable* in v1.x,
+so the IR-shape decisions below are "do it now because churning the load-bearing
+domain model later is costly," not "must, because frozen."
+
+| # | Topic | Resolution | Lands in |
+|---|-------|-----------|----------|
+| 1 | Table strategy (the thesis) | **Ratify & codify.** In-place `ALTER` + online-rewrite stays the table strategy; drop/create stays contained to no-`ALTER`-path objects; "heap-data tables are never recreated" is now binding. | [Constitution §11](./CONSTITUTION.md) |
+| 2 | `#[derive(Diff)]` proc-macro | **Remove.** Delete `pgevolve-core-macros`; hand-write `Diff` impls using exhaustive `let Self { .. }` destructuring (same field-completeness guarantee, fully readable). | impl plan |
+| 3 | "diff" naming collision | **Rename the equivalence side.** `ir::eq::Diff` → `Equiv` (it already exposes `canonical_eq`); `Difference` accordingly. "diff" then means only the migration change engine. | impl plan |
+| 4 | Illegal-state hatches | **Fix all six** (Numeric `unreachable!`, ViewColumn `"unresolved"` sentinel, grant `signature` String, direction-bools, `AlterObjectOwner` redundancy, `IrError::InvalidIdentifier` overload). | impl plan |
+| 5 | Parse normalization | **Fix common cases for 1.0** (recurse qualifier-stripping into subqueries/CTEs/multi-table FROM); operand-sorting + deep paren-folding → documented limitation + parking lot. | [v1.md §7/§8](./v1.md) + impl plan |
+| 6 | Rename / reorder | **Both documented limitations.** No rename directive for 1.0 (parking-lotted); reorder stays unsupported. | [v1.md §7/§8](./v1.md) |
+| 7a | Internal dedups | **Do for 1.0.** One owner+grants diff helper; one `sql_string_literal()`; consolidate parse `DefElem`/qname extractors into `builder::shared`; replace the 18-arg `process_file` with a `ParseContext`. | impl plan |
+| 7b | owner/grants field duplication | **Dedup logic, keep flat fields.** Extract the repeated canon/diff logic behind a small trait/helper; do **not** introduce an `Ownable` sub-struct embed (keep `.owner`/`.grants` flat for readability). | impl plan |
+| 8 | Recreate machinery | **Kill the `CASCADE`.** Replace the raw `DROP TYPE ... CASCADE` with the same explicit ordered dependent-recreation the views path uses. No big-bang unify of the 1.2k-LOC file. | impl plan |
+| 9 | Parse consolidation | Folded into 7a. | impl plan |
+| 10 | Lint catalogue | **No formal freeze.** Rules may keep growing on judgment; no policy gate added. | — |
+| 11 | Ordering leak in diff | **Move to plan.** Relocate the revoke-before-grant contract and `subscriptions.rs`'s `out.sort()` into plan so `ChangeSet`'s "unordered" contract becomes true. | impl plan |
+| 12 | `lib.rs` "I/O-free" doc | **Fix** (soften to "no network I/O; DB access injected via `CatalogQuerier`"). Folded into cleanup. | impl plan |
+| 13a | IR slimming | **Simplify both.** Collapse the typed autovacuum reloption matrix into the existing `extra` map; drop the Subscription CREATE-only fields that never round-trip. | impl plan |
+| 13b | "Full Postgres support" scope | **Keep full support.** Cast/Aggregate/Range stay as-is; no Constitution amendment. Simplicity applies to not adding *new* sophistication, not removing working, tested features. | — |
+
+Recommendations the maintainer declined or narrowed are recorded above (10: no
+freeze; 6: rename not built; 7b: no `Ownable` embed; 8: no big-bang unify;
+13b: no feature cuts). Everything tagged "impl plan" is in scope for the
+pre-1.0 cleanup plan that follows this review.
+
+---
+
 ## 1. The architecture in one picture
 
 ```

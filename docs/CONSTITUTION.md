@@ -92,6 +92,41 @@ A `SECURITY.md` documenting the reporting process is a TODO for the repository r
 
 ---
 
+## 11. Schema Evolution Strategy: Preserve Data, Prefer In-Place Change
+
+The prime directive of this project is that a declarative schema change must
+**never lose data**. Every architectural decision in the diff/plan/render
+pipeline serves that directive first and convenience second.
+
+**Data-bearing tables are never dropped and recreated to effect a change.**
+They are evolved in place with `ALTER`, using lock-light online-rewrite patterns
+— `ADD CONSTRAINT ... NOT VALID` + `VALIDATE`, `CREATE INDEX CONCURRENTLY`,
+`REFRESH ... CONCURRENTLY`, and the `CHECK`-then-`SET NOT NULL` decomposition —
+to keep locks short and downtime minimal. A drop-and-recreate-with-copy strategy
+for tables is **prohibited**: on any non-trivial table it is categorically more
+dangerous than in-place `ALTER` (it breaks inbound foreign keys from other
+tables, loses sequence ownership / identity / partition attachments / OID-based
+extension dependencies, doubles disk, and turns an O(1) metadata change into an
+O(rows) outage).
+
+**Drop/create ("recreate") is the bounded fallback only for objects Postgres
+gives no in-place `ALTER` path** — views and materialized views, enum / composite
+/ range types, and collations. Even then it is performed as an **explicit,
+auditable, dependency-ordered teardown and rebuild**, never `DROP ... CASCADE`:
+the plan must name every dependent it drops and recreates, so the operator can
+review exactly what will happen. Containing drop/create to these objects — and
+keeping it explicit — is a binding architectural rule, not a stylistic
+preference.
+
+The breadth of `ALTER` support across object kinds (sequences, publications,
+subscriptions, policies, text-search configurations, …) is **catalog coverage in
+service of the Full Postgres Support goal (§5), not incidental complexity**. It
+is not a candidate for "simplification" by switching to drop/create — for these
+metadata-only objects drop/create is strictly worse (it churns or destroys state
+such as a sequence's `last_value` or a subscription's replication slot).
+
+---
+
 ## Relationship to the v1.0 charter
 
 This constitution states the **always-binding principles** for the
