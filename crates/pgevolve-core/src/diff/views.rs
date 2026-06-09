@@ -502,7 +502,7 @@ mod tests {
     fn col(name: &str, ty: ColumnType) -> ViewColumn {
         ViewColumn {
             name: id(name),
-            column_type: ty,
+            column_type: Some(ty),
             comment: None,
         }
     }

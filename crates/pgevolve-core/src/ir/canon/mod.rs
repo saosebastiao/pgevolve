@@ -17,7 +17,8 @@
 //!    user-defined type. Symmetrises catalog reads with source parses,
 //!    which already produce `UserDefined` directly.
 //! 3. [`sentinel_view_columns`] — view/MV column types collapse to the
-//!    `view_column` sentinel.
+//!    `view_column` sentinel. A column still `None` (unresolved) here is an
+//!    error ([`IrError::UnresolvedViewColumn`]).
 //! 4. [`renumber_enum_sort_orders`] — every enum's `sort_order` values
 //!    are re-indexed to `1.0, 2.0, 3.0, …` in current order.
 //! 5. [`reloptions`] — canonicalize reloption fields (currently a no-op;
@@ -52,12 +53,13 @@ use crate::ir::catalog::Catalog;
 
 /// Run every canonicalization pass on `cat` in order.
 ///
-/// [`publications`] and [`sort_and_dedupe`] are fallible; the other
-/// passes mutate in place and cannot fail.
+/// Several passes (e.g. [`sentinel_view_columns`], [`publications`],
+/// [`sort_and_dedupe`]) are fallible; the rest mutate in place and cannot
+/// fail.
 pub fn canonicalize(cat: &mut Catalog) -> Result<(), IrError> {
     filter_pg_defaults::run(cat);
     resolve_user_defined_types::run(cat);
-    sentinel_view_columns::run(cat);
+    sentinel_view_columns::run(cat)?;
     renumber_enum_sort_orders::run(cat);
     // For every object that carries an `owner` field: strip grants where
     // `grantee == owner` **before** deduplication. This mirrors what the live

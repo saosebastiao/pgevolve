@@ -92,7 +92,7 @@ mod tests {
             qname: qn("app", "user_summary"),
             columns: vec![ViewColumn {
                 name: id("cnt"),
-                column_type: ColumnType::BigInt,
+                column_type: Some(ColumnType::BigInt),
                 comment: None,
             }],
             body_canonical: body("SELECT count(*) FROM app.users"),

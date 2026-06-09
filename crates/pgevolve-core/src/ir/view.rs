@@ -26,33 +26,18 @@ use crate::plan::edges::DepEdge;
 
 /// A single named column in a view or materialized view.
 ///
-/// Postgres allows column alias lists on `CREATE VIEW` to override the
-/// column names derived from the SELECT list. This struct records the
-/// (possibly overridden) column name, its resolved type, and any attached
-/// comment.
-///
-/// ## `column_type` sentinel
-///
-/// When `ViewColumn` is constructed from an explicit alias list in T3
-/// (parsing), the type is not yet known — it requires resolving the SELECT
-/// body against the catalog. In that case `column_type` is set to
-/// `ColumnType::Other { raw: "unresolved".to_string() }`, which serves as
-/// a parser-internal sentinel. T4's AST canonicalization pass replaces it
-/// with the resolved type. The sentinel **must never appear** in a serialized
-/// catalog or plan — T4 always runs before serialization.
-///
-/// When `ViewColumn` is built from the live catalog (T5), `column_type` is
-/// parsed directly from `format_type(a.atttypid, a.atttypmod)`.
+/// `column_type` is `None` while unresolved — when `ViewColumn` is built from
+/// an explicit alias list during parsing, the type requires resolving the
+/// SELECT body against the catalog. The AST-canonicalization pass fills it in.
+/// Resolution is enforced by `Catalog::canonicalize`: a `None` that survives
+/// to canon is an error, so a serialized catalog never carries an unresolved
+/// column type. When built from the live catalog the type is always `Some`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ViewColumn {
     /// Column name as it appears in the view definition (or is aliased).
     pub name: Identifier,
-    /// Resolved data type of the column.
-    ///
-    /// Set to `ColumnType::Other { raw: "unresolved".to_string() }` as a
-    /// parser-internal sentinel when type resolution has not yet occurred
-    /// (T3 → T4 transition). Must be fully resolved before serialization.
-    pub column_type: ColumnType,
+    /// Resolved data type of the column, or `None` while unresolved.
+    pub column_type: Option<ColumnType>,
     /// Optional `COMMENT ON COLUMN` text.
     pub comment: Option<String>,
 }
@@ -128,6 +113,13 @@ pub struct MaterializedView {
     pub storage: crate::ir::reloptions::MaterializedViewStorageOptions,
 }
 
+/// Render an optional view-column type for diff display. An unresolved
+/// (`None`) type renders as `"<unresolved>"`; after canonicalization this
+/// never occurs in practice, but the diff impl must total over both arms.
+fn render_column_type(ty: Option<&ColumnType>) -> String {
+    ty.map_or_else(|| "<unresolved>".to_string(), ColumnType::render_sql)
+}
+
 impl Diff for View {
     fn diff(&self, other: &Self) -> Vec<Difference> {
         let mut out = Vec::new();
@@ -177,8 +169,8 @@ impl Diff for View {
                     if l.column_type != r.column_type {
                         out.push(Difference::new(
                             format!("columns.{name}.column_type"),
-                            l.column_type.render_sql(),
-                            r.column_type.render_sql(),
+                            render_column_type(l.column_type.as_ref()),
+                            render_column_type(r.column_type.as_ref()),
                         ));
                     }
                     if l.comment != r.comment {
@@ -265,8 +257,8 @@ impl Diff for MaterializedView {
                     if l.column_type != r.column_type {
                         out.push(Difference::new(
                             format!("columns.{name}.column_type"),
-                            l.column_type.render_sql(),
-                            r.column_type.render_sql(),
+                            render_column_type(l.column_type.as_ref()),
+                            render_column_type(r.column_type.as_ref()),
                         ));
                     }
                     if l.comment != r.comment {
@@ -334,7 +326,7 @@ mod tests {
             qname: qn(schema, name),
             columns: vec![ViewColumn {
                 name: id("id"),
-                column_type: ColumnType::BigInt,
+                column_type: Some(ColumnType::BigInt),
                 comment: None,
             }],
             body_canonical: body("SELECT 1"),
@@ -370,7 +362,7 @@ mod tests {
             qname: qn("app", "active_users"),
             columns: vec![ViewColumn {
                 name: id("id"),
-                column_type: ColumnType::BigInt,
+                column_type: Some(ColumnType::BigInt),
                 comment: None,
             }],
             body_canonical: body("SELECT 1"),
@@ -392,7 +384,7 @@ mod tests {
             qname: qn("app", "summary"),
             columns: vec![ViewColumn {
                 name: id("total"),
-                column_type: ColumnType::BigInt,
+                column_type: Some(ColumnType::BigInt),
                 comment: Some("total count".to_string()),
             }],
             body_canonical: body("SELECT count(*) FROM users"),
@@ -429,6 +421,21 @@ mod tests {
         assert_eq!(canonical.views[1].qname, qn("app", "zzz_view"));
         assert_eq!(canonical.materialized_views[0].qname, qn("app", "aaa_mv"));
         assert_eq!(canonical.materialized_views[1].qname, qn("app", "zzz_mv"));
+    }
+
+    #[test]
+    fn unresolved_view_column_rejected_by_canon() {
+        let mut c = Catalog::empty();
+        let mut v = simple_view("app", "v");
+        // Force an unresolved column type — as if ast_canon never ran.
+        v.columns[0].column_type = None;
+        c.views.push(v);
+
+        let result = c.canonicalize();
+        assert!(
+            matches!(result, Err(IrError::UnresolvedViewColumn { .. })),
+            "expected UnresolvedViewColumn error, got: {result:?}",
+        );
     }
 
     #[test]

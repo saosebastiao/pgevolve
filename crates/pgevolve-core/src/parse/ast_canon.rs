@@ -94,8 +94,12 @@ pub fn canonicalize_view_bodies(catalog: &mut Catalog) -> Result<(), AstCanonErr
         catalog.views[i].body_canonical = normalized;
         catalog.views[i].body_dependencies = deps;
         // Only fill columns from the SELECT target list when no explicit alias
-        // list was provided in the CREATE VIEW statement.
-        if !has_explicit_columns {
+        // list was provided in the CREATE VIEW statement. When an explicit alias
+        // list IS present the parser already populated `columns` (names only,
+        // type unresolved), so resolve their placeholder types in place.
+        if has_explicit_columns {
+            resolve_explicit_column_types(&mut catalog.views[i].columns);
+        } else {
             catalog.views[i].columns = derived_columns;
         }
     }
@@ -116,7 +120,9 @@ pub fn canonicalize_view_bodies(catalog: &mut Catalog) -> Result<(), AstCanonErr
 
         catalog.materialized_views[i].body_canonical = normalized;
         catalog.materialized_views[i].body_dependencies = deps;
-        if !has_explicit_columns {
+        if has_explicit_columns {
+            resolve_explicit_column_types(&mut catalog.materialized_views[i].columns);
+        } else {
             catalog.materialized_views[i].columns = derived_columns;
         }
     }
@@ -377,6 +383,26 @@ fn walk_select(
     )
 }
 
+/// Resolve placeholder types for columns that came from an explicit
+/// `CREATE VIEW v(a, b, …)` alias list.
+///
+/// The parser populates such columns with names only, leaving `column_type`
+/// as `None` (unresolved). Static type inference of an arbitrary SELECT body
+/// is out of scope — those types are later collapsed to the `view_column`
+/// sentinel by `ir::canon::sentinel_view_columns` regardless — so this fills
+/// the same `"expression"` placeholder used for derived columns. This makes
+/// the post-`ast_canon` invariant "no view column type is `None`" hold for
+/// both the explicit-alias and derived paths.
+fn resolve_explicit_column_types(columns: &mut [ViewColumn]) {
+    for col in columns {
+        if col.column_type.is_none() {
+            col.column_type = Some(ColumnType::Other {
+                raw: "expression".to_string(),
+            });
+        }
+    }
+}
+
 /// Derive a view column name from a SELECT target (`ResTarget`).
 ///
 /// Uses PG's column-naming algorithm:
@@ -405,9 +431,9 @@ fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
             .ok()?;
         return Some(ViewColumn {
             name,
-            column_type: ColumnType::Other {
+            column_type: Some(ColumnType::Other {
                 raw: "expression".to_string(),
-            },
+            }),
             comment: None,
         });
     }
@@ -418,9 +444,9 @@ fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
     {
         return Some(ViewColumn {
             name: col_name,
-            column_type: ColumnType::Other {
+            column_type: Some(ColumnType::Other {
                 raw: "expression".to_string(),
-            },
+            }),
             comment: None,
         });
     }
@@ -430,9 +456,9 @@ fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
         .ok()
         .map(|name| ViewColumn {
             name,
-            column_type: ColumnType::Other {
+            column_type: Some(ColumnType::Other {
                 raw: "expression".to_string(),
-            },
+            }),
             comment: None,
         })
 }

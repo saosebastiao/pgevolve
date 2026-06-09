@@ -416,7 +416,7 @@ mod tests {
             qname: qn(schema, name),
             columns: vec![ViewColumn {
                 name: id("id"),
-                column_type: ColumnType::BigInt,
+                column_type: Some(ColumnType::BigInt),
                 comment: None,
             }],
             body_canonical: body("SELECT 1"),

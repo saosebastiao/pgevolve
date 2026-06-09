@@ -78,6 +78,15 @@ pub enum IrError {
         crate::identifier::Identifier,
     ),
 
+    /// A view column's type was still unresolved at canon time.
+    #[error("view {view}: column {column} has an unresolved type (internal resolver bug)")]
+    UnresolvedViewColumn {
+        /// The view whose column is unresolved.
+        view: crate::identifier::QualifiedName,
+        /// The unresolved column.
+        column: crate::identifier::Identifier,
+    },
+
     /// A `Subscription.publications` was empty.
     #[error("subscription {0:?}: empty publication list (PG requires at least one)")]
     EmptySubscriptionPublications(crate::identifier::Identifier),

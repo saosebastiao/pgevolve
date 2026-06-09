@@ -121,7 +121,7 @@ fn small_catalog_with_view() -> Catalog {
         qname: qn("app", "active_users"),
         columns: vec![ViewColumn {
             name: id("id"),
-            column_type: ColumnType::BigInt,
+            column_type: Some(ColumnType::BigInt),
             comment: None,
         }],
         body_canonical: body("SELECT id FROM app.users WHERE active"),

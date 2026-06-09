@@ -83,7 +83,7 @@ pub(super) fn build_views_and_mvs(
             .or_default()
             .push(ViewColumn {
                 name,
-                column_type,
+                column_type: Some(column_type),
                 comment,
             });
     }

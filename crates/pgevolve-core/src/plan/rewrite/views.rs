@@ -294,12 +294,12 @@ mod tests {
             columns: vec![
                 ViewColumn {
                     name: id("a"),
-                    column_type: ColumnType::BigInt,
+                    column_type: Some(ColumnType::BigInt),
                     comment: None,
                 },
                 ViewColumn {
                     name: id("b"),
-                    column_type: ColumnType::Text,
+                    column_type: Some(ColumnType::Text),
                     comment: None,
                 },
             ],
@@ -434,7 +434,7 @@ mod tests {
         let mv = MaterializedView {
             columns: vec![ViewColumn {
                 name: id("total"),
-                column_type: ColumnType::BigInt,
+                column_type: Some(ColumnType::BigInt),
                 comment: None,
             }],
             ..simple_mv()

@@ -12,7 +12,6 @@ use pg_query::NodeEnum;
 use pg_query::protobuf::CreateTableAsStmt;
 
 use crate::identifier::Identifier;
-use crate::ir::column_type::ColumnType;
 use crate::ir::view::{MaterializedView, ViewColumn};
 use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
@@ -137,11 +136,8 @@ fn mv_columns_from_col_names(
             let name = shared::ident(&s.sval, location)?;
             Ok(ViewColumn {
                 name,
-                // Type is unknown at parse time (T3); T4 resolves it.
-                // `ColumnType::Other { raw: "unresolved" }` is the sentinel.
-                column_type: ColumnType::Other {
-                    raw: "unresolved".to_string(),
-                },
+                // type resolved later by ast_canon
+                column_type: None,
                 comment: None,
             })
         })
