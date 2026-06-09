@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use crate::diff::change::{Change, StatisticChange};
 use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
-use crate::diff::owner_op::{AlterObjectOwner, OwnerObjectKind};
+use crate::diff::owner_op::{AlterObjectOwner, GrantableObject};
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
 use crate::ir::statistic::Statistic;
@@ -90,9 +90,7 @@ fn diff_one(target: &Statistic, source: &Statistic, out: &mut ChangeSet) {
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                kind: OwnerObjectKind::Statistic,
-                id: crate::diff::owner_op::OwnedObjectId::Qualified(source.qname.clone()),
-                signature: String::new(),
+                object: GrantableObject::Statistic(source.qname.clone()),
                 from: target.owner.clone(),
                 to: s_owner.clone(),
             }),

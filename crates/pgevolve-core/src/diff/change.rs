@@ -32,7 +32,7 @@ use crate::ir::user_type::{CompositeAttribute, DomainCheck, UserType};
 use crate::ir::view::{MaterializedView, View};
 
 use super::destructiveness::Destructiveness;
-use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
+use super::owner_op::{AlterObjectOwner, GrantableObject};
 use super::sequence_op::SequenceOpEntry;
 use super::table_op::TableOpEntry;
 
@@ -158,15 +158,8 @@ pub enum Change {
     ///
     /// Emitted when a grant appears in source but not in the target catalog.
     GrantObjectPrivilege {
-        /// Qualified name of the grantable object (schema, table, sequence,
-        /// view, function, procedure, or type).
-        qname: QualifiedName,
-        /// Which kind of object this is (drives the SQL keyword in the renderer).
-        kind: OwnerObjectKind,
-        /// Argument signature for routines (e.g., `"(int, text)"`).
-        /// Empty string for non-routine object kinds.
-        #[serde(default)]
-        signature: String,
+        /// The grantable object (kind + name + optional routine signature).
+        object: GrantableObject,
         /// The full grant to apply.
         grant: Grant,
     },
@@ -174,14 +167,8 @@ pub enum Change {
     ///
     /// Only emitted for managed grantees (see [`super::grants::diff_grants`]).
     RevokeObjectPrivilege {
-        /// Qualified name of the grantable object.
-        qname: QualifiedName,
-        /// Which kind of object this is.
-        kind: OwnerObjectKind,
-        /// Argument signature for routines (e.g., `"(int, text)"`).
-        /// Empty string for non-routine object kinds.
-        #[serde(default)]
-        signature: String,
+        /// The grantable object (kind + name + optional routine signature).
+        object: GrantableObject,
         /// The full grant to revoke.
         grant: Grant,
     },

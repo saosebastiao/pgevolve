@@ -21,7 +21,7 @@ use super::change::Change;
 use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use super::destructiveness::Destructiveness;
 use super::grants::diff_grants;
-use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
+use super::owner_op::{AlterObjectOwner, GrantableObject};
 use super::sequence_op::{SequenceOp, SequenceOpEntry};
 
 /// Diff sequences in `target` against `source`, appending entries to `out`.
@@ -143,9 +143,7 @@ fn emit_sequence_attribute_changes(
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                kind: OwnerObjectKind::Sequence,
-                id: crate::diff::owner_op::OwnedObjectId::Qualified(qname.clone()),
-                signature: String::new(),
+                object: GrantableObject::Sequence(qname.clone()),
                 from: target_seq.owner.clone(),
                 to: source_owner.clone(),
             }),
@@ -173,9 +171,7 @@ fn emit_sequence_attribute_changes(
             }
             out.push(
                 Change::RevokeObjectPrivilege {
-                    qname: qname.clone(),
-                    kind: OwnerObjectKind::Sequence,
-                    signature: String::new(),
+                    object: GrantableObject::Sequence(qname.clone()),
                     grant: g,
                 },
                 Destructiveness::Safe,
@@ -184,9 +180,7 @@ fn emit_sequence_attribute_changes(
         for g in to_add {
             out.push(
                 Change::GrantObjectPrivilege {
-                    qname: qname.clone(),
-                    kind: OwnerObjectKind::Sequence,
-                    signature: String::new(),
+                    object: GrantableObject::Sequence(qname.clone()),
                     grant: g,
                 },
                 Destructiveness::Safe,

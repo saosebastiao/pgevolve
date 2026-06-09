@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use crate::diff::change::{Change, CollationChange};
 use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
-use crate::diff::owner_op::{AlterObjectOwner, OwnedObjectId, OwnerObjectKind};
+use crate::diff::owner_op::{AlterObjectOwner, GrantableObject};
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
 use crate::ir::collation::Collation;
@@ -84,9 +84,7 @@ fn diff_one(target: &Collation, source: &Collation, out: &mut ChangeSet) {
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                kind: OwnerObjectKind::Collation,
-                id: OwnedObjectId::Qualified(source.qname.clone()),
-                signature: String::new(),
+                object: GrantableObject::Collation(source.qname.clone()),
                 from: target.owner.clone(),
                 to: s_owner.clone(),
             }),
@@ -307,7 +305,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         let entry = changes.iter().next().unwrap();
         if let Change::AlterObjectOwner(op) = &entry.change {
-            assert_eq!(op.kind, OwnerObjectKind::Collation);
+            assert!(matches!(op.object, GrantableObject::Collation(_)));
             assert_eq!(op.to, id("bob"));
         } else {
             panic!("expected AlterObjectOwner, got {:?}", entry.change);

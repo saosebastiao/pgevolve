@@ -4,112 +4,124 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
 
-/// Object kind discriminant for the renderer (`ALTER TABLE x OWNER TO`,
-/// `ALTER SCHEMA x OWNER TO`, etc.).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OwnerObjectKind {
-    /// `ALTER SCHEMA x OWNER TO`.
-    Schema,
-    /// `ALTER SEQUENCE x OWNER TO`.
-    Sequence,
-    /// `ALTER TABLE x OWNER TO`.
-    Table,
-    /// `ALTER VIEW x OWNER TO`.
-    View,
-    /// `ALTER MATERIALIZED VIEW x OWNER TO`.
-    MaterializedView,
-    /// `ALTER FUNCTION x() OWNER TO`.
-    Function,
-    /// `ALTER PROCEDURE x() OWNER TO`.
-    Procedure,
-    /// `ALTER TYPE x OWNER TO`.
-    UserType,
-    /// `ALTER PUBLICATION x OWNER TO`.
-    Publication,
-    /// `ALTER SUBSCRIPTION x OWNER TO`.
-    Subscription,
-    /// `ALTER STATISTICS x OWNER TO`.
-    Statistic,
-    /// `ALTER COLLATION x OWNER TO`.
-    Collation,
-}
-
-impl OwnerObjectKind {
-    /// The SQL keyword(s) used in `ALTER <keyword> <name> OWNER TO <role>`.
-    #[must_use]
-    pub const fn sql_keyword(self) -> &'static str {
-        match self {
-            Self::Schema => "SCHEMA",
-            Self::Sequence => "SEQUENCE",
-            Self::Table => "TABLE",
-            Self::View => "VIEW",
-            Self::MaterializedView => "MATERIALIZED VIEW",
-            Self::Function => "FUNCTION",
-            Self::Procedure => "PROCEDURE",
-            Self::UserType => "TYPE",
-            Self::Publication => "PUBLICATION",
-            Self::Subscription => "SUBSCRIPTION",
-            Self::Statistic => "STATISTICS",
-            Self::Collation => "COLLATION",
-        }
-    }
-}
-
-/// Identifies the object being re-owned by name shape.
+/// A routine's argument-type signature, e.g. `(integer, text)`.
 ///
-/// Replaces the older convention of stuffing every kind into a
-/// [`QualifiedName`] (which forced workarounds like
-/// `QualifiedName::new(name, name)` for schemas and
-/// `QualifiedName::new("__cluster__", name)` for publications /
-/// subscriptions). The renderer dispatches on this enum directly.
+/// Rendered verbatim — the leading/trailing parens are part of the stored
+/// string (constructed as `format!("({args_label})")` at the diff sites),
+/// matching the old `signature` field exactly so rendered SQL is unchanged.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum OwnedObjectId {
-    /// A schema-qualified object: table, view, MV, sequence, function,
-    /// procedure, user-type, statistic.
-    Qualified(QualifiedName),
-    /// A schema itself. Rendered as the bare schema name.
+pub struct RoutineSignature(pub String);
+
+/// A grantable / ownable schema object, carrying exactly the data its kind
+/// needs.
+///
+/// A routine argument-signature is representable ONLY on
+/// [`GrantableObject::Function`] / [`GrantableObject::Procedure`], so the old
+/// `signature: String` field (documented as "empty for non-routine kinds") —
+/// an illegal state — is gone.
+///
+/// This subsumes the former `OwnerObjectKind` (the SQL keyword discriminant)
+/// and `OwnedObjectId` (the name shape): schema / publication / subscription
+/// render a bare [`Identifier`]; every other kind renders a [`QualifiedName`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GrantableObject {
+    /// `SCHEMA x` — rendered as the bare schema name.
     Schema(Identifier),
-    /// A cluster-level object — publication or subscription. Rendered
-    /// as the bare name (no schema qualifier; PG does not schema-qualify
-    /// these).
-    Cluster(Identifier),
+    /// `SEQUENCE x`.
+    Sequence(QualifiedName),
+    /// `TABLE x`.
+    Table(QualifiedName),
+    /// `VIEW x`.
+    View(QualifiedName),
+    /// `MATERIALIZED VIEW x`.
+    MaterializedView(QualifiedName),
+    /// `TYPE x`.
+    UserType(QualifiedName),
+    /// `FUNCTION x(<signature>)`.
+    Function {
+        /// Qualified routine name.
+        name: QualifiedName,
+        /// Argument-type signature suffix (with parens).
+        signature: RoutineSignature,
+    },
+    /// `PROCEDURE x(<signature>)`.
+    Procedure {
+        /// Qualified routine name.
+        name: QualifiedName,
+        /// Argument-type signature suffix (with parens).
+        signature: RoutineSignature,
+    },
+    /// `STATISTICS x`.
+    Statistic(QualifiedName),
+    /// `COLLATION x`.
+    Collation(QualifiedName),
+    /// `PUBLICATION x` — cluster-level, rendered as the bare name.
+    Publication(Identifier),
+    /// `SUBSCRIPTION x` — cluster-level, rendered as the bare name.
+    Subscription(Identifier),
 }
 
-impl OwnedObjectId {
-    /// Render the object's target name for use in
-    /// `ALTER <kind> <here>{signature} OWNER TO <role>;`.
+impl GrantableObject {
+    /// The SQL keyword(s) used in `GRANT ... ON <keyword> <name>` /
+    /// `ALTER <keyword> <name> OWNER TO <role>`.
     #[must_use]
-    pub fn render_sql(&self) -> String {
+    pub const fn sql_keyword(&self) -> &'static str {
         match self {
-            Self::Qualified(q) => q.render_sql(),
-            Self::Schema(name) | Self::Cluster(name) => name.render_sql(),
+            Self::Schema(_) => "SCHEMA",
+            Self::Sequence(_) => "SEQUENCE",
+            Self::Table(_) => "TABLE",
+            Self::View(_) => "VIEW",
+            Self::MaterializedView(_) => "MATERIALIZED VIEW",
+            Self::UserType(_) => "TYPE",
+            Self::Function { .. } => "FUNCTION",
+            Self::Procedure { .. } => "PROCEDURE",
+            Self::Statistic(_) => "STATISTICS",
+            Self::Collation(_) => "COLLATION",
+            Self::Publication(_) => "PUBLICATION",
+            Self::Subscription(_) => "SUBSCRIPTION",
+        }
+    }
+
+    /// Render the object's target name for use in
+    /// `ALTER <kw> <here> OWNER TO <role>;` / `GRANT ... ON <kw> <here> ...`.
+    ///
+    /// For routines this includes the signature suffix exactly as before
+    /// (`format!("{}{}", name.render_sql(), signature.0)`). Schema /
+    /// publication / subscription render the bare identifier; the rest render
+    /// the [`QualifiedName`].
+    #[must_use]
+    pub fn render_target(&self) -> String {
+        match self {
+            Self::Schema(name) | Self::Publication(name) | Self::Subscription(name) => {
+                name.render_sql()
+            }
+            Self::Sequence(q)
+            | Self::Table(q)
+            | Self::View(q)
+            | Self::MaterializedView(q)
+            | Self::UserType(q)
+            | Self::Statistic(q)
+            | Self::Collation(q) => q.render_sql(),
+            Self::Function { name, signature } | Self::Procedure { name, signature } => {
+                format!("{}{}", name.render_sql(), signature.0)
+            }
         }
     }
 }
 
-impl std::fmt::Display for OwnedObjectId {
+impl std::fmt::Display for GrantableObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Qualified(q) => write!(f, "{q}"),
-            Self::Schema(name) | Self::Cluster(name) => write!(f, "{name}"),
-        }
+        f.write_str(&self.render_target())
     }
 }
 
-/// An `ALTER <kind> <id> OWNER TO <to>` statement, paired with the previous
+/// An `ALTER <kind> <object> OWNER TO <to>` statement, paired with the previous
 /// owner for audit / rollback purposes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AlterObjectOwner {
-    /// Which kind of object is being re-owned.
-    pub kind: OwnerObjectKind,
-    /// Identifies the object by name shape (qualified / schema / cluster).
-    pub id: OwnedObjectId,
-    /// Optional argument-signature suffix for routines (e.g., `(int, text)`).
-    /// Empty for non-routine kinds.
-    #[serde(default)]
-    pub signature: String,
+    /// The object being re-owned (kind + name + optional routine signature).
+    pub object: GrantableObject,
     /// Previous owner (taken from the target catalog; `None` when the
     /// catalog did not record an owner).
     pub from: Option<Identifier>,
@@ -121,37 +133,94 @@ pub struct AlterObjectOwner {
 mod tests {
     use super::*;
 
-    #[test]
-    fn sql_keywords_match_pg() {
-        assert_eq!(OwnerObjectKind::Schema.sql_keyword(), "SCHEMA");
-        assert_eq!(OwnerObjectKind::Sequence.sql_keyword(), "SEQUENCE");
-        assert_eq!(OwnerObjectKind::Table.sql_keyword(), "TABLE");
-        assert_eq!(OwnerObjectKind::View.sql_keyword(), "VIEW");
-        assert_eq!(
-            OwnerObjectKind::MaterializedView.sql_keyword(),
-            "MATERIALIZED VIEW"
-        );
-        assert_eq!(OwnerObjectKind::Function.sql_keyword(), "FUNCTION");
-        assert_eq!(OwnerObjectKind::Procedure.sql_keyword(), "PROCEDURE");
-        assert_eq!(OwnerObjectKind::UserType.sql_keyword(), "TYPE");
-        assert_eq!(OwnerObjectKind::Publication.sql_keyword(), "PUBLICATION");
-        assert_eq!(OwnerObjectKind::Subscription.sql_keyword(), "SUBSCRIPTION");
-        assert_eq!(OwnerObjectKind::Statistic.sql_keyword(), "STATISTICS");
-        assert_eq!(OwnerObjectKind::Collation.sql_keyword(), "COLLATION");
+    fn id(s: &str) -> Identifier {
+        Identifier::from_unquoted(s).unwrap()
+    }
+
+    fn qn(schema: &str, name: &str) -> QualifiedName {
+        QualifiedName::new(id(schema), id(name))
     }
 
     #[test]
-    fn owned_object_id_renders_each_shape() {
-        let q = OwnedObjectId::Qualified(QualifiedName::new(
-            Identifier::from_unquoted("app").unwrap(),
-            Identifier::from_unquoted("users").unwrap(),
-        ));
-        assert_eq!(q.render_sql(), "app.users");
+    fn sql_keywords_match_pg() {
+        assert_eq!(GrantableObject::Schema(id("s")).sql_keyword(), "SCHEMA");
+        assert_eq!(
+            GrantableObject::Sequence(qn("s", "x")).sql_keyword(),
+            "SEQUENCE"
+        );
+        assert_eq!(GrantableObject::Table(qn("s", "x")).sql_keyword(), "TABLE");
+        assert_eq!(GrantableObject::View(qn("s", "x")).sql_keyword(), "VIEW");
+        assert_eq!(
+            GrantableObject::MaterializedView(qn("s", "x")).sql_keyword(),
+            "MATERIALIZED VIEW"
+        );
+        assert_eq!(
+            GrantableObject::Function {
+                name: qn("s", "x"),
+                signature: RoutineSignature("()".to_string()),
+            }
+            .sql_keyword(),
+            "FUNCTION"
+        );
+        assert_eq!(
+            GrantableObject::Procedure {
+                name: qn("s", "x"),
+                signature: RoutineSignature("()".to_string()),
+            }
+            .sql_keyword(),
+            "PROCEDURE"
+        );
+        assert_eq!(
+            GrantableObject::UserType(qn("s", "x")).sql_keyword(),
+            "TYPE"
+        );
+        assert_eq!(
+            GrantableObject::Publication(id("p")).sql_keyword(),
+            "PUBLICATION"
+        );
+        assert_eq!(
+            GrantableObject::Subscription(id("p")).sql_keyword(),
+            "SUBSCRIPTION"
+        );
+        assert_eq!(
+            GrantableObject::Statistic(qn("s", "x")).sql_keyword(),
+            "STATISTICS"
+        );
+        assert_eq!(
+            GrantableObject::Collation(qn("s", "x")).sql_keyword(),
+            "COLLATION"
+        );
+    }
 
-        let s = OwnedObjectId::Schema(Identifier::from_unquoted("billing").unwrap());
-        assert_eq!(s.render_sql(), "billing");
-
-        let c = OwnedObjectId::Cluster(Identifier::from_unquoted("my_pub").unwrap());
-        assert_eq!(c.render_sql(), "my_pub");
+    #[test]
+    fn render_target_each_shape() {
+        assert_eq!(
+            GrantableObject::Table(qn("app", "users")).render_target(),
+            "app.users"
+        );
+        assert_eq!(
+            GrantableObject::Schema(id("billing")).render_target(),
+            "billing"
+        );
+        assert_eq!(
+            GrantableObject::Publication(id("my_pub")).render_target(),
+            "my_pub"
+        );
+        assert_eq!(
+            GrantableObject::Function {
+                name: qn("app", "do_thing"),
+                signature: RoutineSignature("(integer, text)".to_string()),
+            }
+            .render_target(),
+            "app.do_thing(integer, text)"
+        );
+        assert_eq!(
+            GrantableObject::Procedure {
+                name: qn("app", "do_work"),
+                signature: RoutineSignature("(integer)".to_string()),
+            }
+            .render_target(),
+            "app.do_work(integer)"
+        );
     }
 }

@@ -2,83 +2,52 @@
 //!
 //! PG keywords are uppercase per the established sql.rs convention.
 //! Identifiers go through `Identifier::render_sql` / `QualifiedName::render_sql`
-//! / `OwnedObjectId::render_sql` (the last picks the right shape per object).
+//! / `GrantableObject::render_target` (the last picks the right name + optional
+//! routine signature per object).
 
 use crate::diff::change::GrantDirection;
-use crate::diff::owner_op::{OwnedObjectId, OwnerObjectKind};
+use crate::diff::owner_op::GrantableObject;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_privileges::DefaultPrivObjectType;
 use crate::ir::grant::{Grant, GrantTarget};
 
-/// `ALTER <objkind> <id>[<signature>] OWNER TO <new_owner>;`
+/// `ALTER <objkind> <target>[<signature>] OWNER TO <new_owner>;`
 #[must_use]
-pub fn alter_object_owner(
-    kind: OwnerObjectKind,
-    id: &OwnedObjectId,
-    signature: &str,
-    new_owner: &Identifier,
-) -> String {
+pub fn alter_object_owner(object: &GrantableObject, new_owner: &Identifier) -> String {
     format!(
-        "ALTER {} {}{} OWNER TO {};",
-        kind.sql_keyword(),
-        id.render_sql(),
-        signature,
+        "ALTER {} {} OWNER TO {};",
+        object.sql_keyword(),
+        object.render_target(),
         new_owner.render_sql(),
     )
 }
 
-/// `GRANT priv ON <objkind> qname TO grantee [WITH GRANT OPTION];`
+/// `GRANT priv ON <objkind> <target> TO grantee [WITH GRANT OPTION];`
 #[must_use]
-pub fn grant_object_privilege(
-    kind: OwnerObjectKind,
-    qname: &QualifiedName,
-    signature: &str,
-    grant: &Grant,
-) -> String {
+pub fn grant_object_privilege(object: &GrantableObject, grant: &Grant) -> String {
     let grantee_sql = render_grantee(&grant.grantee);
     let wgo = if grant.with_grant_option {
         " WITH GRANT OPTION"
     } else {
         ""
     };
-    if matches!(kind, OwnerObjectKind::Schema) {
-        return format!(
-            "GRANT {} ON SCHEMA {} TO {grantee_sql}{wgo};",
-            grant.privilege.sql_keyword(),
-            qname.name.render_sql(),
-        );
-    }
-    let objkind_token = kind.sql_keyword();
     format!(
-        "GRANT {} ON {objkind_token} {}{} TO {grantee_sql}{wgo};",
+        "GRANT {} ON {} {} TO {grantee_sql}{wgo};",
         grant.privilege.sql_keyword(),
-        qname.render_sql(),
-        signature,
+        object.sql_keyword(),
+        object.render_target(),
     )
 }
 
-/// `REVOKE priv ON <objkind> qname FROM grantee;`
+/// `REVOKE priv ON <objkind> <target> FROM grantee;`
 #[must_use]
-pub fn revoke_object_privilege(
-    kind: OwnerObjectKind,
-    qname: &QualifiedName,
-    signature: &str,
-    grant: &Grant,
-) -> String {
+pub fn revoke_object_privilege(object: &GrantableObject, grant: &Grant) -> String {
     let grantee_sql = render_grantee(&grant.grantee);
-    if matches!(kind, OwnerObjectKind::Schema) {
-        return format!(
-            "REVOKE {} ON SCHEMA {} FROM {grantee_sql};",
-            grant.privilege.sql_keyword(),
-            qname.name.render_sql(),
-        );
-    }
-    let objkind_token = kind.sql_keyword();
     format!(
-        "REVOKE {} ON {objkind_token} {}{} FROM {grantee_sql};",
+        "REVOKE {} ON {} {} FROM {grantee_sql};",
         grant.privilege.sql_keyword(),
-        qname.render_sql(),
-        signature,
+        object.sql_keyword(),
+        object.render_target(),
     )
 }
 
@@ -175,6 +144,7 @@ fn render_grantee(g: &GrantTarget) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diff::owner_op::RoutineSignature;
     use crate::identifier::Identifier;
     use crate::ir::grant::{Grant, GrantTarget, Privilege};
 
@@ -199,43 +169,29 @@ mod tests {
 
     #[test]
     fn alter_owner_table() {
-        let sql = alter_object_owner(
-            OwnerObjectKind::Table,
-            &OwnedObjectId::Qualified(qn("app", "users")),
-            "",
-            &id("alice"),
-        );
+        let sql = alter_object_owner(&GrantableObject::Table(qn("app", "users")), &id("alice"));
         assert_eq!(sql, "ALTER TABLE app.users OWNER TO alice;");
     }
 
     #[test]
     fn alter_owner_schema_no_double_qualify() {
-        let sql = alter_object_owner(
-            OwnerObjectKind::Schema,
-            &OwnedObjectId::Schema(id("app")),
-            "",
-            &id("alice"),
-        );
+        let sql = alter_object_owner(&GrantableObject::Schema(id("app")), &id("alice"));
         assert_eq!(sql, "ALTER SCHEMA app OWNER TO alice;");
     }
 
     #[test]
     fn alter_owner_publication_no_schema_qualifier() {
-        let sql = alter_object_owner(
-            OwnerObjectKind::Publication,
-            &OwnedObjectId::Cluster(id("my_pub")),
-            "",
-            &id("alice"),
-        );
+        let sql = alter_object_owner(&GrantableObject::Publication(id("my_pub")), &id("alice"));
         assert_eq!(sql, "ALTER PUBLICATION my_pub OWNER TO alice;");
     }
 
     #[test]
     fn alter_owner_function_with_signature() {
         let sql = alter_object_owner(
-            OwnerObjectKind::Function,
-            &OwnedObjectId::Qualified(qn("app", "do_thing")),
-            "(integer, text)",
+            &GrantableObject::Function {
+                name: qn("app", "do_thing"),
+                signature: RoutineSignature("(integer, text)".to_string()),
+            },
             &id("alice"),
         );
         assert_eq!(
@@ -249,14 +205,14 @@ mod tests {
     #[test]
     fn grant_object_select_table() {
         let g = grant_to("reader", Privilege::Select);
-        let sql = grant_object_privilege(OwnerObjectKind::Table, &qn("app", "users"), "", &g);
+        let sql = grant_object_privilege(&GrantableObject::Table(qn("app", "users")), &g);
         assert_eq!(sql, "GRANT SELECT ON TABLE app.users TO reader;");
     }
 
     #[test]
     fn grant_object_usage_schema_no_double_qualify() {
         let g = grant_to("reader", Privilege::Usage);
-        let sql = grant_object_privilege(OwnerObjectKind::Schema, &qn("app", "app"), "", &g);
+        let sql = grant_object_privilege(&GrantableObject::Schema(id("app")), &g);
         assert_eq!(sql, "GRANT USAGE ON SCHEMA app TO reader;");
     }
 
@@ -268,7 +224,7 @@ mod tests {
             with_grant_option: true,
             columns: None,
         };
-        let sql = grant_object_privilege(OwnerObjectKind::Table, &qn("app", "orders"), "", &g);
+        let sql = grant_object_privilege(&GrantableObject::Table(qn("app", "orders")), &g);
         assert_eq!(
             sql,
             "GRANT INSERT ON TABLE app.orders TO alice WITH GRANT OPTION;"
@@ -283,7 +239,7 @@ mod tests {
             with_grant_option: false,
             columns: None,
         };
-        let sql = grant_object_privilege(OwnerObjectKind::Table, &qn("app", "users"), "", &g);
+        let sql = grant_object_privilege(&GrantableObject::Table(qn("app", "users")), &g);
         assert_eq!(sql, "GRANT SELECT ON TABLE app.users TO PUBLIC;");
     }
 
@@ -292,14 +248,14 @@ mod tests {
     #[test]
     fn revoke_object_table() {
         let g = grant_to("reader", Privilege::Select);
-        let sql = revoke_object_privilege(OwnerObjectKind::Table, &qn("app", "users"), "", &g);
+        let sql = revoke_object_privilege(&GrantableObject::Table(qn("app", "users")), &g);
         assert_eq!(sql, "REVOKE SELECT ON TABLE app.users FROM reader;");
     }
 
     #[test]
     fn revoke_object_schema() {
         let g = grant_to("reader", Privilege::Usage);
-        let sql = revoke_object_privilege(OwnerObjectKind::Schema, &qn("app", "app"), "", &g);
+        let sql = revoke_object_privilege(&GrantableObject::Schema(id("app")), &g);
         assert_eq!(sql, "REVOKE USAGE ON SCHEMA app FROM reader;");
     }
 
@@ -357,9 +313,10 @@ mod tests {
             columns: None,
         };
         let sql = grant_object_privilege(
-            OwnerObjectKind::Function,
-            &qn("app", "foo"),
-            "(integer, text)",
+            &GrantableObject::Function {
+                name: qn("app", "foo"),
+                signature: RoutineSignature("(integer, text)".to_string()),
+            },
             &g,
         );
         assert_eq!(
@@ -377,9 +334,10 @@ mod tests {
             columns: None,
         };
         let sql = revoke_object_privilege(
-            OwnerObjectKind::Function,
-            &qn("app", "foo"),
-            "(integer, text)",
+            &GrantableObject::Function {
+                name: qn("app", "foo"),
+                signature: RoutineSignature("(integer, text)".to_string()),
+            },
             &g,
         );
         assert_eq!(
@@ -397,9 +355,10 @@ mod tests {
             columns: None,
         };
         let sql = grant_object_privilege(
-            OwnerObjectKind::Procedure,
-            &qn("app", "do_work"),
-            "(integer)",
+            &GrantableObject::Procedure {
+                name: qn("app", "do_work"),
+                signature: RoutineSignature("(integer)".to_string()),
+            },
             &g,
         );
         assert_eq!(
@@ -416,7 +375,13 @@ mod tests {
             with_grant_option: false,
             columns: None,
         };
-        let sql = grant_object_privilege(OwnerObjectKind::Function, &qn("app", "foo"), "()", &g);
+        let sql = grant_object_privilege(
+            &GrantableObject::Function {
+                name: qn("app", "foo"),
+                signature: RoutineSignature("()".to_string()),
+            },
+            &g,
+        );
         assert_eq!(sql, "GRANT EXECUTE ON FUNCTION app.foo() TO app_user;");
     }
 

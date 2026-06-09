@@ -356,29 +356,21 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     }
                 }
             }
-            pgevolve_core::diff::change::Change::GrantObjectPrivilege {
-                qname,
-                kind,
-                signature,
-                grant,
-            } => {
+            pgevolve_core::diff::change::Change::GrantObjectPrivilege { object, grant } => {
                 println!(
-                    "      grant {} on {:?} {qname}{signature} to {:?}",
+                    "      grant {} on {} {} to {:?}",
                     grant.privilege.sql_keyword(),
-                    kind,
+                    object.sql_keyword(),
+                    object.render_target(),
                     grant.grantee
                 );
             }
-            pgevolve_core::diff::change::Change::RevokeObjectPrivilege {
-                qname,
-                kind,
-                signature,
-                grant,
-            } => {
+            pgevolve_core::diff::change::Change::RevokeObjectPrivilege { object, grant } => {
                 println!(
-                    "      revoke {} on {:?} {qname}{signature} from {:?}",
+                    "      revoke {} on {} {} from {:?}",
                     grant.privilege.sql_keyword(),
-                    kind,
+                    object.sql_keyword(),
+                    object.render_target(),
                     grant.grantee
                 );
             }
@@ -400,8 +392,10 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     .as_ref()
                     .map_or_else(|| "<unknown>".to_string(), ToString::to_string);
                 println!(
-                    "      alter owner of {:?} {} from {from} to {}",
-                    op.kind, op.id, op.to
+                    "      alter owner of {} {} from {from} to {}",
+                    op.object.sql_keyword(),
+                    op.object.render_target(),
+                    op.to
                 );
             }
             pgevolve_core::diff::change::Change::AlterDefaultPrivileges {

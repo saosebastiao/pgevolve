@@ -23,7 +23,7 @@ use crate::diff::change::{Change, FunctionChange, ProcedureChange};
 use crate::diff::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::grants::diff_grants;
-use crate::diff::owner_op::{AlterObjectOwner, OwnerObjectKind};
+use crate::diff::owner_op::{AlterObjectOwner, GrantableObject, RoutineSignature};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::function::{ArgMode, Function, NormalizedArgTypes, ReturnType};
 use crate::ir::grant::GrantTarget;
@@ -101,9 +101,10 @@ fn diff_function_owner_grants(
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                kind: OwnerObjectKind::Function,
-                id: crate::diff::owner_op::OwnedObjectId::Qualified(source.qname.clone()),
-                signature: signature.clone(),
+                object: GrantableObject::Function {
+                    name: source.qname.clone(),
+                    signature: RoutineSignature(signature.clone()),
+                },
                 from: catalog.owner.clone(),
                 to: source_owner.clone(),
             }),
@@ -129,9 +130,10 @@ fn diff_function_owner_grants(
         }
         out.push(
             Change::RevokeObjectPrivilege {
-                qname: source.qname.clone(),
-                kind: OwnerObjectKind::Function,
-                signature: signature.clone(),
+                object: GrantableObject::Function {
+                    name: source.qname.clone(),
+                    signature: RoutineSignature(signature.clone()),
+                },
                 grant: g,
             },
             Destructiveness::Safe,
@@ -140,9 +142,10 @@ fn diff_function_owner_grants(
     for g in to_add {
         out.push(
             Change::GrantObjectPrivilege {
-                qname: source.qname.clone(),
-                kind: OwnerObjectKind::Function,
-                signature: signature.clone(),
+                object: GrantableObject::Function {
+                    name: source.qname.clone(),
+                    signature: RoutineSignature(signature.clone()),
+                },
                 grant: g,
             },
             Destructiveness::Safe,
@@ -336,9 +339,10 @@ fn diff_procedure_owner_grants(
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                kind: OwnerObjectKind::Procedure,
-                id: crate::diff::owner_op::OwnedObjectId::Qualified(source.qname.clone()),
-                signature: signature.clone(),
+                object: GrantableObject::Procedure {
+                    name: source.qname.clone(),
+                    signature: RoutineSignature(signature.clone()),
+                },
                 from: catalog.owner.clone(),
                 to: source_owner.clone(),
             }),
@@ -364,9 +368,10 @@ fn diff_procedure_owner_grants(
         }
         out.push(
             Change::RevokeObjectPrivilege {
-                qname: source.qname.clone(),
-                kind: OwnerObjectKind::Procedure,
-                signature: signature.clone(),
+                object: GrantableObject::Procedure {
+                    name: source.qname.clone(),
+                    signature: RoutineSignature(signature.clone()),
+                },
                 grant: g,
             },
             Destructiveness::Safe,
@@ -375,9 +380,10 @@ fn diff_procedure_owner_grants(
     for g in to_add {
         out.push(
             Change::GrantObjectPrivilege {
-                qname: source.qname.clone(),
-                kind: OwnerObjectKind::Procedure,
-                signature: signature.clone(),
+                object: GrantableObject::Procedure {
+                    name: source.qname.clone(),
+                    signature: RoutineSignature(signature.clone()),
+                },
                 grant: g,
             },
             Destructiveness::Safe,
@@ -842,18 +848,15 @@ mod tests {
             "expected GrantObjectPrivilege change"
         );
 
-        if let Change::GrantObjectPrivilege {
-            signature, kind, ..
-        } = &grant_entry.unwrap().change
-        {
-            assert_eq!(
-                signature, "(integer)",
-                "signature must carry the IN arg type"
+        if let Change::GrantObjectPrivilege { object, .. } = &grant_entry.unwrap().change {
+            assert!(
+                matches!(
+                    object,
+                    GrantableObject::Function { signature, .. }
+                        if signature == &RoutineSignature("(integer)".to_string())
+                ),
+                "signature must carry the IN arg type on a Function variant"
             );
-            assert!(matches!(
-                kind,
-                crate::diff::owner_op::OwnerObjectKind::Function
-            ));
         }
     }
 
@@ -892,8 +895,15 @@ mod tests {
             "expected GrantObjectPrivilege change"
         );
 
-        if let Change::GrantObjectPrivilege { signature, .. } = &grant_entry.unwrap().change {
-            assert_eq!(signature, "()", "no-arg function signature must be ()");
+        if let Change::GrantObjectPrivilege { object, .. } = &grant_entry.unwrap().change {
+            assert!(
+                matches!(
+                    object,
+                    GrantableObject::Function { signature, .. }
+                        if signature == &RoutineSignature("()".to_string())
+                ),
+                "no-arg function signature must be ()"
+            );
         }
     }
 
@@ -940,18 +950,15 @@ mod tests {
             "expected GrantObjectPrivilege change"
         );
 
-        if let Change::GrantObjectPrivilege {
-            signature, kind, ..
-        } = &grant_entry.unwrap().change
-        {
-            assert_eq!(
-                signature, "(integer)",
-                "procedure signature must carry the IN arg type"
+        if let Change::GrantObjectPrivilege { object, .. } = &grant_entry.unwrap().change {
+            assert!(
+                matches!(
+                    object,
+                    GrantableObject::Procedure { signature, .. }
+                        if signature == &RoutineSignature("(integer)".to_string())
+                ),
+                "procedure signature must carry the IN arg type on a Procedure variant"
             );
-            assert!(matches!(
-                kind,
-                crate::diff::owner_op::OwnerObjectKind::Procedure
-            ));
         }
     }
 }

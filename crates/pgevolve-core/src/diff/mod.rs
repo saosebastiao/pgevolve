@@ -51,7 +51,7 @@ pub use change::{
 pub use changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 pub use cluster::{ClusterChange, ClusterChangeEntry, ClusterChangeSet, diff_cluster};
 pub use destructiveness::Destructiveness;
-pub use owner_op::{AlterObjectOwner, OwnerObjectKind};
+pub use owner_op::{AlterObjectOwner, GrantableObject, RoutineSignature};
 pub use routines::{diff_functions, diff_procedures};
 pub use sequence_op::{SequenceOp, SequenceOpEntry};
 pub use table_op::{TableOp, TableOpEntry};

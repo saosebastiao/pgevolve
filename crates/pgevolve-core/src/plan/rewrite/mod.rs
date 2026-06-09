@@ -216,13 +216,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             // Audit `targets` historically carried the QualifiedName; for
             // cluster-level (publication/subscription) and schema owners we
             // synthesize a QualifiedName for tracking only.
-            let target_qname = match &op.id {
-                crate::diff::owner_op::OwnedObjectId::Qualified(q) => q.clone(),
-                crate::diff::owner_op::OwnedObjectId::Schema(name)
-                | crate::diff::owner_op::OwnedObjectId::Cluster(name) => {
-                    QualifiedName::new(name.clone(), name.clone())
-                }
-            };
+            let target_qname = grantable_object_target_qname(&op.object);
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterObjectOwner,
@@ -230,41 +224,31 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 destructive_reason: None,
                 intent_id: None,
                 targets: vec![target_qname],
-                sql: grants::alter_object_owner(op.kind, &op.id, &op.signature, &op.to),
+                sql: grants::alter_object_owner(&op.object, &op.to),
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::GrantObjectPrivilege {
-            kind,
-            qname,
-            signature,
-            grant,
-        } => {
+        Change::GrantObjectPrivilege { object, grant } => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::GrantObjectPrivilege,
                 destructive: false,
                 destructive_reason: None,
                 intent_id: None,
-                targets: vec![qname.clone()],
-                sql: grants::grant_object_privilege(kind, &qname, &signature, &grant),
+                targets: vec![grantable_object_target_qname(&object)],
+                sql: grants::grant_object_privilege(&object, &grant),
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::RevokeObjectPrivilege {
-            kind,
-            qname,
-            signature,
-            grant,
-        } => {
+        Change::RevokeObjectPrivilege { object, grant } => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::RevokeObjectPrivilege,
                 destructive: false,
                 destructive_reason: None,
                 intent_id: None,
-                targets: vec![qname.clone()],
-                sql: grants::revoke_object_privilege(kind, &qname, &signature, &grant),
+                targets: vec![grantable_object_target_qname(&object)],
+                sql: grants::revoke_object_privilege(&object, &grant),
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
@@ -890,6 +874,30 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
 // Phase 5 helpers.
 pub(super) fn schema_target(name: &crate::identifier::Identifier) -> QualifiedName {
     QualifiedName::new(name.clone(), name.clone())
+}
+
+/// `RawStep::targets` carries `QualifiedName`s. Map a [`GrantableObject`] to the
+/// audit/tracking `QualifiedName` exactly as the pre-unification code did:
+/// qualified objects keep their name; schema / cluster-level objects synthesize
+/// `QualifiedName::new(name, name)`; routines use their bare qualified name
+/// (the signature is irrelevant to tracking).
+fn grantable_object_target_qname(object: &crate::diff::owner_op::GrantableObject) -> QualifiedName {
+    use crate::diff::owner_op::GrantableObject;
+    match object {
+        GrantableObject::Schema(name)
+        | GrantableObject::Publication(name)
+        | GrantableObject::Subscription(name) => schema_target(name),
+        GrantableObject::Sequence(q)
+        | GrantableObject::Table(q)
+        | GrantableObject::View(q)
+        | GrantableObject::MaterializedView(q)
+        | GrantableObject::UserType(q)
+        | GrantableObject::Statistic(q)
+        | GrantableObject::Collation(q) => q.clone(),
+        GrantableObject::Function { name, .. } | GrantableObject::Procedure { name, .. } => {
+            name.clone()
+        }
+    }
 }
 
 pub(super) fn destructive_reason(d: &Destructiveness) -> Option<String> {

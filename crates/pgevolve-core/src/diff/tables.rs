@@ -19,7 +19,7 @@ use super::columns::diff_columns;
 use super::constraints::diff_constraints;
 use super::destructiveness::Destructiveness;
 use super::grants::diff_grants;
-use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
+use super::owner_op::{AlterObjectOwner, GrantableObject};
 use super::table_op::TableOpEntry;
 
 /// Diff tables in `target` against `source`, appending entries to `out`.
@@ -351,9 +351,7 @@ fn emit_table_grant_changes(
         } else {
             out.push(
                 Change::RevokeObjectPrivilege {
-                    qname: qname.clone(),
-                    kind: OwnerObjectKind::Table,
-                    signature: String::new(),
+                    object: GrantableObject::Table(qname.clone()),
                     grant: g,
                 },
                 Destructiveness::Safe,
@@ -372,9 +370,7 @@ fn emit_table_grant_changes(
         } else {
             out.push(
                 Change::GrantObjectPrivilege {
-                    qname: qname.clone(),
-                    kind: OwnerObjectKind::Table,
-                    signature: String::new(),
+                    object: GrantableObject::Table(qname.clone()),
                     grant: g,
                 },
                 Destructiveness::Safe,
@@ -406,9 +402,7 @@ fn emit_table_attribute_changes(
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                kind: OwnerObjectKind::Table,
-                id: crate::diff::owner_op::OwnedObjectId::Qualified(qname.clone()),
-                signature: String::new(),
+                object: GrantableObject::Table(qname.clone()),
                 from: target_table.owner.clone(),
                 to: source_owner.clone(),
             }),

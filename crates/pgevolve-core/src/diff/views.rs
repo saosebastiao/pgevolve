@@ -27,7 +27,7 @@ use super::change::{BodyReplaceStrategy, Change, MvChange, ViewChange};
 use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use super::destructiveness::Destructiveness;
 use super::grants::diff_grants;
-use super::owner_op::{AlterObjectOwner, OwnerObjectKind};
+use super::owner_op::{AlterObjectOwner, GrantableObject};
 
 /// Per Postgres's `CREATE OR REPLACE VIEW` rules: the new column list must be
 /// a non-shrinking superset of the existing list, with the same names **and
@@ -165,9 +165,7 @@ pub fn diff_views(
         {
             out.push(
                 Change::AlterObjectOwner(AlterObjectOwner {
-                    kind: OwnerObjectKind::View,
-                    id: crate::diff::owner_op::OwnedObjectId::Qualified((*qname).clone()),
-                    signature: String::new(),
+                    object: GrantableObject::View((*qname).clone()),
                     from: tgt.owner.clone(),
                     to: source_owner.clone(),
                 }),
@@ -204,9 +202,7 @@ pub fn diff_views(
                 } else {
                     out.push(
                         Change::RevokeObjectPrivilege {
-                            qname: (*qname).clone(),
-                            kind: OwnerObjectKind::View,
-                            signature: String::new(),
+                            object: GrantableObject::View((*qname).clone()),
                             grant: g,
                         },
                         Destructiveness::Safe,
@@ -226,9 +222,7 @@ pub fn diff_views(
                 } else {
                     out.push(
                         Change::GrantObjectPrivilege {
-                            qname: (*qname).clone(),
-                            kind: OwnerObjectKind::View,
-                            signature: String::new(),
+                            object: GrantableObject::View((*qname).clone()),
                             grant: g,
                         },
                         Destructiveness::Safe,
@@ -340,9 +334,7 @@ pub fn diff_materialized_views(
         {
             out.push(
                 Change::AlterObjectOwner(AlterObjectOwner {
-                    kind: OwnerObjectKind::MaterializedView,
-                    id: crate::diff::owner_op::OwnedObjectId::Qualified((*qname).clone()),
-                    signature: String::new(),
+                    object: GrantableObject::MaterializedView((*qname).clone()),
                     from: tgt.owner.clone(),
                     to: source_owner.clone(),
                 }),
@@ -379,9 +371,7 @@ pub fn diff_materialized_views(
                 } else {
                     out.push(
                         Change::RevokeObjectPrivilege {
-                            qname: (*qname).clone(),
-                            kind: OwnerObjectKind::MaterializedView,
-                            signature: String::new(),
+                            object: GrantableObject::MaterializedView((*qname).clone()),
                             grant: g,
                         },
                         Destructiveness::Safe,
@@ -401,9 +391,7 @@ pub fn diff_materialized_views(
                 } else {
                     out.push(
                         Change::GrantObjectPrivilege {
-                            qname: (*qname).clone(),
-                            kind: OwnerObjectKind::MaterializedView,
-                            signature: String::new(),
+                            object: GrantableObject::MaterializedView((*qname).clone()),
                             grant: g,
                         },
                         Destructiveness::Safe,
