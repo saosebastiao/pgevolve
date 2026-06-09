@@ -8,22 +8,44 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, DiffMacro, diff_field, prefix_diffs};
+use crate::ir::eq::{Diff, diff_field, prefix_diffs};
 
 /// A table constraint.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Constraint {
     /// Schema-qualified constraint name (constraints carry their own names).
     pub qname: QualifiedName,
     /// What the constraint enforces.
-    #[diff(nested)]
     pub kind: ConstraintKind,
     /// Deferrability.
-    #[diff(via_debug)]
     pub deferrable: Deferrable,
     /// Optional comment.
-    #[diff(via_debug)]
     pub comment: Option<String>,
+}
+
+impl Diff for Constraint {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        let Self {
+            qname: _,
+            kind: _,
+            deferrable: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(diff_field("qname", &self.qname, &other.qname));
+        out.extend(prefix_diffs("kind", Diff::diff(&self.kind, &other.kind)));
+        out.extend(diff_field(
+            "deferrable",
+            &format!("{:?}", self.deferrable),
+            &format!("{:?}", other.deferrable),
+        ));
+        out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 /// What a constraint enforces.
@@ -59,25 +81,65 @@ pub enum ConstraintKind {
 }
 
 /// `FOREIGN KEY ... REFERENCES ...` definition.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForeignKey {
     /// Local columns; order matches `referenced_columns`.
-    #[diff(via_debug)]
     pub columns: Vec<Identifier>,
     /// Referenced table.
     pub referenced_table: QualifiedName,
     /// Referenced columns; order matches `columns`.
-    #[diff(via_debug)]
     pub referenced_columns: Vec<Identifier>,
     /// Action on update.
-    #[diff(via_debug)]
     pub on_update: ReferentialAction,
     /// Action on delete.
-    #[diff(via_debug)]
     pub on_delete: ReferentialAction,
     /// Match type.
-    #[diff(via_debug)]
     pub match_type: FkMatchType,
+}
+
+impl Diff for ForeignKey {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        let Self {
+            columns: _,
+            referenced_table: _,
+            referenced_columns: _,
+            on_update: _,
+            on_delete: _,
+            match_type: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(diff_field(
+            "columns",
+            &format!("{:?}", self.columns),
+            &format!("{:?}", other.columns),
+        ));
+        out.extend(diff_field(
+            "referenced_table",
+            &self.referenced_table,
+            &other.referenced_table,
+        ));
+        out.extend(diff_field(
+            "referenced_columns",
+            &format!("{:?}", self.referenced_columns),
+            &format!("{:?}", other.referenced_columns),
+        ));
+        out.extend(diff_field(
+            "on_update",
+            &format!("{:?}", self.on_update),
+            &format!("{:?}", other.on_update),
+        ));
+        out.extend(diff_field(
+            "on_delete",
+            &format!("{:?}", self.on_delete),
+            &format!("{:?}", other.on_delete),
+        ));
+        out.extend(diff_field(
+            "match_type",
+            &format!("{:?}", self.match_type),
+            &format!("{:?}", other.match_type),
+        ));
+        out
+    }
 }
 
 /// Referential action for `ON UPDATE` / `ON DELETE`.

@@ -7,24 +7,51 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
-use crate::ir::eq::DiffMacro;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Diff, diff_field};
 
 /// A Postgres extension.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, DiffMacro)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Extension {
     /// Extension name (e.g. `pgcrypto`, `pg_trgm`).
     pub name: Identifier,
     /// Target schema. `None` = "use extension's default schema"
     /// (matches omitting `WITH SCHEMA` in source SQL).
-    #[diff(via_debug)]
     pub schema: Option<Identifier>,
     /// Pinned version. `None` = "any installed version is fine"
     /// (matches omitting `VERSION` in source SQL).
-    #[diff(via_debug)]
     pub version: Option<String>,
     /// Optional `COMMENT ON EXTENSION` text.
-    #[diff(via_debug)]
     pub comment: Option<String>,
+}
+
+impl Diff for Extension {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        let Self {
+            name: _,
+            schema: _,
+            version: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(diff_field("name", &self.name, &other.name));
+        out.extend(diff_field(
+            "schema",
+            &format!("{:?}", self.schema),
+            &format!("{:?}", other.schema),
+        ));
+        out.extend(diff_field(
+            "version",
+            &format!("{:?}", self.version),
+            &format!("{:?}", other.version),
+        ));
+        out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 #[cfg(test)]

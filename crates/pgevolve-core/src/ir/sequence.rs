@@ -4,43 +4,98 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::QualifiedName;
 use crate::ir::column_type::ColumnType;
-use crate::ir::eq::DiffMacro;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Diff, diff_field};
 
 /// A Postgres sequence.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sequence {
     /// Schema-qualified sequence name.
     pub qname: QualifiedName,
     /// Sequence data type (always one of `SmallInt`, `Integer`, `BigInt`).
-    #[diff(via_debug)]
     pub data_type: ColumnType,
     /// Start value.
     pub start: i64,
     /// Increment.
     pub increment: i64,
     /// Min value (`None` = type's minimum).
-    #[diff(via_debug)]
     pub min_value: Option<i64>,
     /// Max value (`None` = type's maximum).
-    #[diff(via_debug)]
     pub max_value: Option<i64>,
     /// Cache size.
     pub cache: i64,
     /// Whether the sequence cycles.
     pub cycle: bool,
     /// Owning column, if any (e.g., from `SERIAL` / `IDENTITY`).
-    #[diff(via_debug)]
     pub owned_by: Option<SequenceOwner>,
     /// Optional comment.
-    #[diff(via_debug)]
     pub comment: Option<String>,
     /// Object owner. `None` = unmanaged (the differ ignores ownership).
     /// `Some(role)` = managed: diff emits `ALTER SEQUENCE ... OWNER TO role`.
-    #[diff(via_debug)]
     pub owner: Option<crate::identifier::Identifier>,
     /// Grants on this object. Empty = no grants. Canonicalized.
-    #[diff(via_debug)]
     pub grants: Vec<crate::ir::grant::Grant>,
+}
+
+impl Diff for Sequence {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        let Self {
+            qname: _,
+            data_type: _,
+            start: _,
+            increment: _,
+            min_value: _,
+            max_value: _,
+            cache: _,
+            cycle: _,
+            owned_by: _,
+            comment: _,
+            owner: _,
+            grants: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(diff_field("qname", &self.qname, &other.qname));
+        out.extend(diff_field(
+            "data_type",
+            &format!("{:?}", self.data_type),
+            &format!("{:?}", other.data_type),
+        ));
+        out.extend(diff_field("start", &self.start, &other.start));
+        out.extend(diff_field("increment", &self.increment, &other.increment));
+        out.extend(diff_field(
+            "min_value",
+            &format!("{:?}", self.min_value),
+            &format!("{:?}", other.min_value),
+        ));
+        out.extend(diff_field(
+            "max_value",
+            &format!("{:?}", self.max_value),
+            &format!("{:?}", other.max_value),
+        ));
+        out.extend(diff_field("cache", &self.cache, &other.cache));
+        out.extend(diff_field("cycle", &self.cycle, &other.cycle));
+        out.extend(diff_field(
+            "owned_by",
+            &format!("{:?}", self.owned_by),
+            &format!("{:?}", other.owned_by),
+        ));
+        out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out.extend(diff_field(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(diff_field(
+            "grants",
+            &format!("{:?}", self.grants),
+            &format!("{:?}", other.grants),
+        ));
+        out
+    }
 }
 
 /// Identifies a column that owns this sequence (Postgres `OWNED BY`).

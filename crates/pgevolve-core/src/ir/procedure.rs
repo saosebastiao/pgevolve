@@ -3,46 +3,104 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::QualifiedName;
-use crate::ir::eq::DiffMacro;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Diff, diff_field};
 use crate::ir::function::{FunctionArg, FunctionLanguage, SecurityMode};
 use crate::parse::normalize_body::NormalizedBody;
 use crate::plan::edges::DepEdge;
 
 /// A user-defined procedure (`CREATE PROCEDURE`).
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, DiffMacro)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Procedure {
     /// Schema-qualified procedure name.
     pub qname: QualifiedName,
     /// Declared argument list.
-    #[diff(via_debug)]
     pub args: Vec<FunctionArg>,
     /// Implementation language.
-    #[diff(via_debug)]
     pub language: FunctionLanguage,
     /// Canonicalized procedure body.
-    #[diff(via_debug)]
     pub body: NormalizedBody,
     /// Dependency edges extracted from the procedure body AST.
     ///
     /// Filled by the T4 PL/pgSQL body parser. Empty until that pass runs.
     #[serde(default)]
-    #[diff(via_debug)]
     pub body_dependencies: Vec<DepEdge>,
     /// Security context (INVOKER or DEFINER).
-    #[diff(via_debug)]
     pub security: SecurityMode,
     /// Parser-detected COMMIT/ROLLBACK in body. Drives transactional=OutsideTransaction at planner time.
     pub commits_in_body: bool,
     /// Optional `COMMENT ON PROCEDURE` text.
-    #[diff(via_debug)]
     pub comment: Option<String>,
     /// Object owner. `None` = unmanaged (the differ ignores ownership).
     /// `Some(role)` = managed: diff emits `ALTER PROCEDURE ... OWNER TO role`.
-    #[diff(via_debug)]
     pub owner: Option<crate::identifier::Identifier>,
     /// Grants on this object. Empty = no grants. Canonicalized.
-    #[diff(via_debug)]
     pub grants: Vec<crate::ir::grant::Grant>,
+}
+
+impl Diff for Procedure {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        let Self {
+            qname: _,
+            args: _,
+            language: _,
+            body: _,
+            body_dependencies: _,
+            security: _,
+            commits_in_body: _,
+            comment: _,
+            owner: _,
+            grants: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(diff_field("qname", &self.qname, &other.qname));
+        out.extend(diff_field(
+            "args",
+            &format!("{:?}", self.args),
+            &format!("{:?}", other.args),
+        ));
+        out.extend(diff_field(
+            "language",
+            &format!("{:?}", self.language),
+            &format!("{:?}", other.language),
+        ));
+        out.extend(diff_field(
+            "body",
+            &format!("{:?}", self.body),
+            &format!("{:?}", other.body),
+        ));
+        out.extend(diff_field(
+            "body_dependencies",
+            &format!("{:?}", self.body_dependencies),
+            &format!("{:?}", other.body_dependencies),
+        ));
+        out.extend(diff_field(
+            "security",
+            &format!("{:?}", self.security),
+            &format!("{:?}", other.security),
+        ));
+        out.extend(diff_field(
+            "commits_in_body",
+            &self.commits_in_body,
+            &other.commits_in_body,
+        ));
+        out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out.extend(diff_field(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(diff_field(
+            "grants",
+            &format!("{:?}", self.grants),
+            &format!("{:?}", other.grants),
+        ));
+        out
+    }
 }
 
 #[cfg(test)]

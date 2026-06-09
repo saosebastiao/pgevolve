@@ -5,43 +5,109 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::constraint::Deferrable;
 use crate::ir::default_expr::NormalizedExpr;
-use crate::ir::eq::DiffMacro;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Diff, diff_field};
 
 /// A Postgres trigger.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, DiffMacro)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Trigger {
     /// Schema-qualified trigger name. Schema mirrors the owning table's schema.
     pub qname: QualifiedName,
     /// Owning table (or view, for `INSTEAD OF` triggers).
     pub table: QualifiedName,
     /// When the trigger fires relative to the event.
-    #[diff(via_debug)]
     pub timing: TriggerTiming,
     /// Events that fire this trigger.
-    #[diff(via_debug)]
     pub events: Vec<TriggerEvent>,
     /// Row-level or statement-level.
-    #[diff(via_debug)]
     pub level: TriggerLevel,
     /// Optional `WHEN (condition)` predicate.
-    #[diff(via_debug)]
     pub when_clause: Option<NormalizedExpr>,
     /// Statement-level transition tables (`REFERENCING NEW TABLE AS n`).
-    #[diff(via_debug)]
     pub transition_tables: Vec<TransitionTable>,
     /// Qualified name of the trigger function.
     pub function_qname: QualifiedName,
     /// Literal string arguments passed to the trigger function.
-    #[diff(via_debug)]
     pub function_args: Vec<String>,
     /// `true` for `CREATE CONSTRAINT TRIGGER`.
     pub is_constraint: bool,
     /// Deferrability of constraint triggers.
-    #[diff(via_debug)]
     pub deferrable: Deferrable,
     /// Optional `COMMENT ON TRIGGER` text.
-    #[diff(via_debug)]
     pub comment: Option<String>,
+}
+
+impl Diff for Trigger {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        let Self {
+            qname: _,
+            table: _,
+            timing: _,
+            events: _,
+            level: _,
+            when_clause: _,
+            transition_tables: _,
+            function_qname: _,
+            function_args: _,
+            is_constraint: _,
+            deferrable: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(diff_field("qname", &self.qname, &other.qname));
+        out.extend(diff_field("table", &self.table, &other.table));
+        out.extend(diff_field(
+            "timing",
+            &format!("{:?}", self.timing),
+            &format!("{:?}", other.timing),
+        ));
+        out.extend(diff_field(
+            "events",
+            &format!("{:?}", self.events),
+            &format!("{:?}", other.events),
+        ));
+        out.extend(diff_field(
+            "level",
+            &format!("{:?}", self.level),
+            &format!("{:?}", other.level),
+        ));
+        out.extend(diff_field(
+            "when_clause",
+            &format!("{:?}", self.when_clause),
+            &format!("{:?}", other.when_clause),
+        ));
+        out.extend(diff_field(
+            "transition_tables",
+            &format!("{:?}", self.transition_tables),
+            &format!("{:?}", other.transition_tables),
+        ));
+        out.extend(diff_field(
+            "function_qname",
+            &self.function_qname,
+            &other.function_qname,
+        ));
+        out.extend(diff_field(
+            "function_args",
+            &format!("{:?}", self.function_args),
+            &format!("{:?}", other.function_args),
+        ));
+        out.extend(diff_field(
+            "is_constraint",
+            &self.is_constraint,
+            &other.is_constraint,
+        ));
+        out.extend(diff_field(
+            "deferrable",
+            &format!("{:?}", self.deferrable),
+            &format!("{:?}", other.deferrable),
+        ));
+        out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 /// When a trigger fires relative to the triggering event.

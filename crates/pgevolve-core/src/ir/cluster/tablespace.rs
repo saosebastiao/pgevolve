@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
-use crate::ir::eq::DiffMacro;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Diff, diff_field};
 
 /// Normalize a tablespace `LOCATION` path so that source and live catalog
 /// always agree even when a trailing slash is present in the source SQL.
@@ -37,24 +38,55 @@ pub(crate) fn normalize_location(s: &str) -> String {
 }
 
 /// A `CREATE TABLESPACE` object.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tablespace {
     /// Cluster-global tablespace name.
     pub name: Identifier,
     /// `LOCATION '/path'` directory. Immutable in PG — a change surfaces as a
     /// lint, never an ALTER.
-    #[diff(via_debug)]
     pub location: String,
     /// Owner (`pg_tablespace.spcowner`). Lenient: `None` = unmanaged.
-    #[diff(via_debug)]
     pub owner: Option<Identifier>,
     /// Tablespace options (`seq_page_cost`, `random_page_cost`,
     /// `effective_io_concurrency`, `maintenance_io_concurrency`). Lenient.
-    #[diff(via_debug)]
     pub options: BTreeMap<String, String>,
     /// Optional comment (`pg_shdescription`).
-    #[diff(via_debug)]
     pub comment: Option<String>,
+}
+
+impl Diff for Tablespace {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        let Self {
+            name: _,
+            location: _,
+            owner: _,
+            options: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(diff_field("name", &self.name, &other.name));
+        out.extend(diff_field(
+            "location",
+            &format!("{:?}", self.location),
+            &format!("{:?}", other.location),
+        ));
+        out.extend(diff_field(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(diff_field(
+            "options",
+            &format!("{:?}", self.options),
+            &format!("{:?}", other.options),
+        ));
+        out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 #[cfg(test)]

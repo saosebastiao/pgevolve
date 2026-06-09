@@ -5,39 +5,93 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::DefaultExpr;
-use crate::ir::eq::DiffMacro;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Diff, diff_field};
 
 /// A table column.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, DiffMacro)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Column {
     /// Column name.
     pub name: Identifier,
     /// Canonical column type.
-    #[diff(via_debug)]
     pub ty: ColumnType,
     /// `NOT NULL` lives here, not in `Constraint`.
     pub nullable: bool,
     /// Optional column default.
-    #[diff(via_debug)]
     pub default: Option<DefaultExpr>,
     /// Identity specification (`GENERATED ALWAYS|BY DEFAULT AS IDENTITY`).
-    #[diff(via_debug)]
     pub identity: Option<Identity>,
     /// Generated-column specification (`GENERATED ALWAYS AS (expr) STORED`).
-    #[diff(via_debug)]
     pub generated: Option<Generated>,
     /// Optional collation.
-    #[diff(via_debug)]
     pub collation: Option<QualifiedName>,
     /// Per-column TOAST storage strategy. `None` means "PG type default".
-    #[diff(via_debug)]
     pub storage: Option<StorageKind>,
     /// Per-column TOAST compression codec. `None` means "cluster default".
-    #[diff(via_debug)]
     pub compression: Option<Compression>,
     /// Optional comment.
-    #[diff(via_debug)]
     pub comment: Option<String>,
+}
+
+impl Diff for Column {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        let Self {
+            name: _,
+            ty: _,
+            nullable: _,
+            default: _,
+            identity: _,
+            generated: _,
+            collation: _,
+            storage: _,
+            compression: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(diff_field("name", &self.name, &other.name));
+        out.extend(diff_field(
+            "ty",
+            &format!("{:?}", self.ty),
+            &format!("{:?}", other.ty),
+        ));
+        out.extend(diff_field("nullable", &self.nullable, &other.nullable));
+        out.extend(diff_field(
+            "default",
+            &format!("{:?}", self.default),
+            &format!("{:?}", other.default),
+        ));
+        out.extend(diff_field(
+            "identity",
+            &format!("{:?}", self.identity),
+            &format!("{:?}", other.identity),
+        ));
+        out.extend(diff_field(
+            "generated",
+            &format!("{:?}", self.generated),
+            &format!("{:?}", other.generated),
+        ));
+        out.extend(diff_field(
+            "collation",
+            &format!("{:?}", self.collation),
+            &format!("{:?}", other.collation),
+        ));
+        out.extend(diff_field(
+            "storage",
+            &format!("{:?}", self.storage),
+            &format!("{:?}", other.storage),
+        ));
+        out.extend(diff_field(
+            "compression",
+            &format!("{:?}", self.compression),
+            &format!("{:?}", other.compression),
+        ));
+        out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 /// `GENERATED ... AS IDENTITY` specification.

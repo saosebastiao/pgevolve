@@ -3,23 +3,50 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
-use crate::ir::eq::DiffMacro;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Diff, diff_field};
 
 /// A Postgres schema (namespace).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, DiffMacro)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Schema {
     /// Schema name.
     pub name: Identifier,
     /// Optional comment.
-    #[diff(via_debug)]
     pub comment: Option<String>,
     /// Object owner. `None` = unmanaged (the differ ignores ownership).
     /// `Some(role)` = managed: diff emits `ALTER SCHEMA ... OWNER TO role`.
-    #[diff(via_debug)]
     pub owner: Option<Identifier>,
     /// Grants on this object. Empty = no grants. Canonicalized.
-    #[diff(via_debug)]
     pub grants: Vec<crate::ir::grant::Grant>,
+}
+
+impl Diff for Schema {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        let Self {
+            name: _,
+            comment: _,
+            owner: _,
+            grants: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(diff_field("name", &self.name, &other.name));
+        out.extend(diff_field(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out.extend(diff_field(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(diff_field(
+            "grants",
+            &format!("{:?}", self.grants),
+            &format!("{:?}", other.grants),
+        ));
+        out
+    }
 }
 
 impl Schema {

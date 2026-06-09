@@ -7,23 +7,54 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
-use crate::ir::eq::DiffMacro;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Diff, diff_field};
 use crate::ir::grant::Grant;
 
 /// One `ALTER DEFAULT PRIVILEGES` rule.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DiffMacro)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DefaultPrivilegeRule {
     /// `FOR ROLE x` — whose future objects this applies to.
     pub target_role: Identifier,
     /// `IN SCHEMA y` — scope. `None` = "all schemas owned by `target_role`".
-    #[diff(via_debug)]
     pub schema: Option<Identifier>,
     /// Object type this rule applies to.
-    #[diff(via_debug)]
     pub object_type: DefaultPrivObjectType,
     /// Grants applied. Canonicalized (sorted, deduped).
-    #[diff(via_debug)]
     pub grants: Vec<Grant>,
+}
+
+impl Diff for DefaultPrivilegeRule {
+    fn diff(&self, other: &Self) -> Vec<Difference> {
+        let Self {
+            target_role: _,
+            schema: _,
+            object_type: _,
+            grants: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(diff_field(
+            "target_role",
+            &self.target_role,
+            &other.target_role,
+        ));
+        out.extend(diff_field(
+            "schema",
+            &format!("{:?}", self.schema),
+            &format!("{:?}", other.schema),
+        ));
+        out.extend(diff_field(
+            "object_type",
+            &format!("{:?}", self.object_type),
+            &format!("{:?}", other.object_type),
+        ));
+        out.extend(diff_field(
+            "grants",
+            &format!("{:?}", self.grants),
+            &format!("{:?}", other.grants),
+        ));
+        out
+    }
 }
 
 /// Object-type discriminant for default-privilege rules.
@@ -87,6 +118,34 @@ impl DefaultPrivObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::eq::Diff;
+
+    fn id(s: &str) -> Identifier {
+        Identifier::from_unquoted(s).unwrap()
+    }
+
+    fn base() -> DefaultPrivilegeRule {
+        DefaultPrivilegeRule {
+            target_role: id("app_owner"),
+            schema: None,
+            object_type: DefaultPrivObjectType::Tables,
+            grants: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn equal_rules_have_no_diff() {
+        assert!(base().canonical_eq(&base()));
+    }
+
+    #[test]
+    fn object_type_change_diffs() {
+        let mut b = base();
+        b.object_type = DefaultPrivObjectType::Sequences;
+        let d = base().diff(&b);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].path, "object_type");
+    }
 
     #[test]
     fn pg_char_roundtrips() {
