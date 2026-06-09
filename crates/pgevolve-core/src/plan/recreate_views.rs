@@ -6,7 +6,7 @@
 //! pgevolve never issues `DROP ... CASCADE`. The CASCADE path hides which
 //! objects were destroyed, making the plan non-auditable. Instead we walk
 //! the `body_dependencies` graph to find every transitively-affected view,
-//! then emit an explicit `ReplaceBody { compatible: false }` change for each
+//! then emit an explicit `ReplaceBody { strategy: Recreate }` change for each
 //! one. The resulting DROP + CREATE chain is deterministic and visible.
 //!
 //! # Policy gate
@@ -19,7 +19,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diff::change::{
-    Change, FunctionChange, MvChange, ProcedureChange, UserTypeChange, ViewChange,
+    BodyReplaceStrategy, Change, FunctionChange, MvChange, ProcedureChange, UserTypeChange,
+    ViewChange,
 };
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
@@ -46,7 +47,7 @@ struct DepTrigger {
 /// when the policy has `view_drop_create_dependents = false` and at least one
 /// view would need recreation (the caller surfaces an appropriate error).
 ///
-/// The function appends [`Change::View(ViewChange::ReplaceBody { compatible: false })`]
+/// The function appends [`Change::View(ViewChange::ReplaceBody { strategy: Recreate })`]
 /// for every affected view **not already present** in `changes` (to avoid
 /// duplicate recreation of a view that the differ itself already marked for
 /// replacement). Views are appended in topological order relative to each
@@ -102,7 +103,7 @@ pub fn extend_with_dependent_recreations(
                 // dependencies changed).
                 source: cat.clone(),
                 catalog: cat.clone(),
-                compatible: false,
+                strategy: BodyReplaceStrategy::Recreate,
             }));
         } else if let Some(cat_mv) = target_catalog
             .materialized_views
@@ -156,7 +157,7 @@ fn collect_upstream_triggers(changes: &[Change]) -> Vec<DepTrigger> {
                 // Incompatible view body replaces trigger dependents.
                 Change::View(ViewChange::ReplaceBody {
                     catalog,
-                    compatible: false,
+                    strategy: BodyReplaceStrategy::Recreate,
                     ..
                 }) => out.push(DepTrigger {
                     qname: catalog.qname.clone(),
@@ -526,7 +527,7 @@ mod tests {
         let changes = vec![Change::View(ViewChange::ReplaceBody {
             source: view.clone(),
             catalog: view,
-            compatible: true,
+            strategy: BodyReplaceStrategy::InPlace,
         })];
         let triggers = collect_upstream_triggers(&changes);
         assert!(triggers.is_empty(), "compatible replace must not trigger");
@@ -538,7 +539,7 @@ mod tests {
         let changes = vec![Change::View(ViewChange::ReplaceBody {
             source: view.clone(),
             catalog: view,
-            compatible: false,
+            strategy: BodyReplaceStrategy::Recreate,
         })];
         let triggers = collect_upstream_triggers(&changes);
         assert_eq!(triggers.len(), 1);
@@ -669,7 +670,11 @@ mod tests {
         assert!(
             matches!(
                 &changes[1],
-                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                Change::View(ViewChange::ReplaceBody {
+                    source,
+                    strategy: BodyReplaceStrategy::Recreate,
+                    ..
+                })
                 if source.qname == v_qname
             ),
             "expected ReplaceBody for v, got: {:?}",
@@ -691,7 +696,7 @@ mod tests {
             Change::View(ViewChange::ReplaceBody {
                 source: view.clone(),
                 catalog: view,
-                compatible: false,
+                strategy: BodyReplaceStrategy::Recreate,
             }),
         ];
         let result = extend_with_dependent_recreations(&mut changes, &catalog, &policy_enabled());
@@ -898,7 +903,11 @@ mod tests {
         assert!(
             matches!(
                 &changes[1],
-                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                Change::View(ViewChange::ReplaceBody {
+                    source,
+                    strategy: BodyReplaceStrategy::Recreate,
+                    ..
+                })
                 if source.qname == v_qname
             ),
             "expected ReplaceBody for order_view, got: {:?}",
@@ -935,7 +944,11 @@ mod tests {
         assert!(
             matches!(
                 &changes[1],
-                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                Change::View(ViewChange::ReplaceBody {
+                    source,
+                    strategy: BodyReplaceStrategy::Recreate,
+                    ..
+                })
                 if source.qname == v_qname
             ),
             "expected ReplaceBody for order_view on cascade replace, got: {:?}",
@@ -1103,7 +1116,11 @@ mod tests {
         assert!(
             matches!(
                 &changes[1],
-                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                Change::View(ViewChange::ReplaceBody {
+                    source,
+                    strategy: BodyReplaceStrategy::Recreate,
+                    ..
+                })
                 if source.qname == v_qname
             ),
             "expected ReplaceBody for v_using_f, got: {:?}",
@@ -1141,7 +1158,11 @@ mod tests {
         assert!(
             matches!(
                 &changes[1],
-                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                Change::View(ViewChange::ReplaceBody {
+                    source,
+                    strategy: BodyReplaceStrategy::Recreate,
+                    ..
+                })
                 if source.qname == v_qname
             ),
             "expected ReplaceBody for v_using_f on cascade replace, got: {:?}",
@@ -1194,7 +1215,11 @@ mod tests {
         assert!(
             matches!(
                 &changes[1],
-                Change::View(ViewChange::ReplaceBody { source, compatible: false, .. })
+                Change::View(ViewChange::ReplaceBody {
+                    source,
+                    strategy: BodyReplaceStrategy::Recreate,
+                    ..
+                })
                 if source.qname == v_qname
             ),
             "expected ReplaceBody for v_using_proc, got: {:?}",

@@ -1,5 +1,6 @@
 //! SQL rendering for policies + RLS toggles.
 
+use crate::diff::change::{ForceRowSecurity, RowSecurity};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::grant::GrantTarget;
 use crate::ir::policy::Policy;
@@ -67,8 +68,11 @@ pub fn drop_policy(table: &QualifiedName, name: &Identifier) -> String {
 
 /// `ALTER TABLE qname { ENABLE | DISABLE } ROW LEVEL SECURITY;`
 #[must_use]
-pub fn set_table_row_security(qname: &QualifiedName, enable: bool) -> String {
-    let verb = if enable { "ENABLE" } else { "DISABLE" };
+pub fn set_table_row_security(qname: &QualifiedName, security: RowSecurity) -> String {
+    let verb = match security {
+        RowSecurity::Enable => "ENABLE",
+        RowSecurity::Disable => "DISABLE",
+    };
     format!(
         "ALTER TABLE {} {} ROW LEVEL SECURITY;",
         qname.render_sql(),
@@ -78,8 +82,11 @@ pub fn set_table_row_security(qname: &QualifiedName, enable: bool) -> String {
 
 /// `ALTER TABLE qname { FORCE | NO FORCE } ROW LEVEL SECURITY;`
 #[must_use]
-pub fn set_table_force_row_security(qname: &QualifiedName, force: bool) -> String {
-    let verb = if force { "FORCE" } else { "NO FORCE" };
+pub fn set_table_force_row_security(qname: &QualifiedName, force: ForceRowSecurity) -> String {
+    let verb = match force {
+        ForceRowSecurity::Force => "FORCE",
+        ForceRowSecurity::NoForce => "NO FORCE",
+    };
     format!(
         "ALTER TABLE {} {} ROW LEVEL SECURITY;",
         qname.render_sql(),
@@ -169,11 +176,11 @@ mod tests {
     #[test]
     fn renders_enable_disable_rls() {
         assert_eq!(
-            set_table_row_security(&qn("app", "docs"), true),
+            set_table_row_security(&qn("app", "docs"), RowSecurity::Enable),
             "ALTER TABLE app.docs ENABLE ROW LEVEL SECURITY;"
         );
         assert_eq!(
-            set_table_row_security(&qn("app", "docs"), false),
+            set_table_row_security(&qn("app", "docs"), RowSecurity::Disable),
             "ALTER TABLE app.docs DISABLE ROW LEVEL SECURITY;"
         );
     }
@@ -181,11 +188,11 @@ mod tests {
     #[test]
     fn renders_force_no_force_rls() {
         assert_eq!(
-            set_table_force_row_security(&qn("app", "docs"), true),
+            set_table_force_row_security(&qn("app", "docs"), ForceRowSecurity::Force),
             "ALTER TABLE app.docs FORCE ROW LEVEL SECURITY;"
         );
         assert_eq!(
-            set_table_force_row_security(&qn("app", "docs"), false),
+            set_table_force_row_security(&qn("app", "docs"), ForceRowSecurity::NoForce),
             "ALTER TABLE app.docs NO FORCE ROW LEVEL SECURITY;"
         );
     }

@@ -4,6 +4,7 @@
 //! Identifiers go through `Identifier::render_sql` / `QualifiedName::render_sql`
 //! / `OwnedObjectId::render_sql` (the last picks the right shape per object).
 
+use crate::diff::change::GrantDirection;
 use crate::diff::owner_op::{OwnedObjectId, OwnerObjectKind};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_privileges::DefaultPrivObjectType;
@@ -137,7 +138,7 @@ pub fn alter_default_privileges(
     target_role: &Identifier,
     schema: Option<&Identifier>,
     object_type: DefaultPrivObjectType,
-    is_grant: bool,
+    direction: GrantDirection,
     grant: &Grant,
 ) -> String {
     let mut sql = format!(
@@ -147,15 +148,16 @@ pub fn alter_default_privileges(
     if let Some(sch) = schema {
         sql.push_str(&format!(" IN SCHEMA {}", sch.render_sql()));
     }
+    let is_grant = matches!(direction, GrantDirection::Grant);
     let verb = if is_grant { "GRANT" } else { "REVOKE" };
-    let direction = if is_grant { "TO" } else { "FROM" };
+    let preposition = if is_grant { "TO" } else { "FROM" };
     let wgo = if is_grant && grant.with_grant_option {
         " WITH GRANT OPTION"
     } else {
         ""
     };
     sql.push_str(&format!(
-        " {verb} {} ON {} {direction} {}{wgo};",
+        " {verb} {} ON {} {preposition} {}{wgo};",
         grant.privilege.sql_keyword(),
         object_type.sql_keyword(),
         render_grantee(&grant.grantee),
@@ -427,7 +429,7 @@ mod tests {
             &id("app_owner"),
             Some(&id("app")),
             DefaultPrivObjectType::Tables,
-            true,
+            GrantDirection::Grant,
             &g,
         );
         assert_eq!(
@@ -443,7 +445,7 @@ mod tests {
             &id("app_owner"),
             None,
             DefaultPrivObjectType::Functions,
-            false,
+            GrantDirection::Revoke,
             &g,
         );
         assert_eq!(

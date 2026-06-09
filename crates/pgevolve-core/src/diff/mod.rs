@@ -45,8 +45,8 @@ pub mod views;
 
 pub use change::{
     AggregateChange, CastChange, Change, ChangeEntry, CollationChange, EventTriggerChange,
-    ExtensionChange, FunctionChange, MvChange, ProcedureChange, TableChange, TriggerChange,
-    TsConfigurationChange, TsDictionaryChange, UserTypeChange, ViewChange,
+    ExtensionChange, FunctionChange, GrantDirection, MvChange, ProcedureChange, TableChange,
+    TriggerChange, TsConfigurationChange, TsDictionaryChange, UserTypeChange, ViewChange,
 };
 pub use changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 pub use cluster::{ClusterChange, ClusterChangeEntry, ClusterChangeSet, diff_cluster};
@@ -144,7 +144,11 @@ pub fn diff(target: &Catalog, source: &Catalog, drift: &DriftReport) -> ChangeSe
                 target_role: dp.target_role,
                 schema: dp.schema,
                 object_type: dp.object_type,
-                is_grant: dp.is_grant,
+                direction: if dp.is_grant {
+                    GrantDirection::Grant
+                } else {
+                    GrantDirection::Revoke
+                },
                 grant: dp.grant,
             },
             Destructiveness::Safe,

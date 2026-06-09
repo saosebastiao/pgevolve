@@ -1,6 +1,6 @@
 //! Dispatcher for `Change::View(ViewChange)`.
 
-use crate::diff::change::ViewChange;
+use crate::diff::change::{BodyReplaceStrategy, ViewChange};
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 
 pub fn emit(
@@ -70,7 +70,7 @@ pub fn emit(
         V::ReplaceBody {
             source,
             catalog: _,
-            compatible: true,
+            strategy: BodyReplaceStrategy::InPlace,
         } => {
             let qname = source.qname.clone();
             out.push(RawStep {
@@ -87,7 +87,7 @@ pub fn emit(
         V::ReplaceBody {
             source,
             catalog,
-            compatible: false,
+            strategy: BodyReplaceStrategy::Recreate,
         } => {
             let qname = source.qname.clone();
             out.push(RawStep {

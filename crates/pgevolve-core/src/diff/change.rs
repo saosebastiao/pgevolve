@@ -218,8 +218,8 @@ pub enum Change {
         schema: Option<Identifier>,
         /// Object-type discriminant.
         object_type: DefaultPrivObjectType,
-        /// `true` = GRANT step, `false` = REVOKE step.
-        is_grant: bool,
+        /// Whether this step grants or revokes the privilege.
+        direction: GrantDirection,
         /// The grantee and privilege being adjusted.
         grant: Grant,
     },
@@ -252,15 +252,15 @@ pub enum Change {
     SetTableRowSecurity {
         /// Qualified name of the table.
         qname: QualifiedName,
-        /// `true` = `ENABLE ROW LEVEL SECURITY`, `false` = `DISABLE`.
-        enable: bool,
+        /// Whether row-level security is enabled or disabled.
+        security: RowSecurity,
     },
     /// Toggle a table's `FORCE ROW LEVEL SECURITY`.
     SetTableForceRowSecurity {
         /// Qualified name of the table.
         qname: QualifiedName,
-        /// `true` = `FORCE ROW LEVEL SECURITY`, `false` = `NO FORCE`.
-        force: bool,
+        /// Whether row-level security is forced or not.
+        force: ForceRowSecurity,
     },
 
     /// Set table storage reloptions. `options` carries the sparse delta — only
@@ -328,6 +328,36 @@ pub enum Change {
         /// performed in-place.
         reason: String,
     },
+}
+
+/// Direction of a default-privilege adjustment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GrantDirection {
+    /// A `GRANT` step.
+    Grant,
+    /// A `REVOKE` step.
+    Revoke,
+}
+
+/// A table's ROW LEVEL SECURITY toggle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RowSecurity {
+    /// `ENABLE ROW LEVEL SECURITY`.
+    Enable,
+    /// `DISABLE ROW LEVEL SECURITY`.
+    Disable,
+}
+
+/// A table's FORCE ROW LEVEL SECURITY toggle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForceRowSecurity {
+    /// `FORCE ROW LEVEL SECURITY`.
+    Force,
+    /// `NO FORCE ROW LEVEL SECURITY`.
+    NoForce,
 }
 
 /// A structural change to a single user-defined type.
@@ -437,6 +467,20 @@ pub enum UserTypeChange {
     },
 }
 
+/// How a view/materialized-view body change is applied.
+///
+/// `InPlace` = CREATE OR REPLACE (compatible signature); `Recreate` = explicit
+/// ordered DROP + CREATE of the object and its dependents (incompatible
+/// signature).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyReplaceStrategy {
+    /// `CREATE OR REPLACE` — compatible signature, applied in place.
+    InPlace,
+    /// Ordered `DROP` + `CREATE` of the object and its dependents.
+    Recreate,
+}
+
 /// A structural change to a single view.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -448,19 +492,18 @@ pub enum ViewChange {
     Drop(QualifiedName),
     /// Replace the SELECT body of a view.
     ///
-    /// `compatible` is `true` when Postgres's `CREATE OR REPLACE VIEW` rules
-    /// are satisfied (same column names and types at the same indexes, with
-    /// new columns only appended at the end). When `compatible` is `false`,
-    /// the planner must `DROP` then re-`CREATE` the view (and rebuild its
-    /// dependents).
+    /// `strategy` is [`BodyReplaceStrategy::InPlace`] when Postgres's `CREATE OR
+    /// REPLACE VIEW` rules are satisfied (same column names and types at the
+    /// same indexes, with new columns only appended at the end). Otherwise it is
+    /// [`BodyReplaceStrategy::Recreate`] and the planner must `DROP` then
+    /// re-`CREATE` the view (and rebuild its dependents).
     ReplaceBody {
         /// The view as it should exist (source SQL).
         source: View,
         /// The view as it currently exists (live catalog).
         catalog: View,
-        /// Whether `CREATE OR REPLACE VIEW` can be used (`true`) or a
-        /// `DROP` + `CREATE` cycle is required (`false`).
-        compatible: bool,
+        /// How the body change is applied (in-place vs. drop + recreate).
+        strategy: BodyReplaceStrategy,
     },
     /// Change `WITH (security_barrier = ..., security_invoker = ...)` reloptions.
     SetReloption {

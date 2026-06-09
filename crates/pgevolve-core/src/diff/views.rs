@@ -23,7 +23,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::grant::GrantTarget;
 use crate::ir::view::{MaterializedView, View, ViewColumn};
 
-use super::change::{Change, MvChange, ViewChange};
+use super::change::{BodyReplaceStrategy, Change, MvChange, ViewChange};
 use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use super::destructiveness::Destructiveness;
 use super::grants::diff_grants;
@@ -105,12 +105,16 @@ pub fn diff_views(
 
         // Body change: compare canonical hashes.
         if src.body_canonical.canonical_hash() != tgt.body_canonical.canonical_hash() {
-            let compatible = or_replace_compatible(&tgt.columns, &src.columns);
+            let strategy = if or_replace_compatible(&tgt.columns, &src.columns) {
+                BodyReplaceStrategy::InPlace
+            } else {
+                BodyReplaceStrategy::Recreate
+            };
             out.push(
                 Change::View(ViewChange::ReplaceBody {
                     source: (*src).clone(),
                     catalog: (*tgt).clone(),
-                    compatible,
+                    strategy,
                 }),
                 Destructiveness::Safe,
             );
@@ -623,8 +627,12 @@ mod tests {
         let changes = &out.entries;
         assert_eq!(changes.len(), 1);
         match &changes[0].change {
-            Change::View(ViewChange::ReplaceBody { compatible, .. }) => {
-                assert!(*compatible, "expected compatible=true");
+            Change::View(ViewChange::ReplaceBody { strategy, .. }) => {
+                assert_eq!(
+                    *strategy,
+                    BodyReplaceStrategy::InPlace,
+                    "expected InPlace strategy"
+                );
             }
             other => panic!("unexpected change: {other:?}"),
         }
@@ -645,8 +653,12 @@ mod tests {
         let changes = &out.entries;
         assert_eq!(changes.len(), 1);
         match &changes[0].change {
-            Change::View(ViewChange::ReplaceBody { compatible, .. }) => {
-                assert!(!*compatible, "expected compatible=false");
+            Change::View(ViewChange::ReplaceBody { strategy, .. }) => {
+                assert_eq!(
+                    *strategy,
+                    BodyReplaceStrategy::Recreate,
+                    "expected Recreate strategy"
+                );
             }
             other => panic!("unexpected change: {other:?}"),
         }

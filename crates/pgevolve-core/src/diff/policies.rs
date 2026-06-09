@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::diff::change::Change;
+use crate::diff::change::{Change, ForceRowSecurity, RowSecurity};
 use crate::ir::table::Table;
 
 /// Compute policy + RLS-toggle changes for a single table pair.
@@ -15,13 +15,21 @@ pub fn diff_policies(target: &Table, source: &Table, out: &mut Vec<Change>) {
     if target.rls_enabled != source.rls_enabled {
         out.push(Change::SetTableRowSecurity {
             qname: source.qname.clone(),
-            enable: source.rls_enabled,
+            security: if source.rls_enabled {
+                RowSecurity::Enable
+            } else {
+                RowSecurity::Disable
+            },
         });
     }
     if target.rls_forced != source.rls_forced {
         out.push(Change::SetTableForceRowSecurity {
             qname: source.qname.clone(),
-            force: source.rls_forced,
+            force: if source.rls_forced {
+                ForceRowSecurity::Force
+            } else {
+                ForceRowSecurity::NoForce
+            },
         });
     }
 
@@ -123,7 +131,10 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert!(matches!(
             out[0],
-            Change::SetTableRowSecurity { enable: true, .. }
+            Change::SetTableRowSecurity {
+                security: RowSecurity::Enable,
+                ..
+            }
         ));
     }
 
@@ -137,7 +148,10 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert!(matches!(
             out[0],
-            Change::SetTableForceRowSecurity { force: true, .. }
+            Change::SetTableForceRowSecurity {
+                force: ForceRowSecurity::Force,
+                ..
+            }
         ));
     }
 

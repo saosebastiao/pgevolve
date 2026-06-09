@@ -648,16 +648,24 @@ mod tests {
         );
         // Must have SetTableRowSecurity (rls_enabled = true).
         assert!(
-            changes
-                .iter()
-                .any(|c| matches!(c, Change::SetTableRowSecurity { enable: true, .. })),
+            changes.iter().any(|c| matches!(
+                c,
+                Change::SetTableRowSecurity {
+                    security: crate::diff::change::RowSecurity::Enable,
+                    ..
+                }
+            )),
             "missing SetTableRowSecurity; got: {changes:?}"
         );
         // Must have SetTableForceRowSecurity (rls_forced = true).
         assert!(
-            changes
-                .iter()
-                .any(|c| matches!(c, Change::SetTableForceRowSecurity { force: true, .. })),
+            changes.iter().any(|c| matches!(
+                c,
+                Change::SetTableForceRowSecurity {
+                    force: crate::diff::change::ForceRowSecurity::Force,
+                    ..
+                }
+            )),
             "missing SetTableForceRowSecurity; got: {changes:?}"
         );
         // Must have SetTableStorage.

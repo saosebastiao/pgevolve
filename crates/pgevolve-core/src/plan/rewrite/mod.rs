@@ -296,7 +296,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             target_role,
             schema,
             object_type,
-            is_grant,
+            direction,
             grant,
         } => {
             // Default-priv rules are not scoped to a per-object QualifiedName;
@@ -313,7 +313,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                     &target_role,
                     schema.as_ref(),
                     object_type,
-                    is_grant,
+                    direction,
                     &grant,
                 ),
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
@@ -355,7 +355,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }
-        Change::SetTableRowSecurity { qname, enable } => {
+        Change::SetTableRowSecurity { qname, security } => {
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::SetTableRowSecurity,
@@ -363,7 +363,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 destructive_reason: None,
                 intent_id: None,
                 targets: vec![qname.clone()],
-                sql: policies::set_table_row_security(&qname, enable),
+                sql: policies::set_table_row_security(&qname, security),
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
         }

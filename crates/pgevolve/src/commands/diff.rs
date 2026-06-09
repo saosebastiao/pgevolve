@@ -156,12 +156,12 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     ViewChange::Create(v) => println!("      create view {}", v.qname),
                     ViewChange::Drop(q) => println!("      drop view {q}"),
                     ViewChange::ReplaceBody {
-                        source, compatible, ..
+                        source, strategy, ..
                     } => {
-                        let compat = if *compatible {
-                            "compatible"
-                        } else {
-                            "incompatible"
+                        use pgevolve_core::diff::change::BodyReplaceStrategy;
+                        let compat = match strategy {
+                            BodyReplaceStrategy::InPlace => "compatible",
+                            BodyReplaceStrategy::Recreate => "incompatible",
                         };
                         println!("      replace view body {} ({compat})", source.qname);
                     }
@@ -408,10 +408,14 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                 target_role,
                 schema,
                 object_type,
-                is_grant,
+                direction,
                 grant,
             } => {
-                let action = if *is_grant { "grant" } else { "revoke" };
+                use pgevolve_core::diff::change::GrantDirection;
+                let action = match direction {
+                    GrantDirection::Grant => "grant",
+                    GrantDirection::Revoke => "revoke",
+                };
                 let in_schema = schema
                     .as_ref()
                     .map_or_else(String::new, |s| format!(" in schema {s}"));
@@ -430,12 +434,20 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
             pgevolve_core::diff::change::Change::AlterPolicy { table, policy } => {
                 println!("      alter policy {} on {table}", policy.name);
             }
-            pgevolve_core::diff::change::Change::SetTableRowSecurity { qname, enable } => {
-                let verb = if *enable { "enable" } else { "disable" };
+            pgevolve_core::diff::change::Change::SetTableRowSecurity { qname, security } => {
+                use pgevolve_core::diff::change::RowSecurity;
+                let verb = match security {
+                    RowSecurity::Enable => "enable",
+                    RowSecurity::Disable => "disable",
+                };
                 println!("      {verb} row level security on {qname}");
             }
             pgevolve_core::diff::change::Change::SetTableForceRowSecurity { qname, force } => {
-                let verb = if *force { "force" } else { "no force" };
+                use pgevolve_core::diff::change::ForceRowSecurity;
+                let verb = match force {
+                    ForceRowSecurity::Force => "force",
+                    ForceRowSecurity::NoForce => "no force",
+                };
                 println!("      {verb} row level security on {qname}");
             }
             pgevolve_core::diff::change::Change::SetTableStorage { qname, .. } => {
