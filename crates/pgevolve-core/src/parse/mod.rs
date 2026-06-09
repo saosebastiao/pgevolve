@@ -45,6 +45,47 @@ pub fn parse_directory(root: &Path, ignores: &[glob::Pattern]) -> Result<Catalog
     parse_directory_with_locations(root, ignores).map(|(c, _)| c)
 }
 
+/// Mutable state threaded through [`process_file`] and the multi-pass
+/// finalization in [`parse_directory_with_locations`].
+///
+/// Bundling these into one struct keeps `process_file`'s signature small and
+/// makes the cross-file accumulation explicit. It accumulates:
+///
+/// - the in-progress [`Catalog`] and the per-qname source-location map;
+/// - pending ALTER-TABLE fragments that are resolved against the catalog only
+///   after every file is parsed (FKs, column attributes, owners, RLS toggles,
+///   reloptions, tablespaces);
+/// - deferred `COMMENT` statements (the commented object may be defined in a
+///   later file);
+/// - object accumulators that fold `CREATE` + subsequent `ALTER`/`COMMENT`
+///   into one record per identity before being flushed into the catalog
+///   (publications, subscriptions, statistics, event triggers, aggregates,
+///   casts, text-search dictionaries and configurations).
+#[derive(Default)]
+struct ParseContext {
+    catalog: Catalog,
+    locations: HashMap<String, SourceLocation>,
+    pending_fks: Vec<builder::alter_table_stmt::PendingFk>,
+    pending_column_attrs: Vec<builder::alter_table_stmt::PendingColumnAttr>,
+    pending_owners: Vec<builder::alter_table_stmt::PendingOwner>,
+    pending_rls_toggles: Vec<builder::alter_table_stmt::PendingRlsToggle>,
+    pending_rel_options: Vec<builder::alter_table_stmt::PendingRelOptions>,
+    pending_tablespaces: Vec<builder::alter_table_stmt::PendingTablespace>,
+    deferred_comments: Vec<(
+        pg_query::protobuf::CommentStmt,
+        SourceLocation,
+        Option<crate::identifier::Identifier>,
+    )>,
+    publications: BTreeMap<Identifier, Publication>,
+    subscriptions: BTreeMap<Identifier, Subscription>,
+    statistics: BTreeMap<QualifiedName, Statistic>,
+    event_triggers: BTreeMap<Identifier, EventTrigger>,
+    aggregates: Vec<Aggregate>,
+    casts: Vec<Cast>,
+    ts_dictionaries: Vec<TsDictionary>,
+    ts_configurations: Vec<TsConfiguration>,
+}
+
 /// Like [`parse_directory`] but also returns the per-qname source-location
 /// map built during parsing. Used by the lint engine (Phase 10) to know which
 /// file each object was declared in.
@@ -76,72 +117,40 @@ pub fn parse_directory_with_locations(
         files.push(path);
     }
 
-    let mut catalog = Catalog::default();
-    let mut locations: HashMap<String, SourceLocation> = HashMap::new();
-    let mut pending_fks: Vec<builder::alter_table_stmt::PendingFk> = Vec::new();
-    let mut pending_column_attrs: Vec<builder::alter_table_stmt::PendingColumnAttr> = Vec::new();
-    let mut pending_owners: Vec<builder::alter_table_stmt::PendingOwner> = Vec::new();
-    let mut pending_rls_toggles: Vec<builder::alter_table_stmt::PendingRlsToggle> = Vec::new();
-    let mut pending_rel_options: Vec<builder::alter_table_stmt::PendingRelOptions> = Vec::new();
-    let mut pending_tablespaces: Vec<builder::alter_table_stmt::PendingTablespace> = Vec::new();
-    let mut deferred_comments: Vec<(
-        pg_query::protobuf::CommentStmt,
-        SourceLocation,
-        Option<crate::identifier::Identifier>,
-    )> = Vec::new();
-    // Publications are accumulated in insertion order (keyed by name) and
-    // folded: CREATE ... WITH (...) then subsequent ALTER ... ADD/DROP/SET
-    // all land in the same record.
-    let mut publications: BTreeMap<Identifier, Publication> = BTreeMap::new();
-    // Subscriptions: same fold-accumulate pattern as publications.
-    let mut subscriptions: BTreeMap<Identifier, Subscription> = BTreeMap::new();
-    // Statistics: fold CREATE + ALTER SET STATISTICS + COMMENT into one record per qname.
-    let mut statistics: BTreeMap<QualifiedName, Statistic> = BTreeMap::new();
-    // Event triggers: database-global, accumulated by name. Fold CREATE +
-    // ALTER (ENABLE/DISABLE) + COMMENT + OWNER into one record per name.
-    let mut event_triggers: BTreeMap<Identifier, EventTrigger> = BTreeMap::new();
-    // Aggregates: identity is `(qname, arg_types)` (overloadable), so they are
-    // accumulated in a Vec and ALTER OWNER / COMMENT are folded by matching that
-    // identity. Duplicate identities are rejected at CREATE time.
-    let mut aggregates: Vec<Aggregate> = Vec::new();
-    // Casts: identity is `(source, target)`. Not overloadable. COMMENT ON CAST
-    // is folded inline. Duplicate identities are rejected at CREATE time.
-    let mut casts: Vec<Cast> = Vec::new();
-    // Text-search dictionaries: identity is `qname`. COMMENT ON / ALTER OWNER /
-    // ALTER … options are folded inline by qname. Duplicate qnames are rejected
-    // at CREATE time.
-    let mut ts_dictionaries: Vec<TsDictionary> = Vec::new();
-    // Text-search configurations: identity is `qname`. ALTER TEXT SEARCH
-    // CONFIGURATION sub-commands mutate the in-progress record inline.
-    let mut ts_configurations: Vec<TsConfiguration> = Vec::new();
+    // All mutable state threaded through `process_file` and the finalization
+    // passes lives in one `ParseContext`. See its doc comment for the meaning of
+    // each accumulator.
+    let mut ctx = ParseContext::default();
 
     for path in files {
         let contents = std::fs::read_to_string(&path).map_err(|e| ParseError::Io {
             path: path.clone(),
             source: e,
         })?;
-        process_file(
-            &path,
-            &contents,
-            &mut catalog,
-            &mut locations,
-            &mut pending_fks,
-            &mut pending_column_attrs,
-            &mut pending_owners,
-            &mut pending_rls_toggles,
-            &mut pending_rel_options,
-            &mut pending_tablespaces,
-            &mut deferred_comments,
-            &mut publications,
-            &mut subscriptions,
-            &mut statistics,
-            &mut event_triggers,
-            &mut aggregates,
-            &mut casts,
-            &mut ts_dictionaries,
-            &mut ts_configurations,
-        )?;
+        process_file(&mut ctx, &path, &contents)?;
     }
+
+    // Destructure the context: the per-file accumulation is complete, so the
+    // remaining passes finalize the catalog from the collected fragments.
+    let ParseContext {
+        mut catalog,
+        locations,
+        pending_fks,
+        pending_column_attrs,
+        pending_owners,
+        pending_rls_toggles,
+        pending_rel_options,
+        pending_tablespaces,
+        deferred_comments,
+        publications,
+        subscriptions,
+        statistics,
+        event_triggers,
+        aggregates,
+        casts,
+        ts_dictionaries,
+        ts_configurations,
+    } = ctx;
 
     // Apply deferred comments (the underlying object may be defined in a later
     // file).
@@ -365,37 +374,38 @@ fn apply_pending_owners(
     Ok(())
 }
 
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
-fn process_file(
-    path: &Path,
-    contents: &str,
-    catalog: &mut Catalog,
-    locations: &mut HashMap<String, SourceLocation>,
-    pending_fks: &mut Vec<builder::alter_table_stmt::PendingFk>,
-    pending_column_attrs: &mut Vec<builder::alter_table_stmt::PendingColumnAttr>,
-    pending_owners: &mut Vec<builder::alter_table_stmt::PendingOwner>,
-    pending_rls_toggles: &mut Vec<builder::alter_table_stmt::PendingRlsToggle>,
-    pending_rel_options: &mut Vec<builder::alter_table_stmt::PendingRelOptions>,
-    pending_tablespaces: &mut Vec<builder::alter_table_stmt::PendingTablespace>,
-    deferred_comments: &mut Vec<(
-        pg_query::protobuf::CommentStmt,
-        SourceLocation,
-        Option<crate::identifier::Identifier>,
-    )>,
-    publications: &mut BTreeMap<Identifier, Publication>,
-    subscriptions: &mut BTreeMap<Identifier, Subscription>,
-    statistics: &mut BTreeMap<QualifiedName, Statistic>,
-    event_triggers: &mut BTreeMap<Identifier, EventTrigger>,
-    aggregates: &mut Vec<Aggregate>,
-    casts: &mut Vec<Cast>,
-    ts_dictionaries: &mut Vec<TsDictionary>,
-    ts_configurations: &mut Vec<TsConfiguration>,
-) -> Result<(), ParseError> {
+// One big classify-and-dispatch match over every supported statement kind;
+// the line count is intrinsic to the closed set of statement variants.
+#[allow(clippy::too_many_lines)]
+fn process_file(ctx: &mut ParseContext, path: &Path, contents: &str) -> Result<(), ParseError> {
     let directives = directives::extract_file_directives(contents, path)?;
     let parsed = pg_query::parse(contents).map_err(|e| ParseError::PgQuery {
         location: SourceLocation::new(path.to_path_buf(), 1, 1),
         message: e.to_string(),
     })?;
+
+    // Split the context's borrows field-by-field so the dispatch match below can
+    // mutate disjoint accumulators independently (e.g. `catalog` and `locations`
+    // in the same arm) without re-borrow conflicts.
+    let ParseContext {
+        catalog,
+        locations,
+        pending_fks,
+        pending_column_attrs,
+        pending_owners,
+        pending_rls_toggles,
+        pending_rel_options,
+        pending_tablespaces,
+        deferred_comments,
+        publications,
+        subscriptions,
+        statistics,
+        event_triggers,
+        aggregates,
+        casts,
+        ts_dictionaries,
+        ts_configurations,
+    } = ctx;
 
     for raw in parsed.protobuf.stmts {
         let location = stmt_location(path, contents, raw.stmt_location);
