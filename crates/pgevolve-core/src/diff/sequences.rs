@@ -14,14 +14,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
-use crate::ir::grant::GrantTarget;
 use crate::ir::sequence::Sequence;
 
 use super::change::Change;
-use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
+use super::changeset::ChangeSet;
 use super::destructiveness::Destructiveness;
-use super::grants::diff_grants;
-use super::owner_op::{AlterObjectOwner, CatalogObjectRef};
+use super::owner_grants::{ColumnGrantMode, diff_owner_and_grants};
+use super::owner_op::CatalogObjectRef;
 use super::sequence_op::{SequenceOp, SequenceOpEntry};
 
 /// Diff sequences in `target` against `source`, appending entries to `out`.
@@ -135,67 +134,16 @@ fn emit_sequence_attribute_changes(
     managed_roles: &BTreeSet<Identifier>,
     out: &mut ChangeSet,
 ) {
-    let qname = &source_seq.qname;
-
-    // ---- owner diff ----
-    if let Some(source_owner) = &source_seq.owner
-        && target_seq.owner.as_ref() != Some(source_owner)
-    {
-        out.push(
-            Change::AlterObjectOwner(AlterObjectOwner {
-                object: CatalogObjectRef::Sequence(qname.clone()),
-                from: target_seq.owner.clone(),
-                to: source_owner.clone(),
-            }),
-            Destructiveness::Safe,
-        );
-    }
-
-    // ---- grant diff ----
-    {
-        let object_label = format!("sequence {qname}");
-        let (to_add, to_revoke, unmanaged) =
-            diff_grants(&target_seq.grants, &source_seq.grants, managed_roles);
-        // Emit REVOKEs before GRANTs (issue #33): if a grant's with_grant_option
-        // flag changes, the REVOKE must run first so the subsequent GRANT is not
-        // immediately undone. Both changes land in the modifies bucket with the
-        // same NodeId, so insertion order controls execution order.
-        for g in to_revoke {
-            if let Some(source_owner) = &source_seq.owner {
-                out.revokes_with_owner.push(RevokeWithOwnerObservation {
-                    object_label: object_label.clone(),
-                    privilege_label: g.privilege.sql_keyword().into(),
-                    grantee: g.grantee.clone(),
-                    owner: source_owner.clone(),
-                });
-            }
-            out.push(
-                Change::RevokeObjectPrivilege {
-                    object: CatalogObjectRef::Sequence(qname.clone()),
-                    grant: g,
-                },
-                Destructiveness::Safe,
-            );
-        }
-        for g in to_add {
-            out.push(
-                Change::GrantObjectPrivilege {
-                    object: CatalogObjectRef::Sequence(qname.clone()),
-                    grant: g,
-                },
-                Destructiveness::Safe,
-            );
-        }
-        for g in unmanaged {
-            if let GrantTarget::Role(role_name) = &g.grantee {
-                out.unmanaged_grants.push(UnmanagedGrantObservation {
-                    object_label: object_label.clone(),
-                    privilege_label: g.privilege.sql_keyword().into(),
-                    role_name: role_name.clone(),
-                });
-            }
-        }
-    }
+    diff_owner_and_grants(
+        &CatalogObjectRef::Sequence(source_seq.qname.clone()),
+        target_seq.owner.as_ref(),
+        source_seq.owner.as_ref(),
+        &target_seq.grants,
+        &source_seq.grants,
+        managed_roles,
+        ColumnGrantMode::ObjectOnly,
+        out,
+    );
 }
 
 fn diff_sequence_fields(target: &Sequence, source: &Sequence) -> Vec<SequenceOpEntry> {

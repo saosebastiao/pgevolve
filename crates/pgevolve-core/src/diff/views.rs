@@ -20,14 +20,13 @@
 use std::collections::BTreeSet;
 
 use crate::identifier::{Identifier, QualifiedName};
-use crate::ir::grant::GrantTarget;
 use crate::ir::view::{MaterializedView, View, ViewColumn};
 
 use super::change::{BodyReplaceStrategy, Change, MvChange, ViewChange};
-use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
+use super::changeset::ChangeSet;
 use super::destructiveness::Destructiveness;
-use super::grants::diff_grants;
-use super::owner_op::{AlterObjectOwner, CatalogObjectRef};
+use super::owner_grants::{ColumnGrantMode, diff_owner_and_grants};
+use super::owner_op::CatalogObjectRef;
 
 /// Per Postgres's `CREATE OR REPLACE VIEW` rules: the new column list must be
 /// a non-shrinking superset of the existing list, with the same names **and
@@ -159,86 +158,16 @@ pub fn diff_views(
         // Column comment changes: compare by name at matching positions.
         diff_view_column_comments(qname, &tgt.columns, &src.columns, out);
 
-        // ---- owner diff ----
-        if let Some(source_owner) = &src.owner
-            && tgt.owner.as_ref() != Some(source_owner)
-        {
-            out.push(
-                Change::AlterObjectOwner(AlterObjectOwner {
-                    object: CatalogObjectRef::View((*qname).clone()),
-                    from: tgt.owner.clone(),
-                    to: source_owner.clone(),
-                }),
-                Destructiveness::Safe,
-            );
-        }
-
-        // ---- grant diff ----
-        {
-            let object_label = format!("view {qname}");
-            let (to_add, to_revoke, unmanaged) =
-                diff_grants(&tgt.grants, &src.grants, managed_roles);
-            // Emit REVOKEs before GRANTs (issue #33): revokes must precede
-            // grants so that WGO-change pairs (same grantee+privilege, different
-            // wgo) don't self-cancel.
-            for g in to_revoke {
-                if let Some(source_owner) = &src.owner {
-                    out.revokes_with_owner.push(RevokeWithOwnerObservation {
-                        object_label: object_label.clone(),
-                        privilege_label: g.privilege.sql_keyword().into(),
-                        grantee: g.grantee.clone(),
-                        owner: source_owner.clone(),
-                    });
-                }
-                let is_column_level = g.columns.is_some();
-                if is_column_level {
-                    out.push(
-                        Change::RevokeColumnPrivilege {
-                            qname: (*qname).clone(),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                } else {
-                    out.push(
-                        Change::RevokeObjectPrivilege {
-                            object: CatalogObjectRef::View((*qname).clone()),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                }
-            }
-            for g in to_add {
-                let is_column_level = g.columns.is_some();
-                if is_column_level {
-                    out.push(
-                        Change::GrantColumnPrivilege {
-                            qname: (*qname).clone(),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                } else {
-                    out.push(
-                        Change::GrantObjectPrivilege {
-                            object: CatalogObjectRef::View((*qname).clone()),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                }
-            }
-            for g in unmanaged {
-                if let GrantTarget::Role(role_name) = &g.grantee {
-                    out.unmanaged_grants.push(UnmanagedGrantObservation {
-                        object_label: object_label.clone(),
-                        privilege_label: g.privilege.sql_keyword().into(),
-                        role_name: role_name.clone(),
-                    });
-                }
-            }
-        }
+        diff_owner_and_grants(
+            &CatalogObjectRef::View((*qname).clone()),
+            tgt.owner.as_ref(),
+            src.owner.as_ref(),
+            &tgt.grants,
+            &src.grants,
+            managed_roles,
+            ColumnGrantMode::ColumnAware,
+            out,
+        );
     }
 }
 
@@ -328,86 +257,16 @@ pub fn diff_materialized_views(
             );
         }
 
-        // ---- owner diff ----
-        if let Some(source_owner) = &src.owner
-            && tgt.owner.as_ref() != Some(source_owner)
-        {
-            out.push(
-                Change::AlterObjectOwner(AlterObjectOwner {
-                    object: CatalogObjectRef::MaterializedView((*qname).clone()),
-                    from: tgt.owner.clone(),
-                    to: source_owner.clone(),
-                }),
-                Destructiveness::Safe,
-            );
-        }
-
-        // ---- grant diff ----
-        {
-            let object_label = format!("materialized view {qname}");
-            let (to_add, to_revoke, unmanaged) =
-                diff_grants(&tgt.grants, &src.grants, managed_roles);
-            // Emit REVOKEs before GRANTs (issue #33): revokes must precede
-            // grants so that WGO-change pairs (same grantee+privilege, different
-            // wgo) don't self-cancel.
-            for g in to_revoke {
-                if let Some(source_owner) = &src.owner {
-                    out.revokes_with_owner.push(RevokeWithOwnerObservation {
-                        object_label: object_label.clone(),
-                        privilege_label: g.privilege.sql_keyword().into(),
-                        grantee: g.grantee.clone(),
-                        owner: source_owner.clone(),
-                    });
-                }
-                let is_column_level = g.columns.is_some();
-                if is_column_level {
-                    out.push(
-                        Change::RevokeColumnPrivilege {
-                            qname: (*qname).clone(),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                } else {
-                    out.push(
-                        Change::RevokeObjectPrivilege {
-                            object: CatalogObjectRef::MaterializedView((*qname).clone()),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                }
-            }
-            for g in to_add {
-                let is_column_level = g.columns.is_some();
-                if is_column_level {
-                    out.push(
-                        Change::GrantColumnPrivilege {
-                            qname: (*qname).clone(),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                } else {
-                    out.push(
-                        Change::GrantObjectPrivilege {
-                            object: CatalogObjectRef::MaterializedView((*qname).clone()),
-                            grant: g,
-                        },
-                        Destructiveness::Safe,
-                    );
-                }
-            }
-            for g in unmanaged {
-                if let GrantTarget::Role(role_name) = &g.grantee {
-                    out.unmanaged_grants.push(UnmanagedGrantObservation {
-                        object_label: object_label.clone(),
-                        privilege_label: g.privilege.sql_keyword().into(),
-                        role_name: role_name.clone(),
-                    });
-                }
-            }
-        }
+        diff_owner_and_grants(
+            &CatalogObjectRef::MaterializedView((*qname).clone()),
+            tgt.owner.as_ref(),
+            src.owner.as_ref(),
+            &tgt.grants,
+            &src.grants,
+            managed_roles,
+            ColumnGrantMode::ColumnAware,
+            out,
+        );
     }
 }
 

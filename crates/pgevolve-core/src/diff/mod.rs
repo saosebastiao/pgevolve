@@ -25,6 +25,7 @@ pub mod event_triggers;
 pub mod extensions;
 pub mod grants;
 pub mod indexes;
+pub mod owner_grants;
 pub mod owner_op;
 pub mod policies;
 pub mod publications;

@@ -10,16 +10,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
-use crate::ir::grant::GrantTarget;
 use crate::ir::table::Table;
 
 use super::change::{Change, TableChange};
-use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
+use super::changeset::ChangeSet;
 use super::columns::diff_columns;
 use super::constraints::diff_constraints;
 use super::destructiveness::Destructiveness;
-use super::grants::diff_grants;
-use super::owner_op::{AlterObjectOwner, CatalogObjectRef};
+use super::owner_grants::{ColumnGrantMode, diff_owner_and_grants};
+use super::owner_op::CatalogObjectRef;
 use super::table_op::TableOpEntry;
 
 /// Diff tables in `target` against `source`, appending entries to `out`.
@@ -299,16 +298,15 @@ fn strip_dropped_columns_from_grants(
         .collect()
 }
 
-/// Emit the GRANT/REVOKE changes for one table pair (object- and column-level),
-/// plus unmanaged-grant and revoke-with-owner observations.
-fn emit_table_grant_changes(
+/// Emit the owner change plus the GRANT/REVOKE changes for one table pair
+/// (object- and column-level), plus unmanaged-grant and revoke-with-owner
+/// observations.
+fn emit_table_owner_and_grant_changes(
     target_table: &Table,
     source_table: &Table,
     managed_roles: &BTreeSet<Identifier>,
     out: &mut ChangeSet,
 ) {
-    let qname = &source_table.qname;
-    let object_label = format!("table {qname}");
     // Columns present in the target (live) table but absent from the source are
     // about to be dropped by an `ALTER TABLE ... DROP COLUMN`. PG cascade-revokes
     // their column-level ACLs as part of that drop, so they must not generate
@@ -326,66 +324,16 @@ fn emit_table_grant_changes(
             .collect()
     };
     let adjusted_target = strip_dropped_columns_from_grants(&target_table.grants, &dropped_columns);
-    let (to_add, to_revoke, unmanaged) =
-        diff_grants(&adjusted_target, &source_table.grants, managed_roles);
-    // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
-    // that WGO-change pairs (same grantee+privilege, different wgo) don't
-    // self-cancel (GRANT followed by REVOKE would drop the privilege entirely).
-    for g in to_revoke {
-        if let Some(source_owner) = &source_table.owner {
-            out.revokes_with_owner.push(RevokeWithOwnerObservation {
-                object_label: object_label.clone(),
-                privilege_label: g.privilege.sql_keyword().into(),
-                grantee: g.grantee.clone(),
-                owner: source_owner.clone(),
-            });
-        }
-        if g.columns.is_some() {
-            out.push(
-                Change::RevokeColumnPrivilege {
-                    qname: qname.clone(),
-                    grant: g,
-                },
-                Destructiveness::Safe,
-            );
-        } else {
-            out.push(
-                Change::RevokeObjectPrivilege {
-                    object: CatalogObjectRef::Table(qname.clone()),
-                    grant: g,
-                },
-                Destructiveness::Safe,
-            );
-        }
-    }
-    for g in to_add {
-        if g.columns.is_some() {
-            out.push(
-                Change::GrantColumnPrivilege {
-                    qname: qname.clone(),
-                    grant: g,
-                },
-                Destructiveness::Safe,
-            );
-        } else {
-            out.push(
-                Change::GrantObjectPrivilege {
-                    object: CatalogObjectRef::Table(qname.clone()),
-                    grant: g,
-                },
-                Destructiveness::Safe,
-            );
-        }
-    }
-    for g in unmanaged {
-        if let GrantTarget::Role(role_name) = &g.grantee {
-            out.unmanaged_grants.push(UnmanagedGrantObservation {
-                object_label: object_label.clone(),
-                privilege_label: g.privilege.sql_keyword().into(),
-                role_name: role_name.clone(),
-            });
-        }
-    }
+    diff_owner_and_grants(
+        &CatalogObjectRef::Table(source_table.qname.clone()),
+        target_table.owner.as_ref(),
+        source_table.owner.as_ref(),
+        &adjusted_target,
+        &source_table.grants,
+        managed_roles,
+        ColumnGrantMode::ColumnAware,
+        out,
+    );
 }
 
 fn emit_table_attribute_changes(
@@ -396,22 +344,8 @@ fn emit_table_attribute_changes(
 ) {
     let qname = &source_table.qname;
 
-    // ---- owner diff ----
-    if let Some(source_owner) = &source_table.owner
-        && target_table.owner.as_ref() != Some(source_owner)
-    {
-        out.push(
-            Change::AlterObjectOwner(AlterObjectOwner {
-                object: CatalogObjectRef::Table(qname.clone()),
-                from: target_table.owner.clone(),
-                to: source_owner.clone(),
-            }),
-            Destructiveness::Safe,
-        );
-    }
-
-    // ---- grant diff ----
-    emit_table_grant_changes(target_table, source_table, managed_roles, out);
+    // ---- owner + grant diff ----
+    emit_table_owner_and_grant_changes(target_table, source_table, managed_roles, out);
 
     // ---- policy diff (RLS toggles + per-policy changes) ----
     let mut policy_changes: Vec<Change> = Vec::new();

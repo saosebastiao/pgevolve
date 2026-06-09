@@ -11,12 +11,13 @@
 //!
 //! Spec: `docs/superpowers/specs/2026-05-26-publications-design.md`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diff::change::{Change, PublicationChange};
 use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
-use crate::diff::owner_op::{AlterObjectOwner, CatalogObjectRef};
+use crate::diff::owner_grants::{ColumnGrantMode, diff_owner_and_grants};
+use crate::diff::owner_op::CatalogObjectRef;
 use crate::identifier::Identifier;
 use crate::ir::catalog::Catalog;
 use crate::ir::publication::{Publication, PublicationScope, PublishedTable};
@@ -126,18 +127,17 @@ fn diff_one_publication(target: &Publication, source: &Publication, out: &mut Ch
 
     // Owner: v0.3.1 lenient pattern — only emit when source declares an owner
     // and it differs from target. Source `None` = unmanaged, no change emitted.
-    if let Some(s_owner) = &source.owner
-        && target.owner.as_ref() != Some(s_owner)
-    {
-        out.push(
-            Change::AlterObjectOwner(AlterObjectOwner {
-                object: CatalogObjectRef::Publication(source.name.clone()),
-                from: target.owner.clone(),
-                to: s_owner.clone(),
-            }),
-            Destructiveness::Safe,
-        );
-    }
+    // Publications have no grants, so the grant slices are empty.
+    diff_owner_and_grants(
+        &CatalogObjectRef::Publication(source.name.clone()),
+        target.owner.as_ref(),
+        source.owner.as_ref(),
+        &[],
+        &[],
+        &BTreeSet::new(),
+        ColumnGrantMode::ObjectOnly,
+        out,
+    );
 }
 
 fn diff_selective_tables(

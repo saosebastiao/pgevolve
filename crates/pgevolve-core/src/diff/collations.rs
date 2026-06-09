@@ -9,12 +9,13 @@
 //! either — name mismatch is treated as drop-old (lenient skip) plus
 //! create-new, since rename intent is not structurally derivable.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diff::change::{Change, CollationChange};
 use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
-use crate::diff::owner_op::{AlterObjectOwner, CatalogObjectRef};
+use crate::diff::owner_grants::{ColumnGrantMode, diff_owner_and_grants};
+use crate::diff::owner_op::CatalogObjectRef;
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
 use crate::ir::collation::Collation;
@@ -79,18 +80,17 @@ fn diff_one(target: &Collation, source: &Collation, out: &mut ChangeSet) {
     }
 
     // Owner: lenient — only emit when source declares an owner and it differs.
-    if let Some(s_owner) = &source.owner
-        && target.owner.as_ref() != Some(s_owner)
-    {
-        out.push(
-            Change::AlterObjectOwner(AlterObjectOwner {
-                object: CatalogObjectRef::Collation(source.qname.clone()),
-                from: target.owner.clone(),
-                to: s_owner.clone(),
-            }),
-            Destructiveness::Safe,
-        );
-    }
+    // Collations have no grants, so the grant slices are empty.
+    diff_owner_and_grants(
+        &CatalogObjectRef::Collation(source.qname.clone()),
+        target.owner.as_ref(),
+        source.owner.as_ref(),
+        &[],
+        &[],
+        &BTreeSet::new(),
+        ColumnGrantMode::ObjectOnly,
+        out,
+    );
 
     // Comment.
     if target.comment != source.comment {

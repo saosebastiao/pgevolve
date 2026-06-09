@@ -7,14 +7,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identifier::Identifier;
 use crate::ir::catalog::Catalog;
-use crate::ir::grant::GrantTarget;
 use crate::ir::schema::Schema;
 
 use super::change::{Change, CollationChange};
-use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
+use super::changeset::ChangeSet;
 use super::destructiveness::Destructiveness;
-use super::grants::diff_grants;
-use super::owner_op::{AlterObjectOwner, CatalogObjectRef};
+use super::owner_grants::{ColumnGrantMode, diff_owner_and_grants};
+use super::owner_op::CatalogObjectRef;
 
 /// Diff schemas in `target` against `source`, appending entries to `out`.
 #[allow(clippy::too_many_lines)] // exhaustive per-field schema diff; extraction would fragment a single conceptual pass.
@@ -117,64 +116,16 @@ fn emit_schema_attribute_changes(
     managed_roles: &BTreeSet<Identifier>,
     out: &mut ChangeSet,
 ) {
-    let name = &source_schema.name;
-
-    // ---- owner diff ----
-    if let Some(source_owner) = &source_schema.owner
-        && target_schema.owner.as_ref() != Some(source_owner)
-    {
-        out.push(
-            Change::AlterObjectOwner(AlterObjectOwner {
-                object: CatalogObjectRef::Schema(name.clone()),
-                from: target_schema.owner.clone(),
-                to: source_owner.clone(),
-            }),
-            Destructiveness::Safe,
-        );
-    }
-
-    // ---- grant diff ----
-    let object_label = format!("schema {name}");
-    let (to_add, to_revoke, unmanaged) =
-        diff_grants(&target_schema.grants, &source_schema.grants, managed_roles);
-    // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
-    // that WGO-change pairs (same grantee+privilege, different wgo) don't
-    // self-cancel.
-    for g in to_revoke {
-        if let Some(source_owner) = &source_schema.owner {
-            out.revokes_with_owner.push(RevokeWithOwnerObservation {
-                object_label: object_label.clone(),
-                privilege_label: g.privilege.sql_keyword().into(),
-                grantee: g.grantee.clone(),
-                owner: source_owner.clone(),
-            });
-        }
-        out.push(
-            Change::RevokeObjectPrivilege {
-                object: CatalogObjectRef::Schema(name.clone()),
-                grant: g,
-            },
-            Destructiveness::Safe,
-        );
-    }
-    for g in to_add {
-        out.push(
-            Change::GrantObjectPrivilege {
-                object: CatalogObjectRef::Schema(name.clone()),
-                grant: g,
-            },
-            Destructiveness::Safe,
-        );
-    }
-    for g in unmanaged {
-        if let GrantTarget::Role(role_name) = &g.grantee {
-            out.unmanaged_grants.push(UnmanagedGrantObservation {
-                object_label: object_label.clone(),
-                privilege_label: g.privilege.sql_keyword().into(),
-                role_name: role_name.clone(),
-            });
-        }
-    }
+    diff_owner_and_grants(
+        &CatalogObjectRef::Schema(source_schema.name.clone()),
+        target_schema.owner.as_ref(),
+        source_schema.owner.as_ref(),
+        &target_schema.grants,
+        &source_schema.grants,
+        managed_roles,
+        ColumnGrantMode::ObjectOnly,
+        out,
+    );
 }
 
 #[cfg(test)]

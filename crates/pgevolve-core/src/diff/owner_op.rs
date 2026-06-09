@@ -125,6 +125,35 @@ impl CatalogObjectRef {
             }
         }
     }
+
+    /// Human-readable label used in the grant observation side-channels
+    /// (`UnmanagedGrantObservation` / `RevokeWithOwnerObservation`), e.g.
+    /// `"table app.users"` or `"function app.f(integer)"`.
+    ///
+    /// The name is rendered via the identifier `Display` impl (raw, *not*
+    /// SQL-quoted) to byte-match the pre-dedup inline labels that built this
+    /// string with `format!("table {qname}")` and friends. This is distinct
+    /// from [`CatalogObjectRef::render_target`], which SQL-quotes for emitted
+    /// statements.
+    #[must_use]
+    pub fn observation_label(&self) -> String {
+        let kind = self.sql_keyword().to_lowercase();
+        match self {
+            Self::Schema(name) | Self::Publication(name) | Self::Subscription(name) => {
+                format!("{kind} {name}")
+            }
+            Self::Sequence(q)
+            | Self::Table(q)
+            | Self::View(q)
+            | Self::MaterializedView(q)
+            | Self::UserType(q)
+            | Self::Statistic(q)
+            | Self::Collation(q) => format!("{kind} {q}"),
+            Self::Function { name, signature } | Self::Procedure { name, signature } => {
+                format!("{kind} {name}{}", signature.as_str())
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for CatalogObjectRef {
@@ -239,5 +268,46 @@ mod tests {
             .render_target(),
             "app.do_work(integer)"
         );
+    }
+
+    #[test]
+    fn observation_label_each_shape() {
+        assert_eq!(
+            CatalogObjectRef::Table(qn("app", "users")).observation_label(),
+            "table app.users"
+        );
+        assert_eq!(
+            CatalogObjectRef::MaterializedView(qn("app", "mv")).observation_label(),
+            "materialized view app.mv"
+        );
+        assert_eq!(
+            CatalogObjectRef::Schema(id("billing")).observation_label(),
+            "schema billing"
+        );
+        assert_eq!(
+            CatalogObjectRef::UserType(qn("app", "status")).observation_label(),
+            "type app.status"
+        );
+        assert_eq!(
+            CatalogObjectRef::Function {
+                name: qn("app", "do_thing"),
+                signature: RoutineSignature::new("(integer, text)".to_string()),
+            }
+            .observation_label(),
+            "function app.do_thing(integer, text)"
+        );
+    }
+
+    /// The observation label uses the identifier `Display` impl (raw, unquoted),
+    /// matching the pre-dedup inline `format!("type {qname}")` labels — *not*
+    /// the SQL-quoting `render_target`. A name needing quotes must NOT be quoted
+    /// in the observation label.
+    #[test]
+    fn observation_label_is_unquoted_unlike_render_target() {
+        // "select" is a reserved keyword → render_sql quotes it.
+        let q = qn("app", "select");
+        let obj = CatalogObjectRef::Table(q);
+        assert_eq!(obj.render_target(), "app.\"select\"");
+        assert_eq!(obj.observation_label(), "table app.select");
     }
 }

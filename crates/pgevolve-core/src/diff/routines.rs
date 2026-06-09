@@ -20,13 +20,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diff::change::{Change, FunctionChange, ProcedureChange};
-use crate::diff::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
+use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
-use crate::diff::grants::diff_grants;
-use crate::diff::owner_op::{AlterObjectOwner, CatalogObjectRef, RoutineSignature};
+use crate::diff::owner_grants::{ColumnGrantMode, diff_owner_and_grants};
+use crate::diff::owner_op::{CatalogObjectRef, RoutineSignature};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::function::{ArgMode, Function, NormalizedArgTypes, ReturnType};
-use crate::ir::grant::GrantTarget;
 use crate::ir::procedure::Procedure;
 
 /// Compute `Function`-level changes needed to converge `catalog` toward `source`.
@@ -95,71 +94,19 @@ fn diff_function_owner_grants(
         .join(", ");
     let signature = format!("({args_label})");
 
-    // Owner diff.
-    if let Some(source_owner) = &source.owner
-        && catalog.owner.as_ref() != Some(source_owner)
-    {
-        out.push(
-            Change::AlterObjectOwner(AlterObjectOwner {
-                object: CatalogObjectRef::Function {
-                    name: source.qname.clone(),
-                    signature: RoutineSignature::new(signature.clone()),
-                },
-                from: catalog.owner.clone(),
-                to: source_owner.clone(),
-            }),
-            Destructiveness::Safe,
-        );
-    }
-
-    // Grant diff.
-    let object_label = format!("function {}{signature}", source.qname);
-    let (to_add, to_revoke, unmanaged) =
-        diff_grants(&catalog.grants, &source.grants, managed_roles);
-    // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
-    // that WGO-change pairs (same grantee+privilege, different wgo) don't
-    // self-cancel.
-    for g in to_revoke {
-        if let Some(source_owner) = &source.owner {
-            out.revokes_with_owner.push(RevokeWithOwnerObservation {
-                object_label: object_label.clone(),
-                privilege_label: g.privilege.sql_keyword().into(),
-                grantee: g.grantee.clone(),
-                owner: source_owner.clone(),
-            });
-        }
-        out.push(
-            Change::RevokeObjectPrivilege {
-                object: CatalogObjectRef::Function {
-                    name: source.qname.clone(),
-                    signature: RoutineSignature::new(signature.clone()),
-                },
-                grant: g,
-            },
-            Destructiveness::Safe,
-        );
-    }
-    for g in to_add {
-        out.push(
-            Change::GrantObjectPrivilege {
-                object: CatalogObjectRef::Function {
-                    name: source.qname.clone(),
-                    signature: RoutineSignature::new(signature.clone()),
-                },
-                grant: g,
-            },
-            Destructiveness::Safe,
-        );
-    }
-    for g in unmanaged {
-        if let GrantTarget::Role(role_name) = &g.grantee {
-            out.unmanaged_grants.push(UnmanagedGrantObservation {
-                object_label: object_label.clone(),
-                privilege_label: g.privilege.sql_keyword().into(),
-                role_name: role_name.clone(),
-            });
-        }
-    }
+    diff_owner_and_grants(
+        &CatalogObjectRef::Function {
+            name: source.qname.clone(),
+            signature: RoutineSignature::new(signature),
+        },
+        catalog.owner.as_ref(),
+        source.owner.as_ref(),
+        &catalog.grants,
+        &source.grants,
+        managed_roles,
+        ColumnGrantMode::ObjectOnly,
+        out,
+    );
 }
 
 /// Diff two function overloads that share the same identity key.
@@ -333,71 +280,19 @@ fn diff_procedure_owner_grants(
         .join(", ");
     let signature = format!("({args_label})");
 
-    // Owner diff.
-    if let Some(source_owner) = &source.owner
-        && catalog.owner.as_ref() != Some(source_owner)
-    {
-        out.push(
-            Change::AlterObjectOwner(AlterObjectOwner {
-                object: CatalogObjectRef::Procedure {
-                    name: source.qname.clone(),
-                    signature: RoutineSignature::new(signature.clone()),
-                },
-                from: catalog.owner.clone(),
-                to: source_owner.clone(),
-            }),
-            Destructiveness::Safe,
-        );
-    }
-
-    // Grant diff.
-    let object_label = format!("procedure {}{signature}", source.qname);
-    let (to_add, to_revoke, unmanaged) =
-        diff_grants(&catalog.grants, &source.grants, managed_roles);
-    // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
-    // that WGO-change pairs (same grantee+privilege, different wgo) don't
-    // self-cancel.
-    for g in to_revoke {
-        if let Some(source_owner) = &source.owner {
-            out.revokes_with_owner.push(RevokeWithOwnerObservation {
-                object_label: object_label.clone(),
-                privilege_label: g.privilege.sql_keyword().into(),
-                grantee: g.grantee.clone(),
-                owner: source_owner.clone(),
-            });
-        }
-        out.push(
-            Change::RevokeObjectPrivilege {
-                object: CatalogObjectRef::Procedure {
-                    name: source.qname.clone(),
-                    signature: RoutineSignature::new(signature.clone()),
-                },
-                grant: g,
-            },
-            Destructiveness::Safe,
-        );
-    }
-    for g in to_add {
-        out.push(
-            Change::GrantObjectPrivilege {
-                object: CatalogObjectRef::Procedure {
-                    name: source.qname.clone(),
-                    signature: RoutineSignature::new(signature.clone()),
-                },
-                grant: g,
-            },
-            Destructiveness::Safe,
-        );
-    }
-    for g in unmanaged {
-        if let GrantTarget::Role(role_name) = &g.grantee {
-            out.unmanaged_grants.push(UnmanagedGrantObservation {
-                object_label: object_label.clone(),
-                privilege_label: g.privilege.sql_keyword().into(),
-                role_name: role_name.clone(),
-            });
-        }
-    }
+    diff_owner_and_grants(
+        &CatalogObjectRef::Procedure {
+            name: source.qname.clone(),
+            signature: RoutineSignature::new(signature),
+        },
+        catalog.owner.as_ref(),
+        source.owner.as_ref(),
+        &catalog.grants,
+        &source.grants,
+        managed_roles,
+        ColumnGrantMode::ObjectOnly,
+        out,
+    );
 }
 
 /// Diff two procedures that share the same qualified name.
