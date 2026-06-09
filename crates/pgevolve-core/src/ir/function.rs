@@ -509,8 +509,14 @@ mod tests {
         c.functions.push(sample_function());
         let r = c.canonicalize();
         assert!(
-            matches!(r, Err(IrError::InvalidIdentifier(_))),
-            "expected InvalidIdentifier, got {r:?}",
+            matches!(
+                r,
+                Err(IrError::DuplicateObject {
+                    kind: "function",
+                    ..
+                })
+            ),
+            "expected DuplicateObject, got {r:?}",
         );
         let msg = r.unwrap_err().to_string();
         assert!(

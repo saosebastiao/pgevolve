@@ -10,63 +10,71 @@ use crate::ir::catalog::Catalog;
 use crate::ir::column_type::ColumnType;
 
 /// Sort + dedupe every `Catalog` collection. Fallible: returns
-/// [`IrError::InvalidIdentifier`] on the first duplicate key.
+/// [`IrError::DuplicateObject`] on the first duplicate key.
 pub fn run(cat: &mut Catalog) -> Result<(), IrError> {
     cat.schemas.sort_by(|a, b| a.name.cmp(&b.name));
     if let Some(dupe) = first_duplicate(cat.schemas.iter().map(|s| s.name.as_str())) {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate schema: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "schema",
+            key: dupe.to_string(),
+        });
     }
 
     cat.extensions.sort_by(|a, b| a.name.cmp(&b.name));
     if let Some(dupe) = first_duplicate(cat.extensions.iter().map(|e| e.name.as_str())) {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate extension: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "extension",
+            key: dupe.to_string(),
+        });
     }
 
     cat.tables.sort_by(|a, b| a.qname.cmp(&b.qname));
     if let Some(dupe) = first_duplicate(cat.tables.iter().map(|t| t.qname.to_string())) {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate table: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "table",
+            key: dupe,
+        });
     }
 
     cat.indexes.sort_by(|a, b| a.qname.cmp(&b.qname));
     if let Some(dupe) = first_duplicate(cat.indexes.iter().map(|i| i.qname.to_string())) {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate index: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "index",
+            key: dupe,
+        });
     }
 
     cat.sequences.sort_by(|a, b| a.qname.cmp(&b.qname));
     if let Some(dupe) = first_duplicate(cat.sequences.iter().map(|s| s.qname.to_string())) {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate sequence: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "sequence",
+            key: dupe,
+        });
     }
 
     cat.views.sort_by(|a, b| a.qname.cmp(&b.qname));
     if let Some(dupe) = first_duplicate(cat.views.iter().map(|v| v.qname.to_string())) {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate view: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "view",
+            key: dupe,
+        });
     }
 
     cat.materialized_views.sort_by(|a, b| a.qname.cmp(&b.qname));
     if let Some(dupe) = first_duplicate(cat.materialized_views.iter().map(|m| m.qname.to_string()))
     {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate materialized view: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "materialized view",
+            key: dupe,
+        });
     }
 
     cat.types.sort_by(|a, b| a.qname.cmp(&b.qname));
     if let Some(dupe) = first_duplicate(cat.types.iter().map(|t| t.qname.to_string())) {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate type: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "type",
+            key: dupe,
+        });
     }
 
     // Functions: identity is (qname, arg_types_normalized.canonical_hash).
@@ -90,23 +98,26 @@ pub fn run(cat: &mut Catalog) -> Result<(), IrError> {
                 .join(",")
         )
     })) {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate function: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "function",
+            key: dupe,
+        });
     }
 
     cat.procedures.sort_by(|a, b| a.qname.cmp(&b.qname));
     if let Some(dupe) = first_duplicate(cat.procedures.iter().map(|p| p.qname.to_string())) {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate procedure: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "procedure",
+            key: dupe,
+        });
     }
 
     cat.triggers.sort_by(|a, b| a.qname.cmp(&b.qname));
     if let Some(dupe) = first_duplicate(cat.triggers.iter().map(|t| t.qname.to_string())) {
-        return Err(IrError::InvalidIdentifier(format!(
-            "duplicate trigger: {dupe}"
-        )));
+        return Err(IrError::DuplicateObject {
+            kind: "trigger",
+            key: dupe,
+        });
     }
 
     Ok(())

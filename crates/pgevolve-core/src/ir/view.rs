@@ -446,7 +446,7 @@ mod tests {
 
         let result = c.canonicalize();
         assert!(
-            matches!(result, Err(IrError::InvalidIdentifier(_))),
+            matches!(result, Err(IrError::DuplicateObject { kind: "view", .. })),
             "expected duplicate-view error, got: {result:?}",
         );
     }
@@ -459,7 +459,13 @@ mod tests {
 
         let result = c.canonicalize();
         assert!(
-            matches!(result, Err(IrError::InvalidIdentifier(_))),
+            matches!(
+                result,
+                Err(IrError::DuplicateObject {
+                    kind: "materialized view",
+                    ..
+                })
+            ),
             "expected duplicate-mv error, got: {result:?}",
         );
     }

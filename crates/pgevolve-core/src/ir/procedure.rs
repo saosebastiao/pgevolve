@@ -114,7 +114,13 @@ mod tests {
         c.procedures.push(sample_procedure());
         c.procedures.push(sample_procedure());
         let r = c.canonicalize();
-        assert!(matches!(r, Err(IrError::InvalidIdentifier(_))));
+        assert!(matches!(
+            r,
+            Err(IrError::DuplicateObject {
+                kind: "procedure",
+                ..
+            })
+        ));
         assert!(r.unwrap_err().to_string().contains("app.do_thing"));
     }
 

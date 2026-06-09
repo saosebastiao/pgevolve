@@ -309,8 +309,8 @@ mod tests {
 
         let result = c.canonicalize();
         assert!(
-            matches!(result, Err(IrError::InvalidIdentifier(_))),
-            "expected IrError::InvalidIdentifier, got {result:?}",
+            matches!(result, Err(IrError::DuplicateObject { kind: "type", .. })),
+            "expected IrError::DuplicateObject, got {result:?}",
         );
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("order_status"), "should name the qname: {msg}");

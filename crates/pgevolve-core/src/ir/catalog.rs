@@ -318,7 +318,10 @@ mod tests {
         c.tables.push(table_users());
         c.tables.push(table_users());
         let r = c.canonicalize();
-        assert!(matches!(r, Err(IrError::InvalidIdentifier(_))));
+        assert!(matches!(
+            r,
+            Err(IrError::DuplicateObject { kind: "table", .. })
+        ));
     }
 
     #[test]

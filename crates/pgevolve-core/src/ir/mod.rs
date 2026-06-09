@@ -132,6 +132,16 @@ pub enum IrError {
     #[error("duplicate tablespace: {0}")]
     DuplicateTablespace(crate::identifier::Identifier),
 
+    /// Two objects in the same collection share a key (name / qualified name /
+    /// overload identity).
+    #[error("duplicate {kind}: {key}")]
+    DuplicateObject {
+        /// Human-readable object kind, e.g. "table", "index", "schema".
+        kind: &'static str,
+        /// The duplicated key, formatted for display.
+        key: String,
+    },
+
     /// A `Collation` failed canon validation (e.g. nondeterministic libc).
     #[error("collation {qname}: invalid — {reason}")]
     InvalidCollation {
