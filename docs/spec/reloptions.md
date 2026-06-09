@@ -73,8 +73,10 @@ Parser enforces PG's documented ranges at parse time:
 ### Tables / Materialized Views
 
 `fillfactor`, `parallel_workers`, `toast_tuple_target`, `user_catalog_table`,
-`vacuum_truncate`, plus all 16 `autovacuum_*` keys including
-`log_autovacuum_min_duration`.
+and `vacuum_truncate` are typed fields. The `autovacuum_*` keys (including
+`log_autovacuum_min_duration`) are carried in the untyped `extra:
+BTreeMap<String, String>` bag alongside unknown/extension keys — they are not
+typed or validated at parse time (Postgres validates autovacuum values on apply).
 
 ### Indexes
 

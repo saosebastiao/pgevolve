@@ -114,8 +114,8 @@ pub struct MaterializedView {
 }
 
 /// Render an optional view-column type for diff display. An unresolved
-/// (`None`) type renders as `"<unresolved>"`; after canonicalization this
-/// never occurs in practice, but the diff impl must total over both arms.
+/// (`None`) type renders as `"<unresolved>"`; this should not occur
+/// post-canonicalization, but the diff impl must total over both arms.
 fn render_column_type(ty: Option<&ColumnType>) -> String {
     ty.map_or_else(|| "<unresolved>".to_string(), ColumnType::render_sql)
 }

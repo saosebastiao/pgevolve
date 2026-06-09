@@ -396,10 +396,18 @@ fn walk_select(
 fn resolve_explicit_column_types(columns: &mut [ViewColumn]) {
     for col in columns {
         if col.column_type.is_none() {
-            col.column_type = Some(ColumnType::Other {
-                raw: "expression".to_string(),
-            });
+            col.column_type = Some(expression_placeholder());
         }
+    }
+}
+
+/// The placeholder column type written for view columns before the
+/// `sentinel_view_columns` canon pass collapses every view column type to the
+/// `view_column` sentinel. The concrete value is irrelevant (it is always
+/// overwritten); a shared helper makes "these are deliberately the same" explicit.
+fn expression_placeholder() -> ColumnType {
+    ColumnType::Other {
+        raw: "expression".to_string(),
     }
 }
 
@@ -431,9 +439,7 @@ fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
             .ok()?;
         return Some(ViewColumn {
             name,
-            column_type: Some(ColumnType::Other {
-                raw: "expression".to_string(),
-            }),
+            column_type: Some(expression_placeholder()),
             comment: None,
         });
     }
@@ -444,9 +450,7 @@ fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
     {
         return Some(ViewColumn {
             name: col_name,
-            column_type: Some(ColumnType::Other {
-                raw: "expression".to_string(),
-            }),
+            column_type: Some(expression_placeholder()),
             comment: None,
         });
     }
@@ -456,9 +460,7 @@ fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
         .ok()
         .map(|name| ViewColumn {
             name,
-            column_type: Some(ColumnType::Other {
-                raw: "expression".to_string(),
-            }),
+            column_type: Some(expression_placeholder()),
             comment: None,
         })
 }

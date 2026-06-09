@@ -23,7 +23,7 @@
 //! invalid PG syntax). `rls_enabled` and `rls_forced` added as independent
 //! bool strategies on each generated table.
 //!
-//! v0.3.3 additions: `arb_autovacuum_options`, `arb_table_storage`,
+//! v0.3.3 additions: `arb_autovacuum_extra`, `arb_table_storage`,
 //! `arb_index_storage` — reloption configurations plumbed into
 //! `arbitrary_table` and `arbitrary_indexes_for_table`. Range-bounded
 //! strategies (fillfactor 10..=100 for tables, 50..=100 for indexes) prevent

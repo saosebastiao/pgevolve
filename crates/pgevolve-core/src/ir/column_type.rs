@@ -687,7 +687,7 @@ mod tests {
     }
 
     #[test]
-    fn numeric_scale_requires_precision_by_construction() {
+    fn numeric_constrained_round_trips() {
         let n = ColumnType::Numeric {
             precision: Some(NumericPrecision {
                 precision: 10,
