@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use crate::diff::change::{Change, PublicationChange};
 use crate::diff::changeset::ChangeSet;
 use crate::diff::destructiveness::Destructiveness;
-use crate::diff::owner_op::{AlterObjectOwner, GrantableObject};
+use crate::diff::owner_op::{AlterObjectOwner, CatalogObjectRef};
 use crate::identifier::Identifier;
 use crate::ir::catalog::Catalog;
 use crate::ir::publication::{Publication, PublicationScope, PublishedTable};
@@ -131,7 +131,7 @@ fn diff_one_publication(target: &Publication, source: &Publication, out: &mut Ch
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                object: GrantableObject::Publication(source.name.clone()),
+                object: CatalogObjectRef::Publication(source.name.clone()),
                 from: target.owner.clone(),
                 to: s_owner.clone(),
             }),

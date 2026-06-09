@@ -1,4 +1,5 @@
-//! `AlterObjectOwner` — uniform owner-change op across grantable families.
+//! Catalog-object reference ([`CatalogObjectRef`]) and the uniform
+//! owner-change op ([`AlterObjectOwner`]) shared by the grant and owner diffs.
 
 use serde::{Deserialize, Serialize};
 
@@ -10,13 +11,29 @@ use crate::identifier::{Identifier, QualifiedName};
 /// string (constructed as `format!("({args_label})")` at the diff sites),
 /// matching the old `signature` field exactly so rendered SQL is unchanged.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RoutineSignature(pub String);
+pub struct RoutineSignature(String);
+
+impl RoutineSignature {
+    /// Construct from the parenthesized argument-type signature, e.g.
+    /// `(integer, text)`. The string is stored verbatim — no paren-wrapping
+    /// or normalization is applied.
+    #[must_use]
+    pub const fn new(s: String) -> Self {
+        Self(s)
+    }
+
+    /// Returns the inner signature string, parens included.
+    #[must_use]
+    pub const fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
 
 /// A grantable / ownable schema object, carrying exactly the data its kind
 /// needs.
 ///
 /// A routine argument-signature is representable ONLY on
-/// [`GrantableObject::Function`] / [`GrantableObject::Procedure`], so the old
+/// [`CatalogObjectRef::Function`] / [`CatalogObjectRef::Procedure`], so the old
 /// `signature: String` field (documented as "empty for non-routine kinds") —
 /// an illegal state — is gone.
 ///
@@ -25,7 +42,7 @@ pub struct RoutineSignature(pub String);
 /// render a bare [`Identifier`]; every other kind renders a [`QualifiedName`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum GrantableObject {
+pub enum CatalogObjectRef {
     /// `SCHEMA x` — rendered as the bare schema name.
     Schema(Identifier),
     /// `SEQUENCE x`.
@@ -62,7 +79,7 @@ pub enum GrantableObject {
     Subscription(Identifier),
 }
 
-impl GrantableObject {
+impl CatalogObjectRef {
     /// The SQL keyword(s) used in `GRANT ... ON <keyword> <name>` /
     /// `ALTER <keyword> <name> OWNER TO <role>`.
     #[must_use]
@@ -87,7 +104,7 @@ impl GrantableObject {
     /// `ALTER <kw> <here> OWNER TO <role>;` / `GRANT ... ON <kw> <here> ...`.
     ///
     /// For routines this includes the signature suffix exactly as before
-    /// (`format!("{}{}", name.render_sql(), signature.0)`). Schema /
+    /// (`format!("{}{}", name.render_sql(), signature.as_str())`). Schema /
     /// publication / subscription render the bare identifier; the rest render
     /// the [`QualifiedName`].
     #[must_use]
@@ -104,13 +121,13 @@ impl GrantableObject {
             | Self::Statistic(q)
             | Self::Collation(q) => q.render_sql(),
             Self::Function { name, signature } | Self::Procedure { name, signature } => {
-                format!("{}{}", name.render_sql(), signature.0)
+                format!("{}{}", name.render_sql(), signature.as_str())
             }
         }
     }
 }
 
-impl std::fmt::Display for GrantableObject {
+impl std::fmt::Display for CatalogObjectRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.render_target())
     }
@@ -121,7 +138,7 @@ impl std::fmt::Display for GrantableObject {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AlterObjectOwner {
     /// The object being re-owned (kind + name + optional routine signature).
-    pub object: GrantableObject,
+    pub object: CatalogObjectRef,
     /// Previous owner (taken from the target catalog; `None` when the
     /// catalog did not record an owner).
     pub from: Option<Identifier>,
@@ -143,51 +160,51 @@ mod tests {
 
     #[test]
     fn sql_keywords_match_pg() {
-        assert_eq!(GrantableObject::Schema(id("s")).sql_keyword(), "SCHEMA");
+        assert_eq!(CatalogObjectRef::Schema(id("s")).sql_keyword(), "SCHEMA");
         assert_eq!(
-            GrantableObject::Sequence(qn("s", "x")).sql_keyword(),
+            CatalogObjectRef::Sequence(qn("s", "x")).sql_keyword(),
             "SEQUENCE"
         );
-        assert_eq!(GrantableObject::Table(qn("s", "x")).sql_keyword(), "TABLE");
-        assert_eq!(GrantableObject::View(qn("s", "x")).sql_keyword(), "VIEW");
+        assert_eq!(CatalogObjectRef::Table(qn("s", "x")).sql_keyword(), "TABLE");
+        assert_eq!(CatalogObjectRef::View(qn("s", "x")).sql_keyword(), "VIEW");
         assert_eq!(
-            GrantableObject::MaterializedView(qn("s", "x")).sql_keyword(),
+            CatalogObjectRef::MaterializedView(qn("s", "x")).sql_keyword(),
             "MATERIALIZED VIEW"
         );
         assert_eq!(
-            GrantableObject::Function {
+            CatalogObjectRef::Function {
                 name: qn("s", "x"),
-                signature: RoutineSignature("()".to_string()),
+                signature: RoutineSignature::new("()".to_string()),
             }
             .sql_keyword(),
             "FUNCTION"
         );
         assert_eq!(
-            GrantableObject::Procedure {
+            CatalogObjectRef::Procedure {
                 name: qn("s", "x"),
-                signature: RoutineSignature("()".to_string()),
+                signature: RoutineSignature::new("()".to_string()),
             }
             .sql_keyword(),
             "PROCEDURE"
         );
         assert_eq!(
-            GrantableObject::UserType(qn("s", "x")).sql_keyword(),
+            CatalogObjectRef::UserType(qn("s", "x")).sql_keyword(),
             "TYPE"
         );
         assert_eq!(
-            GrantableObject::Publication(id("p")).sql_keyword(),
+            CatalogObjectRef::Publication(id("p")).sql_keyword(),
             "PUBLICATION"
         );
         assert_eq!(
-            GrantableObject::Subscription(id("p")).sql_keyword(),
+            CatalogObjectRef::Subscription(id("p")).sql_keyword(),
             "SUBSCRIPTION"
         );
         assert_eq!(
-            GrantableObject::Statistic(qn("s", "x")).sql_keyword(),
+            CatalogObjectRef::Statistic(qn("s", "x")).sql_keyword(),
             "STATISTICS"
         );
         assert_eq!(
-            GrantableObject::Collation(qn("s", "x")).sql_keyword(),
+            CatalogObjectRef::Collation(qn("s", "x")).sql_keyword(),
             "COLLATION"
         );
     }
@@ -195,29 +212,29 @@ mod tests {
     #[test]
     fn render_target_each_shape() {
         assert_eq!(
-            GrantableObject::Table(qn("app", "users")).render_target(),
+            CatalogObjectRef::Table(qn("app", "users")).render_target(),
             "app.users"
         );
         assert_eq!(
-            GrantableObject::Schema(id("billing")).render_target(),
+            CatalogObjectRef::Schema(id("billing")).render_target(),
             "billing"
         );
         assert_eq!(
-            GrantableObject::Publication(id("my_pub")).render_target(),
+            CatalogObjectRef::Publication(id("my_pub")).render_target(),
             "my_pub"
         );
         assert_eq!(
-            GrantableObject::Function {
+            CatalogObjectRef::Function {
                 name: qn("app", "do_thing"),
-                signature: RoutineSignature("(integer, text)".to_string()),
+                signature: RoutineSignature::new("(integer, text)".to_string()),
             }
             .render_target(),
             "app.do_thing(integer, text)"
         );
         assert_eq!(
-            GrantableObject::Procedure {
+            CatalogObjectRef::Procedure {
                 name: qn("app", "do_work"),
-                signature: RoutineSignature("(integer)".to_string()),
+                signature: RoutineSignature::new("(integer)".to_string()),
             }
             .render_target(),
             "app.do_work(integer)"

@@ -23,7 +23,7 @@ use crate::diff::change::{Change, FunctionChange, ProcedureChange};
 use crate::diff::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::grants::diff_grants;
-use crate::diff::owner_op::{AlterObjectOwner, GrantableObject, RoutineSignature};
+use crate::diff::owner_op::{AlterObjectOwner, CatalogObjectRef, RoutineSignature};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::function::{ArgMode, Function, NormalizedArgTypes, ReturnType};
 use crate::ir::grant::GrantTarget;
@@ -101,9 +101,9 @@ fn diff_function_owner_grants(
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                object: GrantableObject::Function {
+                object: CatalogObjectRef::Function {
                     name: source.qname.clone(),
-                    signature: RoutineSignature(signature.clone()),
+                    signature: RoutineSignature::new(signature.clone()),
                 },
                 from: catalog.owner.clone(),
                 to: source_owner.clone(),
@@ -130,9 +130,9 @@ fn diff_function_owner_grants(
         }
         out.push(
             Change::RevokeObjectPrivilege {
-                object: GrantableObject::Function {
+                object: CatalogObjectRef::Function {
                     name: source.qname.clone(),
-                    signature: RoutineSignature(signature.clone()),
+                    signature: RoutineSignature::new(signature.clone()),
                 },
                 grant: g,
             },
@@ -142,9 +142,9 @@ fn diff_function_owner_grants(
     for g in to_add {
         out.push(
             Change::GrantObjectPrivilege {
-                object: GrantableObject::Function {
+                object: CatalogObjectRef::Function {
                     name: source.qname.clone(),
-                    signature: RoutineSignature(signature.clone()),
+                    signature: RoutineSignature::new(signature.clone()),
                 },
                 grant: g,
             },
@@ -339,9 +339,9 @@ fn diff_procedure_owner_grants(
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                object: GrantableObject::Procedure {
+                object: CatalogObjectRef::Procedure {
                     name: source.qname.clone(),
-                    signature: RoutineSignature(signature.clone()),
+                    signature: RoutineSignature::new(signature.clone()),
                 },
                 from: catalog.owner.clone(),
                 to: source_owner.clone(),
@@ -368,9 +368,9 @@ fn diff_procedure_owner_grants(
         }
         out.push(
             Change::RevokeObjectPrivilege {
-                object: GrantableObject::Procedure {
+                object: CatalogObjectRef::Procedure {
                     name: source.qname.clone(),
-                    signature: RoutineSignature(signature.clone()),
+                    signature: RoutineSignature::new(signature.clone()),
                 },
                 grant: g,
             },
@@ -380,9 +380,9 @@ fn diff_procedure_owner_grants(
     for g in to_add {
         out.push(
             Change::GrantObjectPrivilege {
-                object: GrantableObject::Procedure {
+                object: CatalogObjectRef::Procedure {
                     name: source.qname.clone(),
-                    signature: RoutineSignature(signature.clone()),
+                    signature: RoutineSignature::new(signature.clone()),
                 },
                 grant: g,
             },
@@ -852,8 +852,8 @@ mod tests {
             assert!(
                 matches!(
                     object,
-                    GrantableObject::Function { signature, .. }
-                        if signature == &RoutineSignature("(integer)".to_string())
+                    CatalogObjectRef::Function { signature, .. }
+                        if signature == &RoutineSignature::new("(integer)".to_string())
                 ),
                 "signature must carry the IN arg type on a Function variant"
             );
@@ -899,8 +899,8 @@ mod tests {
             assert!(
                 matches!(
                     object,
-                    GrantableObject::Function { signature, .. }
-                        if signature == &RoutineSignature("()".to_string())
+                    CatalogObjectRef::Function { signature, .. }
+                        if signature == &RoutineSignature::new("()".to_string())
                 ),
                 "no-arg function signature must be ()"
             );
@@ -954,8 +954,8 @@ mod tests {
             assert!(
                 matches!(
                     object,
-                    GrantableObject::Procedure { signature, .. }
-                        if signature == &RoutineSignature("(integer)".to_string())
+                    CatalogObjectRef::Procedure { signature, .. }
+                        if signature == &RoutineSignature::new("(integer)".to_string())
                 ),
                 "procedure signature must carry the IN arg type on a Procedure variant"
             );

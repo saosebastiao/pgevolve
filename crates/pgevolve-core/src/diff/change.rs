@@ -32,7 +32,7 @@ use crate::ir::user_type::{CompositeAttribute, DomainCheck, UserType};
 use crate::ir::view::{MaterializedView, View};
 
 use super::destructiveness::Destructiveness;
-use super::owner_op::{AlterObjectOwner, GrantableObject};
+use super::owner_op::{AlterObjectOwner, CatalogObjectRef};
 use super::sequence_op::SequenceOpEntry;
 use super::table_op::TableOpEntry;
 
@@ -159,7 +159,7 @@ pub enum Change {
     /// Emitted when a grant appears in source but not in the target catalog.
     GrantObjectPrivilege {
         /// The grantable object (kind + name + optional routine signature).
-        object: GrantableObject,
+        object: CatalogObjectRef,
         /// The full grant to apply.
         grant: Grant,
     },
@@ -168,7 +168,7 @@ pub enum Change {
     /// Only emitted for managed grantees (see [`super::grants::diff_grants`]).
     RevokeObjectPrivilege {
         /// The grantable object (kind + name + optional routine signature).
-        object: GrantableObject,
+        object: CatalogObjectRef,
         /// The full grant to revoke.
         grant: Grant,
     },

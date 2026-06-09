@@ -12,7 +12,7 @@ use crate::diff::change::{Change, UserTypeChange};
 use crate::diff::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use crate::diff::destructiveness::Destructiveness;
 use crate::diff::grants::diff_grants;
-use crate::diff::owner_op::{AlterObjectOwner, GrantableObject};
+use crate::diff::owner_op::{AlterObjectOwner, CatalogObjectRef};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::grant::GrantTarget;
 use crate::ir::user_type::{CompositeAttribute, EnumValue, UserType, UserTypeKind};
@@ -65,7 +65,7 @@ fn diff_type_owner_grants(
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                object: GrantableObject::UserType(source.qname.clone()),
+                object: CatalogObjectRef::UserType(source.qname.clone()),
                 from: catalog.owner.clone(),
                 to: source_owner.clone(),
             }),
@@ -91,7 +91,7 @@ fn diff_type_owner_grants(
         }
         out.push(
             Change::RevokeObjectPrivilege {
-                object: GrantableObject::UserType(source.qname.clone()),
+                object: CatalogObjectRef::UserType(source.qname.clone()),
                 grant: g,
             },
             Destructiveness::Safe,
@@ -100,7 +100,7 @@ fn diff_type_owner_grants(
     for g in to_add {
         out.push(
             Change::GrantObjectPrivilege {
-                object: GrantableObject::UserType(source.qname.clone()),
+                object: CatalogObjectRef::UserType(source.qname.clone()),
                 grant: g,
             },
             Destructiveness::Safe,

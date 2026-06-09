@@ -611,11 +611,11 @@ fn change_node(change: &Change) -> NodeId {
         // the same object's grants is preserved by stable sort, but the wrong
         // NodeId causes unpredictable cross-object interleaving (issue #36).
         Change::GrantObjectPrivilege { object, .. }
-        | Change::RevokeObjectPrivilege { object, .. } => grantable_object_node_id(object),
+        | Change::RevokeObjectPrivilege { object, .. } => catalog_object_ref_node_id(object),
         // Column-level grants are always scoped to tables, views, or MVs.
         Change::GrantColumnPrivilege { qname, .. }
         | Change::RevokeColumnPrivilege { qname, .. } => NodeId::Table(qname.clone()),
-        Change::AlterObjectOwner(op) => grantable_object_node_id(&op.object),
+        Change::AlterObjectOwner(op) => catalog_object_ref_node_id(&op.object),
         Change::AlterDefaultPrivileges { target_role, .. } => {
             // Default-privilege changes have no natural node; use a Schema node
             // keyed by the target_role name as a stable ordering anchor.
@@ -778,29 +778,29 @@ fn change_node(change: &Change) -> NodeId {
     }
 }
 
-/// Map a [`GrantableObject`] to its primary dep-graph node, used to order
+/// Map a [`CatalogObjectRef`] to its primary dep-graph node, used to order
 /// grant / revoke / owner changes (issue #36).
 ///
 /// Routines anchor to their owning schema: `NodeId::Function` requires
 /// `NormalizedArgTypes` (the full argument list), which is not carried on the
 /// grant / owner change; the schema node is guaranteed to be in the dep-graph
 /// and places the change after the routine's schema is created.
-fn grantable_object_node_id(object: &crate::diff::owner_op::GrantableObject) -> NodeId {
-    use crate::diff::owner_op::GrantableObject;
+fn catalog_object_ref_node_id(object: &crate::diff::owner_op::CatalogObjectRef) -> NodeId {
+    use crate::diff::owner_op::CatalogObjectRef;
     match object {
-        GrantableObject::Schema(name) => NodeId::Schema(name.clone()),
-        GrantableObject::Sequence(q) => NodeId::Sequence(q.clone()),
-        GrantableObject::Table(q) => NodeId::Table(q.clone()),
-        GrantableObject::View(q) => NodeId::View(q.clone()),
-        GrantableObject::MaterializedView(q) => NodeId::Mv(q.clone()),
-        GrantableObject::UserType(q) => NodeId::Type(q.clone()),
-        GrantableObject::Function { name, .. } | GrantableObject::Procedure { name, .. } => {
+        CatalogObjectRef::Schema(name) => NodeId::Schema(name.clone()),
+        CatalogObjectRef::Sequence(q) => NodeId::Sequence(q.clone()),
+        CatalogObjectRef::Table(q) => NodeId::Table(q.clone()),
+        CatalogObjectRef::View(q) => NodeId::View(q.clone()),
+        CatalogObjectRef::MaterializedView(q) => NodeId::Mv(q.clone()),
+        CatalogObjectRef::UserType(q) => NodeId::Type(q.clone()),
+        CatalogObjectRef::Function { name, .. } | CatalogObjectRef::Procedure { name, .. } => {
             NodeId::Schema(name.schema.clone())
         }
-        GrantableObject::Statistic(q) => NodeId::Statistic(q.clone()),
-        GrantableObject::Collation(q) => NodeId::Collation(q.clone()),
-        GrantableObject::Publication(name) => NodeId::Publication(name.clone()),
-        GrantableObject::Subscription(name) => NodeId::Subscription(name.clone()),
+        CatalogObjectRef::Statistic(q) => NodeId::Statistic(q.clone()),
+        CatalogObjectRef::Collation(q) => NodeId::Collation(q.clone()),
+        CatalogObjectRef::Publication(name) => NodeId::Publication(name.clone()),
+        CatalogObjectRef::Subscription(name) => NodeId::Subscription(name.clone()),
     }
 }
 

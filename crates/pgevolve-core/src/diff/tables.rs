@@ -19,7 +19,7 @@ use super::columns::diff_columns;
 use super::constraints::diff_constraints;
 use super::destructiveness::Destructiveness;
 use super::grants::diff_grants;
-use super::owner_op::{AlterObjectOwner, GrantableObject};
+use super::owner_op::{AlterObjectOwner, CatalogObjectRef};
 use super::table_op::TableOpEntry;
 
 /// Diff tables in `target` against `source`, appending entries to `out`.
@@ -351,7 +351,7 @@ fn emit_table_grant_changes(
         } else {
             out.push(
                 Change::RevokeObjectPrivilege {
-                    object: GrantableObject::Table(qname.clone()),
+                    object: CatalogObjectRef::Table(qname.clone()),
                     grant: g,
                 },
                 Destructiveness::Safe,
@@ -370,7 +370,7 @@ fn emit_table_grant_changes(
         } else {
             out.push(
                 Change::GrantObjectPrivilege {
-                    object: GrantableObject::Table(qname.clone()),
+                    object: CatalogObjectRef::Table(qname.clone()),
                     grant: g,
                 },
                 Destructiveness::Safe,
@@ -402,7 +402,7 @@ fn emit_table_attribute_changes(
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                object: GrantableObject::Table(qname.clone()),
+                object: CatalogObjectRef::Table(qname.clone()),
                 from: target_table.owner.clone(),
                 to: source_owner.clone(),
             }),

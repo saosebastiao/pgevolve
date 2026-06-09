@@ -216,7 +216,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
             // Audit `targets` historically carried the QualifiedName; for
             // cluster-level (publication/subscription) and schema owners we
             // synthesize a QualifiedName for tracking only.
-            let target_qname = grantable_object_target_qname(&op.object);
+            let target_qname = catalog_object_ref_target_qname(&op.object);
             out.push(RawStep {
                 step_no: 0,
                 kind: crate::plan::raw_step::StepKind::AlterObjectOwner,
@@ -235,7 +235,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 destructive: false,
                 destructive_reason: None,
                 intent_id: None,
-                targets: vec![grantable_object_target_qname(&object)],
+                targets: vec![catalog_object_ref_target_qname(&object)],
                 sql: grants::grant_object_privilege(&object, &grant),
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
@@ -247,7 +247,7 @@ fn emit_change(entry: ChangeEntry, ctx: &Ctx<'_>, out: &mut Vec<RawStep>) {
                 destructive: false,
                 destructive_reason: None,
                 intent_id: None,
-                targets: vec![grantable_object_target_qname(&object)],
+                targets: vec![catalog_object_ref_target_qname(&object)],
                 sql: grants::revoke_object_privilege(&object, &grant),
                 transactional: crate::plan::raw_step::TransactionConstraint::InTransaction,
             });
@@ -876,25 +876,27 @@ pub(super) fn schema_target(name: &crate::identifier::Identifier) -> QualifiedNa
     QualifiedName::new(name.clone(), name.clone())
 }
 
-/// `RawStep::targets` carries `QualifiedName`s. Map a [`GrantableObject`] to the
+/// `RawStep::targets` carries `QualifiedName`s. Map a [`CatalogObjectRef`] to the
 /// audit/tracking `QualifiedName` exactly as the pre-unification code did:
 /// qualified objects keep their name; schema / cluster-level objects synthesize
 /// `QualifiedName::new(name, name)`; routines use their bare qualified name
 /// (the signature is irrelevant to tracking).
-fn grantable_object_target_qname(object: &crate::diff::owner_op::GrantableObject) -> QualifiedName {
-    use crate::diff::owner_op::GrantableObject;
+fn catalog_object_ref_target_qname(
+    object: &crate::diff::owner_op::CatalogObjectRef,
+) -> QualifiedName {
+    use crate::diff::owner_op::CatalogObjectRef;
     match object {
-        GrantableObject::Schema(name)
-        | GrantableObject::Publication(name)
-        | GrantableObject::Subscription(name) => schema_target(name),
-        GrantableObject::Sequence(q)
-        | GrantableObject::Table(q)
-        | GrantableObject::View(q)
-        | GrantableObject::MaterializedView(q)
-        | GrantableObject::UserType(q)
-        | GrantableObject::Statistic(q)
-        | GrantableObject::Collation(q) => q.clone(),
-        GrantableObject::Function { name, .. } | GrantableObject::Procedure { name, .. } => {
+        CatalogObjectRef::Schema(name)
+        | CatalogObjectRef::Publication(name)
+        | CatalogObjectRef::Subscription(name) => schema_target(name),
+        CatalogObjectRef::Sequence(q)
+        | CatalogObjectRef::Table(q)
+        | CatalogObjectRef::View(q)
+        | CatalogObjectRef::MaterializedView(q)
+        | CatalogObjectRef::UserType(q)
+        | CatalogObjectRef::Statistic(q)
+        | CatalogObjectRef::Collation(q) => q.clone(),
+        CatalogObjectRef::Function { name, .. } | CatalogObjectRef::Procedure { name, .. } => {
             name.clone()
         }
     }

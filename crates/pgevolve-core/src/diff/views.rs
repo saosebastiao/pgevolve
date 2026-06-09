@@ -27,7 +27,7 @@ use super::change::{BodyReplaceStrategy, Change, MvChange, ViewChange};
 use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use super::destructiveness::Destructiveness;
 use super::grants::diff_grants;
-use super::owner_op::{AlterObjectOwner, GrantableObject};
+use super::owner_op::{AlterObjectOwner, CatalogObjectRef};
 
 /// Per Postgres's `CREATE OR REPLACE VIEW` rules: the new column list must be
 /// a non-shrinking superset of the existing list, with the same names **and
@@ -165,7 +165,7 @@ pub fn diff_views(
         {
             out.push(
                 Change::AlterObjectOwner(AlterObjectOwner {
-                    object: GrantableObject::View((*qname).clone()),
+                    object: CatalogObjectRef::View((*qname).clone()),
                     from: tgt.owner.clone(),
                     to: source_owner.clone(),
                 }),
@@ -202,7 +202,7 @@ pub fn diff_views(
                 } else {
                     out.push(
                         Change::RevokeObjectPrivilege {
-                            object: GrantableObject::View((*qname).clone()),
+                            object: CatalogObjectRef::View((*qname).clone()),
                             grant: g,
                         },
                         Destructiveness::Safe,
@@ -222,7 +222,7 @@ pub fn diff_views(
                 } else {
                     out.push(
                         Change::GrantObjectPrivilege {
-                            object: GrantableObject::View((*qname).clone()),
+                            object: CatalogObjectRef::View((*qname).clone()),
                             grant: g,
                         },
                         Destructiveness::Safe,
@@ -334,7 +334,7 @@ pub fn diff_materialized_views(
         {
             out.push(
                 Change::AlterObjectOwner(AlterObjectOwner {
-                    object: GrantableObject::MaterializedView((*qname).clone()),
+                    object: CatalogObjectRef::MaterializedView((*qname).clone()),
                     from: tgt.owner.clone(),
                     to: source_owner.clone(),
                 }),
@@ -371,7 +371,7 @@ pub fn diff_materialized_views(
                 } else {
                     out.push(
                         Change::RevokeObjectPrivilege {
-                            object: GrantableObject::MaterializedView((*qname).clone()),
+                            object: CatalogObjectRef::MaterializedView((*qname).clone()),
                             grant: g,
                         },
                         Destructiveness::Safe,
@@ -391,7 +391,7 @@ pub fn diff_materialized_views(
                 } else {
                     out.push(
                         Change::GrantObjectPrivilege {
-                            object: GrantableObject::MaterializedView((*qname).clone()),
+                            object: CatalogObjectRef::MaterializedView((*qname).clone()),
                             grant: g,
                         },
                         Destructiveness::Safe,

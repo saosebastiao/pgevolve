@@ -14,7 +14,7 @@ use super::change::{Change, CollationChange};
 use super::changeset::{ChangeSet, RevokeWithOwnerObservation, UnmanagedGrantObservation};
 use super::destructiveness::Destructiveness;
 use super::grants::diff_grants;
-use super::owner_op::{AlterObjectOwner, GrantableObject};
+use super::owner_op::{AlterObjectOwner, CatalogObjectRef};
 
 /// Diff schemas in `target` against `source`, appending entries to `out`.
 #[allow(clippy::too_many_lines)] // exhaustive per-field schema diff; extraction would fragment a single conceptual pass.
@@ -125,7 +125,7 @@ fn emit_schema_attribute_changes(
     {
         out.push(
             Change::AlterObjectOwner(AlterObjectOwner {
-                object: GrantableObject::Schema(name.clone()),
+                object: CatalogObjectRef::Schema(name.clone()),
                 from: target_schema.owner.clone(),
                 to: source_owner.clone(),
             }),
@@ -151,7 +151,7 @@ fn emit_schema_attribute_changes(
         }
         out.push(
             Change::RevokeObjectPrivilege {
-                object: GrantableObject::Schema(name.clone()),
+                object: CatalogObjectRef::Schema(name.clone()),
                 grant: g,
             },
             Destructiveness::Safe,
@@ -160,7 +160,7 @@ fn emit_schema_attribute_changes(
     for g in to_add {
         out.push(
             Change::GrantObjectPrivilege {
-                object: GrantableObject::Schema(name.clone()),
+                object: CatalogObjectRef::Schema(name.clone()),
                 grant: g,
             },
             Destructiveness::Safe,
