@@ -186,6 +186,11 @@ fn tokenize_dropping_password(s: &str) -> Vec<(String, String)> {
         }
         out.push((key, value));
     }
+    // Sort the (key, value) pairs so connection-string equality is insensitive
+    // to key order: libpq treats `host=x user=u` and `user=u host=x` as the
+    // same connection. This is a normalization of the comparison value, NOT a
+    // `ChangeSet`-ordering concern — `connection_differs_ignoring_password`
+    // compares the two sorted token lists for equality.
     out.sort();
     out
 }

@@ -20,14 +20,19 @@ use crate::ir::grant::{Grant, GrantTarget};
 ///
 /// Returns `(to_add, to_revoke, unmanaged_observed)`.
 ///
-/// # Caller contract — emit order
+/// # Ordering note — REVOKE before GRANT (issue #33)
 ///
-/// Callers **must** push `to_revoke` entries into the change-set *before*
-/// `to_add` entries. This ensures that when a grant's `with_grant_option` flag
-/// changes (same grantee + privilege + columns, different WGO value), the plan
-/// executes `REVOKE … FROM …` before `GRANT … TO … [WITH GRANT OPTION]`.
-/// Reversing the order causes the GRANT to be immediately undone by the
-/// following REVOKE, leaving the live database without the privilege entirely.
+/// When a grant's `with_grant_option` flag changes (same grantee + privilege +
+/// columns, different WGO value) the diff yields BOTH a `to_revoke` (old WGO
+/// value) and a `to_add` (new WGO value). The executed plan must run
+/// `REVOKE … FROM …` before `GRANT … TO … [WITH GRANT OPTION]`; otherwise the
+/// GRANT is immediately undone by the following REVOKE, leaving the live
+/// database without the privilege entirely.
+///
+/// This ordering is **not** a caller contract — `ChangeSet` is unordered. The
+/// rule is enforced in the plan layer by `plan::ordering`'s
+/// `sort_changes_by_order` revoke-before-grant tie-break, so callers may emit
+/// `to_add` / `to_revoke` in any order.
 #[must_use]
 pub fn diff_grants(
     target: &[Grant],
@@ -216,13 +221,15 @@ mod tests {
     /// Regression for issue #33: when `with_grant_option` changes on an
     /// existing grant (same grantee + privilege, different WGO flag), the diff
     /// produces both a `to_revoke` (old WGO value) and a `to_add` (new WGO
-    /// value). Callers **must** emit the REVOKE before the GRANT so that the
-    /// GRANT is not immediately cancelled by the subsequent REVOKE.
+    /// value). The REVOKE must execute before the GRANT so that the GRANT is
+    /// not immediately cancelled by the subsequent REVOKE.
     ///
-    /// This test documents the rule: `to_add` and `to_revoke` for a WGO change
-    /// are distinct elements (different `with_grant_option` value) so both
-    /// appear in the output; the caller must respect the emit order described
-    /// in `diff_grants`'s doc comment.
+    /// This test documents that the diff emits BOTH elements (they differ in
+    /// `with_grant_option`, so neither cancels the other in the set diff). The
+    /// REVOKE-before-GRANT *ordering* is owned by the plan layer
+    /// (`plan::ordering::sort_changes_by_order`), not by a diff caller contract
+    /// — `wgo_change_orders_revoke_before_grant` in `plan::ordering` is the
+    /// end-to-end ordering assertion.
     #[test]
     fn wgo_upgrade_produces_both_add_and_revoke() {
         // target: readers/Select WITHOUT grant option
@@ -258,11 +265,11 @@ mod tests {
             "revoked grant must have wgo=false"
         );
         assert!(unmanaged.is_empty());
-        // Caller contract: emit `rev` BEFORE `add`. If the caller emits
-        // `add` first then `rev`, the executed SQL would be:
+        // The plan must execute `rev` BEFORE `add`. If the GRANT ran first the
+        // executed SQL would be:
         //   GRANT SELECT TO readers WITH GRANT OPTION;  -- adds WGO
         //   REVOKE SELECT FROM readers;                 -- removes the grant entirely!
-        // Emitting `rev` first then `add` gives the correct result:
+        // The correct order (enforced by plan::ordering, not by this diff) is:
         //   REVOKE SELECT FROM readers;                 -- removes old grant (no WGO)
         //   GRANT SELECT TO readers WITH GRANT OPTION;  -- grants with WGO
     }

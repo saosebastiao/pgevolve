@@ -82,9 +82,11 @@ pub(crate) fn diff_owner_and_grants(
     // ---- grant diff ----
     let object_label = object.observation_label();
     let (to_add, to_revoke, unmanaged) = diff_grants(target_grants, source_grants, managed_roles);
-    // Emit REVOKEs before GRANTs (issue #33): revokes must precede grants so
-    // that WGO-change pairs (same grantee+privilege, different wgo) don't
-    // self-cancel.
+    // We push REVOKEs before GRANTs here for readability / stable snapshots,
+    // but this order is NO LONGER load-bearing: `ChangeSet` is unordered and
+    // the plan layer enforces REVOKE-before-GRANT for the same object
+    // (issue #33 WGO correctness) via `plan::ordering`'s tie-break. Do not rely
+    // on this emit order for correctness.
     for g in to_revoke {
         if let Some(source_owner) = source_owner {
             out.revokes_with_owner.push(RevokeWithOwnerObservation {

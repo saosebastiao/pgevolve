@@ -840,19 +840,47 @@ fn tier_subscriptions_first(entries: Vec<ChangeEntry>) -> Vec<ChangeEntry> {
 ///
 /// Entries whose node is missing from `order` (which would indicate a bug
 /// in graph construction) are placed at the end in their original order.
+///
+/// Within a single node (object), a secondary tie-break enforces that REVOKE
+/// steps precede GRANT steps — see [`revoke_before_grant_rank`]. This is the
+/// plan-owned home of the issue-#33 WGO correctness rule (a
+/// `with_grant_option` change produces a REVOKE of the old grant plus a GRANT
+/// of the new one; the REVOKE must run first, otherwise the GRANT is undone by
+/// the following REVOKE and the privilege is lost). The rule previously leaked
+/// into the diff layer as a caller-ordering contract; `ChangeSet` is now truly
+/// unordered and `plan` owns this ordering.
 fn sort_changes_by_order(entries: Vec<ChangeEntry>, order: &[NodeId]) -> Vec<ChangeEntry> {
     let position: HashMap<&NodeId, usize> = order.iter().enumerate().map(|(i, n)| (n, i)).collect();
-    let mut indexed: Vec<(usize, ChangeEntry)> = entries
+    let mut indexed: Vec<(usize, u8, ChangeEntry)> = entries
         .into_iter()
         .map(|e| {
             let node = change_node(&e.change);
             let pos = position.get(&node).copied().unwrap_or(usize::MAX);
-            (pos, e)
+            let rank = revoke_before_grant_rank(&e.change);
+            (pos, rank, e)
         })
         .collect();
-    // Stable sort preserves tie-broken input order; primary key is graph index.
-    indexed.sort_by_key(|(p, _)| *p);
-    indexed.into_iter().map(|(_, e)| e).collect()
+    // Stable sort. Primary key is the graph index (dependency order); the
+    // secondary key keeps REVOKEs ahead of GRANTs on the *same* node without
+    // disturbing the relative order of any other same-node steps (e.g. an
+    // owner change, which shares the rank of a REVOKE and so stays first).
+    indexed.sort_by_key(|(p, rank, _)| (*p, *rank));
+    indexed.into_iter().map(|(_, _, e)| e).collect()
+}
+
+/// Tie-break rank for the issue-#33 revoke-before-grant rule.
+///
+/// GRANT steps (object- and column-level) rank *after* everything else on the
+/// same node; every other step — including REVOKE and `AlterObjectOwner` —
+/// keeps rank `0`, so the stable sort preserves their incoming relative order.
+/// The only behavioural effect is that a GRANT can never precede a REVOKE that
+/// targets the same node, which is exactly what the WGO correctness invariant
+/// requires.
+const fn revoke_before_grant_rank(change: &Change) -> u8 {
+    match change {
+        Change::GrantObjectPrivilege { .. } | Change::GrantColumnPrivilege { .. } => 1,
+        _ => 0,
+    }
 }
 
 /// Identify FK constraints inside a cycle and return a reduced catalog plus
@@ -2547,6 +2575,161 @@ mod tests {
         assert!(
             revoke_present,
             "RevokeColumnPrivilege covering a retained column must not be elided"
+        );
+    }
+
+    /// Regression for issue #33 — now enforced by the plan, not by a diff-layer
+    /// caller-ordering contract.
+    ///
+    /// When a grant's `with_grant_option` flips, the diff produces a REVOKE of
+    /// the old (no-WGO) grant and a GRANT of the new (WGO) grant. Both map to
+    /// the same object node, so dependency ordering alone leaves them tied; the
+    /// plan's `revoke_before_grant_rank` tie-break must place the REVOKE first.
+    /// If the GRANT ran first the trailing REVOKE would cancel it, leaving the
+    /// live database with NO privilege.
+    ///
+    /// This test feeds the changeset in the *adversarial* order (GRANT pushed
+    /// before REVOKE) to prove the plan reorders it rather than relying on
+    /// insertion order.
+    #[test]
+    fn wgo_change_orders_revoke_before_grant() {
+        let mut catalog = Catalog::empty();
+        catalog.schemas.push(Schema::new(id("app")));
+        catalog.tables.push(Table {
+            qname: qn("app", "docs"),
+            columns: vec![col("id", ColumnType::BigInt, false)],
+            constraints: vec![pk("docs_pkey", &["id"])],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: None,
+            grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
+            tablespace: None,
+        });
+
+        let object = crate::diff::owner_op::CatalogObjectRef::Table(qn("app", "docs"));
+        let revoke = Grant {
+            grantee: GrantTarget::Role(id("readers")),
+            privilege: Privilege::Select,
+            with_grant_option: false,
+            columns: None,
+        };
+        let grant = Grant {
+            grantee: GrantTarget::Role(id("readers")),
+            privilege: Privilege::Select,
+            with_grant_option: true,
+            columns: None,
+        };
+
+        // Adversarial input order: GRANT pushed BEFORE REVOKE. The plan must
+        // still emit REVOKE first.
+        let mut cs = ChangeSet::new();
+        cs.push(
+            Change::GrantObjectPrivilege {
+                object: object.clone(),
+                grant,
+            },
+            Destructiveness::Safe,
+        );
+        cs.push(
+            Change::RevokeObjectPrivilege {
+                object,
+                grant: revoke,
+            },
+            Destructiveness::Safe,
+        );
+
+        // target == source for the table itself, so the only changes are the
+        // grant/revoke pair (no structural reordering interferes).
+        let result = order(&catalog, &catalog, cs, &PlannerPolicy::default()).unwrap();
+
+        let revoke_pos = pos(&result.modifies, |c| {
+            matches!(c, Change::RevokeObjectPrivilege { .. })
+        });
+        let grant_pos = pos(&result.modifies, |c| {
+            matches!(c, Change::GrantObjectPrivilege { .. })
+        });
+        assert!(
+            revoke_pos < grant_pos,
+            "WGO change must emit REVOKE before GRANT (issue #33); \
+             got modifies: {:?}",
+            result
+                .modifies
+                .iter()
+                .map(|e| format!("{:?}", e.change))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Same invariant at column granularity: a column-level WGO change must
+    /// emit `RevokeColumnPrivilege` before `GrantColumnPrivilege` on the same
+    /// table node.
+    #[test]
+    fn wgo_change_orders_column_revoke_before_grant() {
+        let mut catalog = Catalog::empty();
+        catalog.schemas.push(Schema::new(id("app")));
+        catalog.tables.push(Table {
+            qname: qn("app", "docs"),
+            columns: vec![
+                col("id", ColumnType::BigInt, false),
+                col("body", ColumnType::Text, true),
+            ],
+            constraints: vec![pk("docs_pkey", &["id"])],
+            partition_by: None,
+            partition_of: None,
+            comment: None,
+            owner: None,
+            grants: vec![],
+            rls_enabled: false,
+            rls_forced: false,
+            policies: vec![],
+            storage: crate::ir::reloptions::TableStorageOptions::default(),
+            access_method: None,
+            tablespace: None,
+        });
+
+        let mut cs = ChangeSet::new();
+        // Adversarial input order: GRANT before REVOKE.
+        cs.push(
+            Change::GrantColumnPrivilege {
+                qname: qn("app", "docs"),
+                grant: Grant {
+                    grantee: GrantTarget::Role(id("readers")),
+                    privilege: Privilege::Select,
+                    with_grant_option: true,
+                    columns: Some(vec![id("body")]),
+                },
+            },
+            Destructiveness::Safe,
+        );
+        cs.push(
+            Change::RevokeColumnPrivilege {
+                qname: qn("app", "docs"),
+                grant: Grant {
+                    grantee: GrantTarget::Role(id("readers")),
+                    privilege: Privilege::Select,
+                    with_grant_option: false,
+                    columns: Some(vec![id("body")]),
+                },
+            },
+            Destructiveness::Safe,
+        );
+
+        let result = order(&catalog, &catalog, cs, &PlannerPolicy::default()).unwrap();
+        let revoke_pos = pos(&result.modifies, |c| {
+            matches!(c, Change::RevokeColumnPrivilege { .. })
+        });
+        let grant_pos = pos(&result.modifies, |c| {
+            matches!(c, Change::GrantColumnPrivilege { .. })
+        });
+        assert!(
+            revoke_pos < grant_pos,
+            "column-level WGO change must emit REVOKE before GRANT (issue #33)"
         );
     }
 
