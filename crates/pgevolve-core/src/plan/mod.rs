@@ -9,6 +9,7 @@ pub mod cluster_rewrite;
 pub mod deserialize;
 pub mod edges;
 pub mod error;
+pub(crate) mod function_dependents;
 pub mod graph;
 pub mod grouping;
 pub mod io_error;
