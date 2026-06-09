@@ -88,7 +88,10 @@ async fn reads_autovacuum_disabled() {
         .expect("table app.t must appear in catalog");
 
     assert_eq!(
-        t.storage.extra.get("autovacuum_enabled").map(String::as_str),
+        t.storage
+            .extra
+            .get("autovacuum_enabled")
+            .map(String::as_str),
         Some("false"),
         "autovacuum_enabled must round-trip into extra as the string \"false\""
     );

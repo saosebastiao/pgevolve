@@ -370,7 +370,12 @@ fn parse_canonical(s: &str) -> Option<ColumnType> {
         "numeric" | "decimal" => {
             let mut parts = args.split(',').map(str::trim);
             let precision: u16 = parts.next()?.parse().ok()?;
-            let scale = parts.next().map(str::trim).map(str::parse).transpose().ok()?;
+            let scale = parts
+                .next()
+                .map(str::trim)
+                .map(str::parse)
+                .transpose()
+                .ok()?;
             Some(ColumnType::Numeric {
                 precision: Some(NumericPrecision { precision, scale }),
             })

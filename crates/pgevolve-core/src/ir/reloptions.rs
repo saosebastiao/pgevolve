@@ -135,8 +135,7 @@ mod tests {
     #[test]
     fn autovacuum_extra_key_makes_non_empty() {
         let mut s = TableStorageOptions::default();
-        s.extra
-            .insert("autovacuum_enabled".into(), "false".into());
+        s.extra.insert("autovacuum_enabled".into(), "false".into());
         assert!(!s.is_empty());
     }
 

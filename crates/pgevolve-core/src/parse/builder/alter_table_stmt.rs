@@ -795,7 +795,10 @@ mod tests {
         assert_eq!(out.pending_rel_options.len(), 1);
         let p = &out.pending_rel_options[0];
         assert_eq!(
-            p.options.extra.get("autovacuum_enabled").map(String::as_str),
+            p.options
+                .extra
+                .get("autovacuum_enabled")
+                .map(String::as_str),
             Some("false")
         );
     }

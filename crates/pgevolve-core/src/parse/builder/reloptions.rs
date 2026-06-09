@@ -593,8 +593,7 @@ mod tests {
         use crate::identifier::{Identifier, QualifiedName};
         use crate::plan::rewrite::reloptions::alter_table_set_storage as render;
 
-        let s =
-            decode_table("CREATE TABLE app.t (id integer) WITH (autovacuum_enabled = false);");
+        let s = decode_table("CREATE TABLE app.t (id integer) WITH (autovacuum_enabled = false);");
         assert_eq!(
             s.extra.get("autovacuum_enabled").map(String::as_str),
             Some("false")

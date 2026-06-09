@@ -149,11 +149,9 @@ mod tests {
     fn source_autovacuum_change_emits_via_extra() {
         // autovacuum_* keys now diff through the generic `extra` map.
         let mut t = TableStorageOptions::default();
-        t.extra
-            .insert("autovacuum_enabled".into(), "true".into());
+        t.extra.insert("autovacuum_enabled".into(), "true".into());
         let mut s = TableStorageOptions::default();
-        s.extra
-            .insert("autovacuum_enabled".into(), "false".into());
+        s.extra.insert("autovacuum_enabled".into(), "false".into());
         let delta = table_delta(&t, &s);
         assert_eq!(
             delta.extra.get("autovacuum_enabled").map(String::as_str),
