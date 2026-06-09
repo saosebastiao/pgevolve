@@ -20,6 +20,7 @@ pub mod raw_step;
 pub mod recreate_views;
 pub mod rewrite;
 pub mod serialize;
+pub(crate) mod type_dependents;
 
 pub use deserialize::{
     ParsedIntent, ParsedManifest, PartialPlan, read_intent_toml, read_manifest_toml, read_plan_dir,
