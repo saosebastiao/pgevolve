@@ -1,8 +1,10 @@
 //! `pgevolve-core` — the declarative-schema-management engine.
 //!
-//! This crate is I/O-free: it accepts source SQL bytes and a `CatalogQuerier`
-//! implementation from callers, and returns IR, diffs, and plans as data.
-//! See the workspace `docs/superpowers/specs/` for the design.
+//! This crate performs no network I/O: live-database access is injected by the
+//! caller via a `CatalogQuerier` implementation, and the crate returns IR,
+//! diffs, and plans as data. (It does read source `.sql` files from disk in
+//! [`parse::parse_directory`].) See the workspace `docs/superpowers/specs/` for
+//! the design.
 #![warn(missing_docs)]
 #![deny(unsafe_code)]
 // ParseError + CatalogError carry rich SourceLocation / QualifiedName context
