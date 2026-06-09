@@ -238,36 +238,11 @@ fn apply_statistics_comment(
             ),
         });
     };
-    let parts: Vec<String> = list
-        .items
-        .iter()
-        .filter_map(|n| {
-            if let Some(NodeEnum::String(s)) = n.node.as_ref() {
-                Some(s.sval.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-    let qname = match parts.as_slice() {
-        [schema, name] => QualifiedName::new(
-            builder::shared::ident(schema, location)?,
-            builder::shared::ident(name, location)?,
-        ),
-        [_name] => {
-            return Err(ParseError::UnqualifiedName {
-                location: location.clone(),
-            });
-        }
-        _ => {
-            return Err(ParseError::Structural {
-                location: location.clone(),
-                message: format!(
-                    "COMMENT ON STATISTICS expected 1-2 qualified components, got {parts:?}"
-                ),
-            });
-        }
-    };
+    // Statistics objects have no `-- @pgevolve schema=` default, so an unqualified
+    // single component is an error (`qname_from_string_list` with `None` schema
+    // yields `ParseError::UnqualifiedName`), and a `[schema, name]` pair resolves
+    // directly — exactly the previous open-coded behavior.
+    let qname = builder::shared::qname_from_string_list(&list.items, None, location)?;
 
     let comment = if stmt.comment.is_empty() {
         None
