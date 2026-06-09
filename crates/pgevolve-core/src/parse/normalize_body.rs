@@ -113,12 +113,19 @@ impl NormalizedBody {
 /// to `[col]`.
 ///
 /// Limitations:
-/// - Only applies to single-relation FROM clauses. Joins keep their
-///   qualifiers (PG may still need them for disambiguation).
-/// - Walks `SelectStmt` only at the top level and within set operations.
-///   Subqueries inside `RangeSubselect`, lateral joins, CTEs etc. are not
-///   recursed; that's adequate for view bodies we see today and avoids
-///   misclassifying nested-scope qualifiers.
+/// - Only applies to single-relation FROM clauses. Joins (a multi-relation
+///   FROM) keep their qualifiers (PG may still need them for disambiguation):
+///   such a scope yields no unique name, so nothing local is stripped.
+/// - Each nested `SelectStmt` is canonicalized in its OWN scope. We recurse
+///   into set-op children, `RangeSubselect` subqueries, `JoinExpr` arms,
+///   `WITH`/CTE queries (`CommonTableExpr.ctequery`), and `SubLink`
+///   subselects found in the target list / `WHERE` / `HAVING`. Every nested
+///   scope computes its own single-FROM qualifier from its own `FROM` clause
+///   and may only strip that local name. A correlated subquery's reference to
+///   an OUTER relation uses a different qualifier (the outer name), which does
+///   not match the inner scope's local name and is therefore preserved — so
+///   recursion can only ever remove a qualifier that is genuinely redundant
+///   within the scope it appears in (never collapse two distinct bodies).
 fn strip_redundant_qualifiers(root: &mut pg_query::protobuf::ParseResult) {
     use pg_query::NodeEnum;
     for stmt in &mut root.stmts {
@@ -132,12 +139,40 @@ fn strip_redundant_qualifiers(root: &mut pg_query::protobuf::ParseResult) {
 }
 
 fn strip_qualifiers_in_select(sel: &mut pg_query::protobuf::SelectStmt) {
-    // Recurse into set-op children first.
+    // Recurse into every nested scope FIRST (each in its own scope), then
+    // strip the local scope. This mirrors the larg/rarg ordering: a child
+    // scope's qualifiers are resolved against the child's own FROM clause,
+    // never against this scope's name.
+
+    // Set-op children.
     if let Some(larg) = sel.larg.as_mut() {
         strip_qualifiers_in_select(larg);
     }
     if let Some(rarg) = sel.rarg.as_mut() {
         strip_qualifiers_in_select(rarg);
+    }
+
+    // WITH / CTE queries: each CTE body is its own scope.
+    if let Some(with) = sel.with_clause.as_mut() {
+        for cte in &mut with.ctes {
+            recurse_cte(cte);
+        }
+    }
+
+    // FROM clause: subqueries (`RangeSubselect`) and join arms (`JoinExpr`).
+    for n in &mut sel.from_clause {
+        recurse_from_node(n);
+    }
+
+    // SubLinks embedded in expression positions: their subselect is a scope.
+    for n in &mut sel.target_list {
+        recurse_subselects_in_node(n);
+    }
+    if let Some(w) = sel.where_clause.as_mut() {
+        recurse_subselects_in_node(w);
+    }
+    if let Some(h) = sel.having_clause.as_mut() {
+        recurse_subselects_in_node(h);
     }
 
     let from_names = collect_from_qualifiers(&sel.from_clause);
@@ -160,6 +195,145 @@ fn strip_qualifiers_in_select(sel: &mut pg_query::protobuf::SelectStmt) {
     }
     for n in &mut sel.sort_clause {
         strip_qualifier_in_node(n, &unique_name);
+    }
+}
+
+/// If `node` wraps a `SelectStmt`, canonicalize it in its own scope.
+fn recurse_select_node(node: &mut pg_query::protobuf::Node) {
+    use pg_query::NodeEnum;
+    if let Some(NodeEnum::SelectStmt(sel)) = node.node.as_mut() {
+        strip_qualifiers_in_select(sel);
+    }
+}
+
+/// Recurse into a CTE's query (`CommonTableExpr.ctequery`), a fresh scope.
+fn recurse_cte(cte: &mut pg_query::protobuf::Node) {
+    use pg_query::NodeEnum;
+    if let Some(NodeEnum::CommonTableExpr(c)) = cte.node.as_mut()
+        && let Some(q) = c.ctequery.as_mut()
+    {
+        recurse_select_node(q);
+    }
+}
+
+/// Recurse into a FROM-clause entry: a `RangeSubselect` subquery is its own
+/// scope; a `JoinExpr`'s arms may themselves be subselects/joins/range-vars.
+/// Plain `RangeVar`s are left for `collect_from_qualifiers` (the local scope).
+fn recurse_from_node(n: &mut pg_query::protobuf::Node) {
+    use pg_query::NodeEnum;
+    match n.node.as_mut() {
+        Some(NodeEnum::RangeSubselect(rs)) => {
+            if let Some(q) = rs.subquery.as_mut() {
+                recurse_select_node(q);
+            }
+        }
+        Some(NodeEnum::JoinExpr(je)) => {
+            if let Some(l) = je.larg.as_mut() {
+                recurse_from_node(l);
+            }
+            if let Some(r) = je.rarg.as_mut() {
+                recurse_from_node(r);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Walk an expression node looking for `SubLink`s; recurse into each
+/// `SubLink.subselect` in its own scope. Mirrors the child-walking shape of
+/// [`strip_qualifier_in_node`] so every expression position that can hold a
+/// subquery is reached. No outer-scope name is passed down.
+fn recurse_subselects_in_node(n: &mut pg_query::protobuf::Node) {
+    use pg_query::NodeEnum;
+    let Some(node) = n.node.as_mut() else { return };
+    match node {
+        NodeEnum::SubLink(sl) => {
+            if let Some(t) = sl.testexpr.as_mut() {
+                recurse_subselects_in_node(t);
+            }
+            if let Some(s) = sl.subselect.as_mut() {
+                recurse_select_node(s);
+            }
+        }
+        NodeEnum::ResTarget(rt) => {
+            if let Some(v) = rt.val.as_mut() {
+                recurse_subselects_in_node(v);
+            }
+        }
+        NodeEnum::AExpr(e) => {
+            if let Some(l) = e.lexpr.as_mut() {
+                recurse_subselects_in_node(l);
+            }
+            if let Some(r) = e.rexpr.as_mut() {
+                recurse_subselects_in_node(r);
+            }
+        }
+        NodeEnum::BoolExpr(e) => {
+            for a in &mut e.args {
+                recurse_subselects_in_node(a);
+            }
+        }
+        NodeEnum::FuncCall(fc) => {
+            for a in &mut fc.args {
+                recurse_subselects_in_node(a);
+            }
+            if let Some(filt) = fc.agg_filter.as_mut() {
+                recurse_subselects_in_node(filt);
+            }
+            for a in &mut fc.agg_order {
+                recurse_subselects_in_node(a);
+            }
+        }
+        NodeEnum::CoalesceExpr(c) => {
+            for a in &mut c.args {
+                recurse_subselects_in_node(a);
+            }
+        }
+        NodeEnum::CaseExpr(c) => {
+            if let Some(arg) = c.arg.as_mut() {
+                recurse_subselects_in_node(arg);
+            }
+            for w in &mut c.args {
+                recurse_subselects_in_node(w);
+            }
+            if let Some(d) = c.defresult.as_mut() {
+                recurse_subselects_in_node(d);
+            }
+        }
+        NodeEnum::CaseWhen(w) => {
+            if let Some(e) = w.expr.as_mut() {
+                recurse_subselects_in_node(e);
+            }
+            if let Some(r) = w.result.as_mut() {
+                recurse_subselects_in_node(r);
+            }
+        }
+        NodeEnum::TypeCast(tc) => {
+            if let Some(arg) = tc.arg.as_mut() {
+                recurse_subselects_in_node(arg);
+            }
+        }
+        NodeEnum::SortBy(sb) => {
+            if let Some(arg) = sb.node.as_mut() {
+                recurse_subselects_in_node(arg);
+            }
+        }
+        NodeEnum::List(l) => {
+            for item in &mut l.items {
+                recurse_subselects_in_node(item);
+            }
+        }
+        NodeEnum::NullTest(nt) => {
+            if let Some(arg) = nt.arg.as_mut() {
+                recurse_subselects_in_node(arg);
+            }
+        }
+        NodeEnum::BooleanTest(bt) => {
+            if let Some(arg) = bt.arg.as_mut() {
+                recurse_subselects_in_node(arg);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -318,6 +492,103 @@ mod tests {
             "left: {} right: {}",
             a.canonical_text(),
             b.canonical_text()
+        );
+    }
+
+    /// A qualified column inside a `RangeSubselect` subquery is stripped in
+    /// the inner scope (its single FROM is `app.t`, alias-less, so `t`).
+    #[test]
+    fn subquery_inner_scope_strip() {
+        let qualified =
+            NormalizedBody::from_sql("SELECT s.id FROM (SELECT t.id FROM app.t) s").unwrap();
+        let unqualified =
+            NormalizedBody::from_sql("SELECT s.id FROM (SELECT id FROM app.t) s").unwrap();
+        assert_eq!(
+            qualified.canonical_text(),
+            unqualified.canonical_text(),
+            "inner t.id should strip to id: {} vs {}",
+            qualified.canonical_text(),
+            unqualified.canonical_text()
+        );
+    }
+
+    /// A qualified column inside a CTE body is stripped in the CTE's scope.
+    #[test]
+    fn cte_inner_scope_strip() {
+        let qualified =
+            NormalizedBody::from_sql("WITH c AS (SELECT u.x FROM app.u) SELECT * FROM c").unwrap();
+        let unqualified =
+            NormalizedBody::from_sql("WITH c AS (SELECT x FROM app.u) SELECT * FROM c").unwrap();
+        assert_eq!(
+            qualified.canonical_text(),
+            unqualified.canonical_text(),
+            "inner u.x should strip to x: {} vs {}",
+            qualified.canonical_text(),
+            unqualified.canonical_text()
+        );
+    }
+
+    /// THE false-negative guard. In a correlated `EXISTS` subquery the inner
+    /// scope's single FROM is `app.u`, so `u.fk` strips to `fk`, but the
+    /// outer reference `t.pk` (qualifier `t` != inner `u`) MUST survive.
+    /// Stripping it would collapse semantically-different bodies.
+    #[test]
+    fn correlated_subquery_outer_qualifier_preserved() {
+        let body = NormalizedBody::from_sql(
+            "SELECT a FROM app.t WHERE EXISTS (SELECT 1 FROM app.u WHERE u.fk = t.pk)",
+        )
+        .unwrap();
+        // Outer correlated qualifier `t` preserved on the column it qualifies.
+        assert!(
+            body.canonical_text().contains("t.pk"),
+            "correlated outer ref t.pk must be preserved, got: {}",
+            body.canonical_text()
+        );
+        // Inner local qualifier `u` was stripped (u.fk -> fk).
+        assert!(
+            !body.canonical_text().contains("u.fk"),
+            "inner u.fk should have stripped to fk, got: {}",
+            body.canonical_text()
+        );
+
+        // And we did not over-collapse: changing the correlation predicate
+        // produces a DIFFERENT canonical hash.
+        let variant = NormalizedBody::from_sql(
+            "SELECT a FROM app.t WHERE EXISTS (SELECT 1 FROM app.u WHERE u.fk = t.other)",
+        )
+        .unwrap();
+        assert_ne!(
+            body.canonical_hash(),
+            variant.canonical_hash(),
+            "distinct correlation predicates must not collapse: {} vs {}",
+            body.canonical_text(),
+            variant.canonical_text()
+        );
+    }
+
+    /// Distinct top-level bodies still hash differently.
+    #[test]
+    fn distinct_bodies_differ() {
+        let a = NormalizedBody::from_sql("SELECT a FROM app.t").unwrap();
+        let b = NormalizedBody::from_sql("SELECT b FROM app.t").unwrap();
+        assert_ne!(a.canonical_hash(), b.canonical_hash());
+    }
+
+    /// A multi-relation top-level FROM (a join) yields no unique local name,
+    /// so its qualifiers are preserved — unchanged behavior.
+    #[test]
+    fn multi_table_top_level_from_unchanged() {
+        let body =
+            NormalizedBody::from_sql("SELECT t.a, u.b FROM app.t JOIN app.u ON t.k = u.k").unwrap();
+        assert!(
+            body.canonical_text().contains("t.a"),
+            "join scope must keep t.a, got: {}",
+            body.canonical_text()
+        );
+        assert!(
+            body.canonical_text().contains("u.b"),
+            "join scope must keep u.b, got: {}",
+            body.canonical_text()
         );
     }
 }
