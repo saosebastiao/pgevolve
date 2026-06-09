@@ -18,6 +18,7 @@ use pg_query::protobuf::{
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::publication::{Publication, PublicationScope, PublishKinds, PublishedTable};
+use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
 
 /// Apply a `CREATE PUBLICATION` statement to the accumulator map.
@@ -196,7 +197,7 @@ fn extract_table_spec(
             .columns
             .iter()
             .map(|c| {
-                let s = extract_string_value(c).ok_or_else(|| {
+                let s = shared::node_string_value(c).ok_or_else(|| {
                     ParseError::PublicationObjectMalformed(pub_name.clone(), loc.clone())
                 })?;
                 Identifier::from_unquoted(&s)
@@ -425,13 +426,6 @@ fn parse_publish_string(
 }
 
 // ── Node extraction helpers ───────────────────────────────────────────────────
-
-fn extract_string_value(node: &pg_query::protobuf::Node) -> Option<String> {
-    match node.node.as_ref()? {
-        NodeEnum::String(s) => Some(s.sval.clone()),
-        _ => None,
-    }
-}
 
 /// Extract the string value from a `DefElem.arg`, supporting all the encoding
 /// forms `pg_query` may use for `publish = '...'` and similar string options.

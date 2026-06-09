@@ -6,7 +6,7 @@
 //! - Default-expression classification (literal vs. `nextval` vs. arbitrary expr).
 
 use pg_query::NodeEnum;
-use pg_query::protobuf::{AConst, RangeVar, TypeName, a_const};
+use pg_query::protobuf::{AConst, DefElem, Node, RangeVar, TypeName, a_const};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
@@ -90,6 +90,50 @@ pub fn qname_from_string_list(
                 nodes.len()
             ),
         }),
+    }
+}
+
+/// Extract the string value of a bare `String` [`Node`].
+///
+/// Returns `Some(sval)` when `node` is a [`NodeEnum::String`], otherwise `None`.
+/// Used where `pg_query` encodes a list element (publication name, column name)
+/// directly as a `String` node rather than wrapping it in a `DefElem`.
+pub fn node_string_value(node: &Node) -> Option<String> {
+    match node.node.as_ref()? {
+        NodeEnum::String(s) => Some(s.sval.clone()),
+        _ => None,
+    }
+}
+
+/// Extract a string value from a `DefElem.arg`.
+///
+/// Handles the encodings `pg_query` uses for scalar option values:
+/// - [`NodeEnum::String`] — bare identifier or quoted string.
+/// - [`NodeEnum::Integer`] / [`NodeEnum::Float`] — numeric option values,
+///   stringified to their textual form.
+/// - [`NodeEnum::List`] — dollar-quoted bodies are wrapped in a `List` whose
+///   first item is the body `String` (the optional second item is the
+///   dollar-quote tag); this returns that first `String`'s value.
+///
+/// Returns `None` for an absent arg or any other node kind.
+pub fn def_elem_string(de: &DefElem) -> Option<String> {
+    let arg = de.arg.as_ref()?;
+    match arg.node.as_ref()? {
+        NodeEnum::String(s) => Some(s.sval.clone()),
+        NodeEnum::Integer(i) => Some(i.ival.to_string()),
+        NodeEnum::Float(f) => Some(f.fval.clone()),
+        NodeEnum::List(list) => list
+            .items
+            .first()
+            .and_then(|n| n.node.as_ref())
+            .and_then(|n| {
+                if let NodeEnum::String(s) = n {
+                    Some(s.sval.clone())
+                } else {
+                    None
+                }
+            }),
+        _ => None,
     }
 }
 

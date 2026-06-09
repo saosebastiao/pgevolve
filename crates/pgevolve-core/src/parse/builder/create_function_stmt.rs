@@ -155,10 +155,11 @@ pub(crate) fn build_function_or_procedure(
 
         match de.defname.as_str() {
             "language" => {
-                let lang_str = string_from_def_elem(de).ok_or_else(|| ParseError::Structural {
-                    location: location.clone(),
-                    message: format!("{qname}: LANGUAGE option missing value"),
-                })?;
+                let lang_str =
+                    shared::def_elem_string(de).ok_or_else(|| ParseError::Structural {
+                        location: location.clone(),
+                        message: format!("{qname}: LANGUAGE option missing value"),
+                    })?;
                 language = Some(match lang_str.to_lowercase().as_str() {
                     "sql" => FunctionLanguage::Sql,
                     "plpgsql" => FunctionLanguage::PlPgSql,
@@ -182,7 +183,7 @@ pub(crate) fn build_function_or_procedure(
                         ),
                     });
                 }
-                let v_str = string_from_def_elem(de).ok_or_else(|| ParseError::Structural {
+                let v_str = shared::def_elem_string(de).ok_or_else(|| ParseError::Structural {
                     location: location.clone(),
                     message: format!("{qname}: volatility option missing value"),
                 })?;
@@ -252,7 +253,7 @@ pub(crate) fn build_function_or_procedure(
                         message: format!("{qname}: PARALLEL is not valid on procedures"),
                     });
                 }
-                let p_str = string_from_def_elem(de).ok_or_else(|| ParseError::Structural {
+                let p_str = shared::def_elem_string(de).ok_or_else(|| ParseError::Structural {
                     location: location.clone(),
                     message: format!("{qname}: PARALLEL option missing value"),
                 })?;
@@ -302,7 +303,7 @@ pub(crate) fn build_function_or_procedure(
             "as" => {
                 // The body is the first element (the $$ string $$).
                 // For sql_body-style functions, body comes via stmt.sql_body instead.
-                body_text = Some(string_from_def_elem(de).unwrap_or_default());
+                body_text = Some(shared::def_elem_string(de).unwrap_or_default());
             }
             other => {
                 return Err(ParseError::Structural {
@@ -403,35 +404,6 @@ pub(crate) fn build_function_or_procedure(
         owner: None,
         grants: vec![],
     }))
-}
-
-/// Extract a string value from a `DefElem.arg` (String node).
-///
-/// Dollar-quoted function bodies are wrapped in a `List` by `pg_query`;
-/// this function unwraps the outer `List` and returns the first `String`
-/// element's value (which is the body text without the dollar-quote
-/// delimiters).
-fn string_from_def_elem(de: &pg_query::protobuf::DefElem) -> Option<String> {
-    let arg = de.arg.as_ref()?;
-    match arg.node.as_ref()? {
-        NodeEnum::String(s) => Some(s.sval.clone()),
-        NodeEnum::Integer(i) => Some(i.ival.to_string()),
-        NodeEnum::Float(f) => Some(f.fval.clone()),
-        // Dollar-quoted bodies: the arg is a List whose first item is the
-        // body String (the second item, when present, is the dollar-quote tag).
-        NodeEnum::List(list) => list
-            .items
-            .first()
-            .and_then(|n| n.node.as_ref())
-            .and_then(|n| {
-                if let NodeEnum::String(s) = n {
-                    Some(s.sval.clone())
-                } else {
-                    None
-                }
-            }),
-        _ => None,
-    }
 }
 
 /// Extract a boolean value from a `DefElem.arg`, defaulting to `true` if

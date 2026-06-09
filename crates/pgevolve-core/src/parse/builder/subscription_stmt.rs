@@ -16,6 +16,7 @@ use pg_query::protobuf::{AlterSubscriptionStmt, AlterSubscriptionType, CreateSub
 
 use crate::identifier::Identifier;
 use crate::ir::subscription::{OriginMode, StreamingMode, Subscription, SubscriptionOptions};
+use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
 
 /// Apply a `CREATE SUBSCRIPTION` statement to the accumulator map.
@@ -151,7 +152,7 @@ fn parse_publication_list(
     nodes
         .iter()
         .map(|n| {
-            let s = extract_string_value(n).ok_or_else(|| {
+            let s = shared::node_string_value(n).ok_or_else(|| {
                 ParseError::SubscriptionOptionMalformed(name.clone(), loc.clone())
             })?;
             Identifier::from_unquoted(&s)
@@ -321,13 +322,6 @@ fn merge_options(base: &mut SubscriptionOptions, delta: SubscriptionOptions) {
 }
 
 // ── Node extraction helpers ───────────────────────────────────────────────────
-
-fn extract_string_value(node: &pg_query::protobuf::Node) -> Option<String> {
-    match node.node.as_ref()? {
-        NodeEnum::String(s) => Some(s.sval.clone()),
-        _ => None,
-    }
-}
 
 /// Extract the string value from a `DefElem.arg`.
 ///
