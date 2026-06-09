@@ -5,7 +5,7 @@
 //! so operators can decide whether to bring under management or accept the drift.
 
 use crate::ir::catalog::Catalog;
-use crate::ir::reloptions::{AutovacuumOptions, IndexStorageOptions, TableStorageOptions};
+use crate::ir::reloptions::{IndexStorageOptions, TableStorageOptions};
 use crate::lint::finding::{Finding, Severity};
 
 pub const RULE_ID: &str = "unmanaged-reloption";
@@ -27,149 +27,10 @@ macro_rules! check_field {
     };
 }
 
-/// Check the autovacuum substruct; fired for both Table and MV.
-//
-// `too_many_lines`: `AutovacuumOptions` has 16 typed fields; each check_field!
-// invocation occupies ~6 lines. This is mechanical enumeration, not complexity.
-#[allow(clippy::too_many_lines)]
-fn check_autovacuum(
-    kind: &str,
-    qname: &dyn std::fmt::Display,
-    src: &AutovacuumOptions,
-    tgt: &AutovacuumOptions,
-    findings: &mut Vec<Finding>,
-) {
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_enabled",
-        src.enabled,
-        tgt.enabled
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_vacuum_threshold",
-        src.vacuum_threshold,
-        tgt.vacuum_threshold
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_vacuum_scale_factor",
-        src.vacuum_scale_factor,
-        tgt.vacuum_scale_factor
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_vacuum_cost_delay",
-        src.vacuum_cost_delay,
-        tgt.vacuum_cost_delay
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_vacuum_cost_limit",
-        src.vacuum_cost_limit,
-        tgt.vacuum_cost_limit
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_analyze_threshold",
-        src.analyze_threshold,
-        tgt.analyze_threshold
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_analyze_scale_factor",
-        src.analyze_scale_factor,
-        tgt.analyze_scale_factor
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_freeze_max_age",
-        src.freeze_max_age,
-        tgt.freeze_max_age
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_freeze_min_age",
-        src.freeze_min_age,
-        tgt.freeze_min_age
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_freeze_table_age",
-        src.freeze_table_age,
-        tgt.freeze_table_age
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_multixact_freeze_max_age",
-        src.multixact_freeze_max_age,
-        tgt.multixact_freeze_max_age
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_multixact_freeze_min_age",
-        src.multixact_freeze_min_age,
-        tgt.multixact_freeze_min_age
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_multixact_freeze_table_age",
-        src.multixact_freeze_table_age,
-        tgt.multixact_freeze_table_age
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_vacuum_insert_threshold",
-        src.vacuum_insert_threshold,
-        tgt.vacuum_insert_threshold
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "autovacuum_vacuum_insert_scale_factor",
-        src.vacuum_insert_scale_factor,
-        tgt.vacuum_insert_scale_factor
-    );
-    check_field!(
-        findings,
-        kind,
-        qname,
-        "log_autovacuum_min_duration",
-        src.log_min_duration,
-        tgt.log_min_duration
-    );
-}
-
-/// Check table/MV storage options (typed fields + extra bag + autovacuum).
+/// Check table/MV storage options (typed fields + extra bag).
+///
+/// The `autovacuum_*` key family lives in `extra`, so it is covered by the
+/// generic extra-bag scan below — no dedicated autovacuum check is needed.
 fn check_table_storage(
     kind: &str,
     qname: &dyn std::fmt::Display,
@@ -218,7 +79,8 @@ fn check_table_storage(
         tgt.vacuum_truncate
     );
 
-    // Extra bag: warn for each catalog key not present in source.
+    // Extra bag (includes autovacuum_* keys): warn for each catalog key not
+    // present in source.
     for key in tgt.extra.keys() {
         if !src.extra.contains_key(key) {
             findings.push(Finding {
@@ -231,9 +93,6 @@ fn check_table_storage(
             });
         }
     }
-
-    // Autovacuum substruct.
-    check_autovacuum(kind, qname, &src.autovacuum, &tgt.autovacuum, findings);
 }
 
 /// Check index storage options (typed fields + extra bag; no autovacuum).

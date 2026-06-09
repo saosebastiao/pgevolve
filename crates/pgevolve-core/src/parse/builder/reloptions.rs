@@ -3,9 +3,7 @@
 //! Shared across `CREATE TABLE`, `CREATE INDEX`, `CREATE MATERIALIZED VIEW`,
 //! and `ALTER TABLE/INDEX/MATERIALIZED VIEW ... SET (...)`.
 
-use crate::ir::reloptions::{
-    AutovacuumOptions, BufferingMode, IndexStorageOptions, NotNanF64, TableStorageOptions,
-};
+use crate::ir::reloptions::{BufferingMode, IndexStorageOptions, TableStorageOptions};
 use crate::parse::error::{ParseError, SourceLocation};
 
 /// Decode reloption clauses for a table or materialized view.
@@ -18,9 +16,6 @@ pub(crate) fn decode_table_options(
         let Some(pg_query::NodeEnum::DefElem(def)) = opt_node.node.as_ref() else {
             continue;
         };
-        if assign_autovacuum(&mut out.autovacuum, def, loc)? {
-            continue;
-        }
         let key = def.defname.as_str();
         let value = extract_value(def, loc)?;
         match key {
@@ -145,65 +140,6 @@ fn validate_range(
     Ok(())
 }
 
-fn assign_autovacuum(
-    out: &mut AutovacuumOptions,
-    def: &pg_query::protobuf::DefElem,
-    loc: &SourceLocation,
-) -> Result<bool, ParseError> {
-    let key = def.defname.as_str();
-    let value = extract_value(def, loc)?;
-    match key {
-        "autovacuum_enabled" => out.enabled = Some(parse_bool(&value, key, loc)?),
-        "autovacuum_vacuum_threshold" => {
-            out.vacuum_threshold = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_vacuum_scale_factor" => {
-            out.vacuum_scale_factor = Some(parse_notnan(&value, key, loc)?);
-        }
-        "autovacuum_vacuum_cost_delay" => {
-            out.vacuum_cost_delay = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_vacuum_cost_limit" => {
-            out.vacuum_cost_limit = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_analyze_threshold" => {
-            out.analyze_threshold = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_analyze_scale_factor" => {
-            out.analyze_scale_factor = Some(parse_notnan(&value, key, loc)?);
-        }
-        "autovacuum_freeze_max_age" => {
-            out.freeze_max_age = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_freeze_min_age" => {
-            out.freeze_min_age = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_freeze_table_age" => {
-            out.freeze_table_age = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_multixact_freeze_max_age" => {
-            out.multixact_freeze_max_age = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_multixact_freeze_min_age" => {
-            out.multixact_freeze_min_age = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_multixact_freeze_table_age" => {
-            out.multixact_freeze_table_age = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_vacuum_insert_threshold" => {
-            out.vacuum_insert_threshold = Some(parse_u64(&value, key, loc)?);
-        }
-        "autovacuum_vacuum_insert_scale_factor" => {
-            out.vacuum_insert_scale_factor = Some(parse_notnan(&value, key, loc)?);
-        }
-        "log_autovacuum_min_duration" => {
-            out.log_min_duration = Some(parse_i64(&value, key, loc)?);
-        }
-        _ => return Ok(false),
-    }
-    Ok(true)
-}
-
 fn extract_value(
     def: &pg_query::protobuf::DefElem,
     loc: &SourceLocation,
@@ -295,13 +231,6 @@ fn parse_u64(v: &str, key: &str, loc: &SourceLocation) -> Result<u64, ParseError
     })
 }
 
-fn parse_i64(v: &str, key: &str, loc: &SourceLocation) -> Result<i64, ParseError> {
-    v.parse().map_err(|e| ParseError::Structural {
-        location: loc.clone(),
-        message: format!("reloption {key} = {v:?} parse error: {e}"),
-    })
-}
-
 fn parse_bool(v: &str, key: &str, loc: &SourceLocation) -> Result<bool, ParseError> {
     match v.to_ascii_lowercase().as_str() {
         "true" | "on" | "1" => Ok(true),
@@ -311,17 +240,6 @@ fn parse_bool(v: &str, key: &str, loc: &SourceLocation) -> Result<bool, ParseErr
             message: format!("reloption {key} = {v:?} not a recognized bool"),
         }),
     }
-}
-
-fn parse_notnan(v: &str, key: &str, loc: &SourceLocation) -> Result<NotNanF64, ParseError> {
-    let f: f64 = v.parse().map_err(|e| ParseError::Structural {
-        location: loc.clone(),
-        message: format!("reloption {key} = {v:?} parse error: {e}"),
-    })?;
-    NotNanF64::new(f).map_err(|_| ParseError::Structural {
-        location: loc.clone(),
-        message: format!("reloption {key} value is NaN"),
-    })
 }
 
 /// Extract a `DefElem` list from an `AlterTableCmd.def` node.
@@ -460,8 +378,13 @@ mod tests {
 
     #[test]
     fn create_table_autovacuum_disabled() {
+        // autovacuum_* keys now flow through the generic `extra` bag as raw
+        // strings rather than typed fields.
         let s = decode_table("CREATE TABLE app.t (id integer) WITH (autovacuum_enabled = false);");
-        assert_eq!(s.autovacuum.enabled, Some(false));
+        assert_eq!(
+            s.extra.get("autovacuum_enabled").map(String::as_str),
+            Some("false")
+        );
     }
 
     #[test]
@@ -469,8 +392,12 @@ mod tests {
         let s = decode_table(
             "CREATE TABLE app.t (id integer) WITH (autovacuum_vacuum_scale_factor = 0.05);",
         );
-        let sf = s.autovacuum.vacuum_scale_factor.expect("scale factor");
-        assert!((sf.get() - 0.05).abs() < f64::EPSILON);
+        assert_eq!(
+            s.extra
+                .get("autovacuum_vacuum_scale_factor")
+                .map(String::as_str),
+            Some("0.05")
+        );
     }
 
     #[test]
@@ -488,20 +415,12 @@ mod tests {
     }
 
     #[test]
-    fn create_table_bool_accepts_on_true() {
+    fn create_table_autovacuum_bool_value_preserved_verbatim() {
+        // `on` is preserved as-is in `extra`; no longer normalized to a typed bool.
         let s = decode_table("CREATE TABLE app.t (id integer) WITH (autovacuum_enabled = on);");
-        assert_eq!(s.autovacuum.enabled, Some(true));
-    }
-
-    #[test]
-    fn create_table_malformed_bool_errors() {
-        let err = try_decode_table(
-            "CREATE TABLE app.t (id integer) WITH (autovacuum_enabled = 'maybe');",
-        )
-        .unwrap_err();
-        assert!(
-            matches!(err, ParseError::Structural { ref message, .. } if message.contains("recognized bool")),
-            "unexpected error: {err:?}"
+        assert_eq!(
+            s.extra.get("autovacuum_enabled").map(String::as_str),
+            Some("on")
         );
     }
 
@@ -636,14 +555,16 @@ mod tests {
     }
 
     #[test]
-    fn nan_rejected_for_scale_factor() {
-        // NotNanF64::new rejects NaN; pg_query will likely reject "NaN" as a
-        // float literal; if not, our parse_notnan must.
+    fn autovacuum_scale_factor_value_lands_in_extra_verbatim() {
+        // Typed scale-factor validation was dropped when autovacuum_* keys
+        // moved into the generic `extra` bag. Whatever string pg_query yields
+        // for the value is now stored verbatim. We only assert the key is
+        // captured; we do not reject NaN at this layer anymore.
         let result = pg_query::parse(
             "CREATE TABLE app.t (id integer) WITH (autovacuum_vacuum_scale_factor = 'NaN');",
         );
         match result {
-            Err(_) => {} // pg_query rejected it
+            Err(_) => {} // pg_query rejected it — fine
             Ok(parsed) => {
                 let stmt = parsed
                     .protobuf
@@ -656,12 +577,36 @@ mod tests {
                 let pg_query::NodeEnum::CreateStmt(create) = stmt else {
                     panic!("expected CreateStmt")
                 };
-                // If pg_query returns the string, our decoder must reject it.
                 if !create.options.is_empty() {
-                    let res = decode_table_options(&create.options, &loc());
-                    assert!(res.is_err(), "NaN must be rejected");
+                    let s = decode_table_options(&create.options, &loc())
+                        .expect("decodes; no typed validation");
+                    assert!(s.extra.contains_key("autovacuum_vacuum_scale_factor"));
                 }
             }
         }
+    }
+
+    // ── autovacuum round-trip (parse -> IR -> render) ─────────────────────────
+
+    #[test]
+    fn autovacuum_enabled_round_trips_through_extra() {
+        use crate::identifier::{Identifier, QualifiedName};
+        use crate::plan::rewrite::reloptions::alter_table_set_storage as render;
+
+        let s =
+            decode_table("CREATE TABLE app.t (id integer) WITH (autovacuum_enabled = false);");
+        assert_eq!(
+            s.extra.get("autovacuum_enabled").map(String::as_str),
+            Some("false")
+        );
+        let qname = QualifiedName::new(
+            Identifier::from_unquoted("app").unwrap(),
+            Identifier::from_unquoted("t").unwrap(),
+        );
+        let rendered = render(&qname, &s);
+        assert_eq!(
+            rendered,
+            "ALTER TABLE app.t SET (autovacuum_enabled = false);"
+        );
     }
 }

@@ -1,9 +1,7 @@
 //! SQL rendering for reloption SET statements.
 
 use crate::identifier::QualifiedName;
-use crate::ir::reloptions::{
-    AutovacuumOptions, IndexStorageOptions, NotNanF64, TableStorageOptions,
-};
+use crate::ir::reloptions::{IndexStorageOptions, TableStorageOptions};
 
 /// `ALTER TABLE qname SET (key = value, ...);`
 #[must_use]
@@ -40,7 +38,6 @@ fn render_table_options(opts: &TableStorageOptions) -> String {
     if let Some(v) = opts.fillfactor {
         parts.push(format!("fillfactor = {v}"));
     }
-    render_autovacuum(&opts.autovacuum, &mut parts);
     if let Some(v) = opts.parallel_workers {
         parts.push(format!("parallel_workers = {v}"));
     }
@@ -88,80 +85,6 @@ pub(crate) fn render_index_options(opts: &IndexStorageOptions) -> String {
     parts.join(", ")
 }
 
-fn render_autovacuum(opts: &AutovacuumOptions, parts: &mut Vec<String>) {
-    if let Some(v) = opts.enabled {
-        parts.push(format!("autovacuum_enabled = {v}"));
-    }
-    if let Some(v) = opts.vacuum_threshold {
-        parts.push(format!("autovacuum_vacuum_threshold = {v}"));
-    }
-    if let Some(v) = opts.vacuum_scale_factor {
-        parts.push(format!(
-            "autovacuum_vacuum_scale_factor = {}",
-            render_f64(v)
-        ));
-    }
-    if let Some(v) = opts.vacuum_cost_delay {
-        parts.push(format!("autovacuum_vacuum_cost_delay = {v}"));
-    }
-    if let Some(v) = opts.vacuum_cost_limit {
-        parts.push(format!("autovacuum_vacuum_cost_limit = {v}"));
-    }
-    if let Some(v) = opts.analyze_threshold {
-        parts.push(format!("autovacuum_analyze_threshold = {v}"));
-    }
-    if let Some(v) = opts.analyze_scale_factor {
-        parts.push(format!(
-            "autovacuum_analyze_scale_factor = {}",
-            render_f64(v)
-        ));
-    }
-    if let Some(v) = opts.freeze_max_age {
-        parts.push(format!("autovacuum_freeze_max_age = {v}"));
-    }
-    if let Some(v) = opts.freeze_min_age {
-        parts.push(format!("autovacuum_freeze_min_age = {v}"));
-    }
-    if let Some(v) = opts.freeze_table_age {
-        parts.push(format!("autovacuum_freeze_table_age = {v}"));
-    }
-    if let Some(v) = opts.multixact_freeze_max_age {
-        parts.push(format!("autovacuum_multixact_freeze_max_age = {v}"));
-    }
-    if let Some(v) = opts.multixact_freeze_min_age {
-        parts.push(format!("autovacuum_multixact_freeze_min_age = {v}"));
-    }
-    if let Some(v) = opts.multixact_freeze_table_age {
-        parts.push(format!("autovacuum_multixact_freeze_table_age = {v}"));
-    }
-    if let Some(v) = opts.vacuum_insert_threshold {
-        parts.push(format!("autovacuum_vacuum_insert_threshold = {v}"));
-    }
-    if let Some(v) = opts.vacuum_insert_scale_factor {
-        parts.push(format!(
-            "autovacuum_vacuum_insert_scale_factor = {}",
-            render_f64(v)
-        ));
-    }
-    if let Some(v) = opts.log_min_duration {
-        parts.push(format!("log_autovacuum_min_duration = {v}"));
-    }
-}
-
-fn render_f64(v: NotNanF64) -> String {
-    // PG accepts both 0.05 and 5e-2; render the most readable form.
-    // Avoid trailing zeros, but always show at least one decimal place
-    // so PG doesn't interpret as an integer.
-    let f = v.get();
-    // `fract() == 0.0` via bit comparison: NotNanF64 guarantees non-NaN, so the
-    // fractional part is either 0.0 or negative-zero (both safe to bit-compare).
-    if f.fract().to_bits() == 0_f64.to_bits() {
-        format!("{f}.0")
-    } else {
-        format!("{f}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,7 +114,8 @@ mod tests {
             fillfactor: Some(80),
             ..Default::default()
         };
-        opts.autovacuum.enabled = Some(false);
+        opts.extra
+            .insert("autovacuum_enabled".into(), "false".into());
         let sql = alter_table_set_storage(&qn("app", "t"), &opts);
         assert!(sql.contains("fillfactor = 80"));
         assert!(sql.contains("autovacuum_enabled = false"));
@@ -210,7 +134,8 @@ mod tests {
     #[test]
     fn renders_alter_mv_autovacuum() {
         let mut opts = TableStorageOptions::default();
-        opts.autovacuum.enabled = Some(false);
+        opts.extra
+            .insert("autovacuum_enabled".into(), "false".into());
         let sql = alter_mv_set_storage(&qn("app", "m"), &opts);
         assert_eq!(
             sql,
@@ -219,15 +144,15 @@ mod tests {
     }
 
     #[test]
-    fn f64_with_integer_value_renders_with_decimal() {
-        let v = NotNanF64::new(5.0).unwrap();
-        assert_eq!(render_f64(v), "5.0");
-    }
-
-    #[test]
-    fn f64_with_decimal_renders_compactly() {
-        let v = NotNanF64::new(0.05).unwrap();
-        assert_eq!(render_f64(v), "0.05");
+    fn renders_autovacuum_scale_factor_from_extra_verbatim() {
+        let mut opts = TableStorageOptions::default();
+        opts.extra
+            .insert("autovacuum_vacuum_scale_factor".into(), "0.05".into());
+        let sql = alter_table_set_storage(&qn("app", "t"), &opts);
+        assert_eq!(
+            sql,
+            "ALTER TABLE app.t SET (autovacuum_vacuum_scale_factor = 0.05);"
+        );
     }
 
     #[test]

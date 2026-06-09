@@ -1,10 +1,10 @@
--- @pgevolve plan id=955541f7dc134064 version=0.4.3 ruleset=1
+-- @pgevolve plan id=8c3c9dd18381f826 version=0.4.3 ruleset=1
 -- @pgevolve target=conformance-test-target
 -- @pgevolve intents_required=0
 
 -- @pgevolve group id=1 transactional=true
 BEGIN;
 -- @pgevolve step=1 kind=set_table_storage destructive=false targets=app.t
-ALTER TABLE app.t SET (fillfactor = 80, autovacuum_enabled = false, parallel_workers = 4);
+ALTER TABLE app.t SET (fillfactor = 80, parallel_workers = 4, autovacuum_enabled = false);
 COMMIT;
 

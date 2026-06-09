@@ -10,9 +10,9 @@ use pgevolve_core::ir::canon::filter_pg_defaults::type_default_storage;
 use pgevolve_core::ir::column::{Compression, StorageKind};
 use pgevolve_core::ir::column_type::ColumnType;
 use pgevolve_core::ir::index::IndexMethod;
-use pgevolve_core::ir::reloptions::{
-    AutovacuumOptions, IndexStorageOptions, NotNanF64, TableStorageOptions,
-};
+use std::collections::BTreeMap;
+
+use pgevolve_core::ir::reloptions::{IndexStorageOptions, TableStorageOptions};
 
 /// Generate a random `STORAGE` strategy that is type-aware.
 ///
@@ -55,29 +55,40 @@ pub(super) fn arb_compression(ty: &ColumnType) -> BoxedStrategy<Option<Compressi
     }
 }
 
-/// Generate 0–3 populated autovacuum option fields.
+/// Generate 0–3 `autovacuum_*` entries as raw `extra` key/value pairs.
 ///
-/// Uses `NotNanF64::new` which returns `Ok` for all finite floats; the range
-/// `0.0..1.0` never produces NaN, so the `unwrap` carries a justifying comment
-/// matching the style used throughout this module for literal-bounded inputs.
-fn arb_autovacuum_options() -> impl Strategy<Value = AutovacuumOptions> {
+/// autovacuum reloptions are no longer typed; they flow through the generic
+/// `extra` bag as strings. Each value is a valid Postgres value for that key
+/// so generated IR round-trips through a live Postgres without rejection.
+fn arb_autovacuum_extra() -> impl Strategy<Value = BTreeMap<String, String>> {
     (
-        prop_oneof![Just(None), Just(Some(true)), Just(Some(false))], // enabled
-        prop_oneof![Just(None), (0u64..1000).prop_map(Some)],         // vacuum_threshold
-        // 0.0..1.0 is never NaN — unwrap is safe.
+        // autovacuum_enabled: bool keyword.
         prop_oneof![
             Just(None),
-            (0.0f64..1.0).prop_map(|f| Some(NotNanF64::new(f).unwrap())),
-        ], // vacuum_scale_factor
+            Just(Some("true".to_owned())),
+            Just(Some("false".to_owned())),
+        ],
+        // autovacuum_vacuum_threshold: non-negative integer.
+        prop_oneof![Just(None), (0u64..1000).prop_map(|n| Some(n.to_string()))],
+        // autovacuum_vacuum_scale_factor: fraction in [0, 1).
+        prop_oneof![
+            Just(None),
+            (0u32..100).prop_map(|n| Some(format!("0.{n:02}"))),
+        ],
     )
-        .prop_map(
-            |(enabled, vacuum_threshold, vacuum_scale_factor)| AutovacuumOptions {
-                enabled,
-                vacuum_threshold,
-                vacuum_scale_factor,
-                ..Default::default()
-            },
-        )
+        .prop_map(|(enabled, threshold, scale_factor)| {
+            let mut map = BTreeMap::new();
+            if let Some(v) = enabled {
+                map.insert("autovacuum_enabled".to_owned(), v);
+            }
+            if let Some(v) = threshold {
+                map.insert("autovacuum_vacuum_threshold".to_owned(), v);
+            }
+            if let Some(v) = scale_factor {
+                map.insert("autovacuum_vacuum_scale_factor".to_owned(), v);
+            }
+            map
+        })
 }
 
 /// Generate random [`TableStorageOptions`] with 0–3 fields set.
@@ -86,14 +97,14 @@ fn arb_autovacuum_options() -> impl Strategy<Value = AutovacuumOptions> {
 pub(super) fn arb_table_storage() -> impl Strategy<Value = TableStorageOptions> {
     (
         prop_oneof![Just(None), (10u32..=100).prop_map(Some)], // fillfactor
-        arb_autovacuum_options(),
+        arb_autovacuum_extra(),
         prop_oneof![Just(None), (0u32..=64).prop_map(Some)], // parallel_workers
     )
         .prop_map(
-            |(fillfactor, autovacuum, parallel_workers)| TableStorageOptions {
+            |(fillfactor, extra, parallel_workers)| TableStorageOptions {
                 fillfactor,
-                autovacuum,
                 parallel_workers,
+                extra,
                 ..Default::default()
             },
         )

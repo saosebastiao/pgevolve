@@ -412,63 +412,9 @@ fn merge_table_options(
     if src.vacuum_truncate.is_some() {
         dst.vacuum_truncate = src.vacuum_truncate;
     }
-    merge_autovacuum(&mut dst.autovacuum, &src.autovacuum);
+    // `extra` carries unknown keys plus the autovacuum_* family.
     for (k, v) in src.extra {
         dst.extra.insert(k, v);
-    }
-}
-
-const fn merge_autovacuum(
-    dst: &mut crate::ir::reloptions::AutovacuumOptions,
-    src: &crate::ir::reloptions::AutovacuumOptions,
-) {
-    if src.enabled.is_some() {
-        dst.enabled = src.enabled;
-    }
-    if src.vacuum_threshold.is_some() {
-        dst.vacuum_threshold = src.vacuum_threshold;
-    }
-    if src.vacuum_scale_factor.is_some() {
-        dst.vacuum_scale_factor = src.vacuum_scale_factor;
-    }
-    if src.vacuum_cost_delay.is_some() {
-        dst.vacuum_cost_delay = src.vacuum_cost_delay;
-    }
-    if src.vacuum_cost_limit.is_some() {
-        dst.vacuum_cost_limit = src.vacuum_cost_limit;
-    }
-    if src.analyze_threshold.is_some() {
-        dst.analyze_threshold = src.analyze_threshold;
-    }
-    if src.analyze_scale_factor.is_some() {
-        dst.analyze_scale_factor = src.analyze_scale_factor;
-    }
-    if src.freeze_max_age.is_some() {
-        dst.freeze_max_age = src.freeze_max_age;
-    }
-    if src.freeze_min_age.is_some() {
-        dst.freeze_min_age = src.freeze_min_age;
-    }
-    if src.freeze_table_age.is_some() {
-        dst.freeze_table_age = src.freeze_table_age;
-    }
-    if src.multixact_freeze_max_age.is_some() {
-        dst.multixact_freeze_max_age = src.multixact_freeze_max_age;
-    }
-    if src.multixact_freeze_min_age.is_some() {
-        dst.multixact_freeze_min_age = src.multixact_freeze_min_age;
-    }
-    if src.multixact_freeze_table_age.is_some() {
-        dst.multixact_freeze_table_age = src.multixact_freeze_table_age;
-    }
-    if src.vacuum_insert_threshold.is_some() {
-        dst.vacuum_insert_threshold = src.vacuum_insert_threshold;
-    }
-    if src.vacuum_insert_scale_factor.is_some() {
-        dst.vacuum_insert_scale_factor = src.vacuum_insert_scale_factor;
-    }
-    if src.log_min_duration.is_some() {
-        dst.log_min_duration = src.log_min_duration;
     }
 }
 
@@ -848,7 +794,10 @@ mod tests {
         let out = build("ALTER TABLE app.t SET (autovacuum_enabled = false);").expect("builds");
         assert_eq!(out.pending_rel_options.len(), 1);
         let p = &out.pending_rel_options[0];
-        assert_eq!(p.options.autovacuum.enabled, Some(false));
+        assert_eq!(
+            p.options.extra.get("autovacuum_enabled").map(String::as_str),
+            Some("false")
+        );
     }
 
     #[test]

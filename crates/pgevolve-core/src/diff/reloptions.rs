@@ -2,7 +2,7 @@
 //! source `None` always means "skip"; catalog values not in source surface
 //! as `unmanaged-reloption` lint, never RESET.
 
-use crate::ir::reloptions::{AutovacuumOptions, IndexStorageOptions, TableStorageOptions};
+use crate::ir::reloptions::{IndexStorageOptions, TableStorageOptions};
 
 /// Build the sparse delta for table (or materialized-view) storage options.
 ///
@@ -32,9 +32,8 @@ pub fn table_delta(
     diff_field!(user_catalog_table);
     diff_field!(vacuum_truncate);
 
-    out.autovacuum = autovacuum_delta(&target.autovacuum, &source.autovacuum);
-
-    // Extra bag: only keys present in source and (missing-or-different) in catalog.
+    // Extra bag (includes autovacuum_* keys): only keys present in source and
+    // (missing-or-different) in catalog.
     for (k, src_v) in &source.extra {
         if target.extra.get(k) != Some(src_v) {
             out.extra.insert(k.clone(), src_v.clone());
@@ -81,39 +80,6 @@ pub fn index_delta(
     out
 }
 
-fn autovacuum_delta(target: &AutovacuumOptions, source: &AutovacuumOptions) -> AutovacuumOptions {
-    let mut out = AutovacuumOptions::default();
-
-    macro_rules! diff_field {
-        ($field:ident) => {
-            if let Some(src) = &source.$field {
-                if target.$field.as_ref() != Some(src) {
-                    out.$field = Some(src.clone());
-                }
-            }
-        };
-    }
-
-    diff_field!(enabled);
-    diff_field!(vacuum_threshold);
-    diff_field!(vacuum_scale_factor);
-    diff_field!(vacuum_cost_delay);
-    diff_field!(vacuum_cost_limit);
-    diff_field!(analyze_threshold);
-    diff_field!(analyze_scale_factor);
-    diff_field!(freeze_max_age);
-    diff_field!(freeze_min_age);
-    diff_field!(freeze_table_age);
-    diff_field!(multixact_freeze_max_age);
-    diff_field!(multixact_freeze_min_age);
-    diff_field!(multixact_freeze_table_age);
-    diff_field!(vacuum_insert_threshold);
-    diff_field!(vacuum_insert_scale_factor);
-    diff_field!(log_min_duration);
-
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,7 +104,7 @@ mod tests {
         };
         let delta = table_delta(&t, &s);
         assert_eq!(delta.fillfactor, Some(80));
-        assert!(delta.autovacuum.is_empty());
+        assert!(delta.extra.is_empty());
     }
 
     #[test]
@@ -176,6 +142,22 @@ mod tests {
         assert!(
             delta.is_empty(),
             "lenient: unmanaged extra-bag keys ignored"
+        );
+    }
+
+    #[test]
+    fn source_autovacuum_change_emits_via_extra() {
+        // autovacuum_* keys now diff through the generic `extra` map.
+        let mut t = TableStorageOptions::default();
+        t.extra
+            .insert("autovacuum_enabled".into(), "true".into());
+        let mut s = TableStorageOptions::default();
+        s.extra
+            .insert("autovacuum_enabled".into(), "false".into());
+        let delta = table_delta(&t, &s);
+        assert_eq!(
+            delta.extra.get("autovacuum_enabled").map(String::as_str),
+            Some("false")
         );
     }
 
