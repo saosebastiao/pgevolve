@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::cast::CastMethod;
 use crate::ir::catalog::Catalog;
 use crate::ir::column_type::ColumnType;
 use crate::ir::function::ReturnType;
@@ -31,6 +32,15 @@ pub enum TypeDependent {
     /// Another user-defined type embedding the dropped type (composite attr,
     /// domain base, or range subtype).
     Type(QualifiedName),
+    /// An aggregate whose argument or state (transition) type is the dropped type.
+    Aggregate(QualifiedName),
+    /// A cast whose source or target type is the dropped type.
+    Cast {
+        /// The cast's source type.
+        source: QualifiedName,
+        /// The cast's target type.
+        target: QualifiedName,
+    },
 }
 
 /// Every dependent of `ty` in `target`, deterministically ordered (sorted + deduped).
@@ -105,6 +115,27 @@ pub fn enumerate_type_dependents(ty: &QualifiedName, target: &Catalog) -> Vec<Ty
         }
     }
 
+    // Aggregates: argument types and the state (transition) type.
+    for agg in &target.aggregates {
+        if column_type_references(&agg.state_type, ty)
+            || agg.arg_types.iter().any(|t| column_type_references(t, ty))
+        {
+            out.push(TypeDependent::Aggregate(agg.qname.clone()));
+        }
+    }
+
+    // Casts: source/target equality plus any conversion-function argument type.
+    for cast in &target.casts {
+        let func_arg_match = matches!(&cast.method, CastMethod::Function { arg_types, .. }
+            if arg_types.iter().any(|t| column_type_references(t, ty)));
+        if cast.source == *ty || cast.target == *ty || func_arg_match {
+            out.push(TypeDependent::Cast {
+                source: cast.source.clone(),
+                target: cast.target.clone(),
+            });
+        }
+    }
+
     out.sort();
     out.dedup();
     out
@@ -132,6 +163,8 @@ fn return_type_references(rt: &ReturnType, ty: &QualifiedName) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::aggregate::Aggregate;
+    use crate::ir::cast::{Cast, CastContext};
     use crate::ir::column::Column;
     use crate::ir::function::{
         ArgMode, Function, FunctionArg, FunctionLanguage, NormalizedArgTypes, ParallelSafety,
@@ -370,6 +403,48 @@ mod tests {
         assert!(deps.contains(&TypeDependent::Routine(qn("make"))));
         assert!(deps.contains(&TypeDependent::Routine(qn("apply"))));
         assert_eq!(deps.len(), 3);
+    }
+
+    #[test]
+    fn aggregate_with_state_type_is_reported() {
+        let mut cat = Catalog::empty();
+        cat.types.push(color_type_def());
+        // Aggregate whose STATE (transition) type is the dropped type; args are built-in.
+        cat.aggregates.push(Aggregate {
+            qname: qn("blend"),
+            arg_types: vec![ColumnType::Integer],
+            state_type: color_type(),
+            sfunc: qn("blend_sfunc"),
+            finalfunc: None,
+            initcond: None,
+            owner: None,
+            comment: None,
+        });
+
+        let deps = enumerate_type_dependents(&color_qname(), &cat);
+        assert!(deps.contains(&TypeDependent::Aggregate(qn("blend"))));
+        assert_eq!(deps.len(), 1);
+    }
+
+    #[test]
+    fn cast_with_source_type_is_reported() {
+        let mut cat = Catalog::empty();
+        cat.types.push(color_type_def());
+        // Cast whose SOURCE is the dropped type; target + method args are built-in.
+        cat.casts.push(Cast {
+            source: color_qname(),
+            target: QualifiedName::new(id("pg_catalog"), id("text")),
+            method: CastMethod::Inout,
+            context: CastContext::Explicit,
+            comment: None,
+        });
+
+        let deps = enumerate_type_dependents(&color_qname(), &cat);
+        assert!(deps.contains(&TypeDependent::Cast {
+            source: color_qname(),
+            target: QualifiedName::new(id("pg_catalog"), id("text")),
+        }));
+        assert_eq!(deps.len(), 1);
     }
 
     #[test]
