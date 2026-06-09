@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Equiv, field_difference};
 
 /// The parent object of an [`Index`]: either a table or a materialized view.
 ///
@@ -61,8 +61,8 @@ pub struct Index {
     pub storage: crate::ir::reloptions::IndexStorageOptions,
 }
 
-impl Diff for Index {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Index {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             qname: _,
             on: _,
@@ -77,49 +77,49 @@ impl Diff for Index {
             storage: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field(
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference(
             "on",
             &format!("{:?}", self.on),
             &format!("{:?}", other.on),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "method",
             &format!("{:?}", self.method),
             &format!("{:?}", other.method),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "columns",
             &format!("{:?}", self.columns),
             &format!("{:?}", other.columns),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "include",
             &format!("{:?}", self.include),
             &format!("{:?}", other.include),
         ));
-        out.extend(diff_field("unique", &self.unique, &other.unique));
-        out.extend(diff_field(
+        out.extend(field_difference("unique", &self.unique, &other.unique));
+        out.extend(field_difference(
             "nulls_not_distinct",
             &self.nulls_not_distinct,
             &other.nulls_not_distinct,
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "predicate",
             &format!("{:?}", self.predicate),
             &format!("{:?}", other.predicate),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "tablespace",
             &format!("{:?}", self.tablespace),
             &format!("{:?}", other.tablespace),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "storage",
             &format!("{:?}", self.storage),
             &format!("{:?}", other.storage),
@@ -215,7 +215,7 @@ pub enum NullsOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::eq::Diff;
+    use crate::ir::eq::Equiv;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -260,28 +260,28 @@ mod tests {
     fn unique_change_diffs() {
         let mut b = base();
         b.unique = false;
-        assert!(base().diff(&b).iter().any(|x| x.path == "unique"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "unique"));
     }
 
     #[test]
     fn include_columns_diff() {
         let mut b = base();
         b.include = vec![id("name")];
-        assert!(base().diff(&b).iter().any(|x| x.path == "include"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "include"));
     }
 
     #[test]
     fn predicate_change_diffs() {
         let mut b = base();
         b.predicate = Some(NormalizedExpr::from_text("deleted_at is null"));
-        assert!(base().diff(&b).iter().any(|x| x.path == "predicate"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "predicate"));
     }
 
     #[test]
     fn opclass_change_diffs() {
         let mut b = base();
         b.columns[0].opclass = Some(qn("pg_catalog", "text_pattern_ops"));
-        assert!(base().diff(&b).iter().any(|x| x.path == "columns"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "columns"));
     }
 
     #[test]
@@ -304,7 +304,7 @@ mod tests {
             fillfactor: Some(70),
             ..Default::default()
         };
-        assert!(base().diff(&b).iter().any(|x| x.path == "storage"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "storage"));
     }
 
     #[test]
@@ -338,7 +338,7 @@ mod tests {
             ..mv_idx.clone()
         };
         assert!(!mv_idx.canonical_eq(&tbl_idx_same_name));
-        let diffs = mv_idx.diff(&tbl_idx_same_name);
+        let diffs = mv_idx.differences(&tbl_idx_same_name);
         assert!(diffs.iter().any(|d| d.path == "on"));
     }
 }

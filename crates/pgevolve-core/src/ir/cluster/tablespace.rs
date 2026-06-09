@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Equiv, field_difference};
 
 /// Normalize a tablespace `LOCATION` path so that source and live catalog
 /// always agree even when a trailing slash is present in the source SQL.
@@ -54,8 +54,8 @@ pub struct Tablespace {
     pub comment: Option<String>,
 }
 
-impl Diff for Tablespace {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Tablespace {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             name: _,
             location: _,
@@ -64,23 +64,23 @@ impl Diff for Tablespace {
             comment: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("name", &self.name, &other.name));
-        out.extend(diff_field(
+        out.extend(field_difference("name", &self.name, &other.name));
+        out.extend(field_difference(
             "location",
             &format!("{:?}", self.location),
             &format!("{:?}", other.location),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "owner",
             &format!("{:?}", self.owner),
             &format!("{:?}", other.owner),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "options",
             &format!("{:?}", self.options),
             &format!("{:?}", other.options),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
@@ -92,7 +92,7 @@ impl Diff for Tablespace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::eq::Diff;
+    use crate::ir::eq::Equiv;
 
     // --- normalize_location ---
 
@@ -146,7 +146,7 @@ mod tests {
     fn owner_change_diffs() {
         let mut b = base();
         b.owner = Some(id("dba"));
-        assert!(base().diff(&b).iter().any(|x| x.path == "owner"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "owner"));
     }
 
     #[test]
@@ -154,20 +154,20 @@ mod tests {
         let mut b = base();
         b.options
             .insert("seq_page_cost".to_string(), "1.5".to_string());
-        assert!(base().diff(&b).iter().any(|x| x.path == "options"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "options"));
     }
 
     #[test]
     fn location_change_diffs() {
         let mut b = base();
         b.location = "/mnt/nvme".to_string();
-        assert!(base().diff(&b).iter().any(|x| x.path == "location"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "location"));
     }
 
     #[test]
     fn comment_change_diffs() {
         let mut b = base();
         b.comment = Some("fast storage".into());
-        assert!(base().diff(&b).iter().any(|x| x.path == "comment"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "comment"));
     }
 }

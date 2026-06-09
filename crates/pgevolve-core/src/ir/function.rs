@@ -6,7 +6,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::difference::Difference;
-use crate::ir::eq::Diff;
+use crate::ir::eq::Equiv;
 use crate::parse::normalize_body::NormalizedBody;
 use crate::plan::edges::DepEdge;
 
@@ -103,14 +103,14 @@ impl std::hash::Hash for Function {
     }
 }
 
-impl Diff for Function {
+impl Equiv for Function {
     // The structural differ at the change level lives in `crate::diff::routines`
-    // (T8) and produces granular FunctionChange variants. This `Diff` impl is
-    // the debug/equivalence-rule hook used by `Catalog::diff` for reporting:
+    // (T8) and produces granular FunctionChange variants. This `Equiv` impl is
+    // the debug/equivalence-rule hook used by `Catalog::differences` for reporting:
     // it emits one entry per actually-differing field so conformance-suite
     // failure messages identify exactly what diverged.
     #[allow(clippy::too_many_lines)]
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         if self == other {
             return Vec::new();
         }
@@ -544,12 +544,12 @@ mod tests {
 
     #[test]
     fn owner_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = sample_function();
         b.owner = Some(ident("new_owner"));
         assert!(
             sample_function()
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path.ends_with("owner"))
         );
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn grants_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = sample_function();
         b.grants.push(crate::ir::grant::Grant {
             grantee: crate::ir::grant::GrantTarget::Public,
@@ -567,7 +567,7 @@ mod tests {
         });
         assert!(
             sample_function()
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path.ends_with("grants"))
         );

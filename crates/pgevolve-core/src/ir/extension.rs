@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Equiv, field_difference};
 
 /// A Postgres extension.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -25,8 +25,8 @@ pub struct Extension {
     pub comment: Option<String>,
 }
 
-impl Diff for Extension {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Extension {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             name: _,
             schema: _,
@@ -34,18 +34,18 @@ impl Diff for Extension {
             comment: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("name", &self.name, &other.name));
-        out.extend(diff_field(
+        out.extend(field_difference("name", &self.name, &other.name));
+        out.extend(field_difference(
             "schema",
             &format!("{:?}", self.schema),
             &format!("{:?}", other.schema),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "version",
             &format!("{:?}", self.version),
             &format!("{:?}", other.version),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
@@ -57,7 +57,7 @@ impl Diff for Extension {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::eq::Diff;
+    use crate::ir::eq::Equiv;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -84,7 +84,7 @@ mod tests {
         let a = ext("pgcrypto");
         let mut b = ext("pgcrypto");
         b.version = Some("1.4".into());
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         assert!(d.iter().any(|x| x.path == "version"));
     }
 
@@ -93,7 +93,7 @@ mod tests {
         let a = ext("pgcrypto");
         let mut b = ext("pgcrypto");
         b.schema = Some(id("app"));
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         assert!(d.iter().any(|x| x.path == "schema"));
     }
 }

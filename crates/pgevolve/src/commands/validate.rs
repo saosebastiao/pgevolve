@@ -12,7 +12,7 @@ use pgevolve_core::diff::grants::collect_managed_roles;
 use pgevolve_core::identifier::Identifier;
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::ir::difference::Difference;
-use pgevolve_core::ir::eq::Diff;
+use pgevolve_core::ir::eq::Equiv;
 use pgevolve_core::ir::grant::GrantTarget;
 use pgevolve_core::plan::{
     Plan, PlannerPolicy, Strategy, group_steps, order, rewrite, write_plan_dir,
@@ -181,14 +181,14 @@ async fn run_shadow_validation(source: &Catalog, cfg: &PgevolveConfig) -> Result
             .map_err(|e| anyhow!("read_catalog: {e}"))?;
 
     let shadow_catalog = sanitize_shadow_catalog(source, shadow_catalog);
-    Ok(source.diff(&shadow_catalog))
+    Ok(source.differences(&shadow_catalog))
 }
 
 // ---------------------------------------------------------------------------
 // Shadow-catalog sanitization
 // ---------------------------------------------------------------------------
 
-/// Mirror the differ's semantics onto `shadow` before a strict `Diff` compare.
+/// Mirror the differ's semantics onto `shadow` before a strict `Equiv` compare.
 ///
 /// 1. **Owner** (`None` = unmanaged): when source has no owner declared, the
 ///    catalog-side owner (always auto-assigned by PG) is cleared to match.

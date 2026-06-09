@@ -20,7 +20,7 @@ pub enum CheckOption {
 }
 use crate::ir::column_type::ColumnType;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Equiv, field_difference};
 use crate::parse::normalize_body::NormalizedBody;
 use crate::plan::edges::DepEdge;
 
@@ -120,36 +120,36 @@ fn render_column_type(ty: Option<&ColumnType>) -> String {
     ty.map_or_else(|| "<unresolved>".to_string(), ColumnType::render_sql)
 }
 
-impl Diff for View {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for View {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field(
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference(
             "body_canonical",
             &self.body_canonical.canonical_text(),
             &other.body_canonical.canonical_text(),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "security_barrier",
             &format!("{:?}", self.security_barrier),
             &format!("{:?}", other.security_barrier),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "security_invoker",
             &format!("{:?}", self.security_invoker),
             &format!("{:?}", other.security_invoker),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "owner",
             &format!("{:?}", self.owner),
             &format!("{:?}", other.owner),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "grants",
             &format!("{:?}", self.grants),
             &format!("{:?}", other.grants),
@@ -203,7 +203,7 @@ impl Diff for View {
         }
 
         // Dependency-edge diff: format vec for comparison.
-        out.extend(diff_field(
+        out.extend(field_difference(
             "body_dependencies",
             &format!("{:?}", self.body_dependencies),
             &format!("{:?}", other.body_dependencies),
@@ -213,31 +213,31 @@ impl Diff for View {
     }
 }
 
-impl Diff for MaterializedView {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for MaterializedView {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field(
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference(
             "body_canonical",
             &self.body_canonical.canonical_text(),
             &other.body_canonical.canonical_text(),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "owner",
             &format!("{:?}", self.owner),
             &format!("{:?}", other.owner),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "grants",
             &format!("{:?}", self.grants),
             &format!("{:?}", other.grants),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "storage",
             &format!("{:?}", self.storage),
             &format!("{:?}", other.storage),
@@ -291,7 +291,7 @@ impl Diff for MaterializedView {
         }
 
         // Dependency-edge diff: format vec for comparison.
-        out.extend(diff_field(
+        out.extend(field_difference(
             "body_dependencies",
             &format!("{:?}", self.body_dependencies),
             &format!("{:?}", other.body_dependencies),
@@ -472,12 +472,12 @@ mod tests {
 
     #[test]
     fn view_owner_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = simple_view("app", "active_users");
         b.owner = Some(id("new_owner"));
         assert!(
             simple_view("app", "active_users")
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path == "owner")
         );
@@ -485,7 +485,7 @@ mod tests {
 
     #[test]
     fn view_grants_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = simple_view("app", "active_users");
         b.grants.push(crate::ir::grant::Grant {
             grantee: crate::ir::grant::GrantTarget::Public,
@@ -495,7 +495,7 @@ mod tests {
         });
         assert!(
             simple_view("app", "active_users")
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path == "grants")
         );
@@ -503,12 +503,12 @@ mod tests {
 
     #[test]
     fn materialized_view_owner_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = simple_mv("app", "my_mv");
         b.owner = Some(id("new_owner"));
         assert!(
             simple_mv("app", "my_mv")
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path == "owner")
         );
@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn materialized_view_grants_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = simple_mv("app", "my_mv");
         b.grants.push(crate::ir::grant::Grant {
             grantee: crate::ir::grant::GrantTarget::Public,
@@ -526,7 +526,7 @@ mod tests {
         });
         assert!(
             simple_mv("app", "my_mv")
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path == "grants")
         );
@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn materialized_view_storage_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = simple_mv("app", "my_mv");
         b.storage = crate::ir::reloptions::MaterializedViewStorageOptions {
             fillfactor: Some(80),
@@ -542,7 +542,7 @@ mod tests {
         };
         assert!(
             simple_mv("app", "my_mv")
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path == "storage")
         );

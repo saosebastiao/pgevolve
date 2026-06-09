@@ -8,7 +8,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column::Column;
 use crate::ir::constraint::Constraint;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field, prefix_diffs};
+use crate::ir::eq::{Equiv, field_difference, prefix_differences};
 
 /// A Postgres table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,61 +46,61 @@ pub struct Table {
     pub tablespace: Option<Identifier>,
 }
 
-impl Diff for Table {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Table {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field(
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference(
             "partition_by",
             &format!("{:?}", self.partition_by),
             &format!("{:?}", other.partition_by),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "partition_of",
             &format!("{:?}", self.partition_of),
             &format!("{:?}", other.partition_of),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "owner",
             &format!("{:?}", self.owner),
             &format!("{:?}", other.owner),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "grants",
             &format!("{:?}", self.grants),
             &format!("{:?}", other.grants),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "rls_enabled",
             &format!("{:?}", self.rls_enabled),
             &format!("{:?}", other.rls_enabled),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "rls_forced",
             &format!("{:?}", self.rls_forced),
             &format!("{:?}", other.rls_forced),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "policies",
             &format!("{:?}", self.policies),
             &format!("{:?}", other.policies),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "storage",
             &format!("{:?}", self.storage),
             &format!("{:?}", other.storage),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "access_method",
             &format!("{:?}", self.access_method),
             &format!("{:?}", other.access_method),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "tablespace",
             &format!("{:?}", self.tablespace),
             &format!("{:?}", other.tablespace),
@@ -127,7 +127,10 @@ fn diff_columns(
                 "removed",
             )),
             Some(r) => {
-                out.extend(prefix_diffs(&format!("columns.{name}"), l.diff(r)));
+                out.extend(prefix_differences(
+                    &format!("columns.{name}"),
+                    l.differences(r),
+                ));
             }
         }
     }
@@ -168,7 +171,10 @@ fn diff_constraints(
                 "removed",
             )),
             Some(r) => {
-                out.extend(prefix_diffs(&format!("constraints.{qn}"), l.diff(r)));
+                out.extend(prefix_differences(
+                    &format!("constraints.{qn}"),
+                    l.differences(r),
+                ));
             }
         }
     }
@@ -257,7 +263,7 @@ mod tests {
     fn add_column_diffs() {
         let mut b = base();
         b.columns.push(col("name", ColumnType::Text, true));
-        let d = base().diff(&b);
+        let d = base().differences(&b);
         assert!(d.iter().any(|x| x.path == "columns.name"));
     }
 
@@ -265,7 +271,7 @@ mod tests {
     fn remove_column_diffs() {
         let mut b = base();
         b.columns.pop();
-        let d = base().diff(&b);
+        let d = base().differences(&b);
         assert!(d.iter().any(|x| x.path == "columns.email"));
     }
 
@@ -273,7 +279,7 @@ mod tests {
     fn reorder_columns_diffs_as_order() {
         let mut b = base();
         b.columns.reverse();
-        let d = base().diff(&b);
+        let d = base().differences(&b);
         assert!(d.iter().any(|x| x.path == "columns.<order>"));
     }
 
@@ -281,7 +287,7 @@ mod tests {
     fn add_constraint_diffs() {
         let mut b = base();
         b.constraints.push(pk("users_alt_pkey", &["email"]));
-        let d = base().diff(&b);
+        let d = base().differences(&b);
         assert!(d.iter().any(|x| x.path == "constraints.app.users_alt_pkey"));
     }
 
@@ -289,7 +295,7 @@ mod tests {
     fn changed_column_definition_diffs_under_path() {
         let mut b = base();
         b.columns[1].nullable = true;
-        let d = base().diff(&b);
+        let d = base().differences(&b);
         assert!(d.iter().any(|x| x.path == "columns.email.nullable"));
     }
 
@@ -297,7 +303,7 @@ mod tests {
     fn owner_change_diffs() {
         let mut b = base();
         b.owner = Some(id("new_owner"));
-        assert!(base().diff(&b).iter().any(|x| x.path == "owner"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "owner"));
     }
 
     #[test]
@@ -309,21 +315,31 @@ mod tests {
             with_grant_option: false,
             columns: None,
         });
-        assert!(base().diff(&b).iter().any(|x| x.path == "grants"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "grants"));
     }
 
     #[test]
     fn rls_enabled_change_diffs() {
         let mut b = base();
         b.rls_enabled = true;
-        assert!(base().diff(&b).iter().any(|x| x.path == "rls_enabled"));
+        assert!(
+            base()
+                .differences(&b)
+                .iter()
+                .any(|x| x.path == "rls_enabled")
+        );
     }
 
     #[test]
     fn rls_forced_change_diffs() {
         let mut b = base();
         b.rls_forced = true;
-        assert!(base().diff(&b).iter().any(|x| x.path == "rls_forced"));
+        assert!(
+            base()
+                .differences(&b)
+                .iter()
+                .any(|x| x.path == "rls_forced")
+        );
     }
 
     #[test]
@@ -339,7 +355,7 @@ mod tests {
             using: None,
             with_check: None,
         });
-        assert!(base().diff(&b).iter().any(|x| x.path == "policies"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "policies"));
     }
 
     #[test]
@@ -349,7 +365,7 @@ mod tests {
             fillfactor: Some(80),
             ..Default::default()
         };
-        assert!(base().diff(&b).iter().any(|x| x.path == "storage"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "storage"));
     }
 
     #[test]

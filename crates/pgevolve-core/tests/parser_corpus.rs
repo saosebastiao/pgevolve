@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use pgevolve_core::ir::catalog::Catalog;
-use pgevolve_core::ir::eq::Diff;
+use pgevolve_core::ir::eq::Equiv;
 use pgevolve_core::parse::{self, ParseError};
 
 /// Parse a single `*.sql` file's contents into a `Catalog` by spinning up a
@@ -76,7 +76,7 @@ fn equivalent_pairs() {
             .unwrap_or_else(|e| panic!("b.sql failed in {}: {e}", fixture.display()));
 
         if !a.canonical_eq(&b) {
-            let diffs = a.diff(&b);
+            let diffs = a.differences(&b);
             panic!(
                 "equivalent_pairs/{} produced different IR:\n{}",
                 fixture.file_name().unwrap().to_string_lossy(),
@@ -108,7 +108,7 @@ fn different_pairs() {
         let a = parse_fixture(&a_sql).unwrap_or_else(|e| panic!("a.sql failed in {name}: {e}"));
         let b = parse_fixture(&b_sql).unwrap_or_else(|e| panic!("b.sql failed in {name}: {e}"));
 
-        let diffs = a.diff(&b);
+        let diffs = a.differences(&b);
         assert!(
             !diffs.is_empty(),
             "different_pairs/{name} produced no diffs"

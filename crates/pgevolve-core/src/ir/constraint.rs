@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field, prefix_diffs};
+use crate::ir::eq::{Equiv, field_difference, prefix_differences};
 
 /// A table constraint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,8 +23,8 @@ pub struct Constraint {
     pub comment: Option<String>,
 }
 
-impl Diff for Constraint {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Constraint {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             qname: _,
             kind: _,
@@ -32,14 +32,17 @@ impl Diff for Constraint {
             comment: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(prefix_diffs("kind", Diff::diff(&self.kind, &other.kind)));
-        out.extend(diff_field(
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(prefix_differences(
+            "kind",
+            Equiv::differences(&self.kind, &other.kind),
+        ));
+        out.extend(field_difference(
             "deferrable",
             &format!("{:?}", self.deferrable),
             &format!("{:?}", other.deferrable),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
@@ -97,8 +100,8 @@ pub struct ForeignKey {
     pub match_type: FkMatchType,
 }
 
-impl Diff for ForeignKey {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for ForeignKey {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             columns: _,
             referenced_table: _,
@@ -108,32 +111,32 @@ impl Diff for ForeignKey {
             match_type: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field(
+        out.extend(field_difference(
             "columns",
             &format!("{:?}", self.columns),
             &format!("{:?}", other.columns),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "referenced_table",
             &self.referenced_table,
             &other.referenced_table,
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "referenced_columns",
             &format!("{:?}", self.referenced_columns),
             &format!("{:?}", other.referenced_columns),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "on_update",
             &format!("{:?}", self.on_update),
             &format!("{:?}", other.on_update),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "on_delete",
             &format!("{:?}", self.on_delete),
             &format!("{:?}", other.on_delete),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "match_type",
             &format!("{:?}", self.match_type),
             &format!("{:?}", other.match_type),
@@ -193,8 +196,8 @@ fn render_idents(v: &[Identifier]) -> String {
     s
 }
 
-impl Diff for ConstraintKind {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for ConstraintKind {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let mut out = Vec::new();
         match (self, other) {
             (
@@ -207,12 +210,12 @@ impl Diff for ConstraintKind {
                     include: i2,
                 },
             ) => {
-                out.extend(diff_field(
+                out.extend(field_difference(
                     "columns",
                     &render_idents(c1),
                     &render_idents(c2),
                 ));
-                out.extend(diff_field(
+                out.extend(field_difference(
                     "include",
                     &render_idents(i1),
                     &render_idents(i2),
@@ -230,20 +233,20 @@ impl Diff for ConstraintKind {
                     nulls_distinct: n2,
                 },
             ) => {
-                out.extend(diff_field(
+                out.extend(field_difference(
                     "columns",
                     &render_idents(c1),
                     &render_idents(c2),
                 ));
-                out.extend(diff_field(
+                out.extend(field_difference(
                     "include",
                     &render_idents(i1),
                     &render_idents(i2),
                 ));
-                out.extend(diff_field("nulls_distinct", n1, n2));
+                out.extend(field_difference("nulls_distinct", n1, n2));
             }
             (Self::ForeignKey(a), Self::ForeignKey(b)) => {
-                out.extend(prefix_diffs("fk", a.diff(b)));
+                out.extend(prefix_differences("fk", a.differences(b)));
             }
             (
                 Self::Check {
@@ -255,12 +258,12 @@ impl Diff for ConstraintKind {
                     no_inherit: n2,
                 },
             ) => {
-                out.extend(diff_field(
+                out.extend(field_difference(
                     "expression",
                     &e1.canonical_text,
                     &e2.canonical_text,
                 ));
-                out.extend(diff_field("no_inherit", n1, n2));
+                out.extend(field_difference("no_inherit", n1, n2));
             }
             _ => {
                 out.push(Difference::new(
@@ -307,7 +310,7 @@ mod tests {
     fn pk_column_list_change_diffs() {
         let a = pk_constraint(&["id"]);
         let b = pk_constraint(&["id", "tenant_id"]);
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         assert!(d.iter().any(|x| x.path == "kind.columns"));
     }
 
@@ -335,7 +338,7 @@ mod tests {
         };
         let a = mk(ReferentialAction::NoAction);
         let b = mk(ReferentialAction::Cascade);
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         assert!(d.iter().any(|x| x.path == "kind.fk.on_delete"));
     }
 
@@ -350,7 +353,7 @@ mod tests {
             },
             ..pk_constraint(&["id"])
         };
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         assert!(d.iter().any(|x| x.path == "kind"));
     }
 
@@ -360,7 +363,7 @@ mod tests {
         b.deferrable = Deferrable::Deferrable {
             initially_deferred: true,
         };
-        let d = pk_constraint(&["id"]).diff(&b);
+        let d = pk_constraint(&["id"]).differences(&b);
         assert!(d.iter().any(|x| x.path == "deferrable"));
     }
 }

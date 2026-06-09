@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::QualifiedName;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Equiv, field_difference};
 use crate::ir::function::{FunctionArg, FunctionLanguage, SecurityMode};
 use crate::parse::normalize_body::NormalizedBody;
 use crate::plan::edges::DepEdge;
@@ -38,8 +38,8 @@ pub struct Procedure {
     pub grants: Vec<crate::ir::grant::Grant>,
 }
 
-impl Diff for Procedure {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Procedure {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             qname: _,
             args: _,
@@ -53,48 +53,48 @@ impl Diff for Procedure {
             grants: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field(
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference(
             "args",
             &format!("{:?}", self.args),
             &format!("{:?}", other.args),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "language",
             &format!("{:?}", self.language),
             &format!("{:?}", other.language),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "body",
             &format!("{:?}", self.body),
             &format!("{:?}", other.body),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "body_dependencies",
             &format!("{:?}", self.body_dependencies),
             &format!("{:?}", other.body_dependencies),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "security",
             &format!("{:?}", self.security),
             &format!("{:?}", other.security),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "commits_in_body",
             &self.commits_in_body,
             &other.commits_in_body,
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "owner",
             &format!("{:?}", self.owner),
             &format!("{:?}", other.owner),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "grants",
             &format!("{:?}", self.grants),
             &format!("{:?}", other.grants),
@@ -142,14 +142,14 @@ mod tests {
 
     #[test]
     fn procedure_diff_reports_per_field_changes() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
 
         let a = sample_procedure();
         let mut b = sample_procedure();
         b.language = FunctionLanguage::Sql;
         b.comment = Some("changed".into());
 
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         let paths: Vec<&str> = d.iter().map(|x| x.path.as_str()).collect();
         assert!(
             paths.contains(&"language"),
@@ -184,12 +184,12 @@ mod tests {
 
     #[test]
     fn owner_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = sample_procedure();
         b.owner = Some(ident("new_owner"));
         assert!(
             sample_procedure()
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path == "owner")
         );
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn grants_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = sample_procedure();
         b.grants.push(crate::ir::grant::Grant {
             grantee: crate::ir::grant::GrantTarget::Public,
@@ -207,7 +207,7 @@ mod tests {
         });
         assert!(
             sample_procedure()
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path == "grants")
         );

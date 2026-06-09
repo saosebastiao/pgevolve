@@ -1,7 +1,7 @@
 //! `ColumnType` — the canonical normalized form of a Postgres data type.
 //!
 //! Every column type seen in source SQL or in the live catalog is translated
-//! into this enum. Equivalence is decided by the `Diff` impl in this module;
+//! into this enum. Equivalence is decided by the `Equiv` impl in this module;
 //! rendering back to SQL is via [`ColumnType::render_sql`].
 
 use serde::{Deserialize, Serialize};
@@ -97,7 +97,7 @@ pub enum ColumnType {
     /// Structure is *not* introspected in v0.1.
     UserDefined(QualifiedName),
     /// Catch-all for types we don't yet model.
-    /// Diff treats `Other` strictly: equal iff `raw` strings match exactly.
+    /// Equivalence treats `Other` strictly: equal iff `raw` strings match exactly.
     Other {
         /// Raw type string from source or catalog.
         raw: String,
@@ -454,8 +454,8 @@ pub enum ParseTypeError {
     Empty,
 }
 
-impl crate::ir::eq::Diff for ColumnType {
-    fn diff(&self, other: &Self) -> Vec<crate::ir::difference::Difference> {
+impl crate::ir::eq::Equiv for ColumnType {
+    fn differences(&self, other: &Self) -> Vec<crate::ir::difference::Difference> {
         if self == other {
             Vec::new()
         } else {
@@ -813,19 +813,19 @@ mod tests {
 
     #[test]
     fn columntype_diff_empty_when_equal() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let a = ColumnType::Varchar { len: Some(50) };
         let b = ColumnType::Varchar { len: Some(50) };
-        assert!(a.diff(&b).is_empty());
+        assert!(a.differences(&b).is_empty());
         assert!(a.canonical_eq(&b));
     }
 
     #[test]
     fn columntype_diff_reports_difference() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let a = ColumnType::Varchar { len: Some(50) };
         let b = ColumnType::Varchar { len: Some(100) };
-        let diffs = a.diff(&b);
+        let diffs = a.differences(&b);
         assert_eq!(diffs.len(), 1);
         assert_eq!(diffs[0].from, "varchar(50)");
         assert_eq!(diffs[0].to, "varchar(100)");

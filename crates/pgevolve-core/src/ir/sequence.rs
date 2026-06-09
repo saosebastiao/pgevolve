@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::identifier::QualifiedName;
 use crate::ir::column_type::ColumnType;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Equiv, field_difference};
 
 /// A Postgres sequence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,8 +37,8 @@ pub struct Sequence {
     pub grants: Vec<crate::ir::grant::Grant>,
 }
 
-impl Diff for Sequence {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Sequence {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             qname: _,
             data_type: _,
@@ -54,42 +54,46 @@ impl Diff for Sequence {
             grants: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field(
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference(
             "data_type",
             &format!("{:?}", self.data_type),
             &format!("{:?}", other.data_type),
         ));
-        out.extend(diff_field("start", &self.start, &other.start));
-        out.extend(diff_field("increment", &self.increment, &other.increment));
-        out.extend(diff_field(
+        out.extend(field_difference("start", &self.start, &other.start));
+        out.extend(field_difference(
+            "increment",
+            &self.increment,
+            &other.increment,
+        ));
+        out.extend(field_difference(
             "min_value",
             &format!("{:?}", self.min_value),
             &format!("{:?}", other.min_value),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "max_value",
             &format!("{:?}", self.max_value),
             &format!("{:?}", other.max_value),
         ));
-        out.extend(diff_field("cache", &self.cache, &other.cache));
-        out.extend(diff_field("cycle", &self.cycle, &other.cycle));
-        out.extend(diff_field(
+        out.extend(field_difference("cache", &self.cache, &other.cache));
+        out.extend(field_difference("cycle", &self.cycle, &other.cycle));
+        out.extend(field_difference(
             "owned_by",
             &format!("{:?}", self.owned_by),
             &format!("{:?}", other.owned_by),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "owner",
             &format!("{:?}", self.owner),
             &format!("{:?}", other.owner),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "grants",
             &format!("{:?}", self.grants),
             &format!("{:?}", other.grants),
@@ -111,7 +115,7 @@ pub struct SequenceOwner {
 mod tests {
     use super::*;
     use crate::identifier::{Identifier, QualifiedName};
-    use crate::ir::eq::Diff;
+    use crate::ir::eq::Equiv;
 
     fn s(name: &str) -> QualifiedName {
         QualifiedName::new(
@@ -146,7 +150,7 @@ mod tests {
     fn sequence_diff_reports_increment_change() {
         let mut other = base();
         other.increment = 2;
-        let d = base().diff(&other);
+        let d = base().differences(&other);
         assert!(d.iter().any(|x| x.path == "increment"));
     }
 
@@ -154,7 +158,7 @@ mod tests {
     fn sequence_diff_reports_qname_change() {
         let mut other = base();
         other.qname = s("seq2");
-        let d = base().diff(&other);
+        let d = base().differences(&other);
         assert!(d.iter().any(|x| x.path == "qname"));
     }
 
@@ -162,7 +166,7 @@ mod tests {
     fn owner_change_diffs() {
         let mut b = base();
         b.owner = Some(Identifier::from_unquoted("new_owner").unwrap());
-        assert!(base().diff(&b).iter().any(|x| x.path == "owner"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "owner"));
     }
 
     #[test]
@@ -174,6 +178,6 @@ mod tests {
             with_grant_option: false,
             columns: None,
         });
-        assert!(base().diff(&b).iter().any(|x| x.path == "grants"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "grants"));
     }
 }

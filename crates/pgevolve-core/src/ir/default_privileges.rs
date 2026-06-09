@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Equiv, field_difference};
 use crate::ir::grant::Grant;
 
 /// One `ALTER DEFAULT PRIVILEGES` rule.
@@ -24,8 +24,8 @@ pub struct DefaultPrivilegeRule {
     pub grants: Vec<Grant>,
 }
 
-impl Diff for DefaultPrivilegeRule {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for DefaultPrivilegeRule {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             target_role: _,
             schema: _,
@@ -33,22 +33,22 @@ impl Diff for DefaultPrivilegeRule {
             grants: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field(
+        out.extend(field_difference(
             "target_role",
             &self.target_role,
             &other.target_role,
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "schema",
             &format!("{:?}", self.schema),
             &format!("{:?}", other.schema),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "object_type",
             &format!("{:?}", self.object_type),
             &format!("{:?}", other.object_type),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "grants",
             &format!("{:?}", self.grants),
             &format!("{:?}", other.grants),
@@ -118,7 +118,7 @@ impl DefaultPrivObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::eq::Diff;
+    use crate::ir::eq::Equiv;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -142,7 +142,7 @@ mod tests {
     fn object_type_change_diffs() {
         let mut b = base();
         b.object_type = DefaultPrivObjectType::Sequences;
-        let d = base().diff(&b);
+        let d = base().differences(&b);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].path, "object_type");
     }

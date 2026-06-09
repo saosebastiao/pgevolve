@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ir::IrError;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, prefix_diffs};
+use crate::ir::eq::{Equiv, prefix_differences};
 use crate::ir::extension::Extension;
 use crate::ir::function::Function;
 use crate::ir::index::Index;
@@ -112,44 +112,44 @@ impl Catalog {
     }
 }
 
-impl Diff for Catalog {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Catalog {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let mut out = Vec::new();
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "schemas",
             diff_keyed(&self.schemas, &other.schemas, |s| s.name.to_string()),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "extensions",
             diff_keyed(&self.extensions, &other.extensions, |e| e.name.to_string()),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "tables",
             diff_keyed(&self.tables, &other.tables, |t| t.qname.to_string()),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "indexes",
             diff_keyed(&self.indexes, &other.indexes, |i| i.qname.to_string()),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "sequences",
             diff_keyed(&self.sequences, &other.sequences, |s| s.qname.to_string()),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "views",
             diff_keyed(&self.views, &other.views, |v| v.qname.to_string()),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "materialized_views",
             diff_keyed(&self.materialized_views, &other.materialized_views, |m| {
                 m.qname.to_string()
             }),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "types",
             diff_keyed(&self.types, &other.types, |t| t.qname.to_string()),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "functions",
             diff_keyed(&self.functions, &other.functions, |f| {
                 format!(
@@ -164,15 +164,15 @@ impl Diff for Catalog {
                 )
             }),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "procedures",
             diff_keyed(&self.procedures, &other.procedures, |p| p.qname.to_string()),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "triggers",
             diff_keyed(&self.triggers, &other.triggers, |t| t.qname.to_string()),
         ));
-        out.extend(prefix_diffs(
+        out.extend(prefix_differences(
             "default_privileges",
             diff_keyed(&self.default_privileges, &other.default_privileges, |r| {
                 format!(
@@ -187,14 +187,14 @@ impl Diff for Catalog {
     }
 }
 
-fn diff_keyed<T: Diff, K: Fn(&T) -> String>(lhs: &[T], rhs: &[T], key: K) -> Vec<Difference> {
+fn diff_keyed<T: Equiv, K: Fn(&T) -> String>(lhs: &[T], rhs: &[T], key: K) -> Vec<Difference> {
     let mut out = Vec::new();
     let lhs_map: BTreeMap<String, &T> = lhs.iter().map(|x| (key(x), x)).collect();
     let rhs_map: BTreeMap<String, &T> = rhs.iter().map(|x| (key(x), x)).collect();
     for (k, l) in &lhs_map {
         match rhs_map.get(k) {
             None => out.push(Difference::new(k, "present", "removed")),
-            Some(r) => out.extend(prefix_diffs(k, l.diff(r))),
+            Some(r) => out.extend(prefix_differences(k, l.differences(r))),
         }
     }
     for k in rhs_map.keys() {
@@ -263,7 +263,7 @@ mod tests {
     fn add_table_reports() {
         let mut b = Catalog::empty();
         b.tables.push(table_users());
-        let d = Catalog::empty().diff(&b);
+        let d = Catalog::empty().differences(&b);
         assert!(d.iter().any(|x| x.path.starts_with("tables.app.users")));
     }
 
@@ -271,7 +271,7 @@ mod tests {
     fn remove_table_reports() {
         let mut a = Catalog::empty();
         a.tables.push(table_users());
-        let d = a.diff(&Catalog::empty());
+        let d = a.differences(&Catalog::empty());
         assert!(d.iter().any(|x| x.path.starts_with("tables.app.users")));
     }
 
@@ -283,7 +283,7 @@ mod tests {
         let mut t = table_users();
         t.columns[0].ty = ColumnType::Integer;
         b.tables.push(t);
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         assert!(d.iter().any(|x| x.path == "tables.app.users.columns.id.ty"));
     }
 
@@ -336,7 +336,7 @@ mod tests {
         });
         assert!(
             Catalog::empty()
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path.starts_with("default_privileges"))
         );

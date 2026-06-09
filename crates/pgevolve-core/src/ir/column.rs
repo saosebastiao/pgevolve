@@ -6,7 +6,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::DefaultExpr;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Equiv, field_difference};
 
 /// A table column.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -33,8 +33,8 @@ pub struct Column {
     pub comment: Option<String>,
 }
 
-impl Diff for Column {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Column {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             name: _,
             ty: _,
@@ -48,44 +48,48 @@ impl Diff for Column {
             comment: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("name", &self.name, &other.name));
-        out.extend(diff_field(
+        out.extend(field_difference("name", &self.name, &other.name));
+        out.extend(field_difference(
             "ty",
             &format!("{:?}", self.ty),
             &format!("{:?}", other.ty),
         ));
-        out.extend(diff_field("nullable", &self.nullable, &other.nullable));
-        out.extend(diff_field(
+        out.extend(field_difference(
+            "nullable",
+            &self.nullable,
+            &other.nullable,
+        ));
+        out.extend(field_difference(
             "default",
             &format!("{:?}", self.default),
             &format!("{:?}", other.default),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "identity",
             &format!("{:?}", self.identity),
             &format!("{:?}", other.identity),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "generated",
             &format!("{:?}", self.generated),
             &format!("{:?}", other.generated),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "collation",
             &format!("{:?}", self.collation),
             &format!("{:?}", other.collation),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "storage",
             &format!("{:?}", self.storage),
             &format!("{:?}", other.storage),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "compression",
             &format!("{:?}", self.compression),
             &format!("{:?}", other.compression),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
@@ -182,7 +186,7 @@ pub struct SequenceOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::eq::Diff;
+    use crate::ir::eq::Equiv;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -212,14 +216,14 @@ mod tests {
     fn type_change_diffs() {
         let mut b = base();
         b.ty = ColumnType::Varchar { len: Some(255) };
-        assert!(base().diff(&b).iter().any(|x| x.path == "ty"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "ty"));
     }
 
     #[test]
     fn nullability_change_diffs() {
         let mut b = base();
         b.nullable = true;
-        assert!(base().diff(&b).iter().any(|x| x.path == "nullable"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "nullable"));
     }
 
     #[test]
@@ -236,20 +240,25 @@ mod tests {
                 cycle: false,
             },
         });
-        assert!(base().diff(&b).iter().any(|x| x.path == "identity"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "identity"));
     }
 
     #[test]
     fn storage_change_diffs() {
         let mut b = base();
         b.storage = Some(StorageKind::External);
-        assert!(base().diff(&b).iter().any(|x| x.path == "storage"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "storage"));
     }
 
     #[test]
     fn compression_change_diffs() {
         let mut b = base();
         b.compression = Some(Compression::Lz4);
-        assert!(base().diff(&b).iter().any(|x| x.path == "compression"));
+        assert!(
+            base()
+                .differences(&b)
+                .iter()
+                .any(|x| x.path == "compression")
+        );
     }
 }

@@ -6,7 +6,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::difference::Difference;
-use crate::ir::eq::Diff;
+use crate::ir::eq::Equiv;
 
 /// A user-defined type (enum, domain, or composite).
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -109,13 +109,13 @@ pub struct CompositeAttribute {
     pub collation: Option<QualifiedName>,
 }
 
-impl Diff for UserType {
+impl Equiv for UserType {
     // The structural differ at the change level lives in `crate::diff::types`
-    // and produces granular UserTypeChange variants. This `Diff` impl is the
-    // debug/equivalence-rule hook used by `Catalog::diff` for reporting only;
+    // and produces granular UserTypeChange variants. This `Equiv` impl is the
+    // debug/equivalence-rule hook used by `Catalog::differences` for reporting only;
     // a single top-level entry per changed type is intentional here.
-    fn diff(&self, other: &Self) -> Vec<Difference> {
-        use crate::ir::eq::diff_field;
+    fn differences(&self, other: &Self) -> Vec<Difference> {
+        use crate::ir::eq::field_difference;
         let mut out = Vec::new();
         if self.kind != other.kind {
             out.push(Difference::new(
@@ -124,17 +124,17 @@ impl Diff for UserType {
                 format!("{:?}", other.kind),
             ));
         }
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "owner",
             &format!("{:?}", self.owner),
             &format!("{:?}", other.owner),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "grants",
             &format!("{:?}", self.grants),
             &format!("{:?}", other.grants),
@@ -338,15 +338,20 @@ mod tests {
 
     #[test]
     fn owner_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = sample_enum();
         b.owner = Some(ident("new_owner"));
-        assert!(sample_enum().diff(&b).iter().any(|x| x.path == "owner"));
+        assert!(
+            sample_enum()
+                .differences(&b)
+                .iter()
+                .any(|x| x.path == "owner")
+        );
     }
 
     #[test]
     fn grants_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = sample_enum();
         b.grants.push(crate::ir::grant::Grant {
             grantee: crate::ir::grant::GrantTarget::Public,
@@ -354,21 +359,29 @@ mod tests {
             with_grant_option: false,
             columns: None,
         });
-        assert!(sample_enum().diff(&b).iter().any(|x| x.path == "grants"));
+        assert!(
+            sample_enum()
+                .differences(&b)
+                .iter()
+                .any(|x| x.path == "grants")
+        );
     }
 
     #[test]
     fn comment_change_diffs() {
-        use crate::ir::eq::Diff;
+        use crate::ir::eq::Equiv;
         let mut b = sample_enum();
         b.comment = Some("A helpful comment".into());
-        // Regression guard: Stage 2 rewrote Diff for UserType and accidentally
+        // Regression guard: Stage 2 rewrote Equiv for UserType and accidentally
         // dropped comment from the diff; this test ensures a comment-only change
         // still produces a Difference entry with path "comment".
         assert!(
-            sample_enum().diff(&b).iter().any(|x| x.path == "comment"),
+            sample_enum()
+                .differences(&b)
+                .iter()
+                .any(|x| x.path == "comment"),
             "expected a comment difference; got: {:?}",
-            sample_enum().diff(&b),
+            sample_enum().differences(&b),
         );
     }
 }

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::QualifiedName;
 use crate::ir::difference::Difference;
-use crate::ir::eq::Diff;
+use crate::ir::eq::Equiv;
 
 /// A column-default expression.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -100,8 +100,8 @@ impl NormalizedExpr {
     }
 }
 
-impl Diff for DefaultExpr {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for DefaultExpr {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         if self == other {
             Vec::new()
         } else {
@@ -148,7 +148,7 @@ mod tests {
     fn different_text_literals_diff() {
         let a = DefaultExpr::Literal(LiteralValue::Text("foo".into()));
         let b = DefaultExpr::Literal(LiteralValue::Text("bar".into()));
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         assert_eq!(d.len(), 1);
     }
 

@@ -1,20 +1,20 @@
 //! `assert_canonical_eq` — pretty-prints IR diffs on failure.
 //!
-//! Wraps the core `Diff` trait so test failures show the offending paths and
+//! Wraps the core `Equiv` trait so test failures show the offending paths and
 //! before/after values rather than a wall of `Debug` text.
 
 use anyhow::{Result, anyhow};
 
 use pgevolve_core::ir::catalog::Catalog;
 use pgevolve_core::ir::difference::Difference;
-use pgevolve_core::ir::eq::Diff;
+use pgevolve_core::ir::eq::Equiv;
 
 /// Assert two catalogs are structurally equal (per `Catalog::diff`).
 ///
 /// On failure, returns an `anyhow::Error` whose `Display` contains an
 /// indented list of every difference.
 pub fn assert_canonical_eq(a: &Catalog, b: &Catalog) -> Result<()> {
-    let diffs = a.diff(b);
+    let diffs = a.differences(b);
     if diffs.is_empty() {
         return Ok(());
     }

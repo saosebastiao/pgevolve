@@ -6,7 +6,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::constraint::Deferrable;
 use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Equiv, field_difference};
 
 /// A Postgres trigger.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -37,8 +37,8 @@ pub struct Trigger {
     pub comment: Option<String>,
 }
 
-impl Diff for Trigger {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Trigger {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             qname: _,
             table: _,
@@ -54,54 +54,54 @@ impl Diff for Trigger {
             comment: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("qname", &self.qname, &other.qname));
-        out.extend(diff_field("table", &self.table, &other.table));
-        out.extend(diff_field(
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference("table", &self.table, &other.table));
+        out.extend(field_difference(
             "timing",
             &format!("{:?}", self.timing),
             &format!("{:?}", other.timing),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "events",
             &format!("{:?}", self.events),
             &format!("{:?}", other.events),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "level",
             &format!("{:?}", self.level),
             &format!("{:?}", other.level),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "when_clause",
             &format!("{:?}", self.when_clause),
             &format!("{:?}", other.when_clause),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "transition_tables",
             &format!("{:?}", self.transition_tables),
             &format!("{:?}", other.transition_tables),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "function_qname",
             &self.function_qname,
             &other.function_qname,
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "function_args",
             &format!("{:?}", self.function_args),
             &format!("{:?}", other.function_args),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "is_constraint",
             &self.is_constraint,
             &other.is_constraint,
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "deferrable",
             &format!("{:?}", self.deferrable),
             &format!("{:?}", other.deferrable),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
@@ -171,7 +171,7 @@ pub enum TransitionKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::eq::Diff;
+    use crate::ir::eq::Equiv;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -208,7 +208,7 @@ mod tests {
         let a = trg("t1");
         let mut b = trg("t1");
         b.timing = TriggerTiming::After;
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         assert!(d.iter().any(|x| x.path == "timing"));
     }
 
@@ -217,7 +217,7 @@ mod tests {
         let a = trg("t1");
         let mut b = trg("t1");
         b.events = vec![TriggerEvent::Delete];
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         assert!(d.iter().any(|x| x.path == "events"));
     }
 }

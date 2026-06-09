@@ -9,7 +9,7 @@
 use std::fmt::Write as _;
 
 use pgevolve_core::ir::difference::Difference;
-use pgevolve_core::ir::eq::Diff;
+use pgevolve_core::ir::eq::Equiv;
 
 use crate::fixture::Fixture;
 use crate::planning::{PipelineError, parse_sql};
@@ -35,7 +35,7 @@ impl DiffOutcome {
 pub fn check(fixture: &Fixture) -> Result<DiffOutcome, PipelineError> {
     let target = parse_sql(&fixture.before_sql, "before")?;
     let source = parse_sql(&fixture.after_sql, "after")?;
-    let differences: Vec<Difference> = target.diff(&source);
+    let differences: Vec<Difference> = target.differences(&source);
     let rendered = render(&differences);
     let missing = fixture
         .expect

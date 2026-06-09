@@ -24,7 +24,7 @@ mod tests {
         Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
     };
     use pgevolve_core::ir::default_expr::{DefaultExpr, LiteralValue};
-    use pgevolve_core::ir::eq::Diff;
+    use pgevolve_core::ir::eq::Equiv;
     use pgevolve_core::ir::index::{
         Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
     };
@@ -252,8 +252,8 @@ mod tests {
             return Ok(());
         }
 
-        // Fall back to the strict Diff trait for human-readable detail.
-        let diffs = source_canonical.diff(&read_canonical);
+        // Fall back to the strict Equiv trait for human-readable detail.
+        let diffs = source_canonical.differences(&read_canonical);
         if diffs.is_empty() {
             return Ok(());
         }

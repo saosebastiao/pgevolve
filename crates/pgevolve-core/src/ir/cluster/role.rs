@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field, prefix_diffs};
+use crate::ir::eq::{Equiv, field_difference, prefix_differences};
 
 /// A managed Postgres role.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,8 +20,8 @@ pub struct Role {
     pub comment: Option<String>,
 }
 
-impl Diff for Role {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Role {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             name: _,
             attributes: _,
@@ -29,17 +29,17 @@ impl Diff for Role {
             comment: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("name", &self.name, &other.name));
-        out.extend(prefix_diffs(
+        out.extend(field_difference("name", &self.name, &other.name));
+        out.extend(prefix_differences(
             "attributes",
-            Diff::diff(&self.attributes, &other.attributes),
+            Equiv::differences(&self.attributes, &other.attributes),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "member_of",
             &format!("{:?}", self.member_of),
             &format!("{:?}", other.member_of),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
@@ -75,8 +75,8 @@ pub struct RoleAttributes {
     pub valid_until: Option<String>,
 }
 
-impl Diff for RoleAttributes {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for RoleAttributes {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             superuser: _,
             createdb: _,
@@ -89,31 +89,39 @@ impl Diff for RoleAttributes {
             valid_until: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("superuser", &self.superuser, &other.superuser));
-        out.extend(diff_field("createdb", &self.createdb, &other.createdb));
-        out.extend(diff_field(
+        out.extend(field_difference(
+            "superuser",
+            &self.superuser,
+            &other.superuser,
+        ));
+        out.extend(field_difference(
+            "createdb",
+            &self.createdb,
+            &other.createdb,
+        ));
+        out.extend(field_difference(
             "createrole",
             &self.createrole,
             &other.createrole,
         ));
-        out.extend(diff_field("inherit", &self.inherit, &other.inherit));
-        out.extend(diff_field("login", &self.login, &other.login));
-        out.extend(diff_field(
+        out.extend(field_difference("inherit", &self.inherit, &other.inherit));
+        out.extend(field_difference("login", &self.login, &other.login));
+        out.extend(field_difference(
             "replication",
             &self.replication,
             &other.replication,
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "bypass_rls",
             &self.bypass_rls,
             &other.bypass_rls,
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "connection_limit",
             &format!("{:?}", self.connection_limit),
             &format!("{:?}", other.connection_limit),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "valid_until",
             &format!("{:?}", self.valid_until),
             &format!("{:?}", other.valid_until),
@@ -141,7 +149,7 @@ impl Default for RoleAttributes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::eq::Diff;
+    use crate::ir::eq::Equiv;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -166,7 +174,12 @@ mod tests {
         let mut b = base();
         b.attributes.login = true;
         // Per-field path: "attributes.login", not the coarse "attributes".
-        assert!(base().diff(&b).iter().any(|x| x.path == "attributes.login"));
+        assert!(
+            base()
+                .differences(&b)
+                .iter()
+                .any(|x| x.path == "attributes.login")
+        );
     }
 
     #[test]
@@ -175,7 +188,7 @@ mod tests {
         b.attributes.connection_limit = Some(10);
         assert!(
             base()
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path == "attributes.connection_limit")
         );
@@ -187,7 +200,7 @@ mod tests {
         b.attributes.valid_until = Some("2030-01-01T00:00:00Z".into());
         assert!(
             base()
-                .diff(&b)
+                .differences(&b)
                 .iter()
                 .any(|x| x.path == "attributes.valid_until")
         );
@@ -200,7 +213,10 @@ mod tests {
         // The diff must NOT produce the coarse "attributes" path; it should be
         // "attributes.superuser" so callers can introspect individual flags.
         assert!(
-            !base().diff(&b).iter().any(|x| x.path == "attributes"),
+            !base()
+                .differences(&b)
+                .iter()
+                .any(|x| x.path == "attributes"),
             "coarse 'attributes' path must not appear; use per-field paths"
         );
     }
@@ -209,14 +225,14 @@ mod tests {
     fn membership_change_diffs() {
         let mut b = base();
         b.member_of.push(id("readers"));
-        assert!(base().diff(&b).iter().any(|x| x.path == "member_of"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "member_of"));
     }
 
     #[test]
     fn comment_change_diffs() {
         let mut b = base();
         b.comment = Some("the app".into());
-        assert!(base().diff(&b).iter().any(|x| x.path == "comment"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "comment"));
     }
 
     #[test]

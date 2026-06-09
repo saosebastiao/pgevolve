@@ -16,7 +16,7 @@ use pgevolve::executor::ApplyOverrides;
 use pgevolve_core::catalog::{CatalogFilter, read_catalog};
 use pgevolve_core::identifier::Identifier;
 use pgevolve_core::ir::catalog::Catalog;
-use pgevolve_core::ir::eq::Diff;
+use pgevolve_core::ir::eq::Equiv;
 use pgevolve_core::parse::parse_directory;
 use pgevolve_core::plan::Strategy;
 use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
@@ -157,9 +157,9 @@ pub async fn check_with_options(
             after_source: expected_ir,
         })))
     } else {
-        // Fall back to the Diff-trait-based rendering for a human-readable
+        // Fall back to the Equiv-trait-based rendering for a human-readable
         // mismatch description.
-        let diffs = expected_ir.diff(&post_apply_ir);
+        let diffs = expected_ir.differences(&post_apply_ir);
         let rendered = diffs
             .iter()
             .map(|d| format!("{}: {} -> {}", d.path, d.from, d.to))

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
 use crate::ir::difference::Difference;
-use crate::ir::eq::{Diff, diff_field};
+use crate::ir::eq::{Equiv, field_difference};
 
 /// A Postgres schema (namespace).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -20,8 +20,8 @@ pub struct Schema {
     pub grants: Vec<crate::ir::grant::Grant>,
 }
 
-impl Diff for Schema {
-    fn diff(&self, other: &Self) -> Vec<Difference> {
+impl Equiv for Schema {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
         let Self {
             name: _,
             comment: _,
@@ -29,18 +29,18 @@ impl Diff for Schema {
             grants: _,
         } = self;
         let mut out = Vec::new();
-        out.extend(diff_field("name", &self.name, &other.name));
-        out.extend(diff_field(
+        out.extend(field_difference("name", &self.name, &other.name));
+        out.extend(field_difference(
             "comment",
             &format!("{:?}", self.comment),
             &format!("{:?}", other.comment),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "owner",
             &format!("{:?}", self.owner),
             &format!("{:?}", other.owner),
         ));
-        out.extend(diff_field(
+        out.extend(field_difference(
             "grants",
             &format!("{:?}", self.grants),
             &format!("{:?}", other.grants),
@@ -65,7 +65,7 @@ impl Schema {
 mod tests {
     use super::*;
     use crate::identifier::Identifier;
-    use crate::ir::eq::Diff;
+    use crate::ir::eq::Equiv;
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -84,7 +84,7 @@ mod tests {
     fn different_names_diff() {
         let a = base();
         let b = Schema::new(id("billing"));
-        let d = a.diff(&b);
+        let d = a.differences(&b);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].path, "name");
     }
@@ -93,7 +93,7 @@ mod tests {
     fn comment_diffs() {
         let mut b = base();
         b.comment = Some("v2".into());
-        let d = base().diff(&b);
+        let d = base().differences(&b);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].path, "comment");
     }
@@ -102,7 +102,7 @@ mod tests {
     fn owner_change_diffs() {
         let mut b = base();
         b.owner = Some(id("new_owner"));
-        assert!(base().diff(&b).iter().any(|x| x.path == "owner"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "owner"));
     }
 
     #[test]
@@ -114,6 +114,6 @@ mod tests {
             with_grant_option: false,
             columns: None,
         });
-        assert!(base().diff(&b).iter().any(|x| x.path == "grants"));
+        assert!(base().differences(&b).iter().any(|x| x.path == "grants"));
     }
 }
