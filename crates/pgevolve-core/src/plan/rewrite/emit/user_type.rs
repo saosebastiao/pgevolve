@@ -64,11 +64,22 @@ pub fn emit(
         }
 
         U::ReplaceWithCascade { source, catalog } => {
+            // Name every object the inherent `DROP TYPE … CASCADE` destroys, so
+            // the destruction is auditable rather than hidden behind CASCADE.
+            // The emitted SQL is unchanged — only the reason text grows.
+            let deps =
+                crate::plan::type_dependents::enumerate_type_dependents(&catalog.qname, ctx.target);
+            let suffix =
+                crate::plan::type_dependents::render_cascade_destruction(&catalog.qname, &deps);
+            let enriched_reason = match &destructive_reason {
+                Some(base) if !suffix.is_empty() => Some(format!("{base}{suffix}")),
+                other => other.clone(),
+            };
             out.push(RawStep {
                 step_no: 0,
                 kind: StepKind::DropType,
                 destructive,
-                destructive_reason: destructive_reason.clone(),
+                destructive_reason: enriched_reason.clone(),
                 intent_id: None,
                 targets: vec![catalog.qname.clone()],
                 sql: emit_drop_type_cascade(&catalog.qname),
@@ -85,7 +96,7 @@ pub fn emit(
                 // removed dependent columns/views, so the intent gate must
                 // also apply here.
                 destructive,
-                destructive_reason,
+                destructive_reason: enriched_reason,
                 intent_id: None,
                 targets: vec![qname.clone()],
                 sql: emit_create_type(&source),

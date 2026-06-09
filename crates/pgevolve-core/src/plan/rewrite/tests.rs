@@ -1574,3 +1574,135 @@ fn drop_subscription_is_always_outside_transaction() {
     );
     assert_eq!(steps[0].sql, "DROP SUBSCRIPTION mysub;");
 }
+
+// ---- type ReplaceWithCascade names its CASCADE dependents (Phase-4 T2) ----
+
+/// When a type is replaced via `DROP TYPE … CASCADE`, the `destructive_reason`
+/// of both the DROP and the recreate CREATE must name every dependent the
+/// CASCADE destroys — making the inherent destruction auditable. The emitted
+/// SQL is unchanged (still `DROP TYPE … CASCADE`); only the reason text grows.
+#[test]
+fn type_replace_cascade_names_dependents_in_reason() {
+    use crate::diff::change::UserTypeChange;
+    use crate::ir::user_type::{CompositeAttribute, EnumValue, UserType, UserTypeKind};
+    use crate::ir::view::{View, ViewColumn};
+    use crate::parse::normalize_body::NormalizedBody;
+
+    let color = qn("app", "color");
+    let color_ty = ColumnType::UserDefined(color.clone());
+
+    // Live (target) state: `app.color` is an ENUM, used by a table column and a view.
+    let catalog_color = UserType {
+        qname: color.clone(),
+        kind: UserTypeKind::Enum {
+            values: vec![EnumValue {
+                name: "red".into(),
+                sort_order: 1.0,
+            }],
+        },
+        comment: None,
+        owner: None,
+        grants: vec![],
+    };
+    // Desired (source) state: `app.color` becomes a COMPOSITE — a kind change,
+    // which the differ can only realize via DROP … CASCADE + CREATE.
+    let source_color = UserType {
+        qname: color,
+        kind: UserTypeKind::Composite {
+            attributes: vec![CompositeAttribute {
+                name: id("r"),
+                ty: ColumnType::Integer,
+                collation: None,
+            }],
+        },
+        comment: None,
+        owner: None,
+        grants: vec![],
+    };
+
+    let t = Table {
+        qname: qn("app", "t"),
+        columns: vec![col("c", color_ty.clone(), true)],
+        constraints: vec![],
+        partition_by: None,
+        partition_of: None,
+        comment: None,
+        owner: None,
+        grants: vec![],
+        rls_enabled: false,
+        rls_forced: false,
+        policies: vec![],
+        storage: crate::ir::reloptions::TableStorageOptions::default(),
+        access_method: None,
+        tablespace: None,
+    };
+
+    let v = View {
+        qname: qn("app", "v"),
+        columns: vec![ViewColumn {
+            name: id("c"),
+            column_type: Some(color_ty),
+            comment: None,
+        }],
+        body_canonical: NormalizedBody::from_sql("SELECT 1").unwrap(),
+        body_dependencies: vec![],
+        security_barrier: None,
+        security_invoker: None,
+        check_option: None,
+        comment: None,
+        raw_body: String::new(),
+        owner: None,
+        grants: vec![],
+    };
+
+    let mut target = Catalog::empty();
+    target.types.push(catalog_color.clone());
+    target.tables.push(t);
+    target.views.push(v);
+
+    let mut cs = ChangeSet::new();
+    cs.push(
+        Change::UserType(UserTypeChange::ReplaceWithCascade {
+            source: source_color,
+            catalog: catalog_color,
+        }),
+        Destructiveness::RequiresApprovalAndDataLossWarning {
+            reason: "type app.color changed kind".into(),
+        },
+    );
+
+    let steps = rewrite_with_source(
+        OrderedChangeSet {
+            modifies: cs.entries,
+            ..Default::default()
+        },
+        &target,
+        &Catalog::empty(),
+        &PlannerPolicy::default(),
+    );
+
+    let drop = steps
+        .iter()
+        .find(|s| s.kind == StepKind::DropType)
+        .expect("a DropType step is emitted for the cascade replacement");
+    // Emitted SQL body is unchanged.
+    assert_eq!(drop.sql, "DROP TYPE app.color CASCADE;");
+    let reason = drop
+        .destructive_reason
+        .as_deref()
+        .expect("cascade drop carries a destructive reason");
+    assert!(
+        reason.contains("column app.t.c"),
+        "reason must name the dependent column: {reason}"
+    );
+    assert!(
+        reason.contains("view app.v"),
+        "reason must name the dependent view: {reason}"
+    );
+    // The recreate half shares the same enriched reason.
+    let recreate = steps
+        .iter()
+        .find(|s| s.kind == StepKind::CreateType)
+        .expect("a CreateType step is emitted for the cascade recreation");
+    assert_eq!(recreate.destructive_reason.as_deref(), Some(reason));
+}

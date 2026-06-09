@@ -2,9 +2,7 @@
 //! exactly what `DROP TYPE <t> CASCADE` would destroy. Used to make the type
 //! replacement auditable (the destruction is inherent; this names it).
 
-// The destructive-warning site that consumes this enumerator lands in a later
-// Phase-4 task; until then these items have no in-tree caller outside tests.
-#![allow(dead_code)]
+use std::fmt::Write as _;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::cast::CastMethod;
@@ -138,6 +136,49 @@ pub fn enumerate_type_dependents(ty: &QualifiedName, target: &Catalog) -> Vec<Ty
 
     out.sort();
     out.dedup();
+    out
+}
+
+/// Render `deps` as a destructive-warning suffix naming everything a
+/// `DROP TYPE <ty> CASCADE` will additionally destroy, e.g.
+/// `"; DROP TYPE app.color CASCADE will also destroy: column app.t.c, view app.v,
+/// function app.f, aggregate app.a, cast (app.color AS pg_catalog.text)"`.
+///
+/// `deps` is assumed already deterministically ordered (as produced by
+/// [`enumerate_type_dependents`]). An empty slice yields an empty string — a
+/// type with no dependents drops cleanly and needs no suffix.
+pub fn render_cascade_destruction(ty: &QualifiedName, deps: &[TypeDependent]) -> String {
+    if deps.is_empty() {
+        return String::new();
+    }
+    let mut out = format!(
+        "; DROP TYPE {} CASCADE will also destroy: ",
+        ty.render_sql()
+    );
+    for (i, dep) in deps.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        // Writing to a `String` is infallible; the result is discarded.
+        let _ = match dep {
+            TypeDependent::Column { table, column } => {
+                write!(out, "column {}.{}", table.render_sql(), column.render_sql())
+            }
+            TypeDependent::View(q) => write!(out, "view {}", q.render_sql()),
+            TypeDependent::MaterializedView(q) => {
+                write!(out, "materialized view {}", q.render_sql())
+            }
+            TypeDependent::Routine(q) => write!(out, "routine {}", q.render_sql()),
+            TypeDependent::Type(q) => write!(out, "type {}", q.render_sql()),
+            TypeDependent::Aggregate(q) => write!(out, "aggregate {}", q.render_sql()),
+            TypeDependent::Cast { source, target } => write!(
+                out,
+                "cast ({} AS {})",
+                source.render_sql(),
+                target.render_sql()
+            ),
+        };
+    }
     out
 }
 
