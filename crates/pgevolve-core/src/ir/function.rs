@@ -111,6 +111,30 @@ impl Equiv for Function {
     // failure messages identify exactly what diverged.
     #[allow(clippy::too_many_lines)]
     fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added to
+        // `Function` without being handled below. `qname` and
+        // `arg_types_normalized` are covered by the `self == other` early-out
+        // plus the `<unknown field divergence>` fallback rather than an explicit
+        // `push`. Bindings are unused (values read via `self`/`other`).
+        let Self {
+            qname: _,
+            args: _,
+            arg_types_normalized: _,
+            return_type: _,
+            language: _,
+            body: _,
+            body_dependencies: _,
+            volatility: _,
+            strict: _,
+            security: _,
+            parallel: _,
+            leakproof: _,
+            cost: _,
+            rows: _,
+            comment: _,
+            owner: _,
+            grants: _,
+        } = self;
         if self == other {
             return Vec::new();
         }

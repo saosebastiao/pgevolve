@@ -48,6 +48,25 @@ pub struct Table {
 
 impl Equiv for Table {
     fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added to
+        // `Table` without being handled below. Bindings are unused (values are
+        // read via `self`/`other`); the destructure exists only for the check.
+        let Self {
+            qname: _,
+            columns: _,
+            constraints: _,
+            partition_by: _,
+            partition_of: _,
+            comment: _,
+            owner: _,
+            grants: _,
+            rls_enabled: _,
+            rls_forced: _,
+            policies: _,
+            storage: _,
+            access_method: _,
+            tablespace: _,
+        } = self;
         let mut out = Vec::new();
         out.extend(field_difference("qname", &self.qname, &other.qname));
         out.extend(field_difference(

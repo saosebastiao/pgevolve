@@ -215,6 +215,22 @@ impl Equiv for View {
 
 impl Equiv for MaterializedView {
     fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added to
+        // `MaterializedView` without being handled below. `raw_body` is a
+        // `#[serde(skip)]` parser-transient field consumed by canon and not part
+        // of canonical identity, so it is intentionally not diffed. Bindings are
+        // unused (values read via `self`/`other`).
+        let Self {
+            qname: _,
+            columns: _,
+            body_canonical: _,
+            body_dependencies: _,
+            comment: _,
+            raw_body: _,
+            owner: _,
+            grants: _,
+            storage: _,
+        } = self;
         let mut out = Vec::new();
         out.extend(field_difference("qname", &self.qname, &other.qname));
         out.extend(field_difference(
