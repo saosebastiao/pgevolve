@@ -26,10 +26,19 @@ pub fn create_collation(c: &Collation) -> String {
     let mut opts: Vec<String> = Vec::with_capacity(4);
     opts.push(format!("provider = {}", c.provider.sql_keyword()));
     if c.lc_collate == c.lc_ctype {
-        opts.push(format!("locale = '{}'", escape_sql_str(&c.lc_collate)));
+        opts.push(format!(
+            "locale = '{}'",
+            super::sql::escape_sql_literal_body(&c.lc_collate)
+        ));
     } else {
-        opts.push(format!("lc_collate = '{}'", escape_sql_str(&c.lc_collate)));
-        opts.push(format!("lc_ctype = '{}'", escape_sql_str(&c.lc_ctype)));
+        opts.push(format!(
+            "lc_collate = '{}'",
+            super::sql::escape_sql_literal_body(&c.lc_collate)
+        ));
+        opts.push(format!(
+            "lc_ctype = '{}'",
+            super::sql::escape_sql_literal_body(&c.lc_ctype)
+        ));
     }
     if !c.deterministic {
         opts.push("deterministic = false".into());
@@ -61,14 +70,11 @@ pub fn rename_collation(from: &QualifiedName, to: &Identifier) -> String {
 /// `None`.
 #[must_use]
 pub fn comment_on_collation(qname: &QualifiedName, comment: Option<&str>) -> String {
-    let body = comment.map_or_else(|| "NULL".to_owned(), |c| format!("'{}'", escape_sql_str(c)));
+    let body = comment.map_or_else(
+        || "NULL".to_owned(),
+        |c| format!("'{}'", super::sql::escape_sql_literal_body(c)),
+    );
     format!("COMMENT ON COLLATION {} IS {body};", qname.render_sql())
-}
-
-/// Escape single quotes by doubling them — the standard SQL string-literal
-/// escape used everywhere else in the renderer.
-fn escape_sql_str(s: &str) -> String {
-    s.replace('\'', "''")
 }
 
 #[cfg(test)]

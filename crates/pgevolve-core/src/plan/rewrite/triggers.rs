@@ -90,7 +90,7 @@ pub(crate) fn comment_on_trigger(
             "COMMENT ON TRIGGER {} ON {} IS '{}';",
             qname.name.as_str(),
             table.render_sql(),
-            escape_sql_string(c),
+            super::sql::escape_sql_literal_body(c),
         ),
         None => format!(
             "COMMENT ON TRIGGER {} ON {} IS NULL;",
@@ -148,13 +148,9 @@ const fn render_deferrable(d: crate::ir::constraint::Deferrable) -> &'static str
 
 fn render_args(args: &[String]) -> String {
     args.iter()
-        .map(|a| format!("'{}'", escape_sql_string(a)))
+        .map(|a| format!("'{}'", super::sql::escape_sql_literal_body(a)))
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-fn escape_sql_string(s: &str) -> String {
-    s.replace('\'', "''")
 }
 
 #[cfg(test)]

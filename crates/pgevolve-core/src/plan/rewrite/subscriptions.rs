@@ -19,7 +19,7 @@ pub fn create_subscription(s: &Subscription) -> String {
     let mut out = format!("CREATE SUBSCRIPTION {} ", s.name.render_sql());
     out.push_str(&format!(
         "CONNECTION '{}' ",
-        escape_sql_literal(&s.connection)
+        super::sql::escape_sql_literal_body(&s.connection)
     ));
     out.push_str("PUBLICATION ");
     let pubs: Vec<String> = s.publications.iter().map(Identifier::render_sql).collect();
@@ -45,7 +45,7 @@ pub fn alter_subscription_connection(name: &Identifier, new_connection: &str) ->
     format!(
         "ALTER SUBSCRIPTION {} CONNECTION '{}';",
         name.render_sql(),
-        escape_sql_literal(new_connection),
+        super::sql::escape_sql_literal_body(new_connection),
     )
 }
 
@@ -193,10 +193,6 @@ const fn origin_keyword(m: OriginMode) -> &'static str {
         OriginMode::Any => "any",
         OriginMode::None => "none",
     }
-}
-
-fn escape_sql_literal(s: &str) -> String {
-    s.replace('\'', "''")
 }
 
 #[cfg(test)]

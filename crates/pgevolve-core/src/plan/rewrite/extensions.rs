@@ -14,7 +14,10 @@ pub(crate) fn create_extension(e: &Extension) -> String {
         sql.push_str(&format!(" WITH SCHEMA {}", schema.render_sql()));
     }
     if let Some(version) = &e.version {
-        sql.push_str(&format!(" VERSION '{}'", escape_sql_string(version)));
+        sql.push_str(&format!(
+            " VERSION '{}'",
+            super::sql::escape_sql_literal_body(version)
+        ));
     }
     sql.push(';');
     sql
@@ -32,7 +35,7 @@ pub(crate) fn alter_extension_update(name: &Identifier, to_version: &str) -> Str
     format!(
         "ALTER EXTENSION {} UPDATE TO '{}';",
         name.render_sql(),
-        escape_sql_string(to_version),
+        super::sql::escape_sql_literal_body(to_version),
     )
 }
 
@@ -43,14 +46,10 @@ pub(crate) fn comment_on_extension(name: &Identifier, comment: Option<&str>) -> 
         Some(c) => format!(
             "COMMENT ON EXTENSION {} IS '{}';",
             name.render_sql(),
-            escape_sql_string(c),
+            super::sql::escape_sql_literal_body(c),
         ),
         None => format!("COMMENT ON EXTENSION {} IS NULL;", name.render_sql()),
     }
-}
-
-fn escape_sql_string(s: &str) -> String {
-    s.replace('\'', "''")
 }
 
 #[cfg(test)]

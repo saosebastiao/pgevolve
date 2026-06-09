@@ -840,9 +840,23 @@ fn render_owner(o: &SequenceOwner) -> String {
     format!("{}.{}", o.table.render_sql(), o.column.render_sql())
 }
 
+/// Render `s` as a complete single-quoted SQL string literal (doubles embedded
+/// single quotes). The single place literal escaping is defined.
+#[must_use]
+pub(crate) fn sql_string_literal(s: &str) -> String {
+    format!("'{}'", escape_sql_literal_body(s))
+}
+
+/// Double embedded single quotes for embedding inside a manually-quoted SQL
+/// literal. Prefer [`sql_string_literal`] when you control the whole literal.
+#[must_use]
+pub(crate) fn escape_sql_literal_body(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
 fn render_comment(comment: Option<&str>) -> String {
     match comment {
-        Some(t) => format!("'{}'", t.replace('\'', "''")),
+        Some(t) => sql_string_literal(t),
         None => "NULL".into(),
     }
 }
