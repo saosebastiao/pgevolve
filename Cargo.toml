@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
   "crates/pgevolve-core",
-  "crates/pgevolve-core-macros",
   "crates/pgevolve",
   "crates/pgevolve-conformance",
   "crates/pgevolve-testkit",

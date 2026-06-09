@@ -1,5 +1,0 @@
-error: #[derive(Diff)] only supports structs with named fields
- --> tests/ui/on_enum.rs:4:1
-  |
-4 | enum E {
-  | ^^^^

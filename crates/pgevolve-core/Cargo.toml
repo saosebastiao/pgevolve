@@ -18,7 +18,6 @@ workspace = true
 
 [dependencies]
 pg_query              = { workspace = true }
-pgevolve-core-macros  = { version = "0.2.1", path = "../pgevolve-core-macros" }
 regex       = { workspace = true }
 thiserror   = { workspace = true }
 serde       = { workspace = true }

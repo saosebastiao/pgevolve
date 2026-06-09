@@ -1,5 +1,0 @@
-error: unknown #[diff(...)] attribute; supported: skip, via_debug, nested
- --> tests/ui/unknown_attr.rs:5:12
-  |
-5 |     #[diff(rename = "x")]
-  |            ^^^^^^
