@@ -220,10 +220,7 @@ mod tests {
     fn different_state_type_replaces() {
         let t = basic_agg("my_sum");
         let mut s = basic_agg("my_sum");
-        s.state_type = ColumnType::Numeric {
-            precision: None,
-            scale: None,
-        };
+        s.state_type = ColumnType::Numeric { precision: None };
         let changes = run(&cat(vec![t]), &cat(vec![s]));
         assert_eq!(changes.len(), 1);
         assert!(matches!(

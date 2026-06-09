@@ -110,7 +110,7 @@ mod tests {
 
     use pg_query::protobuf::CompositeTypeStmt as PgCompositeTypeStmt;
 
-    use crate::ir::column_type::ColumnType;
+    use crate::ir::column_type::{ColumnType, NumericPrecision};
     use crate::ir::user_type::UserTypeKind;
 
     fn loc() -> SourceLocation {
@@ -173,8 +173,10 @@ mod tests {
         assert_eq!(
             attributes[2].ty,
             ColumnType::Numeric {
-                precision: Some(10),
-                scale: Some(2)
+                precision: Some(NumericPrecision {
+                    precision: 10,
+                    scale: Some(2)
+                })
             }
         );
     }

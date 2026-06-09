@@ -535,10 +535,7 @@ mod tests {
     fn type_default_for_numeric_is_main() {
         let mut c = col(
             "amount",
-            ColumnType::Numeric {
-                precision: None,
-                scale: None,
-            },
+            ColumnType::Numeric { precision: None },
         );
         c.storage = Some(StorageKind::Main);
         normalize_column_storage(&mut c);

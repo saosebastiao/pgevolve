@@ -24,12 +24,14 @@ pub enum ColumnType {
     Real,
     /// `double precision` / `float8`.
     DoublePrecision,
-    /// `numeric` / `decimal` with optional precision and scale.
+    /// `numeric` / `decimal` with optional precision (and, only then, optional scale).
+    /// `precision: None` = unbounded `numeric`.
     Numeric {
-        /// Total digits (1..=1000); `None` = unbounded.
-        precision: Option<u16>,
-        /// Digits to the right of the decimal point; `None` = 0 by default.
-        scale: Option<i16>,
+        /// `None` = unbounded `numeric`; `Some` constrains precision (and
+        /// optionally scale). Wrapping the pair in [`NumericPrecision`] makes
+        /// the old `precision: None, scale: Some(_)` illegal state
+        /// unrepresentable.
+        precision: Option<NumericPrecision>,
     },
     /// `text`.
     Text,
@@ -102,6 +104,19 @@ pub enum ColumnType {
     },
 }
 
+/// Precision/scale for a constrained `numeric(p[, s])`.
+///
+/// Scale is representable only *with* a precision — Postgres has no
+/// `numeric(,s)` form — so the previous `precision: None, scale: Some(_)`
+/// illegal state cannot be constructed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct NumericPrecision {
+    /// Total digits (1..=1000).
+    pub precision: u16,
+    /// Digits to the right of the decimal point; `None` = scale 0.
+    pub scale: Option<i16>,
+}
+
 /// Network-address subtype.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -168,22 +183,25 @@ impl ColumnType {
             Self::BigInt => "bigint".into(),
             Self::Real => "real".into(),
             Self::DoublePrecision => "double precision".into(),
+            Self::Numeric { precision: None } => "numeric".into(),
             Self::Numeric {
-                precision: None,
-                scale: None,
-            } => "numeric".into(),
+                precision:
+                    Some(NumericPrecision {
+                        precision,
+                        scale: None,
+                    }),
+            } => {
+                format!("numeric({precision})")
+            }
             Self::Numeric {
-                precision: Some(p),
-                scale: None,
-            } => format!("numeric({p})"),
-            Self::Numeric {
-                precision: Some(p),
-                scale: Some(s),
-            } => format!("numeric({p},{s})"),
-            Self::Numeric {
-                precision: None,
-                scale: Some(_),
-            } => unreachable!("scale without precision should never be constructed"),
+                precision:
+                    Some(NumericPrecision {
+                        precision,
+                        scale: Some(s),
+                    }),
+            } => {
+                format!("numeric({precision},{s})")
+            }
             Self::Text => "text".into(),
             Self::Varchar { len: None } => "varchar".into(),
             Self::Varchar { len: Some(n) } => format!("varchar({n})"),
@@ -308,10 +326,7 @@ fn parse_canonical(s: &str) -> Option<ColumnType> {
         "macaddr8" => Some(ColumnType::NetAddress(NetAddressKind::MacAddr8)),
         "varchar" | "character varying" => Some(ColumnType::Varchar { len: None }),
         "char" | "character" | "bpchar" => Some(ColumnType::Char { len: None }),
-        "numeric" | "decimal" => Some(ColumnType::Numeric {
-            precision: None,
-            scale: None,
-        }),
+        "numeric" | "decimal" => Some(ColumnType::Numeric { precision: None }),
         "timestamp" | "timestamp without time zone" => Some(ColumnType::Timestamp {
             precision: None,
             with_tz: false,
@@ -354,16 +369,10 @@ fn parse_canonical(s: &str) -> Option<ColumnType> {
         }
         "numeric" | "decimal" => {
             let mut parts = args.split(',').map(str::trim);
-            let p: u16 = parts.next()?.parse().ok()?;
-            let scale = parts
-                .next()
-                .map(str::trim)
-                .map(str::parse)
-                .transpose()
-                .ok()?;
+            let precision: u16 = parts.next()?.parse().ok()?;
+            let scale = parts.next().map(str::trim).map(str::parse).transpose().ok()?;
             Some(ColumnType::Numeric {
-                precision: Some(p),
-                scale,
+                precision: Some(NumericPrecision { precision, scale }),
             })
         }
         "timestamp" | "timestamp without time zone" => {
@@ -545,23 +554,24 @@ mod tests {
         assert_eq!(
             ColumnType::parse_from_pg_type_string("numeric(10,2)").unwrap(),
             ColumnType::Numeric {
-                precision: Some(10),
-                scale: Some(2)
+                precision: Some(NumericPrecision {
+                    precision: 10,
+                    scale: Some(2)
+                })
             }
         );
         assert_eq!(
             ColumnType::parse_from_pg_type_string("numeric(10)").unwrap(),
             ColumnType::Numeric {
-                precision: Some(10),
-                scale: None
+                precision: Some(NumericPrecision {
+                    precision: 10,
+                    scale: None
+                })
             }
         );
         assert_eq!(
             ColumnType::parse_from_pg_type_string("decimal").unwrap(),
-            ColumnType::Numeric {
-                precision: None,
-                scale: None
-            }
+            ColumnType::Numeric { precision: None }
         );
         assert_eq!(
             ColumnType::parse_from_pg_type_string("timestamp").unwrap(),
@@ -634,13 +644,12 @@ mod tests {
             ColumnType::Varchar { len: None },
             ColumnType::Varchar { len: Some(50) },
             ColumnType::Char { len: Some(8) },
+            ColumnType::Numeric { precision: None },
             ColumnType::Numeric {
-                precision: None,
-                scale: None,
-            },
-            ColumnType::Numeric {
-                precision: Some(10),
-                scale: Some(2),
+                precision: Some(NumericPrecision {
+                    precision: 10,
+                    scale: Some(2),
+                }),
             },
             ColumnType::Timestamp {
                 precision: None,
@@ -678,6 +687,22 @@ mod tests {
     }
 
     #[test]
+    fn numeric_scale_requires_precision_by_construction() {
+        let n = ColumnType::Numeric {
+            precision: Some(NumericPrecision {
+                precision: 10,
+                scale: Some(2),
+            }),
+        };
+        let j = serde_json::to_string(&n).unwrap();
+        assert_eq!(
+            ColumnType::parse_from_pg_type_string(&n.render_sql()).unwrap(),
+            n
+        );
+        assert_eq!(serde_json::from_str::<ColumnType>(&j).unwrap(), n);
+    }
+
+    #[test]
     fn empty_returns_error() {
         assert!(matches!(
             ColumnType::parse_from_pg_type_string(""),
@@ -701,13 +726,12 @@ mod tests {
             ColumnType::BigInt,
             ColumnType::Real,
             ColumnType::DoublePrecision,
+            ColumnType::Numeric { precision: None },
             ColumnType::Numeric {
-                precision: None,
-                scale: None,
-            },
-            ColumnType::Numeric {
-                precision: Some(10),
-                scale: Some(2),
+                precision: Some(NumericPrecision {
+                    precision: 10,
+                    scale: Some(2),
+                }),
             },
             ColumnType::Text,
             ColumnType::Varchar { len: None },

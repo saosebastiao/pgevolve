@@ -79,8 +79,10 @@
           "name": "amt",
           "ty": {
             "kind": "numeric",
-            "precision": 10,
-            "scale": 2
+            "precision": {
+              "precision": 10,
+              "scale": 2
+            }
           },
           "nullable": false,
           "default": null,

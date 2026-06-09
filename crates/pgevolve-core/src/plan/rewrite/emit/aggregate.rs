@@ -409,10 +409,7 @@ mod tests {
     fn emit_replace_first_step_is_drop() {
         let from = make_agg();
         let mut to = make_agg();
-        to.state_type = ColumnType::Numeric {
-            precision: None,
-            scale: None,
-        };
+        to.state_type = ColumnType::Numeric { precision: None };
         let mut out = Vec::new();
         emit(AggregateChange::Replace { from, to }, true, None, &mut out);
         assert!(

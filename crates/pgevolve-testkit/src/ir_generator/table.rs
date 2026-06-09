@@ -205,10 +205,7 @@ pub fn arbitrary_column_type() -> impl Strategy<Value = ColumnType> {
         Just(ColumnType::Jsonb),
         Just(ColumnType::Date),
         Just(ColumnType::Bytea),
-        Just(ColumnType::Numeric {
-            precision: None,
-            scale: None,
-        }),
+        Just(ColumnType::Numeric { precision: None }),
         Just(ColumnType::Timestamp {
             precision: None,
             with_tz: true,
