@@ -113,7 +113,34 @@ impl Catalog {
 }
 
 impl Equiv for Catalog {
+    #[allow(clippy::too_many_lines)] // one diff_keyed block per collection — extracting would obscure the table.
     fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a collection is
+        // added to `Catalog` without being handled below. Every one of the
+        // 21 collections is diffed; bindings are unused (read via `self`).
+        let Self {
+            schemas: _,
+            extensions: _,
+            tables: _,
+            indexes: _,
+            sequences: _,
+            views: _,
+            materialized_views: _,
+            types: _,
+            functions: _,
+            procedures: _,
+            triggers: _,
+            publications: _,
+            event_triggers: _,
+            statistics: _,
+            subscriptions: _,
+            collations: _,
+            default_privileges: _,
+            aggregates: _,
+            casts: _,
+            ts_dictionaries: _,
+            ts_configurations: _,
+        } = self;
         let mut out = Vec::new();
         out.extend(prefix_differences(
             "schemas",
@@ -181,6 +208,74 @@ impl Equiv for Catalog {
                     r.schema.as_ref().map_or("*", |s| s.as_str()),
                     r.object_type.sql_keyword(),
                 )
+            }),
+        ));
+        // Publications: keyed by name (canon dedup key — global namespace).
+        out.extend(prefix_differences(
+            "publications",
+            diff_keyed(&self.publications, &other.publications, |p| {
+                p.name.to_string()
+            }),
+        ));
+        // Subscriptions: keyed by name (canon dedup key — global namespace).
+        out.extend(prefix_differences(
+            "subscriptions",
+            diff_keyed(&self.subscriptions, &other.subscriptions, |s| {
+                s.name.to_string()
+            }),
+        ));
+        // Statistics: keyed by qname (canon dedup key).
+        out.extend(prefix_differences(
+            "statistics",
+            diff_keyed(&self.statistics, &other.statistics, |s| s.qname.to_string()),
+        ));
+        // Event triggers: keyed by name (canon dedup key — global namespace).
+        out.extend(prefix_differences(
+            "event_triggers",
+            diff_keyed(&self.event_triggers, &other.event_triggers, |et| {
+                et.name.to_string()
+            }),
+        ));
+        // Collations: keyed by qname (canon dedup key).
+        out.extend(prefix_differences(
+            "collations",
+            diff_keyed(&self.collations, &other.collations, |c| c.qname.to_string()),
+        ));
+        // Aggregates: keyed by (qname, arg_types) — overloadable; mirrors the
+        // canon dedup identity `(qname, arg_types_key)`.
+        out.extend(prefix_differences(
+            "aggregates",
+            diff_keyed(&self.aggregates, &other.aggregates, |a| {
+                format!(
+                    "{}({})",
+                    a.qname,
+                    a.arg_types
+                        .iter()
+                        .map(crate::ir::column_type::ColumnType::render_sql)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }),
+        ));
+        // Casts: keyed by (source, target) — canon dedup identity.
+        out.extend(prefix_differences(
+            "casts",
+            diff_keyed(&self.casts, &other.casts, |c| {
+                format!("{}->{}", c.source.render_sql(), c.target.render_sql())
+            }),
+        ));
+        // Text-search dictionaries: keyed by qname (canon dedup key).
+        out.extend(prefix_differences(
+            "ts_dictionaries",
+            diff_keyed(&self.ts_dictionaries, &other.ts_dictionaries, |d| {
+                d.qname.to_string()
+            }),
+        ));
+        // Text-search configurations: keyed by qname (canon dedup key).
+        out.extend(prefix_differences(
+            "ts_configurations",
+            diff_keyed(&self.ts_configurations, &other.ts_configurations, |c| {
+                c.qname.to_string()
             }),
         ));
         out
@@ -322,6 +417,72 @@ mod tests {
             r,
             Err(IrError::DuplicateObject { kind: "table", .. })
         ));
+    }
+
+    #[test]
+    fn publication_change_diffs() {
+        use crate::ir::publication::{Publication, PublicationScope, PublishKinds};
+        let mut b = Catalog::empty();
+        b.publications.push(Publication {
+            name: id("p"),
+            scope: PublicationScope::AllTables,
+            publish: PublishKinds::pg_default(),
+            publish_via_partition_root: false,
+            owner: None,
+            comment: None,
+        });
+        assert!(
+            Catalog::empty()
+                .differences(&b)
+                .iter()
+                .any(|x| x.path.starts_with("publications")),
+            "adding a publication must be reported (was silently ignored before)",
+        );
+    }
+
+    #[test]
+    fn cast_change_diffs() {
+        use crate::ir::cast::{Cast, CastContext, CastMethod};
+        let mut b = Catalog::empty();
+        b.casts.push(Cast {
+            source: qn("src"),
+            target: qn("tgt"),
+            method: CastMethod::Binary,
+            context: CastContext::Explicit,
+            comment: None,
+        });
+        assert!(
+            Catalog::empty()
+                .differences(&b)
+                .iter()
+                .any(|x| x.path.starts_with("casts")),
+            "adding a cast must be reported (was silently ignored before)",
+        );
+    }
+
+    #[test]
+    fn aggregate_overload_keyed_by_arg_types() {
+        use crate::ir::aggregate::Aggregate;
+        let agg = |args: Vec<ColumnType>| Aggregate {
+            qname: qn("my_agg"),
+            arg_types: args,
+            state_type: ColumnType::BigInt,
+            sfunc: qn("sfunc"),
+            finalfunc: None,
+            initcond: None,
+            owner: None,
+            comment: None,
+        };
+        let mut a = Catalog::empty();
+        a.aggregates.push(agg(vec![ColumnType::Integer]));
+        let mut b = Catalog::empty();
+        b.aggregates.push(agg(vec![ColumnType::BigInt]));
+        // Different arg types => distinct identities => present/removed + added.
+        let d = a.differences(&b);
+        assert!(
+            d.iter().any(|x| x.path.starts_with("aggregates")),
+            "differing aggregate overloads must be reported: {d:?}",
+        );
     }
 
     #[test]

@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Equiv, field_difference};
 
 /// A `CREATE EVENT TRIGGER` object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,6 +25,55 @@ pub struct EventTrigger {
     pub owner: Option<Identifier>,
     /// Optional comment.
     pub comment: Option<String>,
+}
+
+impl Equiv for EventTrigger {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added
+        // without being handled below. Bindings are unused (read via `self`).
+        let Self {
+            name: _,
+            event: _,
+            tag_filter: _,
+            function: _,
+            enabled: _,
+            owner: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(field_difference("name", &self.name, &other.name));
+        out.extend(field_difference(
+            "event",
+            &format!("{:?}", self.event),
+            &format!("{:?}", other.event),
+        ));
+        out.extend(field_difference(
+            "tag_filter",
+            &format!("{:?}", self.tag_filter),
+            &format!("{:?}", other.tag_filter),
+        ));
+        out.extend(field_difference(
+            "function",
+            &self.function,
+            &other.function,
+        ));
+        out.extend(field_difference(
+            "enabled",
+            &format!("{:?}", self.enabled),
+            &format!("{:?}", other.enabled),
+        ));
+        out.extend(field_difference(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(field_difference(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 /// The DDL event an event trigger fires on (`pg_event_trigger.evtevent`).

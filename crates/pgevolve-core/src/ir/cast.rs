@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::QualifiedName;
 use crate::ir::column_type::ColumnType;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Equiv, field_difference};
 
 /// A `CREATE CAST` object. Identity is `(source, target)`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,6 +20,39 @@ pub struct Cast {
     pub context: CastContext,
     /// Optional comment.
     pub comment: Option<String>,
+}
+
+impl Equiv for Cast {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added
+        // without being handled below. Bindings are unused (read via `self`).
+        let Self {
+            source: _,
+            target: _,
+            method: _,
+            context: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(field_difference("source", &self.source, &other.source));
+        out.extend(field_difference("target", &self.target, &other.target));
+        out.extend(field_difference(
+            "method",
+            &format!("{:?}", self.method),
+            &format!("{:?}", other.method),
+        ));
+        out.extend(field_difference(
+            "context",
+            &format!("{:?}", self.context),
+            &format!("{:?}", other.context),
+        ));
+        out.extend(field_difference(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 /// The conversion mechanism for a `CREATE CAST`.

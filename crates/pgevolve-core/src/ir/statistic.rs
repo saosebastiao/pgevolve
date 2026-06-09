@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_expr::NormalizedExpr;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Equiv, field_difference};
 
 /// Declarative model of a Postgres `CREATE STATISTICS` object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +32,51 @@ pub struct Statistic {
     pub owner: Option<Identifier>,
     /// Optional `COMMENT ON STATISTICS`.
     pub comment: Option<String>,
+}
+
+impl Equiv for Statistic {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added
+        // without being handled below. Bindings are unused (read via `self`).
+        let Self {
+            qname: _,
+            target: _,
+            kinds: _,
+            columns: _,
+            statistics_target: _,
+            owner: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference("target", &self.target, &other.target));
+        out.extend(field_difference(
+            "kinds",
+            &format!("{:?}", self.kinds),
+            &format!("{:?}", other.kinds),
+        ));
+        out.extend(field_difference(
+            "columns",
+            &format!("{:?}", self.columns),
+            &format!("{:?}", other.columns),
+        ));
+        out.extend(field_difference(
+            "statistics_target",
+            &format!("{:?}", self.statistics_target),
+            &format!("{:?}", other.statistics_target),
+        ));
+        out.extend(field_difference(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(field_difference(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 /// Which `kinds` flags are enabled on a `CREATE STATISTICS` object.

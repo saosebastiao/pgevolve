@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Equiv, field_difference};
 
 /// A `CREATE TEXT SEARCH DICTIONARY` object. Identity is `qname`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,6 +20,43 @@ pub struct TsDictionary {
     pub owner: Option<Identifier>,
     /// Optional comment.
     pub comment: Option<String>,
+}
+
+impl Equiv for TsDictionary {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added
+        // without being handled below. Bindings are unused (read via `self`).
+        let Self {
+            qname: _,
+            template: _,
+            options: _,
+            owner: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference(
+            "template",
+            &self.template,
+            &other.template,
+        ));
+        out.extend(field_difference(
+            "options",
+            &format!("{:?}", self.options),
+            &format!("{:?}", other.options),
+        ));
+        out.extend(field_difference(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(field_difference(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 #[cfg(test)]

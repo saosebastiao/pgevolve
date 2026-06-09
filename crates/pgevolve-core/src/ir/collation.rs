@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Equiv, field_difference};
 
 /// A user-defined collation managed by pgevolve.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +31,58 @@ pub struct Collation {
     pub owner: Option<Identifier>,
     /// `COMMENT ON COLLATION qname IS '...'`.
     pub comment: Option<String>,
+}
+
+impl Equiv for Collation {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added
+        // without being handled below. `version` is read-only (`pg_collation.
+        // collversion`); source declares it `None` and the differ ignores it,
+        // so it is intentionally excluded from equivalence.
+        let Self {
+            qname: _,
+            provider: _,
+            lc_collate: _,
+            lc_ctype: _,
+            deterministic: _,
+            version: _, // read-only collversion, ignored by the differ
+            owner: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference(
+            "provider",
+            &format!("{:?}", self.provider),
+            &format!("{:?}", other.provider),
+        ));
+        out.extend(field_difference(
+            "lc_collate",
+            &self.lc_collate,
+            &other.lc_collate,
+        ));
+        out.extend(field_difference(
+            "lc_ctype",
+            &self.lc_ctype,
+            &other.lc_ctype,
+        ));
+        out.extend(field_difference(
+            "deterministic",
+            &format!("{:?}", self.deterministic),
+            &format!("{:?}", other.deterministic),
+        ));
+        out.extend(field_difference(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(field_difference(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 /// Locale-data provider — controls which OS / library produces the

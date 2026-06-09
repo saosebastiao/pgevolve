@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::default_expr::NormalizedExpr;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Equiv, field_difference};
 
 /// Declarative model of a Postgres `PUBLICATION`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +32,49 @@ pub struct Publication {
     pub owner: Option<Identifier>,
     /// Optional comment.
     pub comment: Option<String>,
+}
+
+impl Equiv for Publication {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added
+        // without being handled below. Bindings are unused (read via `self`).
+        let Self {
+            name: _,
+            scope: _,
+            publish: _,
+            publish_via_partition_root: _,
+            owner: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(field_difference("name", &self.name, &other.name));
+        out.extend(field_difference(
+            "scope",
+            &format!("{:?}", self.scope),
+            &format!("{:?}", other.scope),
+        ));
+        out.extend(field_difference(
+            "publish",
+            &format!("{:?}", self.publish),
+            &format!("{:?}", other.publish),
+        ));
+        out.extend(field_difference(
+            "publish_via_partition_root",
+            &format!("{:?}", self.publish_via_partition_root),
+            &format!("{:?}", other.publish_via_partition_root),
+        ));
+        out.extend(field_difference(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(field_difference(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 /// Target set of a publication. Encodes PG's mutual exclusion of

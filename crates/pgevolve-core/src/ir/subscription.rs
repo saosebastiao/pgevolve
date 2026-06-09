@@ -15,6 +15,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::identifier::Identifier;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Equiv, field_difference};
 
 /// Declarative model of a Postgres `SUBSCRIPTION`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +37,49 @@ pub struct Subscription {
     pub owner: Option<Identifier>,
     /// Optional comment.
     pub comment: Option<String>,
+}
+
+impl Equiv for Subscription {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added
+        // without being handled below. Bindings are unused (read via `self`).
+        let Self {
+            name: _,
+            connection: _,
+            publications: _,
+            options: _,
+            owner: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(field_difference("name", &self.name, &other.name));
+        out.extend(field_difference(
+            "connection",
+            &self.connection,
+            &other.connection,
+        ));
+        out.extend(field_difference(
+            "publications",
+            &format!("{:?}", self.publications),
+            &format!("{:?}", other.publications),
+        ));
+        out.extend(field_difference(
+            "options",
+            &format!("{:?}", self.options),
+            &format!("{:?}", other.options),
+        ));
+        out.extend(field_difference(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(field_difference(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 /// Per-field lenient WITH options for a `Subscription`.

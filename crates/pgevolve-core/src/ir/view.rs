@@ -121,7 +121,27 @@ fn render_column_type(ty: Option<&ColumnType>) -> String {
 }
 
 impl Equiv for View {
+    #[allow(clippy::too_many_lines)] // flat field-by-field table plus column pairing — extraction would obscure intent.
     fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added to
+        // `View` without being handled below. `raw_body` is a `#[serde(skip)]`
+        // parser-transient field consumed by canon (it populates
+        // `body_canonical` / `body_dependencies`); it is not part of canonical
+        // identity, so it is intentionally not diffed. Bindings are unused
+        // (values read via `self`/`other`).
+        let Self {
+            qname: _,
+            columns: _,
+            body_canonical: _,
+            body_dependencies: _,
+            security_barrier: _,
+            security_invoker: _,
+            check_option: _,
+            comment: _,
+            raw_body: _, // parser-transient, #[serde(skip)], excluded from equivalence
+            owner: _,
+            grants: _,
+        } = self;
         let mut out = Vec::new();
         out.extend(field_difference("qname", &self.qname, &other.qname));
         out.extend(field_difference(
@@ -138,6 +158,11 @@ impl Equiv for View {
             "security_invoker",
             &format!("{:?}", self.security_invoker),
             &format!("{:?}", other.security_invoker),
+        ));
+        out.extend(field_difference(
+            "check_option",
+            &format!("{:?}", self.check_option),
+            &format!("{:?}", other.check_option),
         ));
         out.extend(field_difference(
             "comment",
@@ -561,6 +586,19 @@ mod tests {
                 .differences(&b)
                 .iter()
                 .any(|x| x.path == "storage")
+        );
+    }
+
+    #[test]
+    fn view_check_option_change_diffs() {
+        use crate::ir::eq::Equiv;
+        let a = simple_view("app", "v");
+        let mut b = simple_view("app", "v");
+        b.check_option = Some(CheckOption::Cascaded);
+        let d = a.differences(&b);
+        assert!(
+            d.iter().any(|x| x.path == "check_option"),
+            "check_option change must be reported (was silently ignored before): {d:?}",
         );
     }
 

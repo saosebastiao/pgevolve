@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
+use crate::ir::difference::Difference;
+use crate::ir::eq::{Equiv, field_difference};
 
 /// A `CREATE AGGREGATE` object. Identity is `(qname, arg_types)`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +27,57 @@ pub struct Aggregate {
     pub owner: Option<Identifier>,
     /// Optional comment.
     pub comment: Option<String>,
+}
+
+impl Equiv for Aggregate {
+    fn differences(&self, other: &Self) -> Vec<Difference> {
+        // Field-completeness guard: the compiler errors if a field is added
+        // without being handled below. Bindings are unused (read via `self`).
+        let Self {
+            qname: _,
+            arg_types: _,
+            state_type: _,
+            sfunc: _,
+            finalfunc: _,
+            initcond: _,
+            owner: _,
+            comment: _,
+        } = self;
+        let mut out = Vec::new();
+        out.extend(field_difference("qname", &self.qname, &other.qname));
+        out.extend(field_difference(
+            "arg_types",
+            &format!("{:?}", self.arg_types),
+            &format!("{:?}", other.arg_types),
+        ));
+        out.extend(field_difference(
+            "state_type",
+            &format!("{:?}", self.state_type),
+            &format!("{:?}", other.state_type),
+        ));
+        out.extend(field_difference("sfunc", &self.sfunc, &other.sfunc));
+        out.extend(field_difference(
+            "finalfunc",
+            &format!("{:?}", self.finalfunc),
+            &format!("{:?}", other.finalfunc),
+        ));
+        out.extend(field_difference(
+            "initcond",
+            &format!("{:?}", self.initcond),
+            &format!("{:?}", other.initcond),
+        ));
+        out.extend(field_difference(
+            "owner",
+            &format!("{:?}", self.owner),
+            &format!("{:?}", other.owner),
+        ));
+        out.extend(field_difference(
+            "comment",
+            &format!("{:?}", self.comment),
+            &format!("{:?}", other.comment),
+        ));
+        out
+    }
 }
 
 #[cfg(test)]
