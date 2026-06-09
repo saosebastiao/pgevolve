@@ -43,7 +43,7 @@ pub fn create(
             sql: format!(
                 "COMMENT ON INDEX {} IS '{}';",
                 qname.render_sql(),
-                c.replace('\'', "''"),
+                sql::escape_sql_literal_body(c),
             ),
             transactional: TransactionConstraint::InTransaction,
         });

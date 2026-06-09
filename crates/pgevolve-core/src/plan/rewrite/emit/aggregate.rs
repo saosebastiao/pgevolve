@@ -168,7 +168,10 @@ fn create_sql(agg: &Aggregate) -> String {
         sql.push_str(&format!(", FINALFUNC = {}", finalfunc.render_sql()));
     }
     if let Some(initcond) = &agg.initcond {
-        sql.push_str(&format!(", INITCOND = '{}'", initcond.replace('\'', "''")));
+        sql.push_str(&format!(
+            ", INITCOND = '{}'",
+            crate::plan::rewrite::sql::escape_sql_literal_body(initcond)
+        ));
     }
     sql.push_str(");");
     sql
@@ -200,7 +203,7 @@ fn comment_sql(qname: &QualifiedName, arg_types: &[ColumnType], comment: Option<
             "COMMENT ON AGGREGATE {}{} IS '{}';",
             qname.render_sql(),
             arg_list(arg_types),
-            c.replace('\'', "''"),
+            crate::plan::rewrite::sql::escape_sql_literal_body(c),
         ),
         None => format!(
             "COMMENT ON AGGREGATE {}{} IS NULL;",

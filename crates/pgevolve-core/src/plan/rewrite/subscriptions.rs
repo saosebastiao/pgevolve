@@ -83,10 +83,7 @@ pub fn alter_subscription_set_options(name: &Identifier, opts: &SubscriptionOpti
 /// `COMMENT ON SUBSCRIPTION s IS '...' | NULL;`
 #[must_use]
 pub fn comment_on_subscription(name: &Identifier, comment: Option<&str>) -> String {
-    let body = comment.map_or_else(
-        || "NULL".to_string(),
-        |c| format!("'{}'", c.replace('\'', "''")),
-    );
+    let body = comment.map_or_else(|| "NULL".to_string(), super::sql::sql_string_literal);
     format!("COMMENT ON SUBSCRIPTION {} IS {body};", name.render_sql())
 }
 
@@ -145,7 +142,10 @@ fn render_options_body_for_alter(opts: &SubscriptionOptions) -> String {
 /// Shared rendering for the post-slot_name options (all ALTER-able).
 fn push_alterable_options(opts: &SubscriptionOptions, parts: &mut Vec<String>) {
     if let Some(ref v) = opts.synchronous_commit {
-        parts.push(format!("synchronous_commit = '{}'", v.replace('\'', "''")));
+        parts.push(format!(
+            "synchronous_commit = '{}'",
+            super::sql::escape_sql_literal_body(v)
+        ));
     }
     if let Some(v) = opts.binary {
         parts.push(format!("binary = {v}"));

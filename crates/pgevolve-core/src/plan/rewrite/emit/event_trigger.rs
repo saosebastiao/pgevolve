@@ -174,7 +174,7 @@ fn create_sql(et: &EventTrigger) -> String {
             }
             first = false;
             sql.push('\'');
-            sql.push_str(&tag.replace('\'', "''"));
+            sql.push_str(&crate::plan::rewrite::sql::escape_sql_literal_body(tag));
             sql.push('\'');
         }
         sql.push(')');
@@ -215,7 +215,7 @@ fn comment_sql(name: &Identifier, comment: Option<&str>) -> String {
         Some(c) => format!(
             "COMMENT ON EVENT TRIGGER {} IS '{}';",
             name.render_sql(),
-            c.replace('\'', "''"),
+            crate::plan::rewrite::sql::escape_sql_literal_body(c),
         ),
         None => format!("COMMENT ON EVENT TRIGGER {} IS NULL;", name.render_sql()),
     }

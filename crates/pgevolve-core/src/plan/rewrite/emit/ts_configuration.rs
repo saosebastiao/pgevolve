@@ -239,7 +239,7 @@ fn comment_sql(qname: &QualifiedName, comment: Option<&str>) -> String {
         Some(c) => format!(
             "COMMENT ON TEXT SEARCH CONFIGURATION {} IS '{}';",
             qname.render_sql(),
-            c.replace('\'', "''"),
+            crate::plan::rewrite::sql::escape_sql_literal_body(c),
         ),
         None => format!(
             "COMMENT ON TEXT SEARCH CONFIGURATION {} IS NULL;",

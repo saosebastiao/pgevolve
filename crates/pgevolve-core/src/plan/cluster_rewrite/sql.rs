@@ -103,7 +103,7 @@ pub fn comment_on_role(name: &Identifier, comment: Option<&str>) -> String {
             format!(
                 "COMMENT ON ROLE {} IS '{}';",
                 name.render_sql(),
-                text.replace('\'', "''")
+                crate::plan::rewrite::sql::escape_sql_literal_body(text)
             )
         },
     )
@@ -125,7 +125,11 @@ pub fn create_tablespace(ts: &Tablespace) -> String {
     if let Some(owner) = &ts.owner {
         let _ = write!(out, " OWNER {}", owner.render_sql());
     }
-    let _ = write!(out, " LOCATION '{}'", ts.location.replace('\'', "''"));
+    let _ = write!(
+        out,
+        " LOCATION '{}'",
+        crate::plan::rewrite::sql::escape_sql_literal_body(&ts.location)
+    );
     if !ts.options.is_empty() {
         let _ = write!(out, " WITH ({})", render_options(&ts.options));
     }
@@ -173,7 +177,7 @@ pub fn comment_on_tablespace(name: &Identifier, comment: Option<&str>) -> String
             format!(
                 "COMMENT ON TABLESPACE {} IS '{}';",
                 name.render_sql(),
-                text.replace('\'', "''")
+                crate::plan::rewrite::sql::escape_sql_literal_body(text)
             )
         },
     )

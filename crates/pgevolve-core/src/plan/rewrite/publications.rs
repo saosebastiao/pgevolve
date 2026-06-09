@@ -140,10 +140,7 @@ pub fn alter_publication_set_via_root(pname: &Identifier, value: bool) -> String
 /// Single quotes inside the comment body are escaped by doubling.
 #[must_use]
 pub fn comment_on_publication(name: &Identifier, comment: Option<&str>) -> String {
-    let body = comment.map_or_else(
-        || "NULL".to_string(),
-        |c| format!("'{}'", c.replace('\'', "''")),
-    );
+    let body = comment.map_or_else(|| "NULL".to_string(), super::sql::sql_string_literal);
     format!("COMMENT ON PUBLICATION {} IS {body};", name.render_sql())
 }
 

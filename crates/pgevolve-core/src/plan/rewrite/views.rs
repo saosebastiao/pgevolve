@@ -109,7 +109,7 @@ pub(crate) fn emit_comment_on_view(qname: &QualifiedName, comment: Option<&str>)
         Some(c) => format!(
             "COMMENT ON VIEW {} IS '{}';",
             qname.render_sql(),
-            c.replace('\'', "''"),
+            super::sql::escape_sql_literal_body(c),
         ),
         None => format!("COMMENT ON VIEW {} IS NULL;", qname.render_sql()),
     }
@@ -128,7 +128,7 @@ pub(crate) fn emit_comment_on_view_column(
     match comment {
         Some(c) => format!(
             "COMMENT ON COLUMN {col_ref} IS '{}';",
-            c.replace('\'', "''")
+            super::sql::escape_sql_literal_body(c)
         ),
         None => format!("COMMENT ON COLUMN {col_ref} IS NULL;"),
     }
@@ -188,7 +188,7 @@ pub(crate) fn emit_comment_on_materialized_view(
         Some(c) => format!(
             "COMMENT ON MATERIALIZED VIEW {} IS '{}';",
             qname.render_sql(),
-            c.replace('\'', "''"),
+            super::sql::escape_sql_literal_body(c),
         ),
         None => format!(
             "COMMENT ON MATERIALIZED VIEW {} IS NULL;",
@@ -209,7 +209,7 @@ pub(crate) fn emit_comment_on_mv_column(
     match comment {
         Some(c) => format!(
             "COMMENT ON COLUMN {col_ref} IS '{}';",
-            c.replace('\'', "''")
+            super::sql::escape_sql_literal_body(c)
         ),
         None => format!("COMMENT ON COLUMN {col_ref} IS NULL;"),
     }

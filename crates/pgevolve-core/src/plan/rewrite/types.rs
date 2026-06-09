@@ -59,7 +59,7 @@ fn emit_create_enum(qname: &QualifiedName, values: &[crate::ir::user_type::EnumV
             sql.push_str(", ");
         }
         sql.push('\'');
-        sql.push_str(&v.name.replace('\'', "''"));
+        sql.push_str(&super::sql::escape_sql_literal_body(&v.name));
         sql.push('\'');
     }
     sql.push_str(");");
@@ -185,15 +185,15 @@ pub(crate) fn emit_alter_type_add_value(
     let mut sql = format!(
         "ALTER TYPE {} ADD VALUE '{}'",
         qname.render_sql(),
-        value.replace('\'', "''")
+        super::sql::escape_sql_literal_body(value)
     );
     if let Some(b) = before {
         sql.push_str(" BEFORE '");
-        sql.push_str(&b.replace('\'', "''"));
+        sql.push_str(&super::sql::escape_sql_literal_body(b));
         sql.push('\'');
     } else if let Some(a) = after {
         sql.push_str(" AFTER '");
-        sql.push_str(&a.replace('\'', "''"));
+        sql.push_str(&super::sql::escape_sql_literal_body(a));
         sql.push('\'');
     }
     sql.push(';');
@@ -205,8 +205,8 @@ pub(crate) fn emit_alter_type_rename_value(qname: &QualifiedName, from: &str, to
     format!(
         "ALTER TYPE {} RENAME VALUE '{}' TO '{}';",
         qname.render_sql(),
-        from.replace('\'', "''"),
-        to.replace('\'', "''"),
+        super::sql::escape_sql_literal_body(from),
+        super::sql::escape_sql_literal_body(to),
     )
 }
 
@@ -321,7 +321,7 @@ pub(crate) fn emit_comment_on_type(
         Some(c) => format!(
             "COMMENT ON {keyword} {} IS '{}';",
             qname.render_sql(),
-            c.replace('\'', "''"),
+            super::sql::escape_sql_literal_body(c),
         ),
         None => format!("COMMENT ON {keyword} {} IS NULL;", qname.render_sql()),
     }

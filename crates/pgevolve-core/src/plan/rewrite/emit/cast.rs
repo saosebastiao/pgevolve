@@ -173,7 +173,10 @@ fn drop_sql(source: &QualifiedName, target: &QualifiedName) -> String {
 fn comment_sql(source: &QualifiedName, target: &QualifiedName, comment: Option<&str>) -> String {
     let pair = format!("({} AS {})", source.render_sql(), target.render_sql());
     match comment {
-        Some(c) => format!("COMMENT ON CAST {pair} IS '{}';", c.replace('\'', "''")),
+        Some(c) => format!(
+            "COMMENT ON CAST {pair} IS '{}';",
+            crate::plan::rewrite::sql::escape_sql_literal_body(c)
+        ),
         None => format!("COMMENT ON CAST {pair} IS NULL;"),
     }
 }

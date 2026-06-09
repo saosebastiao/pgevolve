@@ -92,7 +92,7 @@ pub(crate) fn emit_comment_on_function(
             "COMMENT ON FUNCTION {}({}) IS '{}';",
             qname.render_sql(),
             arg_sig,
-            c.replace('\'', "''"),
+            super::sql::escape_sql_literal_body(c),
         ),
         None => format!(
             "COMMENT ON FUNCTION {}({}) IS NULL;",
@@ -147,7 +147,7 @@ pub(crate) fn emit_comment_on_procedure(qname: &QualifiedName, comment: Option<&
         Some(c) => format!(
             "COMMENT ON PROCEDURE {} IS '{}';",
             qname.render_sql(),
-            c.replace('\'', "''"),
+            super::sql::escape_sql_literal_body(c),
         ),
         None => format!("COMMENT ON PROCEDURE {} IS NULL;", qname.render_sql()),
     }

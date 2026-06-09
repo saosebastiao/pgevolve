@@ -37,7 +37,7 @@ pub fn create(
             sql: format!(
                 "COMMENT ON SEQUENCE {} IS '{}';",
                 qname.render_sql(),
-                c.replace('\'', "''"),
+                sql::escape_sql_literal_body(c),
             ),
             transactional: TransactionConstraint::InTransaction,
         });

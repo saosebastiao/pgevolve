@@ -808,7 +808,7 @@ fn render_default_expr(d: &DefaultExpr) -> String {
         }
         DefaultExpr::Literal(LiteralValue::Integer(i)) => i.to_string(),
         DefaultExpr::Literal(LiteralValue::Float(f)) => f.to_string(),
-        DefaultExpr::Literal(LiteralValue::Text(t)) => format!("'{}'", t.replace('\'', "''")),
+        DefaultExpr::Literal(LiteralValue::Text(t)) => sql_string_literal(t),
         DefaultExpr::Literal(LiteralValue::Bytea(b)) => format!("'\\x{}'", hex(b)),
         DefaultExpr::Literal(LiteralValue::Null) => "NULL".into(),
         DefaultExpr::Sequence(q) => format!("nextval('{}')", q.render_sql()),

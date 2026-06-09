@@ -145,7 +145,11 @@ fn create_sql(dict: &TsDictionary) -> String {
         dict.template.render_sql(),
     );
     for (key, val) in &dict.options {
-        sql.push_str(&format!(", {} = '{}'", key, val.replace('\'', "''")));
+        sql.push_str(&format!(
+            ", {} = '{}'",
+            key,
+            crate::plan::rewrite::sql::escape_sql_literal_body(val)
+        ));
     }
     sql.push_str(");");
     sql
@@ -160,7 +164,11 @@ fn alter_options_sql(qname: &QualifiedName, options: &[(String, String)]) -> Str
             sql.push_str(", ");
         }
         first = false;
-        sql.push_str(&format!("{} = '{}'", key, val.replace('\'', "''")));
+        sql.push_str(&format!(
+            "{} = '{}'",
+            key,
+            crate::plan::rewrite::sql::escape_sql_literal_body(val)
+        ));
     }
     sql.push_str(");");
     sql
@@ -186,7 +194,7 @@ fn comment_sql(qname: &QualifiedName, comment: Option<&str>) -> String {
         Some(c) => format!(
             "COMMENT ON TEXT SEARCH DICTIONARY {} IS '{}';",
             qname.render_sql(),
-            c.replace('\'', "''"),
+            crate::plan::rewrite::sql::escape_sql_literal_body(c),
         ),
         None => format!(
             "COMMENT ON TEXT SEARCH DICTIONARY {} IS NULL;",

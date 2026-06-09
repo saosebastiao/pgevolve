@@ -52,10 +52,7 @@ pub fn alter_statistic_set_target(qname: &QualifiedName, value: i32) -> String {
 /// `COMMENT ON STATISTICS [schema.]name IS 'text';` or `IS NULL`.
 #[must_use]
 pub fn comment_on_statistic(qname: &QualifiedName, comment: Option<&str>) -> String {
-    let body = comment.map_or_else(
-        || "NULL".to_owned(),
-        |c| format!("'{}'", c.replace('\'', "''")),
-    );
+    let body = comment.map_or_else(|| "NULL".to_owned(), super::sql::sql_string_literal);
     format!("COMMENT ON STATISTICS {} IS {body};", qname.render_sql())
 }
 
