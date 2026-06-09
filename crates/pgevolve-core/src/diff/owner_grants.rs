@@ -3,7 +3,7 @@
 //! Every grantable / ownable catalog object emits the same canonical sequence:
 //! an optional `AlterObjectOwner`, then the REVOKEs, then the GRANTs, then the
 //! unmanaged-grant observations. This module collapses what used to be ~13
-//! copy-pasted copies of that sequence into one [`diff_owner_and_grants`] helper
+//! copy-pasted copies of that sequence into one `diff_owner_and_grants` helper
 //! keyed on [`CatalogObjectRef`].
 //!
 //! The emitted [`ChangeSet`] is byte-identical to the inlined sequences this
