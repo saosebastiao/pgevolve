@@ -5,8 +5,9 @@
 //! Coverage mirrors `plan::edges::build_drop_graph`: every edge there whose
 //! *target* is a [`NodeId::Function`](crate::plan::edges::NodeId::Function) is
 //! reproduced here as a dependent category — triggers, event triggers,
-//! aggregates (sfunc/finalfunc), casts (conversion function), and body-ref
-//! objects (views / materialized views / functions whose body references the
+//! aggregates (sfunc/finalfunc), casts (conversion function), range types
+//! (`canonical` / `subtype_diff` function), and body-ref objects (views /
+//! materialized views / functions / procedures whose body references the
 //! function).
 //!
 //! ## Matching rule (audit safety)
@@ -52,9 +53,12 @@ pub enum FunctionDependent {
         /// The cast's target type.
         target: QualifiedName,
     },
-    /// A view / materialized view / function whose body references the dropped
-    /// function.
+    /// A view / materialized view / function / procedure whose body references
+    /// the dropped function.
     BodyRef(QualifiedName),
+    /// A range type whose `canonical` or `subtype_diff` function is the dropped
+    /// function.
+    RangeType(QualifiedName),
 }
 
 /// Every dependent of the function identified by (`qname`, `arg_types`) in
@@ -130,6 +134,28 @@ pub fn enumerate_function_dependents(
             out.push(FunctionDependent::BodyRef(f.qname.clone()));
         }
     }
+    // Procedures: same body-dependency edges as functions. (A procedure can't be
+    // the dropped function — we drop a FUNCTION — so no self-recursion guard.)
+    for p in &target.procedures {
+        if body_deps_reference_function(&p.body_dependencies, qname, arg_types) {
+            out.push(FunctionDependent::BodyRef(p.qname.clone()));
+        }
+    }
+
+    // Range types: `canonical` / `subtype_diff` reference functions by bare qname
+    // (arg types aren't recorded there — mirror edges.rs, qname-only is correct
+    // and the safe over-report direction).
+    for ut in &target.types {
+        if let crate::ir::user_type::UserTypeKind::Range {
+            canonical,
+            subtype_diff,
+            ..
+        } = &ut.kind
+            && (canonical.as_ref() == Some(qname) || subtype_diff.as_ref() == Some(qname))
+        {
+            out.push(FunctionDependent::RangeType(ut.qname.clone()));
+        }
+    }
 
     out.sort();
     out.dedup();
@@ -162,7 +188,9 @@ mod tests {
         ArgMode, Function, FunctionArg, FunctionLanguage, ParallelSafety, ReturnType, SecurityMode,
         Volatility,
     };
+    use crate::ir::procedure::Procedure;
     use crate::ir::trigger::{Trigger, TriggerEvent, TriggerLevel, TriggerTiming};
+    use crate::ir::user_type::{UserType, UserTypeKind};
     use crate::ir::view::{MaterializedView, View, ViewColumn};
     use crate::parse::normalize_body::NormalizedBody;
     use crate::plan::edges::{DepEdge, DepSource};
@@ -505,5 +533,54 @@ mod tests {
         let text_norm = NormalizedArgTypes::from_args(&text_args);
         let deps = enumerate_function_dependents(&f_qname(), &text_norm, &cat);
         assert_eq!(deps, vec![FunctionDependent::Trigger(qn("trg"))]);
+    }
+
+    #[test]
+    fn range_type_canonical_fn_is_reported() {
+        // A range type whose `canonical` function is f → DROP FUNCTION f CASCADE
+        // drops the range type.
+        let mut cat = Catalog::empty();
+        cat.functions.push(function("f", int_args(), vec![]));
+        cat.types.push(UserType {
+            qname: qn("myrange"),
+            kind: UserTypeKind::Range {
+                subtype: qn("int_sub"),
+                subtype_opclass: None,
+                collation: None,
+                canonical: Some(f_qname()),
+                subtype_diff: None,
+                multirange_type_name: None,
+            },
+            comment: None,
+            owner: None,
+            grants: vec![],
+        });
+        let deps = enumerate_function_dependents(&f_qname(), &f_arg_types(), &cat);
+        assert_eq!(deps, vec![FunctionDependent::RangeType(qn("myrange"))]);
+    }
+
+    #[test]
+    fn procedure_body_ref_is_reported() {
+        // A procedure whose body references f → reported as a body-ref dependent.
+        let mut cat = Catalog::empty();
+        cat.functions.push(function("f", int_args(), vec![]));
+        cat.procedures.push(Procedure {
+            qname: qn("proc"),
+            args: vec![],
+            language: FunctionLanguage::Sql,
+            body: NormalizedBody::from_sql("SELECT app.f(1)").unwrap(),
+            body_dependencies: vec![DepEdge {
+                from: NodeId::Procedure(qn("proc")),
+                to: NodeId::Function(f_qname(), f_arg_types()),
+                source: DepSource::AstExtracted,
+            }],
+            security: SecurityMode::Invoker,
+            commits_in_body: false,
+            comment: None,
+            owner: None,
+            grants: vec![],
+        });
+        let deps = enumerate_function_dependents(&f_qname(), &f_arg_types(), &cat);
+        assert_eq!(deps, vec![FunctionDependent::BodyRef(qn("proc"))]);
     }
 }
