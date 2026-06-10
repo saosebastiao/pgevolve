@@ -74,11 +74,27 @@ pub fn emit(
         }
         ExtensionChange::ReplaceWithCascade(e) => {
             let name = e.name.clone();
+            // `DROP EXTENSION … CASCADE` genuinely cascades, but pgevolve does
+            // not model extension membership and so cannot enumerate the
+            // dependents that will be destroyed. Append a generic warning to the
+            // (possibly already-populated) destructive reason so operators are
+            // told to review manually before applying.
+            let cascade_note = format!(
+                "DROP EXTENSION {} CASCADE will also destroy every object that \
+                 depends on what this extension provides — pgevolve does not \
+                 model extension membership and cannot enumerate them, so review \
+                 manually before applying.",
+                name.render_sql()
+            );
+            let drop_reason = match destructive_reason {
+                Some(reason) => format!("{reason}; {cascade_note}"),
+                None => cascade_note,
+            };
             out.push(RawStep {
                 step_no: 0,
                 kind: StepKind::DropExtension,
                 destructive,
-                destructive_reason,
+                destructive_reason: Some(drop_reason),
                 intent_id: None,
                 targets: vec![extension_target(&name)],
                 sql: sql::drop_extension(&name),
