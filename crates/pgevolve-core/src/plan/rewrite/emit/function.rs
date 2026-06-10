@@ -66,8 +66,11 @@ pub fn emit(
                 transactional: TransactionConstraint::InTransaction,
             });
         }
-        FunctionChange::ReplaceWithCascade { source, catalog } => {
-            // DROP … CASCADE (destructive — requires approval).
+        FunctionChange::ReplaceViaDropCreate { source, catalog } => {
+            // Plain DROP FUNCTION (NOT cascade) + CREATE OR REPLACE — used when
+            // CREATE OR REPLACE alone can't apply the change (e.g. return-type
+            // change). The DROP fails loudly if dependents exist (by design — no
+            // silent cascade); the operator must resolve them first.
             out.push(RawStep {
                 step_no: 0,
                 kind: StepKind::DropFunction,

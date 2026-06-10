@@ -345,7 +345,7 @@ fn partition(changes: ChangeSet) -> PartitionResult {
             // Function changes: bucket by lifecycle phase.
             Change::Function(fc) => match fc {
                 FunctionChange::Create(_) => creates.push(entry),
-                FunctionChange::Drop { .. } | FunctionChange::ReplaceWithCascade { .. } => {
+                FunctionChange::Drop { .. } | FunctionChange::ReplaceViaDropCreate { .. } => {
                     drops.push(entry);
                 }
                 FunctionChange::CreateOrReplace(_) | FunctionChange::SetComment { .. } => {
@@ -557,7 +557,7 @@ fn change_node(change: &Change) -> NodeId {
             FunctionChange::Create(f) | FunctionChange::CreateOrReplace(f) => {
                 NodeId::Function(f.qname.clone(), f.arg_types_normalized.clone())
             }
-            FunctionChange::ReplaceWithCascade { source: f, .. } => {
+            FunctionChange::ReplaceViaDropCreate { source: f, .. } => {
                 NodeId::Function(f.qname.clone(), f.arg_types_normalized.clone())
             }
             FunctionChange::Drop { qname, args } => NodeId::Function(qname.clone(), args.clone()),

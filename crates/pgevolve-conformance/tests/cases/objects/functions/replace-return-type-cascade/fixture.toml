@@ -1,5 +1,5 @@
 [meta]
-title     = "FUNCTION return-type change — emits DROP + CREATE (ReplaceWithCascade)"
+title     = "FUNCTION return-type change — emits plain DROP + CREATE (ReplaceViaDropCreate)"
 authoring = "objects"
 spec_refs = ["functions.replace_return_type_cascade"]
 

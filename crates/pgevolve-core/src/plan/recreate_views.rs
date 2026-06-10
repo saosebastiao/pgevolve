@@ -183,7 +183,7 @@ fn collect_upstream_triggers(changes: &[Change]) -> Vec<DepTrigger> {
 /// (table, view, MV, user-defined type, function, or procedure), return its qname.
 ///
 /// For `UserTypeChange::ReplaceWithCascade` and
-/// `FunctionChange::ReplaceWithCascade`, the object is effectively dropped and
+/// `FunctionChange::ReplaceViaDropCreate`, the object is effectively dropped and
 /// re-created — any view that depends on it must be recreated.
 fn object_drop_qname(change: &Change) -> Option<QualifiedName> {
     match change {
@@ -196,8 +196,8 @@ fn object_drop_qname(change: &Change) -> Option<QualifiedName> {
         Change::UserType(UserTypeChange::ReplaceWithCascade { source, .. }) => {
             Some(source.qname.clone())
         }
-        // Function cascade-replace: effectively a drop-and-recreate.
-        Change::Function(FunctionChange::ReplaceWithCascade { source, .. }) => {
+        // Function drop-and-recreate: effectively a drop followed by a create.
+        Change::Function(FunctionChange::ReplaceViaDropCreate { source, .. }) => {
             Some(source.qname.clone())
         }
         _ => None,
@@ -1128,9 +1128,9 @@ mod tests {
         );
     }
 
-    /// `FunctionChange::ReplaceWithCascade` also triggers dependent view recreation.
+    /// `FunctionChange::ReplaceViaDropCreate` also triggers dependent view recreation.
     #[test]
-    fn function_replace_with_cascade_propagates_to_dependent_view() {
+    fn function_replace_via_drop_create_propagates_to_dependent_view() {
         let fn_qname = qn("app", "f");
         let v_qname = qn("app", "v_using_f");
         let view = simple_view(
@@ -1144,7 +1144,7 @@ mod tests {
         catalog.views.push(view);
         catalog.functions.push(f.clone());
 
-        let mut changes = vec![Change::Function(FunctionChange::ReplaceWithCascade {
+        let mut changes = vec![Change::Function(FunctionChange::ReplaceViaDropCreate {
             source: f.clone(),
             catalog: f,
         })];
@@ -1153,7 +1153,7 @@ mod tests {
         assert_eq!(
             changes.len(),
             2,
-            "expected ReplaceWithCascade + ReplaceBody for dependent view, got: {changes:?}"
+            "expected ReplaceViaDropCreate + ReplaceBody for dependent view, got: {changes:?}"
         );
         assert!(
             matches!(

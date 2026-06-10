@@ -155,7 +155,7 @@ fn diff_same_function(catalog: &Function, source: &Function, out: &mut ChangeSet
         );
     } else {
         out.push(
-            Change::Function(FunctionChange::ReplaceWithCascade {
+            Change::Function(FunctionChange::ReplaceViaDropCreate {
                 catalog: catalog.clone(),
                 source: source.clone(),
             }),
@@ -501,7 +501,7 @@ mod tests {
         assert_eq!(cs.len(), 1);
         assert!(matches!(
             &cs.entries[0].change,
-            Change::Function(FunctionChange::ReplaceWithCascade { source, .. }) if source.qname == f_src.qname
+            Change::Function(FunctionChange::ReplaceViaDropCreate { source, .. }) if source.qname == f_src.qname
         ));
         assert!(matches!(
             cs.entries[0].destructiveness,

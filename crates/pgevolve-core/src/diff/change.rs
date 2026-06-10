@@ -578,9 +578,11 @@ pub enum FunctionChange {
     /// FUNCTION`. Only valid when `function_can_or_replace` returns `true`.
     CreateOrReplace(Function),
     /// The function's return type or language changed in a way that PG's
-    /// `CREATE OR REPLACE FUNCTION` rejects. The planner must emit
-    /// `DROP FUNCTION … CASCADE` followed by `CREATE FUNCTION`.
-    ReplaceWithCascade {
+    /// `CREATE OR REPLACE FUNCTION` rejects. The planner emits a plain
+    /// `DROP FUNCTION …` (NOT cascade) followed by `CREATE FUNCTION`. The
+    /// DROP fails loudly if dependents exist — by design, there is no silent
+    /// cascade; the operator must resolve dependents first.
+    ReplaceViaDropCreate {
         /// The desired function (source).
         source: Function,
         /// The existing function (catalog / live database).

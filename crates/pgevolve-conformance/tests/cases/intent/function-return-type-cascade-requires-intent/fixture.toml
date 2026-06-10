@@ -1,5 +1,5 @@
 [meta]
-title     = "FUNCTION return-type cascade change requires intent (ReplaceWithCascade)"
+title     = "FUNCTION return-type change requires intent (ReplaceViaDropCreate)"
 authoring = "intent"
 spec_refs = ["functions.replace_return_type_cascade"]
 

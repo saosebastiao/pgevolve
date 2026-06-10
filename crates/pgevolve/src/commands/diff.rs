@@ -260,8 +260,8 @@ fn print_human(changes: &pgevolve_core::diff::ChangeSet) {
                     FunctionChange::CreateOrReplace(f) => {
                         println!("      function {}: create or replace", f.qname);
                     }
-                    FunctionChange::ReplaceWithCascade { source, .. } => {
-                        println!("      function {}: drop cascade + recreate", source.qname);
+                    FunctionChange::ReplaceViaDropCreate { source, .. } => {
+                        println!("      function {}: drop + recreate", source.qname);
                     }
                     FunctionChange::SetComment { qname, comment, .. } => {
                         if comment.is_some() {
@@ -890,9 +890,9 @@ const fn change_kind_name(c: &pgevolve_core::diff::change::Change) -> &'static s
         Change::Function(pgevolve_core::diff::change::FunctionChange::CreateOrReplace(_)) => {
             "CreateOrReplaceFunction"
         }
-        Change::Function(pgevolve_core::diff::change::FunctionChange::ReplaceWithCascade {
+        Change::Function(pgevolve_core::diff::change::FunctionChange::ReplaceViaDropCreate {
             ..
-        }) => "ReplaceFunctionWithCascade",
+        }) => "ReplaceFunctionViaDropCreate",
         Change::Function(pgevolve_core::diff::change::FunctionChange::SetComment { .. }) => {
             "SetFunctionComment"
         }
