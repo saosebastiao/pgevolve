@@ -5,6 +5,12 @@ All notable changes to pgevolve are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Recursive views (`WITH RECURSIVE`).** Confirmed support for `CREATE RECURSIVE VIEW`, `CREATE VIEW … WITH RECURSIVE`, recursive materialized views, and `CREATE OR REPLACE` of a recursive body, with conformance coverage across PG 14–18. No code change was required: a recursive CTE's self-reference is unqualified, and the view body-dependency walkers only emit edges for schema-qualified references, so no dependency self-edge is ever produced; the body round-trips via the canonical deparse. The earlier roadmap assumption that recursive views needed cycle-aware dep-graph work was incorrect.
+
 ## [0.4.3] — 2026-06-08
 
 ### Added

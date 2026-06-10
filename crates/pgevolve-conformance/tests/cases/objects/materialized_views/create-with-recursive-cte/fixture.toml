@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE MATERIALIZED VIEW ... WITH RECURSIVE"
+authoring = "objects"
+spec_refs = ["materialized_views.create"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.diff]
+contains = ["materialized_views.app.node_tree_mv"]

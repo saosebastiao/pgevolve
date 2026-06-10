@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE OR REPLACE recursive view body (depth base 0 -> 1)"
+authoring = "objects"
+spec_refs = ["views.replace"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.diff]
+contains = ["views.app.node_tree"]

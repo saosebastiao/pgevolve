@@ -1,0 +1,11 @@
+[meta]
+title     = "CREATE VIEW ... WITH RECURSIVE — direct form, CTE name != view name"
+authoring = "objects"
+spec_refs = ["views.create"]
+
+[pg]
+min = 14
+max = 18
+
+[expect.diff]
+contains = ["views.app.node_tree"]
