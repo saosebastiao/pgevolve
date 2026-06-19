@@ -6,7 +6,7 @@
 //! - Default-expression classification (literal vs. `nextval` vs. arbitrary expr).
 
 use pg_query::NodeEnum;
-use pg_query::protobuf::{AConst, DefElem, Node, RangeVar, TypeName, a_const};
+use pg_query::protobuf::{AConst, ColumnRef, DefElem, Node, RangeVar, TypeName, a_const};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
@@ -162,10 +162,7 @@ pub fn render_type_name_to_string(type_name: &TypeName) -> Option<String> {
     if !type_name.typmods.is_empty() {
         let mut args: Vec<String> = Vec::with_capacity(type_name.typmods.len());
         for n in &type_name.typmods {
-            let Some(NodeEnum::AConst(c)) = &n.node else {
-                return None;
-            };
-            args.push(literal_arg_to_string(c)?);
+            args.push(typmod_arg_to_string(n.node.as_ref()?)?);
         }
         out = format!("{out}({})", args.join(","));
     }
@@ -175,11 +172,39 @@ pub fn render_type_name_to_string(type_name: &TypeName) -> Option<String> {
     Some(out)
 }
 
+/// Stringify a single type-modifier argument node.
+///
+/// Type modifiers are an `expr_list`, so an argument is either a literal
+/// ([`AConst`]) or a bareword. The bareword form is what `PostGIS` uses for the
+/// subtype in `geometry(Point,4326)` — Postgres parses it as a single-field
+/// [`ColumnRef`], not a constant.
+fn typmod_arg_to_string(node: &NodeEnum) -> Option<String> {
+    match node {
+        NodeEnum::AConst(c) => literal_arg_to_string(c),
+        NodeEnum::ColumnRef(cref) => columnref_ident(cref),
+        _ => None,
+    }
+}
+
 /// Convert an [`AConst`] used as a typmod argument to its canonical string form.
 fn literal_arg_to_string(c: &AConst) -> Option<String> {
     match c.val.as_ref()? {
         a_const::Val::Ival(i) => Some(i.ival.to_string()),
         a_const::Val::Sval(s) => Some(s.sval.clone()),
+        _ => None,
+    }
+}
+
+/// Extract the identifier text of a single-field bareword [`ColumnRef`].
+///
+/// A multi-field ref (`a.b`) is not a valid type-modifier shape, so it is
+/// rejected (returns `None`).
+fn columnref_ident(cref: &ColumnRef) -> Option<String> {
+    let [field] = cref.fields.as_slice() else {
+        return None;
+    };
+    match field.node.as_ref()? {
+        NodeEnum::String(s) => Some(s.sval.clone()),
         _ => None,
     }
 }
@@ -478,5 +503,55 @@ mod tests {
         let s = render_type_name_to_string(&tn).unwrap();
         let ct = ColumnType::parse_from_pg_type_string(&s).unwrap();
         assert_eq!(ct, ColumnType::Varchar { len: Some(50) });
+    }
+
+    /// Extract the first column's `TypeName` from a one-column `CREATE TABLE`.
+    fn first_column_type_name(sql: &str) -> TypeName {
+        let NodeEnum::CreateStmt(create) = parse_first(sql) else {
+            panic!("expected CREATE TABLE")
+        };
+        let elt = create.table_elts.into_iter().next().unwrap();
+        let NodeEnum::ColumnDef(col) = elt.node.unwrap() else {
+            panic!("expected ColumnDef")
+        };
+        col.type_name.unwrap()
+    }
+
+    #[test]
+    fn parameterized_postgis_types_parse() {
+        // PostGIS parameterized types put the subtype (Point / MultiPolygon / …)
+        // in the typmod list as a *bareword*, which pg_query parses as a ColumnRef
+        // (type modifiers are an expr_list), not an AConst. The renderer must
+        // stringify it; pg_query lowercases the bareword, so the canonical raw is
+        // lowercase. (issue #40)
+        let cases = [
+            ("geometry(Point,4326)", "geometry(point,4326)"),
+            (
+                "geography(MultiPolygon,4326)",
+                "geography(multipolygon,4326)",
+            ),
+            ("geometry(geometry,4326)", "geometry(geometry,4326)"),
+        ];
+        for (decl, expected_raw) in cases {
+            let tn = first_column_type_name(&format!("CREATE TABLE t (c {decl});"));
+            let ct = type_name_to_column_type(&tn, &loc())
+                .unwrap_or_else(|e| panic!("{decl} should parse, got {e:?}"));
+            assert!(
+                matches!(&ct, ColumnType::Other { raw } if raw == expected_raw),
+                "{decl} -> {ct:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn heterogeneous_typmod_args_render() {
+        // A type modifier list may legally mix string/int literals and barewords.
+        // The renderer dispatches per node kind rather than assuming AConst.
+        let tn = first_column_type_name("CREATE TABLE t (c mytype('foo',1,bar));");
+        let ct = type_name_to_column_type(&tn, &loc()).expect("mixed typmods should parse");
+        assert!(
+            matches!(&ct, ColumnType::Other { raw } if raw == "mytype(foo,1,bar)"),
+            "got {ct:?}"
+        );
     }
 }

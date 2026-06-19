@@ -284,10 +284,28 @@ impl ColumnType {
 
         let lower = trimmed.to_ascii_lowercase();
         let parsed = parse_canonical(&lower).unwrap_or_else(|| Self::Other {
-            raw: trimmed.to_string(),
+            // PostGIS geometry/geography subtypes are case-insensitive, but the
+            // source parser (pg_query) lowercases the bareword subtype while
+            // pg_catalog.format_type emits canonical TitleCase. Store the
+            // lowercase form so source and catalog IR compare equal (Other
+            // equality is exact-string), avoiding a perpetual spurious diff.
+            // Matches on the unqualified geometry/geography head only; all other
+            // Other types keep their original case. (issue #40)
+            raw: if is_postgis_geo_type(&lower) {
+                lower
+            } else {
+                trimmed.to_string()
+            },
         });
         Ok(parsed)
     }
+}
+
+/// Whether `lower` (already lowercased) names a `PostGIS` `geometry`/`geography`
+/// type, bare or parameterized (`geometry(Point,4326)`).
+fn is_postgis_geo_type(lower: &str) -> bool {
+    let head = lower.split_once('(').map_or(lower, |(h, _)| h).trim();
+    head == "geometry" || head == "geography"
 }
 
 fn strip_array_suffix(s: &str) -> (&str, u8) {
@@ -640,6 +658,54 @@ mod tests {
     }
 
     #[test]
+    fn postgis_geo_subtype_casing_is_normalized() {
+        // The source parser (pg_query) lowercases the bareword subtype while the
+        // catalog's `format_type` emits canonical TitleCase. Both must produce an
+        // equal `Other` so there is no perpetual spurious ALTER COLUMN TYPE diff
+        // against a live PostGIS database. (issue #40)
+        let from_catalog = ColumnType::parse_from_pg_type_string("geometry(Point,4326)").unwrap();
+        let from_source = ColumnType::parse_from_pg_type_string("geometry(point,4326)").unwrap();
+        assert_eq!(from_catalog, from_source);
+        assert!(
+            matches!(&from_catalog, ColumnType::Other { raw } if raw == "geometry(point,4326)"),
+            "got {from_catalog:?}"
+        );
+        assert_eq!(
+            ColumnType::parse_from_pg_type_string("geography(MultiPolygon,4326)").unwrap(),
+            ColumnType::parse_from_pg_type_string("geography(multipolygon,4326)").unwrap(),
+        );
+        // The array form normalizes too: parse strips "[]" and recurses, so the
+        // element's geo casing is reconciled inside the recursive call.
+        let arr_catalog = ColumnType::parse_from_pg_type_string("geometry(Point,4326)[]").unwrap();
+        assert_eq!(
+            arr_catalog,
+            ColumnType::parse_from_pg_type_string("geometry(point,4326)[]").unwrap(),
+        );
+        match arr_catalog {
+            ColumnType::Array { element, dims } => {
+                assert_eq!(dims, 1);
+                assert!(
+                    matches!(&*element, ColumnType::Other { raw } if raw == "geometry(point,4326)"),
+                    "got {element:?}"
+                );
+            }
+            other => panic!("expected Array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_geo_other_preserves_case() {
+        // Normalization is scoped to geometry/geography only — every other Other
+        // type keeps its original case, bare or parameterized.
+        let bare = ColumnType::parse_from_pg_type_string("MyDomain").unwrap();
+        assert!(matches!(bare, ColumnType::Other { ref raw } if raw == "MyDomain"));
+        let parameterized = ColumnType::parse_from_pg_type_string("MyType(Foo,4326)").unwrap();
+        assert!(
+            matches!(parameterized, ColumnType::Other { ref raw } if raw == "MyType(Foo,4326)")
+        );
+    }
+
+    #[test]
     fn render_sql_round_trips_canonical() {
         let cases = [
             ColumnType::Boolean,
@@ -682,6 +748,12 @@ mod tests {
             ColumnType::Array {
                 element: Box::new(ColumnType::Integer),
                 dims: 2,
+            },
+            // Normalized PostGIS geo Other must be a render->parse fixed point,
+            // or the diff engine would oscillate. raw is already lowercase, so
+            // the geo re-normalization on reparse is a no-op.
+            ColumnType::Other {
+                raw: "geometry(point,4326)".to_string(),
             },
         ];
         for t in cases {
