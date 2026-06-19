@@ -7,9 +7,15 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.4.4] — 2026-06-18
+
 ### Added
 
 - **Recursive views (`WITH RECURSIVE`).** Confirmed support for `CREATE RECURSIVE VIEW`, `CREATE VIEW … WITH RECURSIVE`, recursive materialized views, and `CREATE OR REPLACE` of a recursive body, with conformance coverage across PG 14–18. No code change was required: a recursive CTE's self-reference is unqualified, and the view body-dependency walkers only emit edges for schema-qualified references, so no dependency self-edge is ever produced; the body round-trips via the canonical deparse. The earlier roadmap assumption that recursive views needed cycle-aware dep-graph work was incorrect.
+
+### Fixed
+
+- **Parameterized PostGIS types (`geometry`/`geography(<subtype>,<srid>)`).** A column declared `geometry(Point,4326)` failed to parse with "could not stringify type name" (#40), blocking any PostGIS-backed schema at `pgevolve validate`. Type modifiers are an `expr_list`, so the subtype token (`Point`/`MultiPolygon`/…) is parsed as a bareword (`ColumnRef`), not a constant; the type-name stringifier now handles bareword typmod arguments in addition to literals. The geometry/geography subtype is also normalized to lowercase on both the source-parse and catalog paths so it does not produce a perpetual spurious `ALTER COLUMN TYPE` diff (the source parser lowercases the subtype while `pg_catalog.format_type` emits canonical TitleCase, and the catch-all type compares by exact string). Bare `geometry`/`geography`, the array form `geometry(Point,4326)[]`, and composite/domain/function-argument declarations are covered. Two adjacent pre-existing limitations were filed as follow-ups: `interval(N)` typmods silently misclassify (#41) and schema-qualified `public.geometry(…)` drops its typmod (#42).
 
 ## [0.4.3] — 2026-06-08
 
