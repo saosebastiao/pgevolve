@@ -1,0 +1,14 @@
+[meta]
+title     = "CREATE TABLE (x int, LIKE base, y text) — interleaved LIKE preserves column order"
+authoring = "objects"
+spec_refs = ["objects.table.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = ["app.clone"]
+
+[expect.plan]
+steps = 1

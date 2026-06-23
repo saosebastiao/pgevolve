@@ -1,0 +1,25 @@
+digraph pgevolve_deps {
+  rankdir=LR;
+  node [shape=box, fontname=Helvetica];
+  "constraint:app.base.base_email_chk";
+  "constraint:app.base.base_email_key";
+  "constraint:app.base.base_pkey";
+  "constraint:app.clone.base_email_chk";
+  "constraint:app.clone.clone_email_key";
+  "constraint:app.clone.clone_pkey";
+  "index:app.base_idx";
+  "index:app.clone_data_idx";
+  "schema:app";
+  "table:app.base";
+  "table:app.clone";
+  "table:app.base" -> "schema:app" [style=solid];
+  "table:app.clone" -> "schema:app" [style=solid];
+  "index:app.base_idx" -> "table:app.base" [style=solid];
+  "index:app.clone_data_idx" -> "table:app.clone" [style=solid];
+  "constraint:app.base.base_email_chk" -> "table:app.base" [style=solid];
+  "constraint:app.base.base_email_key" -> "table:app.base" [style=solid];
+  "constraint:app.base.base_pkey" -> "table:app.base" [style=solid];
+  "constraint:app.clone.base_email_chk" -> "table:app.clone" [style=solid];
+  "constraint:app.clone.clone_email_key" -> "table:app.clone" [style=solid];
+  "constraint:app.clone.clone_pkey" -> "table:app.clone" [style=solid];
+}

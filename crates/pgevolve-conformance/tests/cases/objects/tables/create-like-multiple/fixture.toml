@@ -1,0 +1,14 @@
+[meta]
+title     = "CREATE TABLE (LIKE l, mid int, LIKE r) — multiple LIKE clauses expand in order"
+authoring = "objects"
+spec_refs = ["objects.table.create"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = ["app.c"]
+
+[expect.plan]
+steps = 1
