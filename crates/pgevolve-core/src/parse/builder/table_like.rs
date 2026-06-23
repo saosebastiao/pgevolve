@@ -5,6 +5,8 @@
 //! [`apply_pending_likes`] expands each clause against the source table — the
 //! clone is fully decoupled in Postgres, so we must materialize concrete IR.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use pg_query::NodeEnum;
 use pg_query::protobuf::CreateStmt;
 
@@ -120,43 +122,93 @@ fn copy_column_bare(src: &Column) -> Column {
 }
 
 /// Resolve every pending `LIKE` against the assembled catalog.
+///
+/// LIKE clauses can chain (`x (LIKE z)` where `z (LIKE a)`), so we cannot
+/// simply iterate targets in name order — a dependent must be expanded only
+/// after every table it copies from is fully materialized. We resolve in
+/// rounds: each round fully resolves any target whose sources are all already
+/// materialized (i.e. not themselves still-pending targets). If a round makes
+/// no progress while targets remain, the remaining set is a cycle or
+/// self-reference and we error.
 pub fn apply_pending_likes(
     catalog: &mut Catalog,
     pending: Vec<PendingLike>,
 ) -> Result<(), ParseError> {
     // Group by target so multiple LIKE clauses on one table share an
     // insertion-offset accumulator and a deterministic processing order.
-    let mut by_target: std::collections::BTreeMap<QualifiedName, Vec<PendingLike>> =
-        std::collections::BTreeMap::new();
+    let mut by_target: BTreeMap<QualifiedName, Vec<PendingLike>> = BTreeMap::new();
     for p in pending {
         by_target.entry(p.target.clone()).or_default().push(p);
     }
 
-    for (target, mut likes) in by_target {
-        likes.sort_by_key(|p| p.explicit_cols_before);
-        let mut inserted = 0usize;
-        for like in likes {
-            // Snapshot the source's columns before borrowing the target mutably.
-            let src_cols: Vec<Column> = {
-                let src = catalog.tables.iter().find(|t| t.qname == like.source)
+    // The set of targets that still need expanding. A target is "ready" once
+    // none of its sources are themselves still-unresolved targets.
+    let mut unresolved: BTreeSet<QualifiedName> = by_target.keys().cloned().collect();
+
+    while !unresolved.is_empty() {
+        // Pick targets whose every source is already materialized this round.
+        let ready: Vec<QualifiedName> = unresolved
+            .iter()
+            .filter(|target| {
+                by_target[*target]
+                    .iter()
+                    .all(|like| !unresolved.contains(&like.source))
+            })
+            .cloned()
+            .collect();
+
+        if ready.is_empty() {
+            // No progress with targets remaining → cycle (includes self-reference).
+            let involved = unresolved
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            // Use any remaining target's location for the diagnostic.
+            let location = unresolved
+                .iter()
+                .next()
+                .and_then(|t| by_target.get(t))
+                .and_then(|likes| likes.first())
+                .map_or_else(
+                    || SourceLocation::new(std::path::PathBuf::new(), 0, 0),
+                    |like| like.location.clone(),
+                );
+            return Err(ParseError::Structural {
+                location,
+                message: format!("LIKE forms a cycle involving {involved}"),
+            });
+        }
+
+        for target in ready {
+            // SAFETY: `target` came from `unresolved` which is keyed off `by_target`.
+            let mut likes = by_target.remove(&target).unwrap_or_default();
+            likes.sort_by_key(|p| p.explicit_cols_before); // stable; preserves clause order on ties
+            let mut inserted = 0usize;
+            for like in likes {
+                // Snapshot the source's columns before borrowing the target mutably.
+                let src_cols: Vec<Column> = {
+                    let src = catalog.tables.iter().find(|t| t.qname == like.source)
+                        .ok_or_else(|| ParseError::Structural {
+                            location: like.location.clone(),
+                            message: format!(
+                                "LIKE source table {} not found (must be a table declared in the schema)",
+                                like.source
+                            ),
+                        })?;
+                    src.columns.iter().map(copy_column_bare).collect()
+                };
+                let n = src_cols.len();
+                let tgt = catalog.tables.iter_mut().find(|t| t.qname == target)
                     .ok_or_else(|| ParseError::Structural {
                         location: like.location.clone(),
-                        message: format!(
-                            "LIKE source table {} not found (must be a table declared in the schema)",
-                            like.source
-                        ),
+                        message: format!("LIKE target table {target} vanished"),
                     })?;
-                src.columns.iter().map(copy_column_bare).collect()
-            };
-            let n = src_cols.len();
-            let tgt = catalog.tables.iter_mut().find(|t| t.qname == target)
-                .ok_or_else(|| ParseError::Structural {
-                    location: like.location.clone(),
-                    message: format!("LIKE target table {target} vanished"),
-                })?;
-            let at = (like.explicit_cols_before + inserted).min(tgt.columns.len());
-            tgt.columns.splice(at..at, src_cols);
-            inserted += n;
+                let at = (like.explicit_cols_before + inserted).min(tgt.columns.len());
+                tgt.columns.splice(at..at, src_cols);
+                inserted += n;
+            }
+            unresolved.remove(&target);
         }
     }
     Ok(())
@@ -214,10 +266,9 @@ mod tests {
             explicit_cols_before: 0,
             location: loc(),
         };
-        // Build a minimal catalog with just the target table (no source).
-        // We can't construct Table directly (fields may be private), but we can
-        // use parse_directory_with_locations on a minimal SQL file and then
-        // call apply_pending_likes on its result.
+        // Assemble a real catalog via the parse pipeline (`Table` has no
+        // `Default` and a literal would be verbose), then feed it a pending
+        // LIKE whose source table does not exist.
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
@@ -225,5 +276,78 @@ mod tests {
             "CREATE TABLE pub.clone (id int);\n").unwrap();
         let (mut cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
         assert!(apply_pending_likes(&mut cat, vec![pend]).is_err());
+    }
+
+    /// A chain `z (LIKE a)` then `x (LIKE z)` must resolve fully regardless of
+    /// the order the targets sort in. Here the dependent (`x`) sorts AFTER its
+    /// source (`z`), so qname order happens to be correct.
+    #[test]
+    fn chained_like_resolves_dependent_after_source() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.a (id int PRIMARY KEY, name text);\n\
+             CREATE TABLE pub.z (LIKE pub.a);\n\
+             CREATE TABLE pub.x (LIKE pub.z);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        for tname in ["a", "z", "x"] {
+            let t = cat.tables.iter().find(|t| t.qname.name.as_str() == tname).unwrap();
+            assert_eq!(
+                t.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
+                vec!["id".to_string(), "name".to_string()],
+                "table {tname} should have both copied columns",
+            );
+        }
+    }
+
+    /// Same chain, but names chosen so the dependent (`aaa (LIKE zzz)`) sorts
+    /// BEFORE its source (`zzz (LIKE base)`). A naive qname-sorted pass would
+    /// resolve `aaa` before `zzz` is materialized and leave it empty; the
+    /// dependency-ordered pass must still fully populate both.
+    #[test]
+    fn chained_like_resolves_when_dependent_sorts_before_source() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int PRIMARY KEY, name text);\n\
+             CREATE TABLE pub.aaa (LIKE pub.zzz);\n\
+             CREATE TABLE pub.zzz (LIKE pub.base);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        for tname in ["base", "aaa", "zzz"] {
+            let t = cat.tables.iter().find(|t| t.qname.name.as_str() == tname).unwrap();
+            assert_eq!(
+                t.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
+                vec!["id".to_string(), "name".to_string()],
+                "table {tname} should have both copied columns",
+            );
+        }
+    }
+
+    /// A self-referential LIKE (`c (LIKE c)`) is a cycle and must error rather
+    /// than silently leave `c` with no columns.
+    #[test]
+    fn self_referential_like_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.c (LIKE pub.c);\n").unwrap();
+        let err = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap_err();
+        assert!(matches!(err, crate::parse::ParseError::Structural { .. }), "got {err:?}");
+    }
+
+    /// A 2-cycle (`p (LIKE q)`, `q (LIKE p)`) must also error.
+    #[test]
+    fn two_cycle_like_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.p (LIKE pub.q);\n\
+             CREATE TABLE pub.q (LIKE pub.p);\n").unwrap();
+        let err = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap_err();
+        assert!(matches!(err, crate::parse::ParseError::Structural { .. }), "got {err:?}");
     }
 }
