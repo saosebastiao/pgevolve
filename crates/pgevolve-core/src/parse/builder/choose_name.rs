@@ -118,12 +118,18 @@ fn truncate_bytes(s: &str, max: usize) -> &str {
     &s[..end]
 }
 
+/// Maximum identifier length including the trailing NUL, i.e. Postgres's
+/// `NAMEDATALEN` (64).  `ChooseIndexNameAddition` stops appending once the
+/// running buffer reaches this length.
+const NAMEDATALEN_FULL: usize = 64;
+
 /// Port of `ChooseIndexNameAddition`: build a column-name fragment by joining
-/// column names with `_`, keeping the result within a 39-byte budget.
-/// The first column is always included.  Expression columns contribute
-/// `"expr"`, `"expr2"`, `"expr3"`, … .
+/// column names with `_`.  Postgres appends each name IN FULL, then breaks
+/// only once the running buffer has reached `NAMEDATALEN` (64) — so the check
+/// is post-append, not pre-check.  The first column is therefore always
+/// included regardless of length.  Expression columns contribute `"expr"`,
+/// `"expr2"`, `"expr3"`, … .
 fn name_addition(col_names: &[Option<&str>]) -> String {
-    const BUF: usize = 39;
     let mut out = String::new();
     let mut expr_n: u32 = 0;
     for c in col_names {
@@ -138,16 +144,16 @@ fn name_addition(col_names: &[Option<&str>]) -> String {
             },
             |name| (*name).to_string(),
         );
-        if out.is_empty() {
-            out = part;
-        } else if out.len() + 1 + part.len() <= BUF {
+        if !out.is_empty() {
             out.push('_');
-            out.push_str(&part);
-        } else {
-            // Once a column would overflow the budget, every remaining column is
-            // dropped (matches Postgres's `break`). Do NOT change this to
-            // `continue` to fit a later, shorter column — that would diverge
-            // from the names a live server assigns.
+        }
+        out.push_str(&part);
+        // Append-then-break: Postgres includes the whole part, then stops once
+        // the buffer reaches NAMEDATALEN. Columns after the one that crossed the
+        // threshold are dropped (matches PG's `break`). Do NOT change this to a
+        // `continue` to fit a later, shorter column — that would diverge from
+        // the names a live server assigns.
+        if out.len() >= NAMEDATALEN_FULL {
             break;
         }
     }
@@ -256,6 +262,20 @@ mod tests {
         assert_eq!(
             choose_index_name("clone", &[None, Some("a")], IndexNameKind::Plain, &mut t),
             "clone_expr_a_idx"
+        );
+    }
+
+    #[test]
+    fn name_addition_includes_multiple_long_columns() {
+        // Two 25-char columns must BOTH be included: Postgres appends each in
+        // full and only stops once the running buffer reaches NAMEDATALEN (64).
+        // `t_<c1>_<c2>_idx` is 57 chars, well under the outer 63-byte truncation.
+        let c1 = "abcdefghijklmnopqrstuvwxy";
+        let c2 = "zyxwvutsrqponmlkjihgfedcb";
+        let mut t = TakenNames::default();
+        assert_eq!(
+            choose_index_name("t", &[Some(c1), Some(c2)], IndexNameKind::Plain, &mut t),
+            format!("t_{c1}_{c2}_idx")
         );
     }
 

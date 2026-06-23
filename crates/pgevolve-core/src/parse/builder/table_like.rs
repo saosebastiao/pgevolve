@@ -349,7 +349,8 @@ fn copy_plain_indexes(
     taken: &mut choose_name::TakenNames,
 ) -> Result<Vec<Index>, ParseError> {
     let mut out = Vec::new();
-    for idx in catalog_indexes.iter().filter(|i| i.on == IndexParent::Table(source.clone())) {
+    let source_parent = IndexParent::Table(source.clone());
+    for idx in catalog_indexes.iter().filter(|i| i.on == source_parent) {
         let col_opts: Vec<Option<&str>> = idx.columns.iter().map(|col| match &col.expr {
             IndexColumnExpr::Column(id) => Some(id.as_str()),
             IndexColumnExpr::Expression(_) => None,
@@ -510,7 +511,7 @@ pub fn apply_pending_likes(
         }
 
         for target in ready {
-            // SAFETY: `target` came from `unresolved` which is keyed off `by_target`.
+            // target is always a by_target key; or_default is a defensive no-op.
             let mut likes = by_target.remove(&target).unwrap_or_default();
             likes.sort_by_key(|p| p.explicit_cols_before); // stable; preserves clause order on ties
 
@@ -632,7 +633,7 @@ pub fn apply_pending_like_comments(
             for like in likes {
                 // Snapshot source table comment and per-column comments before
                 // borrowing the target mutably.
-                let (src_table_comment, src_col_comments): (Option<String>, Vec<(crate::identifier::Identifier, Option<String>)>) = {
+                let (src_table_comment, src_col_comments): (Option<String>, Vec<(Identifier, Option<String>)>) = {
                     let src = catalog.tables.iter().find(|t| t.qname == like.source)
                         .ok_or_else(|| ParseError::Structural {
                             location: like.location.clone(),
