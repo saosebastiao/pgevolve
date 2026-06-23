@@ -288,6 +288,59 @@ mod tests {
         );
     }
 
+    /// `{table}_{col}_idx` that would exceed 63 bytes must be truncated so the
+    /// total name is ≤ 63 bytes.  The expected string is pinned here to lock
+    /// pgevolve's NAMEDATALEN truncation behaviour; live-PG byte-fidelity is
+    /// verified separately in CI (#46).
+    ///
+    /// With table = "a"×40, col = "b"×40:
+    ///   overhead = 1("_") + 40("b"×40) + 1("_") + 3("idx") = 45
+    ///   budget1  = 63 - 45 = 18  → name1 = "a"×18
+    ///   result   = "a"×18 + "_" + "b"×40 + "_idx" = 63 bytes
+    #[test]
+    fn long_name_truncates_to_namedatalen() {
+        let table = "a".repeat(40);
+        let col   = "b".repeat(40);
+        let mut t = TakenNames::default();
+        let name = choose_index_name(&table, &[Some(&col)], IndexNameKind::Plain, &mut t);
+        // Must fit within NAMEDATALEN.
+        assert!(
+            name.len() <= NAMEDATALEN,
+            "name length {} > {NAMEDATALEN}: {name:?}",
+            name.len()
+        );
+        // Must be a valid UTF-8 prefix (char-boundary).
+        assert!(name.starts_with('a'), "must start with the table name prefix");
+        assert!(name.ends_with("_idx"), "must end with _idx suffix");
+        // Pin the exact string produced by the implementation.
+        let expected = format!("{}_{}_{}", "a".repeat(18), "b".repeat(40), "idx");
+        assert_eq!(name, expected, "truncated name did not match expected");
+    }
+
+    /// When the truncated name is already taken, a counter is appended and the
+    /// result must still fit within NAMEDATALEN.
+    ///
+    /// With table = "a"×40, col = "b"×40, counter "1":
+    ///   overhead = 1("_") + 40("b"×40) + 1("_") + 4("idx1") = 46
+    ///   budget1  = 63 - 46 = 17  → name1 = "a"×17
+    ///   result   = "a"×17 + "_" + "b"×40 + "_idx1" = 63 bytes
+    #[test]
+    fn truncated_collision_appends_counter() {
+        let table = "a".repeat(40);
+        let col   = "b".repeat(40);
+        // Seed taken with the first (truncated) name so the counter path is taken.
+        let first_name = format!("{}_{}_{}", "a".repeat(18), "b".repeat(40), "idx");
+        let mut t = taken(&[&first_name]);
+        let name = choose_index_name(&table, &[Some(&col)], IndexNameKind::Plain, &mut t);
+        assert!(
+            name.len() <= NAMEDATALEN,
+            "counter name length {} > {NAMEDATALEN}: {name:?}",
+            name.len()
+        );
+        let expected = format!("{}_{}_{}", "a".repeat(17), "b".repeat(40), "idx1");
+        assert_eq!(name, expected, "counter name did not match expected");
+    }
+
     #[test]
     fn from_schema_seeds_relation_namespace() {
         // A sequence named `foo_a_key` occupies the relation namespace in schema

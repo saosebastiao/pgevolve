@@ -470,35 +470,19 @@ fn copy_statistics(
     Ok(out)
 }
 
-/// Resolve every pending `LIKE` against the assembled catalog.
+/// Return the pending-LIKE targets in dependency order: every target whose
+/// LIKE sources are themselves targets comes after those sources.
 ///
-/// LIKE clauses can chain (`x (LIKE z)` where `z (LIKE a)`), so we cannot
-/// simply iterate targets in name order — a dependent must be expanded only
-/// after every table it copies from is fully materialized. We resolve in
-/// rounds: each round fully resolves any target whose sources are all already
-/// materialized (i.e. not themselves still-pending targets). If a round makes
-/// no progress while targets remain, the remaining set is a cycle or
-/// self-reference and we error.
-///
-/// Note: takes `&[PendingLike]` so the caller retains the slice for a
-/// subsequent [`apply_pending_like_comments`] pass.
-pub fn apply_pending_likes(
-    catalog: &mut Catalog,
-    pending: &[PendingLike],
-) -> Result<(), ParseError> {
-    // Group by target so multiple LIKE clauses on one table share an
-    // insertion-offset accumulator and a deterministic processing order.
-    let mut by_target: BTreeMap<QualifiedName, Vec<&PendingLike>> = BTreeMap::new();
-    for p in pending {
-        by_target.entry(p.target.clone()).or_default().push(p);
-    }
-
-    // The set of targets that still need expanding. A target is "ready" once
-    // none of its sources are themselves still-unresolved targets.
+/// A stall with remaining targets means a cycle or self-reference; the error
+/// names all involved tables.
+fn resolve_order(
+    by_target: &BTreeMap<QualifiedName, Vec<&PendingLike>>,
+) -> Result<Vec<QualifiedName>, ParseError> {
     let mut unresolved: BTreeSet<QualifiedName> = by_target.keys().cloned().collect();
+    let mut ordered: Vec<QualifiedName> = Vec::with_capacity(by_target.len());
 
     while !unresolved.is_empty() {
-        // Pick targets whose every source is already materialized this round.
+        // Pick targets whose every source is already outside the unresolved set.
         let ready: Vec<QualifiedName> = unresolved
             .iter()
             .filter(|target| {
@@ -533,9 +517,41 @@ pub fn apply_pending_likes(
         }
 
         for target in ready {
-            // target is always a by_target key; or_default is a defensive no-op.
-            let mut likes = by_target.remove(&target).unwrap_or_default();
-            likes.sort_by_key(|p| p.explicit_cols_before); // stable; preserves clause order on ties
+            unresolved.remove(&target);
+            ordered.push(target);
+        }
+    }
+
+    Ok(ordered)
+}
+
+/// Resolve every pending `LIKE` against the assembled catalog.
+///
+/// LIKE clauses can chain (`x (LIKE z)` where `z (LIKE a)`), so we cannot
+/// simply iterate targets in name order — a dependent must be expanded only
+/// after every table it copies from is fully materialized. We resolve in
+/// rounds: each round fully resolves any target whose sources are all already
+/// materialized (i.e. not themselves still-pending targets). If a round makes
+/// no progress while targets remain, the remaining set is a cycle or
+/// self-reference and we error.
+///
+/// Note: takes `&[PendingLike]` so the caller retains the slice for a
+/// subsequent [`apply_pending_like_comments`] pass.
+pub fn apply_pending_likes(
+    catalog: &mut Catalog,
+    pending: &[PendingLike],
+) -> Result<(), ParseError> {
+    // Group by target so multiple LIKE clauses on one table share an
+    // insertion-offset accumulator and a deterministic processing order.
+    let mut by_target: BTreeMap<QualifiedName, Vec<&PendingLike>> = BTreeMap::new();
+    for p in pending {
+        by_target.entry(p.target.clone()).or_default().push(p);
+    }
+
+    for target in resolve_order(&by_target)? {
+        // target is always a by_target key; or_default is a defensive no-op.
+        let mut likes = by_target.remove(&target).unwrap_or_default();
+        likes.sort_by_key(|p| p.explicit_cols_before); // stable; preserves clause order on ties
 
             // Build a name-collision tracker seeded with every name already live in
             // the target's schema.  One `TakenNames` per target so that all LIKE
@@ -582,9 +598,7 @@ pub fn apply_pending_likes(
                 // is already complete when we mutate here.
                 catalog.statistics.extend(snap.statistics);
             }
-            unresolved.remove(&target);
         }
-    }
     Ok(())
 }
 
@@ -614,84 +628,46 @@ pub fn apply_pending_like_comments(
         return Ok(());
     }
 
-    let mut unresolved: BTreeSet<QualifiedName> = by_target.keys().cloned().collect();
-
-    while !unresolved.is_empty() {
-        let ready: Vec<QualifiedName> = unresolved
-            .iter()
-            .filter(|target| {
-                by_target[*target]
-                    .iter()
-                    .all(|like| !unresolved.contains(&like.source))
-            })
-            .cloned()
-            .collect();
-
-        if ready.is_empty() {
-            // Cycles would already have been caught by apply_pending_likes; this
-            // is a defensive guard so we don't loop forever.
-            let involved = unresolved
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ");
-            let location = unresolved
-                .iter()
-                .next()
-                .and_then(|t| by_target.get(t))
-                .and_then(|likes| likes.first())
-                .map_or_else(
-                    || SourceLocation::new(std::path::PathBuf::new(), 0, 0),
-                    |like| like.location.clone(),
-                );
-            return Err(ParseError::Structural {
-                location,
-                message: format!("LIKE INCLUDING COMMENTS forms a cycle involving {involved}"),
-            });
-        }
-
-        for target in ready {
-            let likes = by_target.remove(&target).unwrap_or_default();
-            for like in likes {
-                // Snapshot source table comment and per-column comments before
-                // borrowing the target mutably.
-                let (src_table_comment, src_col_comments): (Option<String>, Vec<(Identifier, Option<String>)>) = {
-                    let src = catalog.tables.iter().find(|t| t.qname == like.source)
-                        .ok_or_else(|| ParseError::Structural {
-                            location: like.location.clone(),
-                            message: format!(
-                                "LIKE source table {} not found during comment copy",
-                                like.source
-                            ),
-                        })?;
-                    let table_comment = src.comment.clone();
-                    let col_comments = src.columns.iter()
-                        .map(|c| (c.name.clone(), c.comment.clone()))
-                        .collect();
-                    (table_comment, col_comments)
-                };
-
-                let tgt = catalog.tables.iter_mut().find(|t| t.qname == target)
+    for target in resolve_order(&by_target)? {
+        let likes = by_target.remove(&target).unwrap_or_default();
+        for like in likes {
+            // Snapshot source table comment and per-column comments before
+            // borrowing the target mutably.
+            let (src_table_comment, src_col_comments): (Option<String>, Vec<(Identifier, Option<String>)>) = {
+                let src = catalog.tables.iter().find(|t| t.qname == like.source)
                     .ok_or_else(|| ParseError::Structural {
                         location: like.location.clone(),
-                        message: format!("LIKE target table {target} vanished during comment copy"),
+                        message: format!(
+                            "LIKE source table {} not found during comment copy",
+                            like.source
+                        ),
                     })?;
+                let table_comment = src.comment.clone();
+                let col_comments = src.columns.iter()
+                    .map(|c| (c.name.clone(), c.comment.clone()))
+                    .collect();
+                (table_comment, col_comments)
+            };
 
-                // Only propagate if the clone has no explicit comment (explicit wins).
-                if tgt.comment.is_none() {
-                    tgt.comment = src_table_comment;
-                }
+            let tgt = catalog.tables.iter_mut().find(|t| t.qname == target)
+                .ok_or_else(|| ParseError::Structural {
+                    location: like.location.clone(),
+                    message: format!("LIKE target table {target} vanished during comment copy"),
+                })?;
 
-                // Propagate column comments: match by name, explicit clone comment wins.
-                for (col_name, col_comment) in src_col_comments {
-                    if let Some(tgt_col) = tgt.columns.iter_mut().find(|c| c.name == col_name)
-                        && tgt_col.comment.is_none()
-                    {
-                        tgt_col.comment = col_comment;
-                    }
+            // Only propagate if the clone has no explicit comment (explicit wins).
+            if tgt.comment.is_none() {
+                tgt.comment = src_table_comment;
+            }
+
+            // Propagate column comments: match by name, explicit clone comment wins.
+            for (col_name, col_comment) in src_col_comments {
+                if let Some(tgt_col) = tgt.columns.iter_mut().find(|c| c.name == col_name)
+                    && tgt_col.comment.is_none()
+                {
+                    tgt_col.comment = col_comment;
                 }
             }
-            unresolved.remove(&target);
         }
     }
     Ok(())
