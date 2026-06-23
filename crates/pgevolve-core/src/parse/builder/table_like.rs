@@ -103,21 +103,21 @@ pub fn extract_pending_likes(
     Ok(out)
 }
 
-/// Copy a source column for a bare `LIKE` (Task 1 gates everything off; later
-/// tasks add option-driven attributes). Always copies name, type, collation,
-/// not-null.
-fn copy_column_bare(src: &Column) -> Column {
+/// Copy a source column for a `LIKE` clause, gating optional attributes on the
+/// corresponding `INCLUDING` option bits.  Always copies name, type, collation,
+/// and not-null; everything else is controlled by `opts`.
+fn copy_column(src: &Column, opts: TableLikeOptions) -> Column {
     Column {
         name: src.name.clone(),
         ty: src.ty.clone(),
         nullable: src.nullable,
         collation: src.collation.clone(),
-        default: None,
-        identity: None,
-        generated: None,
-        storage: None,
-        compression: None,
-        comment: None,
+        default:     if opts.defaults()    { src.default.clone() }    else { None },
+        identity:    if opts.identity()    { src.identity.clone() }   else { None },
+        generated:   if opts.generated()   { src.generated.clone() }  else { None },
+        storage:     if opts.storage()     { src.storage }            else { None },
+        compression: if opts.compression() { src.compression }        else { None },
+        comment:     if opts.comments()    { src.comment.clone() }    else { None },
     }
 }
 
@@ -196,7 +196,7 @@ pub fn apply_pending_likes(
                                 like.source
                             ),
                         })?;
-                    src.columns.iter().map(copy_column_bare).collect()
+                    src.columns.iter().map(|c| copy_column(c, like.options)).collect()
                 };
                 let n = src_cols.len();
                 let tgt = catalog.tables.iter_mut().find(|t| t.qname == target)
@@ -363,6 +363,24 @@ mod tests {
         let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
         assert_eq!(c.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
             vec!["x", "a", "b", "y"]);
+    }
+
+    #[test]
+    fn including_defaults_and_storage_gate_attributes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int DEFAULT 7, doc text STORAGE EXTERNAL);\n\
+             CREATE TABLE pub.bare (LIKE pub.base);\n\
+             CREATE TABLE pub.full (LIKE pub.base INCLUDING DEFAULTS INCLUDING STORAGE);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let bare = cat.tables.iter().find(|t| t.qname.name.as_str() == "bare").unwrap();
+        assert!(bare.columns[0].default.is_none());
+        assert!(bare.columns[1].storage.is_none());
+        let full = cat.tables.iter().find(|t| t.qname.name.as_str() == "full").unwrap();
+        assert!(full.columns[0].default.is_some(), "INCLUDING DEFAULTS copies default");
+        assert!(full.columns[1].storage.is_some(), "INCLUDING STORAGE copies storage");
     }
 
     #[test]
