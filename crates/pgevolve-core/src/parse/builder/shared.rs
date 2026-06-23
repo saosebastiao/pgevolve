@@ -341,9 +341,45 @@ pub fn type_name_to_column_type(
         .collect::<Result<Vec<_>, _>>()?;
 
     // Two-segment, non-pg_catalog prefix → user-defined type reference.
+    //
+    // Special case: PostGIS `geometry`/`geography` with typmods (issue #42).
+    // `public.geometry(Point,4326)` must become `Other { raw: "public.geometry(point,4326)" }`
+    // so it converges with the catalog path, which emits the same schema-qualified string.
+    // For all other schema-qualified types — including non-geo UDTs — keep the
+    // existing `UserDefined` return (no behavior change).
     if let [schema, name] = name_strings.as_slice()
         && *schema != "pg_catalog"
     {
+        let name_lower = name.to_ascii_lowercase();
+        if (name_lower == "geometry" || name_lower == "geography")
+            && !type_name.typmods.is_empty()
+        {
+            // Build `schema.name(arg,arg,…)` and route through the canonical
+            // parse path so casing is normalised (subtype barewords are already
+            // lowercased by pg_query) and `Other` equality holds.
+            let mut args: Vec<String> = Vec::with_capacity(type_name.typmods.len());
+            for n in &type_name.typmods {
+                let arg = typmod_arg_to_string(n.node.as_ref().ok_or_else(|| {
+                    ParseError::Structural {
+                        location: location.clone(),
+                        message: "missing node in typmod list".into(),
+                    }
+                })?)
+                .ok_or_else(|| ParseError::Structural {
+                    location: location.clone(),
+                    message: "could not stringify typmod argument".into(),
+                })?;
+                args.push(arg);
+            }
+            let s = format!("{schema}.{name_lower}({})", args.join(","));
+            return ColumnType::parse_from_pg_type_string(&s).map_err(|e| {
+                ParseError::Structural {
+                    location: location.clone(),
+                    message: format!("invalid column type {s:?}: {e}"),
+                }
+            });
+        }
+
         let schema_id = ident(schema, location)?;
         let name_id = ident(name, location)?;
         return Ok(ColumnType::UserDefined(QualifiedName::new(
@@ -641,6 +677,68 @@ mod tests {
                 "{decl} -> {ct:?}"
             );
         }
+    }
+
+    /// Convergence tests for schema-qualified `PostGIS` types (issue #42).
+    ///
+    /// `public.geometry(Point,4326)` must converge with the catalog path that
+    /// emits `Other { raw: "public.geometry(point,4326)" }` — i.e. the subtype
+    /// is lowercased and the schema prefix is preserved.
+    #[test]
+    fn schema_qualified_postgis_types_converge() {
+        // AST (source) path: type_name_to_column_type must NOT return UserDefined.
+        let cases = [
+            (
+                "public.geometry(Point,4326)",
+                "public.geometry(point,4326)",
+            ),
+            (
+                "public.geography(Point,4326)",
+                "public.geography(point,4326)",
+            ),
+            (
+                "myschema.geometry(MultiPolygon,4326)",
+                "myschema.geometry(multipolygon,4326)",
+            ),
+        ];
+        for (decl, expected_raw) in cases {
+            let tn = first_column_type_name(&format!("CREATE TABLE t (g {decl});"));
+            let ct = type_name_to_column_type(&tn, &loc())
+                .unwrap_or_else(|e| panic!("{decl} should parse, got {e:?}"));
+            assert!(
+                matches!(&ct, ColumnType::Other { raw } if raw == expected_raw),
+                "{decl} — expected Other{{raw:{expected_raw:?}}}, got {ct:?}"
+            );
+
+            // Catalog path: parse_from_pg_type_string with TitleCase input must
+            // produce the same Other so source == catalog (the actual convergence).
+            let catalog_input = decl; // e.g. "public.geometry(Point,4326)"
+            let from_catalog = ColumnType::parse_from_pg_type_string(catalog_input).unwrap();
+            assert_eq!(
+                ct, from_catalog,
+                "{decl}: source path {ct:?} != catalog path {from_catalog:?}"
+            );
+        }
+    }
+
+    /// No-typmod schema-qualified types must remain `UserDefined` (no regression).
+    #[test]
+    fn schema_qualified_no_typmod_stays_user_defined() {
+        // `public.geometry` without typmods → UserDefined.
+        let tn = first_column_type_name("CREATE TABLE t (g public.geometry);");
+        let ct = type_name_to_column_type(&tn, &loc()).expect("should parse");
+        assert!(
+            matches!(&ct, ColumnType::UserDefined(q) if q.to_string() == "public.geometry"),
+            "expected UserDefined(public.geometry), got {ct:?}"
+        );
+
+        // `public.mytype` → UserDefined.
+        let tn2 = first_column_type_name("CREATE TABLE t (x public.mytype);");
+        let ct2 = type_name_to_column_type(&tn2, &loc()).expect("should parse");
+        assert!(
+            matches!(&ct2, ColumnType::UserDefined(q) if q.to_string() == "public.mytype"),
+            "expected UserDefined(public.mytype), got {ct2:?}"
+        );
     }
 
     #[test]

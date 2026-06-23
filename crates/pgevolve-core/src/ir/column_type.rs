@@ -302,10 +302,16 @@ impl ColumnType {
 }
 
 /// Whether `lower` (already lowercased) names a `PostGIS` `geometry`/`geography`
-/// type, bare or parameterized (`geometry(Point,4326)`).
+/// type, bare or parameterized (`geometry(Point,4326)`), optionally
+/// schema-qualified (`public.geometry(point,4326)`).
+///
+/// Matches on the *last* dot-separated segment of the head so that both
+/// `geometry(Point,4326)` (issue #40) and `public.geometry(Point,4326)`
+/// (issue #42) are recognised.
 fn is_postgis_geo_type(lower: &str) -> bool {
     let head = lower.split_once('(').map_or(lower, |(h, _)| h).trim();
-    head == "geometry" || head == "geography"
+    let last = head.rsplit('.').next().unwrap_or(head);
+    last == "geometry" || last == "geography"
 }
 
 fn strip_array_suffix(s: &str) -> (&str, u8) {
@@ -702,6 +708,50 @@ mod tests {
     fn unknown_type_falls_through_to_other() {
         let t = ColumnType::parse_from_pg_type_string("nonexistent_type").unwrap();
         assert!(matches!(t, ColumnType::Other { ref raw } if raw == "nonexistent_type"));
+    }
+
+    /// Unit tests for the `is_postgis_geo_type` helper, including schema-qualified
+    /// forms (issue #42).
+    #[test]
+    fn is_postgis_geo_type_recognises_schema_qualified() {
+        // Bare unqualified — #40 cases must still work.
+        assert!(is_postgis_geo_type("geometry"));
+        assert!(is_postgis_geo_type("geography"));
+        assert!(is_postgis_geo_type("geometry(point,4326)"));
+
+        // Schema-qualified — new #42 cases.
+        assert!(is_postgis_geo_type("public.geometry"));
+        assert!(is_postgis_geo_type("public.geometry(point,4326)"));
+        assert!(is_postgis_geo_type("myschema.geography(multipolygon,4326)"));
+
+        // Negative: other user types must NOT match.
+        assert!(!is_postgis_geo_type("public.mytype"));
+        assert!(!is_postgis_geo_type("mytype(foo,1)"));
+        assert!(!is_postgis_geo_type("public.mygeometry")); // suffix "geometry" not exact last segment
+    }
+
+    /// Schema-qualified `PostGIS` types normalise their subtype casing (issue #42).
+    #[test]
+    fn schema_qualified_postgis_geo_subtype_casing_is_normalized() {
+        // `public.geometry(Point,4326)` (TitleCase, as from pg_catalog.format_type) must
+        // normalise to `public.geometry(point,4326)` (lowercase subtype).
+        let from_catalog =
+            ColumnType::parse_from_pg_type_string("public.geometry(Point,4326)").unwrap();
+        assert!(
+            matches!(&from_catalog, ColumnType::Other { raw } if raw == "public.geometry(point,4326)"),
+            "got {from_catalog:?}"
+        );
+        // Already-lowercase form is a no-op.
+        let from_source =
+            ColumnType::parse_from_pg_type_string("public.geometry(point,4326)").unwrap();
+        assert_eq!(from_catalog, from_source);
+
+        // Same for geography.
+        let geo_catalog =
+            ColumnType::parse_from_pg_type_string("public.geography(MultiPolygon,4326)").unwrap();
+        let geo_source =
+            ColumnType::parse_from_pg_type_string("public.geography(multipolygon,4326)").unwrap();
+        assert_eq!(geo_catalog, geo_source);
     }
 
     #[test]
