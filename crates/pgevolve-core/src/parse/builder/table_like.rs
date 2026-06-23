@@ -13,6 +13,7 @@ use pg_query::protobuf::CreateStmt;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::ir::column::Column;
+use crate::ir::constraint::{Constraint, ConstraintKind};
 use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
 
@@ -203,6 +204,45 @@ pub fn apply_pending_likes(
                         })?;
                     src.columns.iter().map(|c| copy_column(c, like.options)).collect()
                 };
+                // Snapshot CHECK constraints from the source when INCLUDING CONSTRAINTS.
+                // PK/UNIQUE belong to INCLUDING INDEXES (not yet implemented) and are skipped.
+                // FOREIGN KEY is never copied by LIKE regardless of options.
+                let src_checks: Vec<Constraint> = if like.options.constraints() {
+                    let src = catalog.tables.iter().find(|t| t.qname == like.source)
+                        .ok_or_else(|| ParseError::Structural {
+                            location: like.location.clone(),
+                            message: format!(
+                                "LIKE source table {} not found",
+                                like.source
+                            ),
+                        })?;
+                    src.constraints
+                        .iter()
+                        .filter(|c| matches!(c.kind, ConstraintKind::Check { .. }))
+                        .map(|c| {
+                            // Preserve the source constraint's local name in the clone's schema.
+                            // TODO(#43 Task 11): verify CHECK constraint naming against live PG —
+                            // Postgres re-derives names for *auto-named* checks but preserves
+                            // *explicitly-named* ones; pgevolve's IR doesn't track which is which,
+                            // so we approximate by always preserving the source name here.
+                            let cloned_qname = QualifiedName::new(
+                                target.schema.clone(),
+                                c.qname.name.clone(),
+                            );
+                            Constraint {
+                                qname: cloned_qname,
+                                kind: c.kind.clone(),
+                                deferrable: c.deferrable,
+                                // comments under INCLUDING COMMENTS are handled separately;
+                                // INCLUDING CONSTRAINTS does not copy comments.
+                                comment: None,
+                            }
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                };
+
                 let n = src_cols.len();
                 let tgt = catalog.tables.iter_mut().find(|t| t.qname == target)
                     .ok_or_else(|| ParseError::Structural {
@@ -212,6 +252,7 @@ pub fn apply_pending_likes(
                 let at = (like.explicit_cols_before + inserted).min(tgt.columns.len());
                 tgt.columns.splice(at..at, src_cols);
                 inserted += n;
+                tgt.constraints.extend(src_checks);
             }
             unresolved.remove(&target);
         }
@@ -595,5 +636,51 @@ mod tests {
         let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
         assert_eq!(clone.comment.as_deref(), Some("explicit"),
             "explicit COMMENT ON TABLE clone must win over INCLUDING COMMENTS propagation");
+    }
+
+    // ── INCLUDING CONSTRAINTS tests ───────────────────────────────────────────
+
+    #[test]
+    fn including_constraints_copies_check() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (n int, CONSTRAINT n_pos CHECK (n > 0));\n\
+             CREATE TABLE pub.bare (LIKE pub.base);\n\
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING CONSTRAINTS);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let bare = cat.tables.iter().find(|t| t.qname.name.as_str() == "bare").unwrap();
+        assert!(bare.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Check{..})),
+            "bare LIKE must not copy CHECK constraints");
+        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        assert_eq!(c.constraints.iter()
+            .filter(|c| matches!(c.kind, crate::ir::constraint::ConstraintKind::Check{..})).count(), 1,
+            "INCLUDING CONSTRAINTS should copy exactly one CHECK constraint");
+    }
+
+    #[test]
+    fn including_constraints_does_not_copy_pk_or_unique() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int PRIMARY KEY, e text UNIQUE, n int CHECK (n>0));\n\
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING CONSTRAINTS);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        assert_eq!(
+            c.constraints.iter().filter(|c| matches!(c.kind, crate::ir::constraint::ConstraintKind::Check{..})).count(),
+            1,
+            "INCLUDING CONSTRAINTS should copy the CHECK constraint"
+        );
+        assert!(
+            c.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::PrimaryKey{..})),
+            "INCLUDING CONSTRAINTS must not copy PrimaryKey (belongs to INCLUDING INDEXES)"
+        );
+        assert!(
+            c.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Unique{..})),
+            "INCLUDING CONSTRAINTS must not copy Unique (belongs to INCLUDING INDEXES)"
+        );
     }
 }
