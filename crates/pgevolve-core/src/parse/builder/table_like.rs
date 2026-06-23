@@ -190,15 +190,37 @@ fn snapshot_like(
     // PK/UNIQUE belong to INCLUDING INDEXES (handled below); FOREIGN KEY is
     // never copied by LIKE regardless of options.
     if like.options.constraints() {
+        // pgevolve auto-names an unnamed CHECK as `{table}_check` (see
+        // `constraint_qname` in `create_stmt.rs`).  When copying a CHECK
+        // from a LIKE source we must distinguish:
+        //   - auto-named  → name equals the source sentinel `{source}_check`
+        //                  → re-derive for the clone: `{target}_check`
+        //   - explicitly-named → anything else → preserve the source name
+        // This ensures that `LIKE pub.base INCLUDING CONSTRAINTS` produces a
+        // clone whose unnamed check is named `{clone}_check`, matching an
+        // equivalent hand-written clone (fixes #45).
+        //
+        // NOTE: full Postgres column-check naming fidelity (`{table}_{col}_check`)
+        // is a separate broader concern (see #44/#46) because pgevolve's inline
+        // path also uses the simpler `{table}_check` form.
+        let source_auto_name = format!("{}_check", like.source.name.as_str());
         for c in &src.constraints {
             if matches!(c.kind, ConstraintKind::Check { .. }) {
-                // Preserve the source constraint's local name in the clone's schema.
-                // TODO(#43 Task 11): verify CHECK constraint naming against live PG —
-                // Postgres re-derives names for *auto-named* checks but preserves
-                // *explicitly-named* ones; pgevolve's IR doesn't track which is which,
-                // so we approximate by always preserving the source name here.
+                let local_name = if c.qname.name.as_str() == source_auto_name {
+                    // Auto-generated name: re-derive for the clone table.
+                    Identifier::from_unquoted(&format!("{}_check", target_name.as_str()))
+                        .map_err(|e| ParseError::Structural {
+                            location: like.location.clone(),
+                            message: format!(
+                                "re-derived CHECK constraint name is not a valid identifier: {e}"
+                            ),
+                        })?
+                } else {
+                    // Explicitly-named constraint: preserve the source name.
+                    c.qname.name.clone()
+                };
                 constraints.push(Constraint {
-                    qname: QualifiedName::new(target_schema.clone(), c.qname.name.clone()),
+                    qname: QualifiedName::new(target_schema.clone(), local_name),
                     kind: c.kind.clone(),
                     deferrable: c.deferrable,
                     // comments under INCLUDING COMMENTS are handled separately;
@@ -987,6 +1009,74 @@ mod tests {
         assert!(
             c.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Unique{..})),
             "INCLUDING CONSTRAINTS must not copy Unique (belongs to INCLUDING INDEXES)"
+        );
+    }
+
+    /// An UNNAMED source CHECK (`CHECK (n > 0)`) is auto-named `base_check` by
+    /// pgevolve.  When copied via `LIKE … INCLUDING CONSTRAINTS` the clone must
+    /// receive a re-derived name (`clone_check`), NOT the source name (`base_check`).
+    /// This matches what an equivalent hand-written clone would produce and
+    /// prevents a spurious diff (fixes #45).
+    #[test]
+    fn like_constraints_rederives_unnamed_check_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        // Unnamed CHECK → pgevolve auto-names it `base_check`.
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (n int, CHECK (n > 0));\n\
+             CREATE TABLE pub.clone (LIKE pub.base INCLUDING CONSTRAINTS);\n",
+        )
+        .unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
+        let check = clone
+            .constraints
+            .iter()
+            .find(|c| matches!(c.kind, crate::ir::constraint::ConstraintKind::Check { .. }))
+            .expect("clone must have a copied CHECK constraint");
+        assert_eq!(
+            check.qname.name.as_str(), "clone_check",
+            "unnamed source CHECK must be re-derived to clone_check, got {:?}",
+            check.qname.name.as_str(),
+        );
+        assert_eq!(
+            check.qname.schema.as_str(), "pub",
+            "copied CHECK must be in clone's schema"
+        );
+    }
+
+    /// An EXPLICITLY-NAMED source CHECK (`CONSTRAINT n_pos CHECK …`) must keep
+    /// its source name when copied via `LIKE … INCLUDING CONSTRAINTS`; only the
+    /// schema is updated to the clone's schema.
+    #[test]
+    fn like_constraints_preserves_explicit_check_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        // Explicitly-named CHECK → name must be preserved verbatim in the clone.
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (n int, CONSTRAINT n_pos CHECK (n > 0));\n\
+             CREATE TABLE pub.clone (LIKE pub.base INCLUDING CONSTRAINTS);\n",
+        )
+        .unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
+        let check = clone
+            .constraints
+            .iter()
+            .find(|c| matches!(c.kind, crate::ir::constraint::ConstraintKind::Check { .. }))
+            .expect("clone must have a copied CHECK constraint");
+        assert_eq!(
+            check.qname.name.as_str(), "n_pos",
+            "explicitly-named source CHECK must be preserved as n_pos, got {:?}",
+            check.qname.name.as_str(),
+        );
+        assert_eq!(
+            check.qname.schema.as_str(), "pub",
+            "copied CHECK must be in clone's schema"
         );
     }
 
