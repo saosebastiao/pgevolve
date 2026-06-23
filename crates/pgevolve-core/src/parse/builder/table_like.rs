@@ -117,7 +117,9 @@ fn copy_column(src: &Column, opts: TableLikeOptions) -> Column {
         generated:   if opts.generated()   { src.generated.clone() }  else { None },
         storage:     if opts.storage()     { src.storage }            else { None },
         compression: if opts.compression() { src.compression }        else { None },
-        comment:     if opts.comments()    { src.comment.clone() }    else { None },
+        // comments are copied in a separate pass after deferred comments are applied
+        // (see apply_pending_like_comments)
+        comment: None,
     }
 }
 
@@ -130,13 +132,16 @@ fn copy_column(src: &Column, opts: TableLikeOptions) -> Column {
 /// materialized (i.e. not themselves still-pending targets). If a round makes
 /// no progress while targets remain, the remaining set is a cycle or
 /// self-reference and we error.
+///
+/// Note: takes `&[PendingLike]` so the caller retains the slice for a
+/// subsequent [`apply_pending_like_comments`] pass.
 pub fn apply_pending_likes(
     catalog: &mut Catalog,
-    pending: Vec<PendingLike>,
+    pending: &[PendingLike],
 ) -> Result<(), ParseError> {
     // Group by target so multiple LIKE clauses on one table share an
     // insertion-offset accumulator and a deterministic processing order.
-    let mut by_target: BTreeMap<QualifiedName, Vec<PendingLike>> = BTreeMap::new();
+    let mut by_target: BTreeMap<QualifiedName, Vec<&PendingLike>> = BTreeMap::new();
     for p in pending {
         by_target.entry(p.target.clone()).or_default().push(p);
     }
@@ -214,6 +219,115 @@ pub fn apply_pending_likes(
     Ok(())
 }
 
+/// Second pass: copy `INCLUDING COMMENTS` from each source to its clone(s),
+/// respecting the same dependency ordering as [`apply_pending_likes`].
+///
+/// This pass runs AFTER the `deferred_comments` loop so that every table and
+/// column already has its own comments applied before we propagate them via
+/// LIKE.  Only clauses with `opts.comments()` do anything; clones whose
+/// comment is already set (via an explicit `COMMENT ON TABLE/COLUMN`) keep
+/// theirs — the explicit comment wins.
+pub fn apply_pending_like_comments(
+    catalog: &mut Catalog,
+    pending: &[PendingLike],
+) -> Result<(), ParseError> {
+    // Respect the same dependency ordering as apply_pending_likes: process a
+    // source before any clone that LIKEs it, so chained LIKE WITH COMMENTS
+    // propagates through the whole chain.
+    let mut by_target: BTreeMap<QualifiedName, Vec<&PendingLike>> = BTreeMap::new();
+    for p in pending {
+        if p.options.comments() {
+            by_target.entry(p.target.clone()).or_default().push(p);
+        }
+    }
+
+    if by_target.is_empty() {
+        return Ok(());
+    }
+
+    let mut unresolved: BTreeSet<QualifiedName> = by_target.keys().cloned().collect();
+
+    while !unresolved.is_empty() {
+        let ready: Vec<QualifiedName> = unresolved
+            .iter()
+            .filter(|target| {
+                by_target[*target]
+                    .iter()
+                    .all(|like| !unresolved.contains(&like.source))
+            })
+            .cloned()
+            .collect();
+
+        if ready.is_empty() {
+            // Cycles would already have been caught by apply_pending_likes; this
+            // is a defensive guard so we don't loop forever.
+            let involved = unresolved
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let location = unresolved
+                .iter()
+                .next()
+                .and_then(|t| by_target.get(t))
+                .and_then(|likes| likes.first())
+                .map_or_else(
+                    || SourceLocation::new(std::path::PathBuf::new(), 0, 0),
+                    |like| like.location.clone(),
+                );
+            return Err(ParseError::Structural {
+                location,
+                message: format!("LIKE INCLUDING COMMENTS forms a cycle involving {involved}"),
+            });
+        }
+
+        for target in ready {
+            let likes = by_target.remove(&target).unwrap_or_default();
+            for like in likes {
+                // Snapshot source table comment and per-column comments before
+                // borrowing the target mutably.
+                let (src_table_comment, src_col_comments): (Option<String>, Vec<(crate::identifier::Identifier, Option<String>)>) = {
+                    let src = catalog.tables.iter().find(|t| t.qname == like.source)
+                        .ok_or_else(|| ParseError::Structural {
+                            location: like.location.clone(),
+                            message: format!(
+                                "LIKE source table {} not found during comment copy",
+                                like.source
+                            ),
+                        })?;
+                    let table_comment = src.comment.clone();
+                    let col_comments = src.columns.iter()
+                        .map(|c| (c.name.clone(), c.comment.clone()))
+                        .collect();
+                    (table_comment, col_comments)
+                };
+
+                let tgt = catalog.tables.iter_mut().find(|t| t.qname == target)
+                    .ok_or_else(|| ParseError::Structural {
+                        location: like.location.clone(),
+                        message: format!("LIKE target table {target} vanished during comment copy"),
+                    })?;
+
+                // Only propagate if the clone has no explicit comment (explicit wins).
+                if tgt.comment.is_none() {
+                    tgt.comment = src_table_comment;
+                }
+
+                // Propagate column comments: match by name, explicit clone comment wins.
+                for (col_name, col_comment) in src_col_comments {
+                    if let Some(tgt_col) = tgt.columns.iter_mut().find(|c| c.name == col_name)
+                        && tgt_col.comment.is_none()
+                    {
+                        tgt_col.comment = col_comment;
+                    }
+                }
+            }
+            unresolved.remove(&target);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,7 +389,7 @@ mod tests {
         std::fs::write(dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.clone (id int);\n").unwrap();
         let (mut cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        assert!(apply_pending_likes(&mut cat, vec![pend]).is_err());
+        assert!(apply_pending_likes(&mut cat, &[pend]).is_err());
     }
 
     /// A chain `z (LIKE a)` then `x (LIKE z)` must resolve fully regardless of
@@ -395,5 +509,91 @@ mod tests {
         let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
         assert_eq!(c.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
             vec!["a", "mid", "b"]);
+    }
+
+    // ── INCLUDING COMMENTS tests ──────────────────────────────────────────────
+
+    #[test]
+    fn including_comments_copies_table_comment() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int);\n\
+             COMMENT ON TABLE pub.base IS 'hi';\n\
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING COMMENTS);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        assert_eq!(c.comment.as_deref(), Some("hi"),
+            "INCLUDING COMMENTS should propagate the source table comment to the clone");
+    }
+
+    #[test]
+    fn including_comments_copies_column_comment() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int);\n\
+             COMMENT ON COLUMN pub.base.id IS 'col';\n\
+             CREATE TABLE pub.clone (LIKE pub.base INCLUDING COMMENTS);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
+        let id_col = clone.columns.iter().find(|c| c.name.as_str() == "id").unwrap();
+        assert_eq!(id_col.comment.as_deref(), Some("col"),
+            "INCLUDING COMMENTS should propagate the source column comment to the clone");
+    }
+
+    #[test]
+    fn bare_like_does_not_copy_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int);\n\
+             COMMENT ON TABLE pub.base IS 'tbl';\n\
+             COMMENT ON COLUMN pub.base.id IS 'col';\n\
+             CREATE TABLE pub.clone (LIKE pub.base);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
+        assert!(clone.comment.is_none(), "bare LIKE must not copy table comment");
+        assert!(clone.columns.iter().all(|c| c.comment.is_none()),
+            "bare LIKE must not copy column comments");
+    }
+
+    /// Regression guard: COMMENT ON COLUMN targeting a LIKE-derived column must
+    /// succeed. The brief's suggested reorder (`deferred_comments` before
+    /// `apply_pending_likes`) would have broken this case because `apply_comment`
+    /// would error when the clone's columns don't yet exist.
+    #[test]
+    fn comment_on_clone_like_derived_column_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int);\n\
+             CREATE TABLE pub.clone (LIKE pub.base);\n\
+             COMMENT ON COLUMN pub.clone.id IS 'x';\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
+        let id_col = clone.columns.iter().find(|c| c.name.as_str() == "id").unwrap();
+        assert_eq!(id_col.comment.as_deref(), Some("x"),
+            "COMMENT ON COLUMN clone.id must apply to the LIKE-derived column");
+    }
+
+    #[test]
+    fn explicit_clone_comment_wins_over_including_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int);\n\
+             COMMENT ON TABLE pub.base IS 'from_base';\n\
+             CREATE TABLE pub.clone (LIKE pub.base INCLUDING COMMENTS);\n\
+             COMMENT ON TABLE pub.clone IS 'explicit';\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
+        assert_eq!(clone.comment.as_deref(), Some("explicit"),
+            "explicit COMMENT ON TABLE clone must win over INCLUDING COMMENTS propagation");
     }
 }

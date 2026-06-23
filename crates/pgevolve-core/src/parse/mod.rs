@@ -156,7 +156,7 @@ pub fn parse_directory_with_locations(
 
     // Expand CREATE TABLE … (LIKE …) before any pass that references the
     // clone's columns (comments, FKs, resolution).
-    builder::table_like::apply_pending_likes(&mut catalog, pending_likes)?;
+    builder::table_like::apply_pending_likes(&mut catalog, &pending_likes)?;
 
     // Apply deferred comments (the underlying object may be defined in a later
     // file).
@@ -168,6 +168,11 @@ pub fn parse_directory_with_locations(
             &location,
         )?;
     }
+
+    // Propagate INCLUDING COMMENTS from each LIKE source to its clone(s).
+    // This pass runs after deferred_comments so the source's own comments are
+    // already applied before we copy them.
+    builder::table_like::apply_pending_like_comments(&mut catalog, &pending_likes)?;
 
     // Merge pending FKs and column-attribute updates from ALTER TABLE statements.
     apply_pending_fks(&mut catalog, pending_fks)?;
