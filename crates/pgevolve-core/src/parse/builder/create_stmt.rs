@@ -22,6 +22,7 @@ use crate::ir::partition::{
     PartitionStrategy,
 };
 use crate::ir::table::Table;
+use crate::parse::builder::choose_name;
 use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
 use crate::parse::normalize_expr;
@@ -45,6 +46,7 @@ pub fn build_table(
     let mut columns: Vec<Column> = Vec::new();
     let mut constraints: Vec<Constraint> = Vec::new();
     let mut pk_columns: Option<Vec<Identifier>> = None;
+    let mut taken = choose_name::TakenNames::default();
 
     for elt in &create.table_elts {
         let Some(node) = elt.node.as_ref() else {
@@ -53,7 +55,7 @@ pub fn build_table(
         match node {
             NodeEnum::ColumnDef(col) => {
                 let (column, mut col_constraints, col_pk) =
-                    build_column(col, &qname, default_schema, location)?;
+                    build_column(col, &qname, default_schema, &mut taken, location)?;
                 columns.push(column);
                 constraints.append(&mut col_constraints);
                 if let Some(c) = col_pk {
@@ -61,7 +63,8 @@ pub fn build_table(
                 }
             }
             NodeEnum::Constraint(con) => {
-                if let Some(built) = build_table_constraint(con, &qname, default_schema, location)?
+                if let Some(built) =
+                    build_table_constraint(con, &qname, default_schema, &mut taken, location)?
                 {
                     if let ConstraintKind::PrimaryKey { columns: cols, .. } = &built.kind {
                         pk_columns = Some(cols.clone());
@@ -213,6 +216,7 @@ fn build_column(
     col: &ColumnDef,
     table_qname: &QualifiedName,
     default_schema: Option<&Identifier>,
+    taken: &mut choose_name::TakenNames,
     location: &SourceLocation,
 ) -> Result<(Column, Vec<Constraint>, Option<Identifier>), ParseError> {
     let name = shared::ident(&col.colname, location)?;
@@ -310,32 +314,39 @@ fn build_column(
             ConstrType::ConstrPrimary => {
                 pk_inline = Some(name.clone());
                 nullable = false;
-                produced_constraints.push(make_pk_constraint(
+                let pk_con = make_pk_constraint(
                     table_qname,
                     &con.conname,
                     vec![name.clone()],
                     location,
-                )?);
+                )?;
+                taken.insert(pk_con.qname.name.as_str());
+                produced_constraints.push(pk_con);
             }
             ConstrType::ConstrUnique => {
                 produced_constraints.push(make_unique_constraint(
                     table_qname,
                     con,
                     vec![name.clone()],
+                    taken,
                     location,
                 )?);
             }
             ConstrType::ConstrForeign => {
-                produced_constraints.push(make_fk_constraint(
+                let fk_con = make_fk_constraint(
                     table_qname,
                     con,
                     vec![name.clone()],
                     default_schema,
                     location,
-                )?);
+                )?;
+                taken.insert(fk_con.qname.name.as_str());
+                produced_constraints.push(fk_con);
             }
             ConstrType::ConstrCheck => {
-                produced_constraints.push(make_check_constraint(table_qname, con, location)?);
+                let chk_con = make_check_constraint(table_qname, con, location)?;
+                taken.insert(chk_con.qname.name.as_str());
+                produced_constraints.push(chk_con);
             }
             _ => {}
         }
@@ -367,20 +378,34 @@ fn build_table_constraint(
     con: &PgConstraint,
     table_qname: &QualifiedName,
     default_schema: Option<&Identifier>,
+    taken: &mut choose_name::TakenNames,
     location: &SourceLocation,
 ) -> Result<Option<Constraint>, ParseError> {
     let kind = ConstrType::try_from(con.contype).unwrap_or(ConstrType::Undefined);
     let cols = key_idents(&con.keys, location)?;
-    Ok(Some(match kind {
-        ConstrType::ConstrPrimary => make_pk_constraint(table_qname, &con.conname, cols, location)?,
-        ConstrType::ConstrUnique => make_unique_constraint(table_qname, con, cols, location)?,
+    let built = match kind {
+        ConstrType::ConstrPrimary => {
+            let c = make_pk_constraint(table_qname, &con.conname, cols, location)?;
+            taken.insert(c.qname.name.as_str());
+            c
+        }
+        ConstrType::ConstrUnique => {
+            make_unique_constraint(table_qname, con, cols, taken, location)?
+        }
         ConstrType::ConstrForeign => {
             let fk_cols = key_idents(&con.fk_attrs, location)?;
-            make_fk_constraint(table_qname, con, fk_cols, default_schema, location)?
+            let c = make_fk_constraint(table_qname, con, fk_cols, default_schema, location)?;
+            taken.insert(c.qname.name.as_str());
+            c
         }
-        ConstrType::ConstrCheck => make_check_constraint(table_qname, con, location)?,
+        ConstrType::ConstrCheck => {
+            let c = make_check_constraint(table_qname, con, location)?;
+            taken.insert(c.qname.name.as_str());
+            c
+        }
         _ => return Ok(None),
-    }))
+    };
+    Ok(Some(built))
 }
 
 fn make_pk_constraint(
@@ -405,9 +430,25 @@ fn make_unique_constraint(
     table_qname: &QualifiedName,
     con: &PgConstraint,
     columns: Vec<Identifier>,
+    taken: &mut choose_name::TakenNames,
     location: &SourceLocation,
 ) -> Result<Constraint, ParseError> {
-    let qname = constraint_qname(table_qname, &con.conname, "key", location)?;
+    let qname = if con.conname.is_empty() {
+        // Derive Postgres-faithful name: {table}_{col[s]}_key
+        let col_opts: Vec<Option<&str>> = columns.iter().map(|c| Some(c.as_str())).collect();
+        let name = choose_name::choose_index_name(
+            table_qname.name.as_str(),
+            &col_opts,
+            choose_name::IndexNameKind::Unique,
+            taken,
+        );
+        let ident = shared::ident(&name, location)?;
+        QualifiedName::new(table_qname.schema.clone(), ident)
+    } else {
+        // Explicit name: keep it and register it as taken.
+        taken.insert(&con.conname);
+        constraint_qname(table_qname, &con.conname, "key", location)?
+    };
     let include = key_idents(&con.including, location)?;
     Ok(Constraint {
         qname,
@@ -1206,5 +1247,39 @@ mod tests {
              TABLESPACE ts;",
         );
         assert_eq!(t.tablespace.as_ref().map(Identifier::as_str), Some("ts"));
+    }
+
+    // ------------------------------------------------------------------
+    // Unnamed UNIQUE constraint naming: {table}_{col[s]}_key
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn inline_unnamed_unique_named_table_col_key() {
+        let t = build("CREATE TABLE app.t (a int, b int, UNIQUE (a, b));");
+        assert_eq!(t.constraints.len(), 1);
+        // Postgres names this t_a_b_key, NOT t_key
+        assert_eq!(t.constraints[0].qname.to_string(), "app.t_a_b_key");
+    }
+
+    #[test]
+    fn inline_column_unique_named_table_col_key() {
+        let t = build("CREATE TABLE app.t (email text UNIQUE);");
+        assert_eq!(t.constraints.len(), 1);
+        assert_eq!(t.constraints[0].qname.to_string(), "app.t_email_key");
+    }
+
+    #[test]
+    fn explicit_unique_name_preserved() {
+        let t = build("CREATE TABLE app.t (a int, CONSTRAINT my_uq UNIQUE (a));");
+        assert_eq!(t.constraints.len(), 1);
+        assert_eq!(t.constraints[0].qname.to_string(), "app.my_uq");
+    }
+
+    #[test]
+    fn two_unnamed_uniques_get_counter() {
+        let t = build("CREATE TABLE app.t (a int, b int, UNIQUE (a), UNIQUE (a));");
+        assert_eq!(t.constraints.len(), 2);
+        assert_eq!(t.constraints[0].qname.to_string(), "app.t_a_key");
+        assert_eq!(t.constraints[1].qname.to_string(), "app.t_a_key1");
     }
 }
