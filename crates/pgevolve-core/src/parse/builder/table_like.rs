@@ -14,7 +14,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::ir::column::Column;
 use crate::ir::constraint::{Constraint, ConstraintKind};
-use crate::parse::builder::shared;
+use crate::parse::builder::{choose_name, shared};
 use crate::parse::error::{ParseError, SourceLocation};
 
 /// The `INCLUDING`/`EXCLUDING` option bitmask from a `TableLikeClause`.
@@ -124,6 +124,144 @@ fn copy_column(src: &Column, opts: TableLikeOptions) -> Column {
     }
 }
 
+/// One materialized snapshot of columns and constraints to be spliced into
+/// a LIKE target.  Built during the immutable-borrow phase; applied during
+/// the mutable-borrow phase, keeping the two borrows cleanly separate.
+struct LikeSnapshot {
+    explicit_cols_before: usize,
+    cols: Vec<Column>,
+    constraints: Vec<Constraint>,
+}
+
+/// Build a [`LikeSnapshot`] for one `like` clause against `catalog`, updating
+/// `taken` so that any subsequent clause for the same target doesn't reuse a
+/// just-generated constraint name.
+///
+/// The `target_name` and `target_schema` arguments identify the clone table
+/// whose schema the new constraint qnames should carry.
+fn snapshot_like(
+    like: &PendingLike,
+    target_name: &Identifier,
+    target_schema: &Identifier,
+    catalog: &Catalog,
+    taken: &mut choose_name::TakenNames,
+) -> Result<LikeSnapshot, ParseError> {
+    let src = catalog.tables.iter().find(|t| t.qname == like.source)
+        .ok_or_else(|| ParseError::Structural {
+            location: like.location.clone(),
+            message: format!(
+                "LIKE source table {} not found (must be a table declared in the schema)",
+                like.source
+            ),
+        })?;
+
+    let cols: Vec<Column> = src.columns.iter().map(|c| copy_column(c, like.options)).collect();
+    let mut constraints: Vec<Constraint> = Vec::new();
+
+    // INCLUDING CONSTRAINTS → copy CHECK constraints.
+    // PK/UNIQUE belong to INCLUDING INDEXES (handled below); FOREIGN KEY is
+    // never copied by LIKE regardless of options.
+    if like.options.constraints() {
+        for c in &src.constraints {
+            if matches!(c.kind, ConstraintKind::Check { .. }) {
+                // Preserve the source constraint's local name in the clone's schema.
+                // TODO(#43 Task 11): verify CHECK constraint naming against live PG —
+                // Postgres re-derives names for *auto-named* checks but preserves
+                // *explicitly-named* ones; pgevolve's IR doesn't track which is which,
+                // so we approximate by always preserving the source name here.
+                let cloned_qname = QualifiedName::new(
+                    target_schema.clone(),
+                    c.qname.name.clone(),
+                );
+                constraints.push(Constraint {
+                    qname: cloned_qname,
+                    kind: c.kind.clone(),
+                    deferrable: c.deferrable,
+                    // comments under INCLUDING COMMENTS are handled separately;
+                    // INCLUDING CONSTRAINTS does not copy comments.
+                    comment: None,
+                });
+            }
+        }
+    }
+
+    // INCLUDING INDEXES → copy PRIMARY KEY and UNIQUE constraints with
+    // Postgres-faithful re-derived names.
+    // EXCLUDE constraints aren't modeled in ConstraintKind, so none can
+    // appear on a source; nothing to handle here.
+    // FOREIGN KEY is never copied by LIKE regardless of options.
+    if like.options.indexes() {
+        for c in &src.constraints {
+            match &c.kind {
+                ConstraintKind::PrimaryKey { columns, include } => {
+                    let generated = choose_name::choose_index_name(
+                        target_name.as_str(),
+                        &[],
+                        choose_name::IndexNameKind::Pkey,
+                        taken,
+                    );
+                    let constraint_qname = QualifiedName::new(
+                        target_schema.clone(),
+                        Identifier::from_unquoted(&generated).map_err(|e| ParseError::Structural {
+                            location: like.location.clone(),
+                            message: format!(
+                                "generated PK constraint name {generated:?} is not a valid identifier: {e}"
+                            ),
+                        })?,
+                    );
+                    constraints.push(Constraint {
+                        qname: constraint_qname,
+                        kind: ConstraintKind::PrimaryKey {
+                            columns: columns.clone(),
+                            include: include.clone(),
+                        },
+                        deferrable: c.deferrable,
+                        comment: None,
+                    });
+                }
+                ConstraintKind::Unique { columns, include, nulls_distinct } => {
+                    let col_opts: Vec<Option<&str>> =
+                        columns.iter().map(|col| Some(col.as_str())).collect();
+                    let generated = choose_name::choose_index_name(
+                        target_name.as_str(),
+                        &col_opts,
+                        choose_name::IndexNameKind::Unique,
+                        taken,
+                    );
+                    let constraint_qname = QualifiedName::new(
+                        target_schema.clone(),
+                        Identifier::from_unquoted(&generated).map_err(|e| ParseError::Structural {
+                            location: like.location.clone(),
+                            message: format!(
+                                "generated UNIQUE constraint name {generated:?} is not a valid identifier: {e}"
+                            ),
+                        })?,
+                    );
+                    constraints.push(Constraint {
+                        qname: constraint_qname,
+                        kind: ConstraintKind::Unique {
+                            columns: columns.clone(),
+                            include: include.clone(),
+                            nulls_distinct: *nulls_distinct,
+                        },
+                        deferrable: c.deferrable,
+                        comment: None,
+                    });
+                }
+                // CHECK belongs to INCLUDING CONSTRAINTS (handled above),
+                // FOREIGN KEY is never copied by LIKE.
+                ConstraintKind::Check { .. } | ConstraintKind::ForeignKey(_) => {}
+            }
+        }
+    }
+
+    Ok(LikeSnapshot {
+        explicit_cols_before: like.explicit_cols_before,
+        cols,
+        constraints,
+    })
+}
+
 /// Resolve every pending `LIKE` against the assembled catalog.
 ///
 /// LIKE clauses can chain (`x (LIKE z)` where `z (LIKE a)`), so we cannot
@@ -190,69 +328,40 @@ pub fn apply_pending_likes(
             // SAFETY: `target` came from `unresolved` which is keyed off `by_target`.
             let mut likes = by_target.remove(&target).unwrap_or_default();
             likes.sort_by_key(|p| p.explicit_cols_before); // stable; preserves clause order on ties
-            let mut inserted = 0usize;
-            for like in likes {
-                // Snapshot the source's columns before borrowing the target mutably.
-                let src_cols: Vec<Column> = {
-                    let src = catalog.tables.iter().find(|t| t.qname == like.source)
-                        .ok_or_else(|| ParseError::Structural {
-                            location: like.location.clone(),
-                            message: format!(
-                                "LIKE source table {} not found (must be a table declared in the schema)",
-                                like.source
-                            ),
-                        })?;
-                    src.columns.iter().map(|c| copy_column(c, like.options)).collect()
-                };
-                // Snapshot CHECK constraints from the source when INCLUDING CONSTRAINTS.
-                // PK/UNIQUE belong to INCLUDING INDEXES (not yet implemented) and are skipped.
-                // FOREIGN KEY is never copied by LIKE regardless of options.
-                let src_checks: Vec<Constraint> = if like.options.constraints() {
-                    let src = catalog.tables.iter().find(|t| t.qname == like.source)
-                        .ok_or_else(|| ParseError::Structural {
-                            location: like.location.clone(),
-                            message: format!(
-                                "LIKE source table {} not found",
-                                like.source
-                            ),
-                        })?;
-                    src.constraints
-                        .iter()
-                        .filter(|c| matches!(c.kind, ConstraintKind::Check { .. }))
-                        .map(|c| {
-                            // Preserve the source constraint's local name in the clone's schema.
-                            // TODO(#43 Task 11): verify CHECK constraint naming against live PG —
-                            // Postgres re-derives names for *auto-named* checks but preserves
-                            // *explicitly-named* ones; pgevolve's IR doesn't track which is which,
-                            // so we approximate by always preserving the source name here.
-                            let cloned_qname = QualifiedName::new(
-                                target.schema.clone(),
-                                c.qname.name.clone(),
-                            );
-                            Constraint {
-                                qname: cloned_qname,
-                                kind: c.kind.clone(),
-                                deferrable: c.deferrable,
-                                // comments under INCLUDING COMMENTS are handled separately;
-                                // INCLUDING CONSTRAINTS does not copy comments.
-                                comment: None,
-                            }
-                        })
-                        .collect()
-                } else {
-                    vec![]
-                };
 
-                let n = src_cols.len();
+            // Build a name-collision tracker seeded with every name already live in
+            // the target's schema.  One `TakenNames` per target so that all LIKE
+            // clauses for the same clone share a single counter state — meaning
+            // two different LIKE clauses on the same clone won't independently
+            // produce colliding names.
+            //
+            // `from_schema` borrows `catalog` immutably; we finish the borrow
+            // completely before we need the mutable borrow below.
+            let mut taken = choose_name::TakenNames::from_schema(catalog, &target.schema);
+
+            // Snapshot pass (immutable borrow): gather columns + constraints for
+            // every clause, driving `taken` forward so names stay globally unique.
+            let mut snapshots: Vec<LikeSnapshot> = Vec::with_capacity(likes.len());
+            for like in &likes {
+                snapshots.push(snapshot_like(like, &target.name, &target.schema, catalog, &mut taken)?);
+            }
+
+            // Mutation pass: apply all snapshots to the (now mutably-borrowed) target.
+            let mut inserted = 0usize;
+            for snap in snapshots {
+                let n = snap.cols.len();
                 let tgt = catalog.tables.iter_mut().find(|t| t.qname == target)
                     .ok_or_else(|| ParseError::Structural {
-                        location: like.location.clone(),
+                        location: likes.first().map_or_else(
+                            || SourceLocation::new(std::path::PathBuf::new(), 0, 0),
+                            |l| l.location.clone(),
+                        ),
                         message: format!("LIKE target table {target} vanished"),
                     })?;
-                let at = (like.explicit_cols_before + inserted).min(tgt.columns.len());
-                tgt.columns.splice(at..at, src_cols);
+                let at = (snap.explicit_cols_before + inserted).min(tgt.columns.len());
+                tgt.columns.splice(at..at, snap.cols);
                 inserted += n;
-                tgt.constraints.extend(src_checks);
+                tgt.constraints.extend(snap.constraints);
             }
             unresolved.remove(&target);
         }
@@ -681,6 +790,46 @@ mod tests {
         assert!(
             c.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Unique{..})),
             "INCLUDING CONSTRAINTS must not copy Unique (belongs to INCLUDING INDEXES)"
+        );
+    }
+
+    // ── INCLUDING INDEXES tests ───────────────────────────────────────────────
+
+    #[test]
+    fn including_indexes_copies_pk_and_unique_with_pg_names() {
+        use crate::ir::constraint::ConstraintKind::{PrimaryKey, Unique};
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int PRIMARY KEY, email text UNIQUE);\n\
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING INDEXES);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        let names: Vec<_> = c.constraints.iter().map(|k| k.qname.name.as_str().to_string()).collect();
+        assert!(names.contains(&"c_pkey".to_string()), "got {names:?}");
+        assert!(names.contains(&"c_email_key".to_string()), "got {names:?}");
+        assert_eq!(c.constraints.iter().filter(|k| matches!(k.kind, PrimaryKey{..})).count(), 1);
+        assert_eq!(c.constraints.iter().filter(|k| matches!(k.kind, Unique{..})).count(), 1);
+    }
+
+    #[test]
+    fn bare_like_copies_no_pk_or_unique() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int PRIMARY KEY, email text UNIQUE);\n\
+             CREATE TABLE pub.d (LIKE pub.base);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let d = cat.tables.iter().find(|t| t.qname.name.as_str() == "d").unwrap();
+        assert!(
+            d.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::PrimaryKey{..})),
+            "bare LIKE must not copy PK"
+        );
+        assert!(
+            d.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Unique{..})),
+            "bare LIKE must not copy UNIQUE"
         );
     }
 }
