@@ -156,12 +156,31 @@ fn snapshot_like(
     taken: &mut choose_name::TakenNames,
 ) -> Result<LikeSnapshot, ParseError> {
     let src = catalog.tables.iter().find(|t| t.qname == like.source)
-        .ok_or_else(|| ParseError::Structural {
-            location: like.location.clone(),
-            message: format!(
-                "LIKE source table {} not found (must be a table declared in the schema)",
-                like.source
-            ),
+        .ok_or_else(|| {
+            // Give a more specific diagnostic: distinguish "exists as a view/MV
+            // (unsupported source kind)" from "does not exist at all".
+            let is_view = catalog.views.iter().any(|v| v.qname == like.source);
+            let is_mv   = catalog.materialized_views.iter().any(|v| v.qname == like.source);
+            let message = if is_view {
+                format!(
+                    "LIKE source {} is a view; LIKE requires a base table (views are not supported as LIKE sources)",
+                    like.source
+                )
+            } else if is_mv {
+                format!(
+                    "LIKE source {} is a materialized view; LIKE requires a base table (materialized views are not supported as LIKE sources)",
+                    like.source
+                )
+            } else {
+                format!(
+                    "LIKE source table {} not found (must be a table declared in the schema)",
+                    like.source
+                )
+            };
+            ParseError::Structural {
+                location: like.location.clone(),
+                message,
+            }
         })?;
 
     let cols: Vec<Column> = src.columns.iter().map(|c| copy_column(c, like.options)).collect();
@@ -1108,5 +1127,169 @@ mod tests {
             .collect();
         assert!(targeting_d.is_empty(),
             "bare LIKE must not copy statistics, got {targeting_d:?}");
+    }
+
+    // ── INCLUDING ALL integration tests ──────────────────────────────────────
+
+    /// `INCLUDING ALL` copies defaults, PK+UNIQUE constraints (via INDEXES),
+    /// CHECK constraints (via CONSTRAINTS), and plain indexes.
+    #[test]
+    fn including_all_copies_everything() {
+        use crate::ir::constraint::ConstraintKind::{Check, PrimaryKey};
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int PRIMARY KEY DEFAULT 1, n int CHECK (n > 0));\n\
+             CREATE INDEX ON pub.base (n);\n\
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING ALL);\n",
+        )
+        .unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        // DEFAULTS: id column should carry the default
+        assert!(
+            c.columns[0].default.is_some(),
+            "INCLUDING ALL must copy DEFAULT (DEFAULTS bit)"
+        );
+        // INDEXES: PK constraint copied
+        assert!(
+            c.constraints.iter().any(|k| matches!(k.kind, PrimaryKey { .. })),
+            "INCLUDING ALL must copy PrimaryKey constraint (INDEXES bit)"
+        );
+        // CONSTRAINTS: CHECK constraint copied
+        assert!(
+            c.constraints.iter().any(|k| matches!(k.kind, Check { .. })),
+            "INCLUDING ALL must copy Check constraint (CONSTRAINTS bit)"
+        );
+        // INDEXES (plain): a plain index targeting the clone must exist
+        assert!(
+            cat.indexes.iter().any(|i| i.on.qname().name.as_str() == "c"),
+            "INCLUDING ALL must copy plain index (INDEXES bit)"
+        );
+    }
+
+    /// LIKE of a VIEW source must produce a clear error mentioning "LIKE source".
+    #[test]
+    fn like_non_table_source_errors_clearly() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int);\n\
+             CREATE VIEW pub.v AS SELECT id FROM pub.base;\n\
+             CREATE TABLE pub.c (LIKE pub.v);\n",
+        )
+        .unwrap();
+        let err = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap_err();
+        assert!(
+            format!("{err}").contains("LIKE source"),
+            "error should mention 'LIKE source', got: {err}"
+        );
+    }
+
+    /// `INCLUDING ALL` on a table with CHECK + PK + UNIQUE must not double-copy
+    /// any constraint kind.  Each kind must appear exactly once.
+    #[test]
+    fn including_all_no_double_copy_of_check() {
+        use crate::ir::constraint::ConstraintKind::{Check, PrimaryKey, Unique};
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (n int CHECK (n > 0), id int PRIMARY KEY, e text UNIQUE);\n\
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING ALL);\n",
+        )
+        .unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        let check_count = c.constraints.iter().filter(|k| matches!(k.kind, Check { .. })).count();
+        let pk_count    = c.constraints.iter().filter(|k| matches!(k.kind, PrimaryKey { .. })).count();
+        let uq_count    = c.constraints.iter().filter(|k| matches!(k.kind, Unique { .. })).count();
+        assert_eq!(check_count, 1, "expected exactly 1 Check, got {check_count}");
+        assert_eq!(pk_count,    1, "expected exactly 1 PrimaryKey, got {pk_count}");
+        assert_eq!(uq_count,    1, "expected exactly 1 Unique, got {uq_count}");
+    }
+
+    /// A UNIQUE constraint-backing index and a plain `CREATE INDEX` on the same
+    /// column must receive distinct names; they must not collide even though they
+    /// share the same `taken` namespace.
+    #[test]
+    fn constraint_and_index_share_name_namespace() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
+            // UNIQUE constraint on `a` → backing name base_a_key;
+            // plain index on `a`        → name base_a_idx.
+            "CREATE TABLE pub.base (a int UNIQUE);\n\
+             CREATE INDEX ON pub.base (a);\n\
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING ALL);\n",
+        )
+        .unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        // The UNIQUE constraint should be named c_a_key.
+        let uq_name = c
+            .constraints
+            .iter()
+            .find(|k| matches!(k.kind, crate::ir::constraint::ConstraintKind::Unique { .. }))
+            .map(|k| k.qname.name.as_str().to_string())
+            .expect("expected a Unique constraint on c");
+        // The plain index should be named c_a_idx.
+        let idx_name = cat
+            .indexes
+            .iter()
+            .find(|i| i.on.qname().name.as_str() == "c")
+            .map(|i| i.qname.name.as_str().to_string())
+            .expect("expected a plain index on c");
+        // They must not collide.
+        assert_ne!(
+            uq_name, idx_name,
+            "Unique constraint name and plain index name must not collide: both are {uq_name:?}"
+        );
+        // They should follow the Postgres naming conventions.
+        assert_eq!(uq_name,  "c_a_key", "Unique constraint should be c_a_key, got {uq_name:?}");
+        assert_eq!(idx_name, "c_a_idx", "Plain index should be c_a_idx, got {idx_name:?}");
+    }
+
+    /// Multi-hop LIKE: `leaf (LIKE mid INCLUDING ALL)` where `mid (LIKE base
+    /// INCLUDING ALL)`.  The leaf must carry the PK from the base through the
+    /// intermediate clone.
+    #[test]
+    fn chained_like_including_all_propagates() {
+        use crate::ir::constraint::ConstraintKind::PrimaryKey;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (id int PRIMARY KEY);\n\
+             CREATE TABLE pub.mid  (LIKE pub.base INCLUDING ALL);\n\
+             CREATE TABLE pub.leaf (LIKE pub.mid  INCLUDING ALL);\n",
+        )
+        .unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let leaf = cat.tables.iter().find(|t| t.qname.name.as_str() == "leaf").unwrap();
+        // The `id` column must propagate all the way to leaf.
+        assert!(
+            leaf.columns.iter().any(|c| c.name.as_str() == "id"),
+            "leaf must have the id column propagated via mid"
+        );
+        // leaf must have a PrimaryKey constraint named leaf_pkey.
+        let pk = leaf
+            .constraints
+            .iter()
+            .find(|k| matches!(k.kind, PrimaryKey { .. }))
+            .expect("leaf must have a PrimaryKey constraint");
+        assert_eq!(
+            pk.qname.name.as_str(), "leaf_pkey",
+            "leaf PK should be named leaf_pkey, got {:?}",
+            pk.qname.name.as_str()
+        );
     }
 }
