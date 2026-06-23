@@ -15,6 +15,7 @@ use crate::ir::catalog::Catalog;
 use crate::ir::column::Column;
 use crate::ir::constraint::{Constraint, ConstraintKind};
 use crate::ir::index::{Index, IndexColumnExpr, IndexParent};
+use crate::ir::statistic::{Statistic, StatisticColumn};
 use crate::parse::builder::{choose_name, shared};
 use crate::parse::error::{ParseError, SourceLocation};
 
@@ -125,8 +126,8 @@ fn copy_column(src: &Column, opts: TableLikeOptions) -> Column {
     }
 }
 
-/// One materialized snapshot of columns, constraints, and indexes to be
-/// spliced into a LIKE target.  Built during the immutable-borrow phase;
+/// One materialized snapshot of columns, constraints, indexes, and statistics
+/// to be spliced into a LIKE target.  Built during the immutable-borrow phase;
 /// applied during the mutable-borrow phase, keeping the two borrows cleanly
 /// separate.
 struct LikeSnapshot {
@@ -136,6 +137,9 @@ struct LikeSnapshot {
     /// Plain (non-constraint) indexes to append to `catalog.indexes`.
     /// Populated only when `INCLUDING INDEXES` is set.
     indexes: Vec<Index>,
+    /// Extended statistics to append to `catalog.statistics`.
+    /// Populated only when `INCLUDING STATISTICS` is set.
+    statistics: Vec<Statistic>,
 }
 
 /// Build a [`LikeSnapshot`] for one `like` clause against `catalog`, updating
@@ -210,11 +214,26 @@ fn snapshot_like(
         Vec::new()
     };
 
+    // INCLUDING STATISTICS → copy extended statistics targeting the source.
+    let statistics = if like.options.statistics() {
+        copy_statistics(
+            &like.source,
+            target_name,
+            target_schema,
+            &like.location,
+            &catalog.statistics,
+            taken,
+        )?
+    } else {
+        Vec::new()
+    };
+
     Ok(LikeSnapshot {
         explicit_cols_before: like.explicit_cols_before,
         cols,
         constraints,
         indexes,
+        statistics,
     })
 }
 
@@ -357,6 +376,58 @@ fn copy_plain_indexes(
     Ok(out)
 }
 
+/// Build retargeted copies of every extended statistic on `source`,
+/// assigning Postgres-faithful names via `choose_index_name` with
+/// [`choose_name::IndexNameKind::Stat`].
+///
+/// Column name fragments follow the same convention as index names:
+/// `StatisticColumn::Column` contributes the column name, and
+/// `StatisticColumn::Expression` contributes `None` (mapped to `"expr"`
+/// by `name_addition`).
+fn copy_statistics(
+    source: &QualifiedName,
+    target_name: &Identifier,
+    target_schema: &Identifier,
+    location: &crate::parse::error::SourceLocation,
+    catalog_statistics: &[Statistic],
+    taken: &mut choose_name::TakenNames,
+) -> Result<Vec<Statistic>, ParseError> {
+    let clone_qname = QualifiedName::new(target_schema.clone(), target_name.clone());
+    let mut out = Vec::new();
+    for stat in catalog_statistics.iter().filter(|s| &s.target == source) {
+        // TODO(#43 Task 11): verify extended-statistics naming vs live PG
+        let col_opts: Vec<Option<&str>> = stat.columns.iter().map(|col| match col {
+            StatisticColumn::Column(id) => Some(id.as_str()),
+            StatisticColumn::Expression(_) => None,
+        }).collect();
+        let generated = choose_name::choose_index_name(
+            target_name.as_str(),
+            &col_opts,
+            choose_name::IndexNameKind::Stat,
+            taken,
+        );
+        let new_qname = QualifiedName::new(
+            target_schema.clone(),
+            Identifier::from_unquoted(&generated).map_err(|e| ParseError::Structural {
+                location: location.clone(),
+                message: format!(
+                    "generated statistics name {generated:?} is not a valid identifier: {e}"
+                ),
+            })?,
+        );
+        out.push(Statistic {
+            qname: new_qname,
+            target: clone_qname.clone(),
+            kinds: stat.kinds,
+            columns: stat.columns.clone(),
+            statistics_target: stat.statistics_target,
+            owner: None,
+            comment: None,
+        });
+    }
+    Ok(out)
+}
+
 /// Resolve every pending `LIKE` against the assembled catalog.
 ///
 /// LIKE clauses can chain (`x (LIKE z)` where `z (LIKE a)`), so we cannot
@@ -464,6 +535,10 @@ pub fn apply_pending_likes(
                 // the immutable borrow of `catalog.indexes` (in snapshot_like)
                 // is already complete when we mutate here.
                 catalog.indexes.extend(snap.indexes);
+                // Push retargeted statistics after table mutations so that
+                // the immutable borrow of `catalog.statistics` (in snapshot_like)
+                // is already complete when we mutate here.
+                catalog.statistics.extend(snap.statistics);
             }
             unresolved.remove(&target);
         }
@@ -994,5 +1069,44 @@ mod tests {
             .collect();
         assert!(targeting_d.is_empty(),
             "bare LIKE must not copy plain indexes, got {targeting_d:?}");
+    }
+
+    // ── INCLUDING STATISTICS tests ────────────────────────────────────────────
+
+    #[test]
+    fn including_statistics_copies_stats() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (a int, b int);\n\
+             CREATE STATISTICS pub.base_stat (ndistinct) ON a, b FROM pub.base;\n\
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING STATISTICS);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let copied: Vec<_> = cat.statistics.iter()
+            .filter(|s| s.target.name.as_str() == "c").collect();
+        assert_eq!(copied.len(), 1, "expected one copied statistic");
+        assert_eq!(
+            copied[0].qname.name.as_str(), "c_a_b_stat",
+            "generated statistic qname should be c_a_b_stat, got {:?}",
+            copied[0].qname.name.as_str(),
+        );
+    }
+
+    #[test]
+    fn bare_like_copies_no_stats() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (a int, b int);\n\
+             CREATE STATISTICS pub.base_stat (ndistinct) ON a, b FROM pub.base;\n\
+             CREATE TABLE pub.d (LIKE pub.base);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let targeting_d: Vec<_> = cat.statistics.iter()
+            .filter(|s| s.target.name.as_str() == "d")
+            .collect();
+        assert!(targeting_d.is_empty(),
+            "bare LIKE must not copy statistics, got {targeting_d:?}");
     }
 }

@@ -154,6 +154,11 @@ pub fn parse_directory_with_locations(
         ts_configurations,
     } = ctx;
 
+    // Flush the statistics accumulator before expanding LIKE clauses so that
+    // `INCLUDING STATISTICS` can find statistics that target the source table.
+    // The flush below (after apply_pending_likes) would be too late.
+    catalog.statistics = statistics.into_values().collect();
+
     // Expand CREATE TABLE … (LIKE …) before any pass that references the
     // clone's columns (comments, FKs, resolution).
     builder::table_like::apply_pending_likes(&mut catalog, &pending_likes)?;
@@ -188,8 +193,7 @@ pub fn parse_directory_with_locations(
     // Flush the subscriptions accumulator into the catalog.
     catalog.subscriptions = subscriptions.into_values().collect();
 
-    // Flush the statistics accumulator into the catalog.
-    catalog.statistics = statistics.into_values().collect();
+    // (statistics were flushed before apply_pending_likes; see above)
 
     // Flush the event-triggers accumulator into the catalog.
     catalog.event_triggers = event_triggers.into_values().collect();

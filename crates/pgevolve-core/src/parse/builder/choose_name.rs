@@ -20,6 +20,9 @@ pub enum IndexNameKind {
     Plain,
     /// Exclusion constraint: suffix `excl`.
     Exclude,
+    /// Extended statistics object: suffix `stat`.
+    // TODO(#43 Task 11): verify extended-statistics naming vs live PG
+    Stat,
 }
 
 impl IndexNameKind {
@@ -29,6 +32,7 @@ impl IndexNameKind {
             Self::Unique => "key",
             Self::Plain => "idx",
             Self::Exclude => "excl",
+            Self::Stat => "stat",
         }
     }
 }
@@ -252,6 +256,15 @@ mod tests {
         assert_eq!(
             choose_index_name("clone", &[None, Some("a")], IndexNameKind::Plain, &mut t),
             "clone_expr_a_idx"
+        );
+    }
+
+    #[test]
+    fn stat_name() {
+        let mut t = TakenNames::default();
+        assert_eq!(
+            choose_index_name("c", &[Some("a"), Some("b")], IndexNameKind::Stat, &mut t),
+            "c_a_b_stat"
         );
     }
 
