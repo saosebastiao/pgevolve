@@ -694,6 +694,24 @@ mod tests {
     }
 
     #[test]
+    fn interval_fields_and_precision_converges_from_ast() {
+        // Combined `interval <fields>(p)` form: typmods `[7176, 3]` (DAY|HOUR|
+        // MINUTE|SECOND = 7176, precision 3) → render "interval day to second(3)"
+        // → parse. Must converge to a typed Interval, not Other.
+        let tn = first_column_type_name("CREATE TABLE t (c interval day to second(3));");
+        let ct = type_name_to_column_type(&tn, &loc())
+            .unwrap_or_else(|e| panic!("interval day to second(3) should parse, got {e:?}"));
+        assert_eq!(
+            ct,
+            ColumnType::Interval {
+                fields: Some("day to second".to_string()),
+                precision: Some(3),
+            },
+            "interval day to second(3) source path should yield typed Interval, got {ct:?}"
+        );
+    }
+
+    #[test]
     fn interval_bare_source_path() {
         // `interval` with no modifiers — must not regress.
         let tn = first_column_type_name("CREATE TABLE t (c interval);");
