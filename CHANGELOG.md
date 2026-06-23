@@ -7,6 +7,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **`CREATE TABLE … (LIKE source [INCLUDING …])` support (#43).** `LIKE` clauses are now expanded into concrete IR during a deferred pass (`crates/pgevolve-core/src/parse/builder/table_like.rs`) that runs after every table is assembled. The following `INCLUDING` options are supported: `DEFAULTS`, `IDENTITY`, `GENERATED`, `STORAGE`, `COMPRESSION`, `COMMENTS` (table and column), `CONSTRAINTS` (CHECK only — PK/UNIQUE belong to `INCLUDING INDEXES`), `INDEXES` (PK/UNIQUE constraints plus plain `CREATE INDEX` indexes), `STATISTICS` (extended statistics), and `INCLUDING ALL`. Chained or interleaved LIKE clauses work regardless of declaration order; a cycle or self-reference is detected and reported as a parse error. Using a view or materialized view as a LIKE source is rejected with a clear diagnostic. Auto-derived names for constraint-backing and plain indexes are generated via a Rust port of Postgres's `ChooseIndexName` (`choose_name.rs`), producing names that match live PG 14–18 output (verified by conformance fixtures). **Known limitations:** (1) `EXCLUDE` constraints are not modeled in pgevolve's IR and therefore cannot appear on a LIKE source — nothing to copy. (2) Unnamed source CHECK constraints are preserved under their source-derived name rather than re-derived for the clone (Postgres re-derives auto-named CHECKs, but pgevolve's IR does not track whether a constraint name was explicit or auto-generated); explicitly-named CHECK constraints are correct. **Conformance coverage:** `objects/tables/create-like-bare`, `create-like-including-all`, `create-like-multiple`, `create-like-interleaved`.
+
 ## [0.4.4] — 2026-06-18
 
 ### Added
