@@ -350,4 +350,32 @@ mod tests {
         let err = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap_err();
         assert!(matches!(err, crate::parse::ParseError::Structural { .. }), "got {err:?}");
     }
+
+    #[test]
+    fn like_preserves_position_among_explicit_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (a int, b int);\n\
+             CREATE TABLE pub.c (x int, LIKE pub.base, y text);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        assert_eq!(c.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
+            vec!["x", "a", "b", "y"]);
+    }
+
+    #[test]
+    fn multiple_like_clauses_expand_in_order() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.l (a int);\nCREATE TABLE pub.r (b int);\n\
+             CREATE TABLE pub.c (LIKE pub.l, mid int, LIKE pub.r);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        assert_eq!(c.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
+            vec!["a", "mid", "b"]);
+    }
 }
