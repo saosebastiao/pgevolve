@@ -14,6 +14,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
 use crate::ir::column::Column;
 use crate::ir::constraint::{Constraint, ConstraintKind};
+use crate::ir::index::{Index, IndexColumnExpr, IndexParent};
 use crate::parse::builder::{choose_name, shared};
 use crate::parse::error::{ParseError, SourceLocation};
 
@@ -124,13 +125,17 @@ fn copy_column(src: &Column, opts: TableLikeOptions) -> Column {
     }
 }
 
-/// One materialized snapshot of columns and constraints to be spliced into
-/// a LIKE target.  Built during the immutable-borrow phase; applied during
-/// the mutable-borrow phase, keeping the two borrows cleanly separate.
+/// One materialized snapshot of columns, constraints, and indexes to be
+/// spliced into a LIKE target.  Built during the immutable-borrow phase;
+/// applied during the mutable-borrow phase, keeping the two borrows cleanly
+/// separate.
 struct LikeSnapshot {
     explicit_cols_before: usize,
     cols: Vec<Column>,
     constraints: Vec<Constraint>,
+    /// Plain (non-constraint) indexes to append to `catalog.indexes`.
+    /// Populated only when `INCLUDING INDEXES` is set.
+    indexes: Vec<Index>,
 }
 
 /// Build a [`LikeSnapshot`] for one `like` clause against `catalog`, updating
@@ -169,12 +174,8 @@ fn snapshot_like(
                 // Postgres re-derives names for *auto-named* checks but preserves
                 // *explicitly-named* ones; pgevolve's IR doesn't track which is which,
                 // so we approximate by always preserving the source name here.
-                let cloned_qname = QualifiedName::new(
-                    target_schema.clone(),
-                    c.qname.name.clone(),
-                );
                 constraints.push(Constraint {
-                    qname: cloned_qname,
+                    qname: QualifiedName::new(target_schema.clone(), c.qname.name.clone()),
                     kind: c.kind.clone(),
                     deferrable: c.deferrable,
                     // comments under INCLUDING COMMENTS are handled separately;
@@ -185,81 +186,175 @@ fn snapshot_like(
         }
     }
 
-    // INCLUDING INDEXES → copy PRIMARY KEY and UNIQUE constraints with
-    // Postgres-faithful re-derived names.
-    // EXCLUDE constraints aren't modeled in ConstraintKind, so none can
-    // appear on a source; nothing to handle here.
-    // FOREIGN KEY is never copied by LIKE regardless of options.
-    if like.options.indexes() {
-        for c in &src.constraints {
-            match &c.kind {
-                ConstraintKind::PrimaryKey { columns, include } => {
-                    let generated = choose_name::choose_index_name(
-                        target_name.as_str(),
-                        &[],
-                        choose_name::IndexNameKind::Pkey,
-                        taken,
-                    );
-                    let constraint_qname = QualifiedName::new(
-                        target_schema.clone(),
-                        Identifier::from_unquoted(&generated).map_err(|e| ParseError::Structural {
-                            location: like.location.clone(),
-                            message: format!(
-                                "generated PK constraint name {generated:?} is not a valid identifier: {e}"
-                            ),
-                        })?,
-                    );
-                    constraints.push(Constraint {
-                        qname: constraint_qname,
-                        kind: ConstraintKind::PrimaryKey {
-                            columns: columns.clone(),
-                            include: include.clone(),
-                        },
-                        deferrable: c.deferrable,
-                        comment: None,
-                    });
-                }
-                ConstraintKind::Unique { columns, include, nulls_distinct } => {
-                    let col_opts: Vec<Option<&str>> =
-                        columns.iter().map(|col| Some(col.as_str())).collect();
-                    let generated = choose_name::choose_index_name(
-                        target_name.as_str(),
-                        &col_opts,
-                        choose_name::IndexNameKind::Unique,
-                        taken,
-                    );
-                    let constraint_qname = QualifiedName::new(
-                        target_schema.clone(),
-                        Identifier::from_unquoted(&generated).map_err(|e| ParseError::Structural {
-                            location: like.location.clone(),
-                            message: format!(
-                                "generated UNIQUE constraint name {generated:?} is not a valid identifier: {e}"
-                            ),
-                        })?,
-                    );
-                    constraints.push(Constraint {
-                        qname: constraint_qname,
-                        kind: ConstraintKind::Unique {
-                            columns: columns.clone(),
-                            include: include.clone(),
-                            nulls_distinct: *nulls_distinct,
-                        },
-                        deferrable: c.deferrable,
-                        comment: None,
-                    });
-                }
-                // CHECK belongs to INCLUDING CONSTRAINTS (handled above),
-                // FOREIGN KEY is never copied by LIKE.
-                ConstraintKind::Check { .. } | ConstraintKind::ForeignKey(_) => {}
-            }
-        }
-    }
+    // INCLUDING INDEXES → copy PK/UNIQUE constraints (re-derived names) and
+    // plain (CREATE INDEX) indexes.  EXCLUDE constraints aren't modeled in
+    // ConstraintKind.  FOREIGN KEY is never copied by LIKE.
+    let indexes = if like.options.indexes() {
+        copy_index_constraints(
+            &src.constraints,
+            target_name,
+            target_schema,
+            &like.location,
+            taken,
+            &mut constraints,
+        )?;
+        copy_plain_indexes(
+            &like.source,
+            target_name,
+            target_schema,
+            &like.location,
+            &catalog.indexes,
+            taken,
+        )?
+    } else {
+        Vec::new()
+    };
 
     Ok(LikeSnapshot {
         explicit_cols_before: like.explicit_cols_before,
         cols,
         constraints,
+        indexes,
     })
+}
+
+/// Copy PK and UNIQUE constraints from `src_constraints` into `out`, assigning
+/// Postgres-faithful names for the clone table (`target_name` / `target_schema`).
+fn copy_index_constraints(
+    src_constraints: &[Constraint],
+    target_name: &Identifier,
+    target_schema: &Identifier,
+    location: &crate::parse::error::SourceLocation,
+    taken: &mut choose_name::TakenNames,
+    out: &mut Vec<Constraint>,
+) -> Result<(), ParseError> {
+    for c in src_constraints {
+        match &c.kind {
+            ConstraintKind::PrimaryKey { columns, include } => {
+                let generated = choose_name::choose_index_name(
+                    target_name.as_str(),
+                    &[],
+                    choose_name::IndexNameKind::Pkey,
+                    taken,
+                );
+                let qname = QualifiedName::new(
+                    target_schema.clone(),
+                    Identifier::from_unquoted(&generated).map_err(|e| ParseError::Structural {
+                        location: location.clone(),
+                        message: format!(
+                            "generated PK constraint name {generated:?} is not a valid identifier: {e}"
+                        ),
+                    })?,
+                );
+                out.push(Constraint {
+                    qname,
+                    kind: ConstraintKind::PrimaryKey {
+                        columns: columns.clone(),
+                        include: include.clone(),
+                    },
+                    deferrable: c.deferrable,
+                    comment: None,
+                });
+            }
+            ConstraintKind::Unique { columns, include, nulls_distinct } => {
+                let col_opts: Vec<Option<&str>> =
+                    columns.iter().map(|col| Some(col.as_str())).collect();
+                let generated = choose_name::choose_index_name(
+                    target_name.as_str(),
+                    &col_opts,
+                    choose_name::IndexNameKind::Unique,
+                    taken,
+                );
+                let qname = QualifiedName::new(
+                    target_schema.clone(),
+                    Identifier::from_unquoted(&generated).map_err(|e| ParseError::Structural {
+                        location: location.clone(),
+                        message: format!(
+                            "generated UNIQUE constraint name {generated:?} is not a valid identifier: {e}"
+                        ),
+                    })?,
+                );
+                out.push(Constraint {
+                    qname,
+                    kind: ConstraintKind::Unique {
+                        columns: columns.clone(),
+                        include: include.clone(),
+                        nulls_distinct: *nulls_distinct,
+                    },
+                    deferrable: c.deferrable,
+                    comment: None,
+                });
+            }
+            // CHECK belongs to INCLUDING CONSTRAINTS (handled in snapshot_like),
+            // FOREIGN KEY is never copied by LIKE.
+            ConstraintKind::Check { .. } | ConstraintKind::ForeignKey(_) => {}
+        }
+    }
+    Ok(())
+}
+
+/// Build retargeted copies of every plain (non-constraint) index on `source`,
+/// assigning Postgres-faithful names via `choose_index_name`.
+///
+/// ## Why no double-copy risk
+/// `catalog.indexes` is populated exclusively from `CREATE INDEX` statements.
+/// PK and UNIQUE *constraint*-backing indexes are stored as table constraints
+/// (`Constraint::PrimaryKey` / `Constraint::Unique`), never as `Index`
+/// entries.  Therefore every `catalog.indexes` entry whose `on` targets the
+/// source table is a plain index, with no overlap with the constraint path.
+fn copy_plain_indexes(
+    source: &QualifiedName,
+    target_name: &Identifier,
+    target_schema: &Identifier,
+    location: &crate::parse::error::SourceLocation,
+    catalog_indexes: &[Index],
+    taken: &mut choose_name::TakenNames,
+) -> Result<Vec<Index>, ParseError> {
+    let mut out = Vec::new();
+    for idx in catalog_indexes.iter().filter(|i| i.on == IndexParent::Table(source.clone())) {
+        let col_opts: Vec<Option<&str>> = idx.columns.iter().map(|col| match &col.expr {
+            IndexColumnExpr::Column(id) => Some(id.as_str()),
+            IndexColumnExpr::Expression(_) => None,
+        }).collect();
+        // Plain `CREATE [UNIQUE] INDEX` always uses `_idx` suffix (Postgres
+        // `ChooseIndexName` with `isconstraint=false`), regardless of
+        // uniqueness.  The `_key` suffix is only for UNIQUE *constraints*.
+        let generated = choose_name::choose_index_name(
+            target_name.as_str(),
+            &col_opts,
+            choose_name::IndexNameKind::Plain,
+            taken,
+        );
+        let new_qname = QualifiedName::new(
+            target_schema.clone(),
+            Identifier::from_unquoted(&generated).map_err(|e| ParseError::Structural {
+                location: location.clone(),
+                message: format!(
+                    "generated index name {generated:?} is not a valid identifier: {e}"
+                ),
+            })?,
+        );
+        out.push(Index {
+            qname: new_qname,
+            on: IndexParent::Table(QualifiedName::new(
+                target_schema.clone(),
+                target_name.clone(),
+            )),
+            method: idx.method,
+            columns: idx.columns.clone(),
+            include: idx.include.clone(),
+            unique: idx.unique,
+            nulls_not_distinct: idx.nulls_not_distinct,
+            predicate: idx.predicate.clone(),
+            tablespace: idx.tablespace.clone(),
+            // Index comments are out of scope for INCLUDING INDEXES;
+            // they are not propagated (similar to INCLUDING COMMENTS
+            // which is a separate option).
+            comment: None,
+            storage: idx.storage.clone(),
+        });
+    }
+    Ok(out)
 }
 
 /// Resolve every pending `LIKE` against the assembled catalog.
@@ -347,6 +442,9 @@ pub fn apply_pending_likes(
             }
 
             // Mutation pass: apply all snapshots to the (now mutably-borrowed) target.
+            // Column and constraint mutations go to `catalog.tables`; index
+            // mutations go to `catalog.indexes`.  Both happen after ALL
+            // snapshotting above, so the immutable borrows are fully released.
             let mut inserted = 0usize;
             for snap in snapshots {
                 let n = snap.cols.len();
@@ -362,6 +460,10 @@ pub fn apply_pending_likes(
                 tgt.columns.splice(at..at, snap.cols);
                 inserted += n;
                 tgt.constraints.extend(snap.constraints);
+                // Push retargeted plain indexes after table mutations so that
+                // the immutable borrow of `catalog.indexes` (in snapshot_like)
+                // is already complete when we mutate here.
+                catalog.indexes.extend(snap.indexes);
             }
             unresolved.remove(&target);
         }
@@ -831,5 +933,66 @@ mod tests {
             d.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Unique{..})),
             "bare LIKE must not copy UNIQUE"
         );
+    }
+
+    // ── INCLUDING INDEXES: plain index tests ─────────────────────────────────
+
+    /// `INCLUDING INDEXES` copies a plain `CREATE INDEX` to the clone, with a
+    /// Postgres-faithful re-derived name (`<target>_<cols>_idx`).
+    #[test]
+    fn including_indexes_copies_plain_index() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (a int, b int);\n\
+             CREATE INDEX ON pub.base (a, b);\n\
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING INDEXES);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let idx: Vec<_> = cat.indexes.iter()
+            .filter(|i| i.on.qname().name.as_str() == "c")
+            .map(|i| i.qname.name.as_str().to_string())
+            .collect();
+        assert_eq!(idx, vec!["c_a_b_idx".to_string()], "got {idx:?}");
+    }
+
+    /// `CREATE UNIQUE INDEX` copied via `INCLUDING INDEXES` keeps the `_idx`
+    /// suffix (not `_key`), because Postgres uses `_idx` for plain indexes
+    /// regardless of uniqueness; `_key` is only for UNIQUE *constraints*.
+    #[test]
+    fn unique_index_keeps_idx_suffix() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (a int);\n\
+             CREATE UNIQUE INDEX ON pub.base (a);\n\
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING INDEXES);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let copied: Vec<_> = cat.indexes.iter()
+            .filter(|i| i.on.qname().name.as_str() == "c")
+            .collect();
+        assert_eq!(copied.len(), 1, "expected exactly one copied index, got {copied:?}");
+        assert_eq!(copied[0].qname.name.as_str(), "c_a_idx",
+            "unique plain index must use _idx suffix, not _key");
+        assert!(copied[0].unique, "copied index must preserve unique flag");
+    }
+
+    /// A bare `LIKE` (no `INCLUDING INDEXES`) must not copy any plain indexes.
+    #[test]
+    fn bare_like_copies_no_indexes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pub")).unwrap();
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
+        std::fs::write(dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.base (a int, b int);\n\
+             CREATE INDEX ON pub.base (a, b);\n\
+             CREATE TABLE pub.d (LIKE pub.base);\n").unwrap();
+        let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
+        let targeting_d: Vec<_> = cat.indexes.iter()
+            .filter(|i| i.on.qname().name.as_str() == "d")
+            .collect();
+        assert!(targeting_d.is_empty(),
+            "bare LIKE must not copy plain indexes, got {targeting_d:?}");
     }
 }
