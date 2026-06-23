@@ -40,14 +40,21 @@ impl IndexNameKind {
 pub struct TakenNames(BTreeSet<String>);
 
 impl TakenNames {
-    /// Seed a `TakenNames` from all relation/index/constraint/statistics names
-    /// in `schema` that are present in `catalog`.
+    /// Seed a `TakenNames` from every name in `schema` that shares the
+    /// `pg_class` relation namespace — tables, indexes, views, materialized
+    /// views, sequences, plus per-table constraint names and statistics
+    /// objects.  Postgres's `ChooseRelationName` checks the whole relation
+    /// namespace, so we must seed all of these to match its collision
+    /// behaviour.
     pub fn from_schema(catalog: &Catalog, schema: &Identifier) -> Self {
         let mut s = BTreeSet::new();
         for t in &catalog.tables {
             if &t.qname.schema == schema {
                 s.insert(t.qname.name.as_str().to_string());
                 for c in &t.constraints {
+                    // Constraint qnames carry the owning table's schema, so this
+                    // re-check is normally true; kept defensively in case a
+                    // constraint's recorded schema ever diverges from its table's.
                     if &c.qname.schema == schema {
                         s.insert(c.qname.name.as_str().to_string());
                     }
@@ -57,6 +64,21 @@ impl TakenNames {
         for i in &catalog.indexes {
             if &i.qname.schema == schema {
                 s.insert(i.qname.name.as_str().to_string());
+            }
+        }
+        for v in &catalog.views {
+            if &v.qname.schema == schema {
+                s.insert(v.qname.name.as_str().to_string());
+            }
+        }
+        for mv in &catalog.materialized_views {
+            if &mv.qname.schema == schema {
+                s.insert(mv.qname.name.as_str().to_string());
+            }
+        }
+        for seq in &catalog.sequences {
+            if &seq.qname.schema == schema {
+                s.insert(seq.qname.name.as_str().to_string());
             }
         }
         for st in &catalog.statistics {
@@ -118,6 +140,10 @@ fn name_addition(col_names: &[Option<&str>]) -> String {
             out.push('_');
             out.push_str(&part);
         } else {
+            // Once a column would overflow the budget, every remaining column is
+            // dropped (matches Postgres's `break`). Do NOT change this to
+            // `continue` to fit a later, shorter column — that would diverge
+            // from the names a live server assigns.
             break;
         }
     }
@@ -226,6 +252,31 @@ mod tests {
         assert_eq!(
             choose_index_name("clone", &[None, Some("a")], IndexNameKind::Plain, &mut t),
             "clone_expr_a_idx"
+        );
+    }
+
+    #[test]
+    fn from_schema_seeds_relation_namespace() {
+        // A sequence named `foo_a_key` occupies the relation namespace in schema
+        // `pub`, so a freshly-chosen `foo_a_key` must collide and bump to
+        // `foo_a_key1` — proving from_schema seeds non-index/non-table relations
+        // (views, materialized views, sequences) too.
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join("pub")).expect("mkdir");
+        std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n")
+            .expect("write schema");
+        std::fs::write(
+            dir.path().join("pub/seq.sql"),
+            "CREATE SEQUENCE pub.foo_a_key;\n",
+        )
+        .expect("write seq");
+        let (cat, _) =
+            crate::parse::parse_directory_with_locations(dir.path(), &[]).expect("parse");
+        let schema = Identifier::from_unquoted("pub").expect("ident");
+        let mut taken = TakenNames::from_schema(&cat, &schema);
+        assert_eq!(
+            choose_index_name("foo", &[Some("a")], IndexNameKind::Unique, &mut taken),
+            "foo_a_key1"
         );
     }
 }
