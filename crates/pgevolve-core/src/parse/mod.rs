@@ -71,6 +71,7 @@ struct ParseContext {
     pending_rls_toggles: Vec<builder::alter_table_stmt::PendingRlsToggle>,
     pending_rel_options: Vec<builder::alter_table_stmt::PendingRelOptions>,
     pending_tablespaces: Vec<builder::alter_table_stmt::PendingTablespace>,
+    pending_likes: Vec<builder::table_like::PendingLike>,
     deferred_comments: Vec<(
         pg_query::protobuf::CommentStmt,
         SourceLocation,
@@ -141,6 +142,7 @@ pub fn parse_directory_with_locations(
         pending_rls_toggles,
         pending_rel_options,
         pending_tablespaces,
+        pending_likes,
         deferred_comments,
         publications,
         subscriptions,
@@ -151,6 +153,10 @@ pub fn parse_directory_with_locations(
         ts_dictionaries,
         ts_configurations,
     } = ctx;
+
+    // Expand CREATE TABLE … (LIKE …) before any pass that references the
+    // clone's columns (comments, FKs, resolution).
+    builder::table_like::apply_pending_likes(&mut catalog, pending_likes)?;
 
     // Apply deferred comments (the underlying object may be defined in a later
     // file).
@@ -396,6 +402,7 @@ fn process_file(ctx: &mut ParseContext, path: &Path, contents: &str) -> Result<(
         pending_rls_toggles,
         pending_rel_options,
         pending_tablespaces,
+        pending_likes,
         deferred_comments,
         publications,
         subscriptions,
@@ -431,6 +438,9 @@ fn process_file(ctx: &mut ParseContext, path: &Path, contents: &str) -> Result<(
             Statement::CreateTable(s) => {
                 let mut table =
                     builder::create_stmt::build_table(&s, directives.schema.as_ref(), &location)?;
+                pending_likes.extend(builder::table_like::extract_pending_likes(
+                    &s, &table.qname, directives.schema.as_ref(), &location,
+                )?);
                 let serial_seqs =
                     builder::desugar_serial::desugar_serials_in_table(&mut table, &location)?;
                 if let Some(prior) = locations.get(&table.qname.to_string()) {

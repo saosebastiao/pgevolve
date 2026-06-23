@@ -69,6 +69,10 @@ pub fn build_table(
                     constraints.push(built);
                 }
             }
+            // LIKE clauses are recorded separately by `process_file` and
+            // resolved in the `apply_pending_likes` deferred pass, because the
+            // source table may be declared in a later file.
+            NodeEnum::TableLikeClause(_) => {}
             other => {
                 return Err(ParseError::Structural {
                     location: location.clone(),
