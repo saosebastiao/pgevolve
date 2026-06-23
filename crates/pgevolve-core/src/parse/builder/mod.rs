@@ -5,6 +5,7 @@
 //! [`crate::ir::catalog::Catalog`] via [`Builder`].
 
 pub mod aggregate_stmt;
+pub mod choose_name;
 pub mod alter_table_attach_partition;
 pub mod alter_table_stmt;
 pub mod cast_stmt;

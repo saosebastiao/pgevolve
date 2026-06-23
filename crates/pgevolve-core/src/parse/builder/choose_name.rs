@@ -1,0 +1,231 @@
+//! Port of Postgres `ChooseRelationName` / `ChooseIndexName` from
+//! `src/backend/commands/indexcmds.c`.
+//!
+//! Used by the LIKE-copy path to assign names to copied indexes and constraints
+//! that match what a live Postgres server would assign.
+
+use std::collections::BTreeSet;
+
+use crate::identifier::Identifier;
+use crate::ir::catalog::Catalog;
+
+/// The kind of index/constraint being named, determining the label suffix.
+#[derive(Clone, Copy)]
+pub enum IndexNameKind {
+    /// Primary-key constraint: suffix `pkey`.
+    Pkey,
+    /// Unique constraint: suffix `key`.
+    Unique,
+    /// Plain (non-unique, non-exclusion) index: suffix `idx`.
+    Plain,
+    /// Exclusion constraint: suffix `excl`.
+    Exclude,
+}
+
+impl IndexNameKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Pkey => "pkey",
+            Self::Unique => "key",
+            Self::Plain => "idx",
+            Self::Exclude => "excl",
+        }
+    }
+}
+
+/// A set of names already taken in a schema (relation names, index names,
+/// constraint names, statistics names).  Used to detect collisions when
+/// choosing a new name.
+#[derive(Default)]
+pub struct TakenNames(BTreeSet<String>);
+
+impl TakenNames {
+    /// Seed a `TakenNames` from all relation/index/constraint/statistics names
+    /// in `schema` that are present in `catalog`.
+    pub fn from_schema(catalog: &Catalog, schema: &Identifier) -> Self {
+        let mut s = BTreeSet::new();
+        for t in &catalog.tables {
+            if &t.qname.schema == schema {
+                s.insert(t.qname.name.as_str().to_string());
+                for c in &t.constraints {
+                    if &c.qname.schema == schema {
+                        s.insert(c.qname.name.as_str().to_string());
+                    }
+                }
+            }
+        }
+        for i in &catalog.indexes {
+            if &i.qname.schema == schema {
+                s.insert(i.qname.name.as_str().to_string());
+            }
+        }
+        for st in &catalog.statistics {
+            if &st.qname.schema == schema {
+                s.insert(st.qname.name.as_str().to_string());
+            }
+        }
+        Self(s)
+    }
+
+    /// Insert a name as taken.
+    pub fn insert(&mut self, name: &str) {
+        self.0.insert(name.to_string());
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.0.contains(name)
+    }
+}
+
+/// Maximum identifier length (NAMEDATALEN - 1).
+const NAMEDATALEN: usize = 63;
+
+/// Truncate `s` to at most `max` bytes, respecting UTF-8 char boundaries.
+fn truncate_bytes(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+/// Port of `ChooseIndexNameAddition`: build a column-name fragment by joining
+/// column names with `_`, keeping the result within a 39-byte budget.
+/// The first column is always included.  Expression columns contribute
+/// `"expr"`, `"expr2"`, `"expr3"`, … .
+fn name_addition(col_names: &[Option<&str>]) -> String {
+    const BUF: usize = 39;
+    let mut out = String::new();
+    let mut expr_n: u32 = 0;
+    for c in col_names {
+        let part: String = c.map_or_else(
+            || {
+                expr_n += 1;
+                if expr_n == 1 {
+                    "expr".to_string()
+                } else {
+                    format!("expr{expr_n}")
+                }
+            },
+            |name| (*name).to_string(),
+        );
+        if out.is_empty() {
+            out = part;
+        } else if out.len() + 1 + part.len() <= BUF {
+            out.push('_');
+            out.push_str(&part);
+        } else {
+            break;
+        }
+    }
+    out
+}
+
+/// Port of `ChooseRelationName`: build `name1[_name2]_label`, appending a
+/// decimal counter (`label1`, `label2`, …) while the candidate is already
+/// in `taken`.  Each component is truncated so the whole name fits within
+/// `NAMEDATALEN` bytes.
+fn choose_relation_name(name1: &str, name2: &str, label: &str, taken: &TakenNames) -> String {
+    let build = |suffix: &str| {
+        let label_full = format!("{label}{suffix}");
+        // overhead = '_' + optional 'name2_' + label_full
+        let overhead = 1
+            + (if name2.is_empty() { 0 } else { name2.len() + 1 })
+            + label_full.len();
+        let budget1 = NAMEDATALEN.saturating_sub(overhead);
+        let n1 = truncate_bytes(name1, budget1);
+        if name2.is_empty() {
+            format!("{n1}_{label_full}")
+        } else {
+            format!("{n1}_{name2}_{label_full}")
+        }
+    };
+
+    let mut candidate = build("");
+    let mut i: u32 = 0;
+    while taken.contains(&candidate) {
+        i += 1;
+        candidate = build(&i.to_string());
+    }
+    candidate
+}
+
+/// Choose a name for a copied index or constraint, mirroring what a live
+/// Postgres server assigns via `ChooseIndexName`.
+///
+/// The chosen name is inserted into `taken` before returning, so successive
+/// calls will not produce duplicates.
+pub fn choose_index_name(
+    table: &str,
+    col_names: &[Option<&str>],
+    kind: IndexNameKind,
+    taken: &mut TakenNames,
+) -> String {
+    let name = match kind {
+        IndexNameKind::Pkey => choose_relation_name(table, "", kind.label(), taken),
+        _ => choose_relation_name(table, &name_addition(col_names), kind.label(), taken),
+    };
+    taken.insert(&name);
+    name
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn taken(names: &[&str]) -> TakenNames {
+        let mut t = TakenNames::default();
+        for n in names {
+            t.insert(n);
+        }
+        t
+    }
+
+    #[test]
+    fn pkey_name() {
+        let mut t = TakenNames::default();
+        assert_eq!(
+            choose_index_name("clone", &[], IndexNameKind::Pkey, &mut t),
+            "clone_pkey"
+        );
+    }
+
+    #[test]
+    fn unique_two_columns() {
+        let mut t = TakenNames::default();
+        assert_eq!(
+            choose_index_name("clone", &[Some("a"), Some("b")], IndexNameKind::Unique, &mut t),
+            "clone_a_b_key"
+        );
+    }
+
+    #[test]
+    fn plain_index_suffix_idx() {
+        let mut t = TakenNames::default();
+        assert_eq!(
+            choose_index_name("clone", &[Some("a")], IndexNameKind::Plain, &mut t),
+            "clone_a_idx"
+        );
+    }
+
+    #[test]
+    fn collision_appends_counter() {
+        let mut t = taken(&["clone_a_key"]);
+        assert_eq!(
+            choose_index_name("clone", &[Some("a")], IndexNameKind::Unique, &mut t),
+            "clone_a_key1"
+        );
+    }
+
+    #[test]
+    fn expression_columns_use_expr() {
+        let mut t = TakenNames::default();
+        assert_eq!(
+            choose_index_name("clone", &[None, Some("a")], IndexNameKind::Plain, &mut t),
+            "clone_expr_a_idx"
+        );
+    }
+}
