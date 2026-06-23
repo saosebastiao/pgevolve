@@ -152,24 +152,124 @@ pub fn ident(s: &str, location: &SourceLocation) -> Result<Identifier, ParseErro
 /// Strategy: take the *last* segment of `names` (Postgres prefixes types with
 /// `pg_catalog.` internally; the parser is alias-aware), append a parenthesized
 /// list of typmod arguments, append `[]` for each array dimension.
+///
+/// **Special case — `interval`**: `pg_query` encodes interval typmods as
+/// `[fields_bitmask, precision?]` where the fields bitmask is the PG
+/// `INTERVAL_MASK` value from `datetime.h`.  Blindly joining them produces
+/// `"interval(32767,6)"` which `parse_canonical` cannot round-trip back to a
+/// typed `ColumnType::Interval`.  We decode the bitmask here and emit the same
+/// canonical string that `pg_catalog.format_type` produces so both paths
+/// converge. (issue #41)
 pub fn render_type_name_to_string(type_name: &TypeName) -> Option<String> {
     let last = type_name.names.last()?.node.as_ref()?;
     let NodeEnum::String(s) = last else {
         return None;
     };
-    let bare = s.sval.clone();
-    let mut out = bare;
-    if !type_name.typmods.is_empty() {
-        let mut args: Vec<String> = Vec::with_capacity(type_name.typmods.len());
-        for n in &type_name.typmods {
-            args.push(typmod_arg_to_string(n.node.as_ref()?)?);
+    let bare = s.sval.as_str();
+
+    // Interval gets special typmod handling — see module doc above.
+    let mut out = if bare == "interval" && !type_name.typmods.is_empty() {
+        render_interval_type_name(type_name)?
+    } else {
+        let mut o = bare.to_string();
+        if !type_name.typmods.is_empty() {
+            let mut args: Vec<String> = Vec::with_capacity(type_name.typmods.len());
+            for n in &type_name.typmods {
+                args.push(typmod_arg_to_string(n.node.as_ref()?)?);
+            }
+            o = format!("{o}({})", args.join(","));
         }
-        out = format!("{out}({})", args.join(","));
-    }
+        o
+    };
+
     for _ in 0..type_name.array_bounds.len() {
         out.push_str("[]");
     }
     Some(out)
+}
+
+/// Decode the `pg_query` interval typmod encoding into a canonical string that
+/// `ColumnType::parse_from_pg_type_string` can round-trip.
+///
+/// `pg_query` represents interval typmods as:
+/// - One arg: `[fields_bitmask]` — fields restriction only (e.g. `interval hour to minute`).
+/// - Two args: `[fields_bitmask, precision]` — precision (and maybe fields).
+///
+/// The fields bitmask is the `INTERVAL_MASK` value from PG's `datetime.h`.
+/// `INTERVAL_FULL_RANGE = 0x7FFF = 32767` means "no restriction".
+///
+/// Returns `None` if the typmod nodes cannot be decoded; the caller will then
+/// produce `None` overall, which surfaces as a `Structural` parse error — no
+/// worse than before this fix.
+fn render_interval_type_name(type_name: &TypeName) -> Option<String> {
+    // Extract integer values from the AConst typmod nodes.
+    let mut int_args: Vec<i32> = Vec::with_capacity(2);
+    for n in &type_name.typmods {
+        match n.node.as_ref()? {
+            NodeEnum::AConst(c) => match c.val.as_ref()? {
+                a_const::Val::Ival(i) => int_args.push(i.ival),
+                _ => return None, // unexpected non-integer typmod for interval
+            },
+            _ => return None, // unexpected node kind (e.g. ColumnRef) for interval
+        }
+    }
+
+    let (fields_mask, precision): (i32, Option<u8>) = match int_args.as_slice() {
+        [mask] => (*mask, None),
+        [mask, prec] => {
+            let p = u8::try_from(*prec).ok()?;
+            (*mask, Some(p))
+        }
+        _ => return None,
+    };
+
+    let fields_str = interval_fields_from_mask(fields_mask);
+
+    // Build canonical string matching `format_type` output.
+    Some(match (fields_str, precision) {
+        (None, None) => "interval".to_string(),
+        (None, Some(p)) => format!("interval({p})"),
+        (Some(f), None) => format!("interval {f}"),
+        (Some(f), Some(p)) => format!("interval {f}({p})"),
+    })
+}
+
+/// Map a PG `INTERVAL_MASK` bitmask to the canonical lowercase fields qualifier
+/// that `pg_catalog.format_type` emits, or `None` for the full-range sentinel
+/// (`INTERVAL_FULL_RANGE = 32767 = 0x7FFF`).
+///
+/// Bit positions from PG `src/include/utils/datetime.h`:
+/// `INTERVAL_MASK(b) = 1 << b`, with YEAR=2, MONTH=1, DAY=3, HOUR=10, MINUTE=11,
+/// SECOND=12.
+///
+/// Unrecognized bitmasks fall back to `None` so behavior is no worse than
+/// the pre-fix state (type degrades to `Other` rather than panicking).
+const fn interval_fields_from_mask(mask: i32) -> Option<&'static str> {
+    // INTERVAL_FULL_RANGE — no fields restriction.
+    if mask == 0x7FFF {
+        return None;
+    }
+    // Individual fields and all recognized combinations, ordered to match the
+    // canonical `format_type` output.
+    match mask {
+        // Single fields: YEAR=1<<2, MONTH=1<<1, DAY=1<<3, HOUR=1<<10, MINUTE=1<<11, SECOND=1<<12
+        4 => Some("year"),
+        2 => Some("month"),
+        8 => Some("day"),
+        1024 => Some("hour"),
+        2048 => Some("minute"),
+        4096 => Some("second"),
+        // Ranges
+        6 => Some("year to month"),               // YEAR|MONTH = 4|2
+        1032 => Some("day to hour"),              // DAY|HOUR = 8|1024
+        3080 => Some("day to minute"),            // DAY|HOUR|MINUTE = 8|1024|2048
+        7176 => Some("day to second"),            // DAY|HOUR|MINUTE|SECOND = 8|1024|2048|4096
+        3072 => Some("hour to minute"),           // HOUR|MINUTE = 1024|2048
+        7168 => Some("hour to second"),           // HOUR|MINUTE|SECOND = 1024|2048|4096
+        6144 => Some("minute to second"),         // MINUTE|SECOND = 2048|4096
+        // Unrecognized — fall back; no worse than pre-fix behaviour.
+        _ => None,
+    }
 }
 
 /// Stringify a single type-modifier argument node.
@@ -552,6 +652,59 @@ mod tests {
         assert!(
             matches!(&ct, ColumnType::Other { raw } if raw == "mytype(foo,1,bar)"),
             "got {ct:?}"
+        );
+    }
+
+    /// Convergence tests (issue #41): the AST source path must produce the same
+    /// `ColumnType::Interval` that the catalog path (`format_type`) emits.
+    ///
+    /// Before the fix, `interval(6)` → typmods `[AConst(32767), AConst(6)]` →
+    /// `render_type_name_to_string` produced `"interval(32767,6)"` → `parse_canonical`
+    /// failed to parse the precision → fell through to `ColumnType::Other`.
+    #[test]
+    fn interval_precision_source_path_convergence() {
+        // `interval(6)` — precision-only form.
+        let tn = first_column_type_name("CREATE TABLE t (c interval(6));");
+        let ct = type_name_to_column_type(&tn, &loc())
+            .unwrap_or_else(|e| panic!("interval(6) should parse, got {e:?}"));
+        assert_eq!(
+            ct,
+            ColumnType::Interval {
+                fields: None,
+                precision: Some(6),
+            },
+            "interval(6) source path should yield Interval{{fields:None, precision:Some(6)}}, got {ct:?}"
+        );
+    }
+
+    #[test]
+    fn interval_fields_source_path_convergence() {
+        // `interval hour to minute` — fields-only form.
+        let tn = first_column_type_name("CREATE TABLE t (c interval hour to minute);");
+        let ct = type_name_to_column_type(&tn, &loc())
+            .unwrap_or_else(|e| panic!("interval hour to minute should parse, got {e:?}"));
+        assert_eq!(
+            ct,
+            ColumnType::Interval {
+                fields: Some("hour to minute".to_string()),
+                precision: None,
+            },
+            "interval hour to minute source path should yield Interval{{fields:Some(\"hour to minute\"), precision:None}}, got {ct:?}"
+        );
+    }
+
+    #[test]
+    fn interval_bare_source_path() {
+        // `interval` with no modifiers — must not regress.
+        let tn = first_column_type_name("CREATE TABLE t (c interval);");
+        let ct = type_name_to_column_type(&tn, &loc())
+            .unwrap_or_else(|e| panic!("interval should parse, got {e:?}"));
+        assert_eq!(
+            ct,
+            ColumnType::Interval {
+                fields: None,
+                precision: None,
+            },
         );
     }
 }

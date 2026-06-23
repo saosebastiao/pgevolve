@@ -371,6 +371,18 @@ fn parse_canonical(s: &str) -> Option<ColumnType> {
         return Some(v);
     }
 
+    // `interval <fields>` — no parentheses; e.g. `interval hour to minute`.
+    // Must come before the split_paren path so we don't confuse `interval year`
+    // with a parameterized type whose head is `interval year`.
+    if let Some(fields_part) = s.strip_prefix("interval ") {
+        let fields_part = fields_part.trim();
+        // Must not look like `interval(N)` — those have a `(` immediately after `interval`.
+        // `fields_part` here is everything after "interval " (with a space), so it
+        // is safe to treat as a fields qualifier.  If the suffix contains a `(…)`
+        // at the end, that is the precision: `interval hour(6)`.
+        return Some(parse_interval_with_fields(fields_part));
+    }
+
     // Parameterized: <name>(<args>)[ <suffix>]
     let (head, args, suffix) = split_paren(s)?;
     let head = head.trim();
@@ -452,6 +464,41 @@ fn parse_canonical(s: &str) -> Option<ColumnType> {
             })
         }
         _ => None,
+    }
+}
+
+/// Parse `interval <fields>` or `interval <fields>(p)` where `rest` is
+/// everything after the `"interval "` prefix (already trimmed, already lowercased).
+///
+/// Examples:
+/// - `"year to month"` → `Interval { fields: Some("year to month"), precision: None }`
+/// - `"hour(6)"` → `Interval { fields: Some("hour"), precision: Some(6) }`
+/// - `"day to second(3)"` → `Interval { fields: Some("day to second"), precision: Some(3) }`
+fn parse_interval_with_fields(rest: &str) -> ColumnType {
+    // Check whether the qualifier ends with `(p)` — a trailing precision.
+    // Use rfind so nested parens in unusual inputs don't confuse us.
+    if let (Some(open), Some(close)) = (rest.rfind('('), rest.rfind(')'))
+        && close == rest.len() - 1
+        && open < close
+    {
+        let fields_part = rest[..open].trim();
+        let prec_str = &rest[open + 1..close];
+        if let Ok(p) = prec_str.trim().parse::<u8>() {
+            let fields = if fields_part.is_empty() {
+                None
+            } else {
+                Some(fields_part.to_string())
+            };
+            return ColumnType::Interval {
+                fields,
+                precision: Some(p),
+            };
+        }
+    }
+    // No precision — the whole rest is the fields qualifier.
+    ColumnType::Interval {
+        fields: Some(rest.to_string()),
+        precision: None,
     }
 }
 
@@ -901,5 +948,154 @@ mod tests {
         assert_eq!(diffs.len(), 1);
         assert_eq!(diffs[0].from, "varchar(50)");
         assert_eq!(diffs[0].to, "varchar(100)");
+    }
+
+    /// Table-driven: parse each canonical `interval` string and check it produces
+    /// the expected `ColumnType::Interval`. Covers issue #41: `interval(N)` and
+    /// `interval <fields>` must parse to typed `Interval`, not fall through to `Other`.
+    #[test]
+    fn interval_canonical_forms_parse() {
+        let cases: &[(&str, ColumnType)] = &[
+            (
+                "interval",
+                ColumnType::Interval {
+                    fields: None,
+                    precision: None,
+                },
+            ),
+            (
+                "interval(6)",
+                ColumnType::Interval {
+                    fields: None,
+                    precision: Some(6),
+                },
+            ),
+            (
+                "interval year",
+                ColumnType::Interval {
+                    fields: Some("year".to_string()),
+                    precision: None,
+                },
+            ),
+            (
+                "interval month",
+                ColumnType::Interval {
+                    fields: Some("month".to_string()),
+                    precision: None,
+                },
+            ),
+            (
+                "interval day",
+                ColumnType::Interval {
+                    fields: Some("day".to_string()),
+                    precision: None,
+                },
+            ),
+            (
+                "interval hour",
+                ColumnType::Interval {
+                    fields: Some("hour".to_string()),
+                    precision: None,
+                },
+            ),
+            (
+                "interval minute",
+                ColumnType::Interval {
+                    fields: Some("minute".to_string()),
+                    precision: None,
+                },
+            ),
+            (
+                "interval second",
+                ColumnType::Interval {
+                    fields: Some("second".to_string()),
+                    precision: None,
+                },
+            ),
+            (
+                "interval year to month",
+                ColumnType::Interval {
+                    fields: Some("year to month".to_string()),
+                    precision: None,
+                },
+            ),
+            (
+                "interval day to second",
+                ColumnType::Interval {
+                    fields: Some("day to second".to_string()),
+                    precision: None,
+                },
+            ),
+            (
+                "interval hour to minute",
+                ColumnType::Interval {
+                    fields: Some("hour to minute".to_string()),
+                    precision: None,
+                },
+            ),
+            (
+                "interval hour(6)",
+                ColumnType::Interval {
+                    fields: Some("hour".to_string()),
+                    precision: Some(6),
+                },
+            ),
+        ];
+        for (src, expected) in cases {
+            let got = ColumnType::parse_from_pg_type_string(src).unwrap();
+            assert_eq!(got, *expected, "input: {src}");
+        }
+    }
+
+    /// Case-insensitive input collapses to lowercase canonical fields.
+    #[test]
+    fn interval_fields_are_case_insensitive() {
+        let upper = ColumnType::parse_from_pg_type_string("interval YEAR TO MONTH").unwrap();
+        let lower = ColumnType::parse_from_pg_type_string("interval year to month").unwrap();
+        assert_eq!(upper, lower);
+        assert_eq!(
+            upper,
+            ColumnType::Interval {
+                fields: Some("year to month".to_string()),
+                precision: None,
+            }
+        );
+    }
+
+    /// Display round-trip: every `Interval` variant renders to a string that
+    /// parses back to the same value.
+    #[test]
+    fn interval_display_round_trips() {
+        let cases: &[ColumnType] = &[
+            ColumnType::Interval {
+                fields: None,
+                precision: None,
+            },
+            ColumnType::Interval {
+                fields: None,
+                precision: Some(6),
+            },
+            ColumnType::Interval {
+                fields: Some("year".to_string()),
+                precision: None,
+            },
+            ColumnType::Interval {
+                fields: Some("hour to minute".to_string()),
+                precision: None,
+            },
+            ColumnType::Interval {
+                fields: Some("day to second".to_string()),
+                precision: None,
+            },
+            ColumnType::Interval {
+                fields: Some("hour".to_string()),
+                precision: Some(6),
+            },
+        ];
+        for t in cases {
+            let rendered = t.render_sql();
+            let parsed = ColumnType::parse_from_pg_type_string(&rendered).unwrap();
+            assert_eq!(parsed, *t, "rendered: {rendered}");
+        }
     }
 }
