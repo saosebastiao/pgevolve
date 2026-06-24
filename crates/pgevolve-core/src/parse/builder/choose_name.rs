@@ -168,9 +168,7 @@ fn choose_relation_name(name1: &str, name2: &str, label: &str, taken: &TakenName
     let build = |suffix: &str| {
         let label_full = format!("{label}{suffix}");
         // overhead = '_' + optional 'name2_' + label_full
-        let overhead = 1
-            + (if name2.is_empty() { 0 } else { name2.len() + 1 })
-            + label_full.len();
+        let overhead = 1 + (if name2.is_empty() { 0 } else { name2.len() + 1 }) + label_full.len();
         let budget1 = NAMEDATALEN.saturating_sub(overhead);
         let n1 = truncate_bytes(name1, budget1);
         if name2.is_empty() {
@@ -233,7 +231,12 @@ mod tests {
     fn unique_two_columns() {
         let mut t = TakenNames::default();
         assert_eq!(
-            choose_index_name("clone", &[Some("a"), Some("b")], IndexNameKind::Unique, &mut t),
+            choose_index_name(
+                "clone",
+                &[Some("a"), Some("b")],
+                IndexNameKind::Unique,
+                &mut t
+            ),
             "clone_a_b_key"
         );
     }
@@ -300,7 +303,7 @@ mod tests {
     #[test]
     fn long_name_truncates_to_namedatalen() {
         let table = "a".repeat(40);
-        let col   = "b".repeat(40);
+        let col = "b".repeat(40);
         let mut t = TakenNames::default();
         let name = choose_index_name(&table, &[Some(&col)], IndexNameKind::Plain, &mut t);
         // Must fit within NAMEDATALEN.
@@ -310,7 +313,10 @@ mod tests {
             name.len()
         );
         // Must be a valid UTF-8 prefix (char-boundary).
-        assert!(name.starts_with('a'), "must start with the table name prefix");
+        assert!(
+            name.starts_with('a'),
+            "must start with the table name prefix"
+        );
         assert!(name.ends_with("_idx"), "must end with _idx suffix");
         // Pin the exact string produced by the implementation.
         let expected = format!("{}_{}_{}", "a".repeat(18), "b".repeat(40), "idx");
@@ -327,7 +333,7 @@ mod tests {
     #[test]
     fn truncated_collision_appends_counter() {
         let table = "a".repeat(40);
-        let col   = "b".repeat(40);
+        let col = "b".repeat(40);
         // Seed taken with the first (truncated) name so the counter path is taken.
         let first_name = format!("{}_{}_{}", "a".repeat(18), "b".repeat(40), "idx");
         let mut t = taken(&[&first_name]);

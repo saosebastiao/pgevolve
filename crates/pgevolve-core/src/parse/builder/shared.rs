@@ -260,13 +260,13 @@ const fn interval_fields_from_mask(mask: i32) -> Option<&'static str> {
         2048 => Some("minute"),
         4096 => Some("second"),
         // Ranges
-        6 => Some("year to month"),               // YEAR|MONTH = 4|2
-        1032 => Some("day to hour"),              // DAY|HOUR = 8|1024
-        3080 => Some("day to minute"),            // DAY|HOUR|MINUTE = 8|1024|2048
-        7176 => Some("day to second"),            // DAY|HOUR|MINUTE|SECOND = 8|1024|2048|4096
-        3072 => Some("hour to minute"),           // HOUR|MINUTE = 1024|2048
-        7168 => Some("hour to second"),           // HOUR|MINUTE|SECOND = 1024|2048|4096
-        6144 => Some("minute to second"),         // MINUTE|SECOND = 2048|4096
+        6 => Some("year to month"),       // YEAR|MONTH = 4|2
+        1032 => Some("day to hour"),      // DAY|HOUR = 8|1024
+        3080 => Some("day to minute"),    // DAY|HOUR|MINUTE = 8|1024|2048
+        7176 => Some("day to second"),    // DAY|HOUR|MINUTE|SECOND = 8|1024|2048|4096
+        3072 => Some("hour to minute"),   // HOUR|MINUTE = 1024|2048
+        7168 => Some("hour to second"),   // HOUR|MINUTE|SECOND = 1024|2048|4096
+        6144 => Some("minute to second"), // MINUTE|SECOND = 2048|4096
         // Unrecognized — fall back; no worse than pre-fix behaviour.
         _ => None,
     }
@@ -351,8 +351,7 @@ pub fn type_name_to_column_type(
         && *schema != "pg_catalog"
     {
         let name_lower = name.to_ascii_lowercase();
-        if (name_lower == "geometry" || name_lower == "geography")
-            && !type_name.typmods.is_empty()
+        if (name_lower == "geometry" || name_lower == "geography") && !type_name.typmods.is_empty()
         {
             // Build `schema.name(arg,arg,…)` and route through the canonical
             // parse path so casing is normalised (subtype barewords are already
@@ -372,11 +371,9 @@ pub fn type_name_to_column_type(
                 args.push(arg);
             }
             let s = format!("{schema}.{name_lower}({})", args.join(","));
-            return ColumnType::parse_from_pg_type_string(&s).map_err(|e| {
-                ParseError::Structural {
-                    location: location.clone(),
-                    message: format!("invalid column type {s:?}: {e}"),
-                }
+            return ColumnType::parse_from_pg_type_string(&s).map_err(|e| ParseError::Structural {
+                location: location.clone(),
+                message: format!("invalid column type {s:?}: {e}"),
             });
         }
 
@@ -688,10 +685,7 @@ mod tests {
     fn schema_qualified_postgis_types_converge() {
         // AST (source) path: type_name_to_column_type must NOT return UserDefined.
         let cases = [
-            (
-                "public.geometry(Point,4326)",
-                "public.geometry(point,4326)",
-            ),
+            ("public.geometry(Point,4326)", "public.geometry(point,4326)"),
             (
                 "public.geography(Point,4326)",
                 "public.geography(point,4326)",

@@ -314,12 +314,8 @@ fn build_column(
             ConstrType::ConstrPrimary => {
                 pk_inline = Some(name.clone());
                 nullable = false;
-                let pk_con = make_pk_constraint(
-                    table_qname,
-                    &con.conname,
-                    vec![name.clone()],
-                    location,
-                )?;
+                let pk_con =
+                    make_pk_constraint(table_qname, &con.conname, vec![name.clone()], location)?;
                 taken.insert(pk_con.qname.name.as_str());
                 produced_constraints.push(pk_con);
             }

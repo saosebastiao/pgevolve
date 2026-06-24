@@ -36,25 +36,55 @@ impl TableLikeOptions {
     const STORAGE: u32 = 1 << 8;
 
     /// Construct from raw Postgres option bits.
-    #[must_use] pub const fn new(bits: u32) -> Self { Self(bits) }
+    #[must_use]
+    pub const fn new(bits: u32) -> Self {
+        Self(bits)
+    }
     /// Whether `INCLUDING COMMENTS` is set.
-    #[must_use] pub const fn comments(self) -> bool { self.0 & Self::COMMENTS != 0 }
+    #[must_use]
+    pub const fn comments(self) -> bool {
+        self.0 & Self::COMMENTS != 0
+    }
     /// Whether `INCLUDING COMPRESSION` is set.
-    #[must_use] pub const fn compression(self) -> bool { self.0 & Self::COMPRESSION != 0 }
+    #[must_use]
+    pub const fn compression(self) -> bool {
+        self.0 & Self::COMPRESSION != 0
+    }
     /// Whether `INCLUDING CONSTRAINTS` is set.
-    #[must_use] pub const fn constraints(self) -> bool { self.0 & Self::CONSTRAINTS != 0 }
+    #[must_use]
+    pub const fn constraints(self) -> bool {
+        self.0 & Self::CONSTRAINTS != 0
+    }
     /// Whether `INCLUDING DEFAULTS` is set.
-    #[must_use] pub const fn defaults(self) -> bool { self.0 & Self::DEFAULTS != 0 }
+    #[must_use]
+    pub const fn defaults(self) -> bool {
+        self.0 & Self::DEFAULTS != 0
+    }
     /// Whether `INCLUDING GENERATED` is set.
-    #[must_use] pub const fn generated(self) -> bool { self.0 & Self::GENERATED != 0 }
+    #[must_use]
+    pub const fn generated(self) -> bool {
+        self.0 & Self::GENERATED != 0
+    }
     /// Whether `INCLUDING IDENTITY` is set.
-    #[must_use] pub const fn identity(self) -> bool { self.0 & Self::IDENTITY != 0 }
+    #[must_use]
+    pub const fn identity(self) -> bool {
+        self.0 & Self::IDENTITY != 0
+    }
     /// Whether `INCLUDING INDEXES` is set.
-    #[must_use] pub const fn indexes(self) -> bool { self.0 & Self::INDEXES != 0 }
+    #[must_use]
+    pub const fn indexes(self) -> bool {
+        self.0 & Self::INDEXES != 0
+    }
     /// Whether `INCLUDING STATISTICS` is set.
-    #[must_use] pub const fn statistics(self) -> bool { self.0 & Self::STATISTICS != 0 }
+    #[must_use]
+    pub const fn statistics(self) -> bool {
+        self.0 & Self::STATISTICS != 0
+    }
     /// Whether `INCLUDING STORAGE` is set.
-    #[must_use] pub const fn storage(self) -> bool { self.0 & Self::STORAGE != 0 }
+    #[must_use]
+    pub const fn storage(self) -> bool {
+        self.0 & Self::STORAGE != 0
+    }
 }
 
 /// One unresolved `LIKE` clause, captured during `process_file`.
@@ -87,10 +117,13 @@ pub fn extract_pending_likes(
         match elt.node.as_ref() {
             Some(NodeEnum::ColumnDef(_)) => explicit_cols += 1,
             Some(NodeEnum::TableLikeClause(like)) => {
-                let rv = like.relation.as_ref().ok_or_else(|| ParseError::Structural {
-                    location: location.clone(),
-                    message: "LIKE clause missing source relation".into(),
-                })?;
+                let rv = like
+                    .relation
+                    .as_ref()
+                    .ok_or_else(|| ParseError::Structural {
+                        location: location.clone(),
+                        message: "LIKE clause missing source relation".into(),
+                    })?;
                 let source = shared::resolve_qname(rv, default_schema, location)?;
                 out.push(PendingLike {
                     target: target.clone(),
@@ -115,11 +148,27 @@ fn copy_column(src: &Column, opts: TableLikeOptions) -> Column {
         ty: src.ty.clone(),
         nullable: src.nullable,
         collation: src.collation.clone(),
-        default:     if opts.defaults()    { src.default.clone() }    else { None },
-        identity:    if opts.identity()    { src.identity.clone() }   else { None },
-        generated:   if opts.generated()   { src.generated.clone() }  else { None },
-        storage:     if opts.storage()     { src.storage }            else { None },
-        compression: if opts.compression() { src.compression }        else { None },
+        default: if opts.defaults() {
+            src.default.clone()
+        } else {
+            None
+        },
+        identity: if opts.identity() {
+            src.identity.clone()
+        } else {
+            None
+        },
+        generated: if opts.generated() {
+            src.generated.clone()
+        } else {
+            None
+        },
+        storage: if opts.storage() { src.storage } else { None },
+        compression: if opts.compression() {
+            src.compression
+        } else {
+            None
+        },
         // comments are copied in a separate pass after deferred comments are applied
         // (see apply_pending_like_comments)
         comment: None,
@@ -183,7 +232,11 @@ fn snapshot_like(
             }
         })?;
 
-    let cols: Vec<Column> = src.columns.iter().map(|c| copy_column(c, like.options)).collect();
+    let cols: Vec<Column> = src
+        .columns
+        .iter()
+        .map(|c| copy_column(c, like.options))
+        .collect();
     let mut constraints: Vec<Constraint> = Vec::new();
 
     // INCLUDING CONSTRAINTS → copy CHECK constraints.
@@ -208,13 +261,14 @@ fn snapshot_like(
             if matches!(c.kind, ConstraintKind::Check { .. }) {
                 let local_name = if c.qname.name.as_str() == source_auto_name {
                     // Auto-generated name: re-derive for the clone table.
-                    Identifier::from_unquoted(&format!("{}_check", target_name.as_str()))
-                        .map_err(|e| ParseError::Structural {
+                    Identifier::from_unquoted(&format!("{}_check", target_name.as_str())).map_err(
+                        |e| ParseError::Structural {
                             location: like.location.clone(),
                             message: format!(
                                 "re-derived CHECK constraint name is not a valid identifier: {e}"
                             ),
-                        })?
+                        },
+                    )?
                 } else {
                     // Explicitly-named constraint: preserve the source name.
                     c.qname.name.clone()
@@ -316,7 +370,11 @@ fn copy_index_constraints(
                     comment: None,
                 });
             }
-            ConstraintKind::Unique { columns, include, nulls_distinct } => {
+            ConstraintKind::Unique {
+                columns,
+                include,
+                nulls_distinct,
+            } => {
                 let col_opts: Vec<Option<&str>> =
                     columns.iter().map(|col| Some(col.as_str())).collect();
                 let generated = choose_name::choose_index_name(
@@ -373,10 +431,14 @@ fn copy_plain_indexes(
     let mut out = Vec::new();
     let source_parent = IndexParent::Table(source.clone());
     for idx in catalog_indexes.iter().filter(|i| i.on == source_parent) {
-        let col_opts: Vec<Option<&str>> = idx.columns.iter().map(|col| match &col.expr {
-            IndexColumnExpr::Column(id) => Some(id.as_str()),
-            IndexColumnExpr::Expression(_) => None,
-        }).collect();
+        let col_opts: Vec<Option<&str>> = idx
+            .columns
+            .iter()
+            .map(|col| match &col.expr {
+                IndexColumnExpr::Column(id) => Some(id.as_str()),
+                IndexColumnExpr::Expression(_) => None,
+            })
+            .collect();
         // Plain `CREATE [UNIQUE] INDEX` always uses `_idx` suffix (Postgres
         // `ChooseIndexName` with `isconstraint=false`), regardless of
         // uniqueness.  The `_key` suffix is only for UNIQUE *constraints*.
@@ -438,10 +500,14 @@ fn copy_statistics(
     let mut out = Vec::new();
     for stat in catalog_statistics.iter().filter(|s| &s.target == source) {
         // TODO(#43 Task 11): verify extended-statistics naming vs live PG
-        let col_opts: Vec<Option<&str>> = stat.columns.iter().map(|col| match col {
-            StatisticColumn::Column(id) => Some(id.as_str()),
-            StatisticColumn::Expression(_) => None,
-        }).collect();
+        let col_opts: Vec<Option<&str>> = stat
+            .columns
+            .iter()
+            .map(|col| match col {
+                StatisticColumn::Column(id) => Some(id.as_str()),
+                StatisticColumn::Expression(_) => None,
+            })
+            .collect();
         let generated = choose_name::choose_index_name(
             target_name.as_str(),
             &col_opts,
@@ -553,52 +619,61 @@ pub fn apply_pending_likes(
         let mut likes = by_target.remove(&target).unwrap_or_default();
         likes.sort_by_key(|p| p.explicit_cols_before); // stable; preserves clause order on ties
 
-            // Build a name-collision tracker seeded with every name already live in
-            // the target's schema.  One `TakenNames` per target so that all LIKE
-            // clauses for the same clone share a single counter state — meaning
-            // two different LIKE clauses on the same clone won't independently
-            // produce colliding names.
-            //
-            // `from_schema` borrows `catalog` immutably; we finish the borrow
-            // completely before we need the mutable borrow below.
-            let mut taken = choose_name::TakenNames::from_schema(catalog, &target.schema);
+        // Build a name-collision tracker seeded with every name already live in
+        // the target's schema.  One `TakenNames` per target so that all LIKE
+        // clauses for the same clone share a single counter state — meaning
+        // two different LIKE clauses on the same clone won't independently
+        // produce colliding names.
+        //
+        // `from_schema` borrows `catalog` immutably; we finish the borrow
+        // completely before we need the mutable borrow below.
+        let mut taken = choose_name::TakenNames::from_schema(catalog, &target.schema);
 
-            // Snapshot pass (immutable borrow): gather columns + constraints for
-            // every clause, driving `taken` forward so names stay globally unique.
-            let mut snapshots: Vec<LikeSnapshot> = Vec::with_capacity(likes.len());
-            for like in &likes {
-                snapshots.push(snapshot_like(like, &target.name, &target.schema, catalog, &mut taken)?);
-            }
-
-            // Mutation pass: apply all snapshots to the (now mutably-borrowed) target.
-            // Column and constraint mutations go to `catalog.tables`; index
-            // mutations go to `catalog.indexes`.  Both happen after ALL
-            // snapshotting above, so the immutable borrows are fully released.
-            let mut inserted = 0usize;
-            for snap in snapshots {
-                let n = snap.cols.len();
-                let tgt = catalog.tables.iter_mut().find(|t| t.qname == target)
-                    .ok_or_else(|| ParseError::Structural {
-                        location: likes.first().map_or_else(
-                            || SourceLocation::new(std::path::PathBuf::new(), 0, 0),
-                            |l| l.location.clone(),
-                        ),
-                        message: format!("LIKE target table {target} vanished"),
-                    })?;
-                let at = (snap.explicit_cols_before + inserted).min(tgt.columns.len());
-                tgt.columns.splice(at..at, snap.cols);
-                inserted += n;
-                tgt.constraints.extend(snap.constraints);
-                // Push retargeted plain indexes after table mutations so that
-                // the immutable borrow of `catalog.indexes` (in snapshot_like)
-                // is already complete when we mutate here.
-                catalog.indexes.extend(snap.indexes);
-                // Push retargeted statistics after table mutations so that
-                // the immutable borrow of `catalog.statistics` (in snapshot_like)
-                // is already complete when we mutate here.
-                catalog.statistics.extend(snap.statistics);
-            }
+        // Snapshot pass (immutable borrow): gather columns + constraints for
+        // every clause, driving `taken` forward so names stay globally unique.
+        let mut snapshots: Vec<LikeSnapshot> = Vec::with_capacity(likes.len());
+        for like in &likes {
+            snapshots.push(snapshot_like(
+                like,
+                &target.name,
+                &target.schema,
+                catalog,
+                &mut taken,
+            )?);
         }
+
+        // Mutation pass: apply all snapshots to the (now mutably-borrowed) target.
+        // Column and constraint mutations go to `catalog.tables`; index
+        // mutations go to `catalog.indexes`.  Both happen after ALL
+        // snapshotting above, so the immutable borrows are fully released.
+        let mut inserted = 0usize;
+        for snap in snapshots {
+            let n = snap.cols.len();
+            let tgt = catalog
+                .tables
+                .iter_mut()
+                .find(|t| t.qname == target)
+                .ok_or_else(|| ParseError::Structural {
+                    location: likes.first().map_or_else(
+                        || SourceLocation::new(std::path::PathBuf::new(), 0, 0),
+                        |l| l.location.clone(),
+                    ),
+                    message: format!("LIKE target table {target} vanished"),
+                })?;
+            let at = (snap.explicit_cols_before + inserted).min(tgt.columns.len());
+            tgt.columns.splice(at..at, snap.cols);
+            inserted += n;
+            tgt.constraints.extend(snap.constraints);
+            // Push retargeted plain indexes after table mutations so that
+            // the immutable borrow of `catalog.indexes` (in snapshot_like)
+            // is already complete when we mutate here.
+            catalog.indexes.extend(snap.indexes);
+            // Push retargeted statistics after table mutations so that
+            // the immutable borrow of `catalog.statistics` (in snapshot_like)
+            // is already complete when we mutate here.
+            catalog.statistics.extend(snap.statistics);
+        }
+    }
     Ok(())
 }
 
@@ -633,8 +708,14 @@ pub fn apply_pending_like_comments(
         for like in likes {
             // Snapshot source table comment and per-column comments before
             // borrowing the target mutably.
-            let (src_table_comment, src_col_comments): (Option<String>, Vec<(Identifier, Option<String>)>) = {
-                let src = catalog.tables.iter().find(|t| t.qname == like.source)
+            let (src_table_comment, src_col_comments): (
+                Option<String>,
+                Vec<(Identifier, Option<String>)>,
+            ) = {
+                let src = catalog
+                    .tables
+                    .iter()
+                    .find(|t| t.qname == like.source)
                     .ok_or_else(|| ParseError::Structural {
                         location: like.location.clone(),
                         message: format!(
@@ -643,13 +724,18 @@ pub fn apply_pending_like_comments(
                         ),
                     })?;
                 let table_comment = src.comment.clone();
-                let col_comments = src.columns.iter()
+                let col_comments = src
+                    .columns
+                    .iter()
                     .map(|c| (c.name.clone(), c.comment.clone()))
                     .collect();
                 (table_comment, col_comments)
             };
 
-            let tgt = catalog.tables.iter_mut().find(|t| t.qname == target)
+            let tgt = catalog
+                .tables
+                .iter_mut()
+                .find(|t| t.qname == target)
                 .ok_or_else(|| ParseError::Structural {
                     location: like.location.clone(),
                     message: format!("LIKE target table {target} vanished during comment copy"),
@@ -679,22 +765,41 @@ mod tests {
     use crate::ir::column_type::ColumnType;
     use std::path::PathBuf;
 
-    fn loc() -> SourceLocation { SourceLocation::new(PathBuf::from("t.sql"), 1, 1) }
-    fn id(s: &str) -> Identifier { Identifier::from_unquoted(s).unwrap() }
-    fn qn(s: &str, n: &str) -> QualifiedName { QualifiedName::new(id(s), id(n)) }
+    fn loc() -> SourceLocation {
+        SourceLocation::new(PathBuf::from("t.sql"), 1, 1)
+    }
+    fn id(s: &str) -> Identifier {
+        Identifier::from_unquoted(s).unwrap()
+    }
+    fn qn(s: &str, n: &str) -> QualifiedName {
+        QualifiedName::new(id(s), id(n))
+    }
 
     #[test]
     fn end_to_end_bare_like_via_parse_directory() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int PRIMARY KEY, name text);\n\
-             CREATE TABLE pub.clone (LIKE pub.base);\n").unwrap();
+             CREATE TABLE pub.clone (LIKE pub.base);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
-        assert_eq!(clone.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
-            vec!["id".to_string(), "name".to_string()]);
+        let clone = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "clone")
+            .unwrap();
+        assert_eq!(
+            clone
+                .columns
+                .iter()
+                .map(|c| c.name.as_str().to_string())
+                .collect::<Vec<_>>(),
+            vec!["id".to_string(), "name".to_string()]
+        );
     }
 
     #[test]
@@ -702,18 +807,34 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id integer NOT NULL, name text);\n\
-             CREATE TABLE pub.clone (LIKE pub.base);\n").unwrap();
+             CREATE TABLE pub.clone (LIKE pub.base);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
-        let got: Vec<_> = clone.columns.iter()
-            .map(|c| (c.name.as_str().to_string(), c.ty.clone(), c.nullable)).collect();
-        assert_eq!(got, vec![
-            ("id".into(), ColumnType::Integer, false),
-            ("name".into(), ColumnType::Text, true),
-        ]);
-        assert!(clone.columns.iter().all(|c| c.default.is_none()), "bare LIKE copies no defaults");
+        let clone = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "clone")
+            .unwrap();
+        let got: Vec<_> = clone
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str().to_string(), c.ty.clone(), c.nullable))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("id".into(), ColumnType::Integer, false),
+                ("name".into(), ColumnType::Text, true),
+            ]
+        );
+        assert!(
+            clone.columns.iter().all(|c| c.default.is_none()),
+            "bare LIKE copies no defaults"
+        );
     }
 
     #[test]
@@ -731,8 +852,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
-            "CREATE TABLE pub.clone (id int);\n").unwrap();
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.clone (id int);\n",
+        )
+        .unwrap();
         let (mut cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
         assert!(apply_pending_likes(&mut cat, &[pend]).is_err());
     }
@@ -745,15 +869,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.a (id int PRIMARY KEY, name text);\n\
              CREATE TABLE pub.z (LIKE pub.a);\n\
-             CREATE TABLE pub.x (LIKE pub.z);\n").unwrap();
+             CREATE TABLE pub.x (LIKE pub.z);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
         for tname in ["a", "z", "x"] {
-            let t = cat.tables.iter().find(|t| t.qname.name.as_str() == tname).unwrap();
+            let t = cat
+                .tables
+                .iter()
+                .find(|t| t.qname.name.as_str() == tname)
+                .unwrap();
             assert_eq!(
-                t.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
+                t.columns
+                    .iter()
+                    .map(|c| c.name.as_str().to_string())
+                    .collect::<Vec<_>>(),
                 vec!["id".to_string(), "name".to_string()],
                 "table {tname} should have both copied columns",
             );
@@ -769,15 +903,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int PRIMARY KEY, name text);\n\
              CREATE TABLE pub.aaa (LIKE pub.zzz);\n\
-             CREATE TABLE pub.zzz (LIKE pub.base);\n").unwrap();
+             CREATE TABLE pub.zzz (LIKE pub.base);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
         for tname in ["base", "aaa", "zzz"] {
-            let t = cat.tables.iter().find(|t| t.qname.name.as_str() == tname).unwrap();
+            let t = cat
+                .tables
+                .iter()
+                .find(|t| t.qname.name.as_str() == tname)
+                .unwrap();
             assert_eq!(
-                t.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
+                t.columns
+                    .iter()
+                    .map(|c| c.name.as_str().to_string())
+                    .collect::<Vec<_>>(),
                 vec!["id".to_string(), "name".to_string()],
                 "table {tname} should have both copied columns",
             );
@@ -791,10 +935,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
-            "CREATE TABLE pub.c (LIKE pub.c);\n").unwrap();
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
+            "CREATE TABLE pub.c (LIKE pub.c);\n",
+        )
+        .unwrap();
         let err = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap_err();
-        assert!(matches!(err, crate::parse::ParseError::Structural { .. }), "got {err:?}");
+        assert!(
+            matches!(err, crate::parse::ParseError::Structural { .. }),
+            "got {err:?}"
+        );
     }
 
     /// A 2-cycle (`p (LIKE q)`, `q (LIKE p)`) must also error.
@@ -803,11 +953,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.p (LIKE pub.q);\n\
-             CREATE TABLE pub.q (LIKE pub.p);\n").unwrap();
+             CREATE TABLE pub.q (LIKE pub.p);\n",
+        )
+        .unwrap();
         let err = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap_err();
-        assert!(matches!(err, crate::parse::ParseError::Structural { .. }), "got {err:?}");
+        assert!(
+            matches!(err, crate::parse::ParseError::Structural { .. }),
+            "got {err:?}"
+        );
     }
 
     #[test]
@@ -815,13 +971,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (a int, b int);\n\
-             CREATE TABLE pub.c (x int, LIKE pub.base, y text);\n").unwrap();
+             CREATE TABLE pub.c (x int, LIKE pub.base, y text);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
-        assert_eq!(c.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
-            vec!["x", "a", "b", "y"]);
+        let c = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "c")
+            .unwrap();
+        assert_eq!(
+            c.columns
+                .iter()
+                .map(|c| c.name.as_str().to_string())
+                .collect::<Vec<_>>(),
+            vec!["x", "a", "b", "y"]
+        );
     }
 
     #[test]
@@ -829,17 +997,34 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int DEFAULT 7, doc text STORAGE EXTERNAL);\n\
              CREATE TABLE pub.bare (LIKE pub.base);\n\
-             CREATE TABLE pub.full (LIKE pub.base INCLUDING DEFAULTS INCLUDING STORAGE);\n").unwrap();
+             CREATE TABLE pub.full (LIKE pub.base INCLUDING DEFAULTS INCLUDING STORAGE);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let bare = cat.tables.iter().find(|t| t.qname.name.as_str() == "bare").unwrap();
+        let bare = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "bare")
+            .unwrap();
         assert!(bare.columns[0].default.is_none());
         assert!(bare.columns[1].storage.is_none());
-        let full = cat.tables.iter().find(|t| t.qname.name.as_str() == "full").unwrap();
-        assert!(full.columns[0].default.is_some(), "INCLUDING DEFAULTS copies default");
-        assert!(full.columns[1].storage.is_some(), "INCLUDING STORAGE copies storage");
+        let full = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "full")
+            .unwrap();
+        assert!(
+            full.columns[0].default.is_some(),
+            "INCLUDING DEFAULTS copies default"
+        );
+        assert!(
+            full.columns[1].storage.is_some(),
+            "INCLUDING STORAGE copies storage"
+        );
     }
 
     #[test]
@@ -847,13 +1032,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.l (a int);\nCREATE TABLE pub.r (b int);\n\
-             CREATE TABLE pub.c (LIKE pub.l, mid int, LIKE pub.r);\n").unwrap();
+             CREATE TABLE pub.c (LIKE pub.l, mid int, LIKE pub.r);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
-        assert_eq!(c.columns.iter().map(|c| c.name.as_str().to_string()).collect::<Vec<_>>(),
-            vec!["a", "mid", "b"]);
+        let c = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "c")
+            .unwrap();
+        assert_eq!(
+            c.columns
+                .iter()
+                .map(|c| c.name.as_str().to_string())
+                .collect::<Vec<_>>(),
+            vec!["a", "mid", "b"]
+        );
     }
 
     // ── INCLUDING COMMENTS tests ──────────────────────────────────────────────
@@ -863,14 +1060,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int);\n\
              COMMENT ON TABLE pub.base IS 'hi';\n\
-             CREATE TABLE pub.c (LIKE pub.base INCLUDING COMMENTS);\n").unwrap();
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING COMMENTS);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
-        assert_eq!(c.comment.as_deref(), Some("hi"),
-            "INCLUDING COMMENTS should propagate the source table comment to the clone");
+        let c = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "c")
+            .unwrap();
+        assert_eq!(
+            c.comment.as_deref(),
+            Some("hi"),
+            "INCLUDING COMMENTS should propagate the source table comment to the clone"
+        );
     }
 
     #[test]
@@ -878,15 +1085,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int);\n\
              COMMENT ON COLUMN pub.base.id IS 'col';\n\
-             CREATE TABLE pub.clone (LIKE pub.base INCLUDING COMMENTS);\n").unwrap();
+             CREATE TABLE pub.clone (LIKE pub.base INCLUDING COMMENTS);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
-        let id_col = clone.columns.iter().find(|c| c.name.as_str() == "id").unwrap();
-        assert_eq!(id_col.comment.as_deref(), Some("col"),
-            "INCLUDING COMMENTS should propagate the source column comment to the clone");
+        let clone = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "clone")
+            .unwrap();
+        let id_col = clone
+            .columns
+            .iter()
+            .find(|c| c.name.as_str() == "id")
+            .unwrap();
+        assert_eq!(
+            id_col.comment.as_deref(),
+            Some("col"),
+            "INCLUDING COMMENTS should propagate the source column comment to the clone"
+        );
     }
 
     #[test]
@@ -894,16 +1115,28 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int);\n\
              COMMENT ON TABLE pub.base IS 'tbl';\n\
              COMMENT ON COLUMN pub.base.id IS 'col';\n\
-             CREATE TABLE pub.clone (LIKE pub.base);\n").unwrap();
+             CREATE TABLE pub.clone (LIKE pub.base);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
-        assert!(clone.comment.is_none(), "bare LIKE must not copy table comment");
-        assert!(clone.columns.iter().all(|c| c.comment.is_none()),
-            "bare LIKE must not copy column comments");
+        let clone = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "clone")
+            .unwrap();
+        assert!(
+            clone.comment.is_none(),
+            "bare LIKE must not copy table comment"
+        );
+        assert!(
+            clone.columns.iter().all(|c| c.comment.is_none()),
+            "bare LIKE must not copy column comments"
+        );
     }
 
     /// Regression guard: COMMENT ON COLUMN targeting a LIKE-derived column must
@@ -915,15 +1148,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int);\n\
              CREATE TABLE pub.clone (LIKE pub.base);\n\
-             COMMENT ON COLUMN pub.clone.id IS 'x';\n").unwrap();
+             COMMENT ON COLUMN pub.clone.id IS 'x';\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
-        let id_col = clone.columns.iter().find(|c| c.name.as_str() == "id").unwrap();
-        assert_eq!(id_col.comment.as_deref(), Some("x"),
-            "COMMENT ON COLUMN clone.id must apply to the LIKE-derived column");
+        let clone = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "clone")
+            .unwrap();
+        let id_col = clone
+            .columns
+            .iter()
+            .find(|c| c.name.as_str() == "id")
+            .unwrap();
+        assert_eq!(
+            id_col.comment.as_deref(),
+            Some("x"),
+            "COMMENT ON COLUMN clone.id must apply to the LIKE-derived column"
+        );
     }
 
     #[test]
@@ -931,15 +1178,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int);\n\
              COMMENT ON TABLE pub.base IS 'from_base';\n\
              CREATE TABLE pub.clone (LIKE pub.base INCLUDING COMMENTS);\n\
-             COMMENT ON TABLE pub.clone IS 'explicit';\n").unwrap();
+             COMMENT ON TABLE pub.clone IS 'explicit';\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
-        assert_eq!(clone.comment.as_deref(), Some("explicit"),
-            "explicit COMMENT ON TABLE clone must win over INCLUDING COMMENTS propagation");
+        let clone = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "clone")
+            .unwrap();
+        assert_eq!(
+            clone.comment.as_deref(),
+            Some("explicit"),
+            "explicit COMMENT ON TABLE clone must win over INCLUDING COMMENTS propagation"
+        );
     }
 
     // ── INCLUDING CONSTRAINTS tests ───────────────────────────────────────────
@@ -949,18 +1206,38 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (n int, CONSTRAINT n_pos CHECK (n > 0));\n\
              CREATE TABLE pub.bare (LIKE pub.base);\n\
-             CREATE TABLE pub.c (LIKE pub.base INCLUDING CONSTRAINTS);\n").unwrap();
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING CONSTRAINTS);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let bare = cat.tables.iter().find(|t| t.qname.name.as_str() == "bare").unwrap();
-        assert!(bare.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Check{..})),
-            "bare LIKE must not copy CHECK constraints");
-        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
-        assert_eq!(c.constraints.iter()
-            .filter(|c| matches!(c.kind, crate::ir::constraint::ConstraintKind::Check{..})).count(), 1,
-            "INCLUDING CONSTRAINTS should copy exactly one CHECK constraint");
+        let bare = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "bare")
+            .unwrap();
+        assert!(
+            bare.constraints
+                .iter()
+                .all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Check { .. })),
+            "bare LIKE must not copy CHECK constraints"
+        );
+        let c = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "c")
+            .unwrap();
+        assert_eq!(
+            c.constraints
+                .iter()
+                .filter(|c| matches!(c.kind, crate::ir::constraint::ConstraintKind::Check { .. }))
+                .count(),
+            1,
+            "INCLUDING CONSTRAINTS should copy exactly one CHECK constraint"
+        );
     }
 
     #[test]
@@ -968,22 +1245,37 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int PRIMARY KEY, e text UNIQUE, n int CHECK (n>0));\n\
-             CREATE TABLE pub.c (LIKE pub.base INCLUDING CONSTRAINTS);\n").unwrap();
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING CONSTRAINTS);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        let c = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "c")
+            .unwrap();
         assert_eq!(
-            c.constraints.iter().filter(|c| matches!(c.kind, crate::ir::constraint::ConstraintKind::Check{..})).count(),
+            c.constraints
+                .iter()
+                .filter(|c| matches!(c.kind, crate::ir::constraint::ConstraintKind::Check { .. }))
+                .count(),
             1,
             "INCLUDING CONSTRAINTS should copy the CHECK constraint"
         );
         assert!(
-            c.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::PrimaryKey{..})),
+            c.constraints.iter().all(|c| !matches!(
+                c.kind,
+                crate::ir::constraint::ConstraintKind::PrimaryKey { .. }
+            )),
             "INCLUDING CONSTRAINTS must not copy PrimaryKey (belongs to INCLUDING INDEXES)"
         );
         assert!(
-            c.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Unique{..})),
+            c.constraints
+                .iter()
+                .all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Unique { .. })),
             "INCLUDING CONSTRAINTS must not copy Unique (belongs to INCLUDING INDEXES)"
         );
     }
@@ -1006,19 +1298,25 @@ mod tests {
         )
         .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
+        let clone = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "clone")
+            .unwrap();
         let check = clone
             .constraints
             .iter()
             .find(|c| matches!(c.kind, crate::ir::constraint::ConstraintKind::Check { .. }))
             .expect("clone must have a copied CHECK constraint");
         assert_eq!(
-            check.qname.name.as_str(), "clone_check",
+            check.qname.name.as_str(),
+            "clone_check",
             "unnamed source CHECK must be re-derived to clone_check, got {:?}",
             check.qname.name.as_str(),
         );
         assert_eq!(
-            check.qname.schema.as_str(), "pub",
+            check.qname.schema.as_str(),
+            "pub",
             "copied CHECK must be in clone's schema"
         );
     }
@@ -1039,19 +1337,25 @@ mod tests {
         )
         .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let clone = cat.tables.iter().find(|t| t.qname.name.as_str() == "clone").unwrap();
+        let clone = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "clone")
+            .unwrap();
         let check = clone
             .constraints
             .iter()
             .find(|c| matches!(c.kind, crate::ir::constraint::ConstraintKind::Check { .. }))
             .expect("clone must have a copied CHECK constraint");
         assert_eq!(
-            check.qname.name.as_str(), "n_pos",
+            check.qname.name.as_str(),
+            "n_pos",
             "explicitly-named source CHECK must be preserved as n_pos, got {:?}",
             check.qname.name.as_str(),
         );
         assert_eq!(
-            check.qname.schema.as_str(), "pub",
+            check.qname.schema.as_str(),
+            "pub",
             "copied CHECK must be in clone's schema"
         );
     }
@@ -1064,16 +1368,39 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int PRIMARY KEY, email text UNIQUE);\n\
-             CREATE TABLE pub.c (LIKE pub.base INCLUDING INDEXES);\n").unwrap();
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING INDEXES);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
-        let names: Vec<_> = c.constraints.iter().map(|k| k.qname.name.as_str().to_string()).collect();
+        let c = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "c")
+            .unwrap();
+        let names: Vec<_> = c
+            .constraints
+            .iter()
+            .map(|k| k.qname.name.as_str().to_string())
+            .collect();
         assert!(names.contains(&"c_pkey".to_string()), "got {names:?}");
         assert!(names.contains(&"c_email_key".to_string()), "got {names:?}");
-        assert_eq!(c.constraints.iter().filter(|k| matches!(k.kind, PrimaryKey{..})).count(), 1);
-        assert_eq!(c.constraints.iter().filter(|k| matches!(k.kind, Unique{..})).count(), 1);
+        assert_eq!(
+            c.constraints
+                .iter()
+                .filter(|k| matches!(k.kind, PrimaryKey { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            c.constraints
+                .iter()
+                .filter(|k| matches!(k.kind, Unique { .. }))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1081,17 +1408,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (id int PRIMARY KEY, email text UNIQUE);\n\
-             CREATE TABLE pub.d (LIKE pub.base);\n").unwrap();
+             CREATE TABLE pub.d (LIKE pub.base);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let d = cat.tables.iter().find(|t| t.qname.name.as_str() == "d").unwrap();
+        let d = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "d")
+            .unwrap();
         assert!(
-            d.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::PrimaryKey{..})),
+            d.constraints.iter().all(|c| !matches!(
+                c.kind,
+                crate::ir::constraint::ConstraintKind::PrimaryKey { .. }
+            )),
             "bare LIKE must not copy PK"
         );
         assert!(
-            d.constraints.iter().all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Unique{..})),
+            d.constraints
+                .iter()
+                .all(|c| !matches!(c.kind, crate::ir::constraint::ConstraintKind::Unique { .. })),
             "bare LIKE must not copy UNIQUE"
         );
     }
@@ -1105,12 +1444,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (a int, b int);\n\
              CREATE INDEX ON pub.base (a, b);\n\
-             CREATE TABLE pub.c (LIKE pub.base INCLUDING INDEXES);\n").unwrap();
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING INDEXES);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let idx: Vec<_> = cat.indexes.iter()
+        let idx: Vec<_> = cat
+            .indexes
+            .iter()
             .filter(|i| i.on.qname().name.as_str() == "c")
             .map(|i| i.qname.name.as_str().to_string())
             .collect();
@@ -1125,17 +1469,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (a int);\n\
              CREATE UNIQUE INDEX ON pub.base (a);\n\
-             CREATE TABLE pub.c (LIKE pub.base INCLUDING INDEXES);\n").unwrap();
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING INDEXES);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let copied: Vec<_> = cat.indexes.iter()
+        let copied: Vec<_> = cat
+            .indexes
+            .iter()
             .filter(|i| i.on.qname().name.as_str() == "c")
             .collect();
-        assert_eq!(copied.len(), 1, "expected exactly one copied index, got {copied:?}");
-        assert_eq!(copied[0].qname.name.as_str(), "c_a_idx",
-            "unique plain index must use _idx suffix, not _key");
+        assert_eq!(
+            copied.len(),
+            1,
+            "expected exactly one copied index, got {copied:?}"
+        );
+        assert_eq!(
+            copied[0].qname.name.as_str(),
+            "c_a_idx",
+            "unique plain index must use _idx suffix, not _key"
+        );
         assert!(copied[0].unique, "copied index must preserve unique flag");
     }
 
@@ -1145,16 +1501,23 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (a int, b int);\n\
              CREATE INDEX ON pub.base (a, b);\n\
-             CREATE TABLE pub.d (LIKE pub.base);\n").unwrap();
+             CREATE TABLE pub.d (LIKE pub.base);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let targeting_d: Vec<_> = cat.indexes.iter()
+        let targeting_d: Vec<_> = cat
+            .indexes
+            .iter()
             .filter(|i| i.on.qname().name.as_str() == "d")
             .collect();
-        assert!(targeting_d.is_empty(),
-            "bare LIKE must not copy plain indexes, got {targeting_d:?}");
+        assert!(
+            targeting_d.is_empty(),
+            "bare LIKE must not copy plain indexes, got {targeting_d:?}"
+        );
     }
 
     // ── INCLUDING STATISTICS tests ────────────────────────────────────────────
@@ -1164,16 +1527,23 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (a int, b int);\n\
              CREATE STATISTICS pub.base_stat (ndistinct) ON a, b FROM pub.base;\n\
-             CREATE TABLE pub.c (LIKE pub.base INCLUDING STATISTICS);\n").unwrap();
+             CREATE TABLE pub.c (LIKE pub.base INCLUDING STATISTICS);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let copied: Vec<_> = cat.statistics.iter()
-            .filter(|s| s.target.name.as_str() == "c").collect();
+        let copied: Vec<_> = cat
+            .statistics
+            .iter()
+            .filter(|s| s.target.name.as_str() == "c")
+            .collect();
         assert_eq!(copied.len(), 1, "expected one copied statistic");
         assert_eq!(
-            copied[0].qname.name.as_str(), "c_a_b_stat",
+            copied[0].qname.name.as_str(),
+            "c_a_b_stat",
             "generated statistic qname should be c_a_b_stat, got {:?}",
             copied[0].qname.name.as_str(),
         );
@@ -1184,16 +1554,23 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        std::fs::write(dir.path().join("pub/t.sql"),
+        std::fs::write(
+            dir.path().join("pub/t.sql"),
             "CREATE TABLE pub.base (a int, b int);\n\
              CREATE STATISTICS pub.base_stat (ndistinct) ON a, b FROM pub.base;\n\
-             CREATE TABLE pub.d (LIKE pub.base);\n").unwrap();
+             CREATE TABLE pub.d (LIKE pub.base);\n",
+        )
+        .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let targeting_d: Vec<_> = cat.statistics.iter()
+        let targeting_d: Vec<_> = cat
+            .statistics
+            .iter()
             .filter(|s| s.target.name.as_str() == "d")
             .collect();
-        assert!(targeting_d.is_empty(),
-            "bare LIKE must not copy statistics, got {targeting_d:?}");
+        assert!(
+            targeting_d.is_empty(),
+            "bare LIKE must not copy statistics, got {targeting_d:?}"
+        );
     }
 
     // ── INCLUDING ALL integration tests ──────────────────────────────────────
@@ -1214,7 +1591,11 @@ mod tests {
         )
         .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        let c = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "c")
+            .unwrap();
         // DEFAULTS: id column should carry the default
         assert!(
             c.columns[0].default.is_some(),
@@ -1222,7 +1603,9 @@ mod tests {
         );
         // INDEXES: PK constraint copied
         assert!(
-            c.constraints.iter().any(|k| matches!(k.kind, PrimaryKey { .. })),
+            c.constraints
+                .iter()
+                .any(|k| matches!(k.kind, PrimaryKey { .. })),
             "INCLUDING ALL must copy PrimaryKey constraint (INDEXES bit)"
         );
         // CONSTRAINTS: CHECK constraint copied
@@ -1232,7 +1615,9 @@ mod tests {
         );
         // INDEXES (plain): a plain index targeting the clone must exist
         assert!(
-            cat.indexes.iter().any(|i| i.on.qname().name.as_str() == "c"),
+            cat.indexes
+                .iter()
+                .any(|i| i.on.qname().name.as_str() == "c"),
             "INCLUDING ALL must copy plain index (INDEXES bit)"
         );
     }
@@ -1272,13 +1657,32 @@ mod tests {
         )
         .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
-        let check_count = c.constraints.iter().filter(|k| matches!(k.kind, Check { .. })).count();
-        let pk_count    = c.constraints.iter().filter(|k| matches!(k.kind, PrimaryKey { .. })).count();
-        let uq_count    = c.constraints.iter().filter(|k| matches!(k.kind, Unique { .. })).count();
-        assert_eq!(check_count, 1, "expected exactly 1 Check, got {check_count}");
-        assert_eq!(pk_count,    1, "expected exactly 1 PrimaryKey, got {pk_count}");
-        assert_eq!(uq_count,    1, "expected exactly 1 Unique, got {uq_count}");
+        let c = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "c")
+            .unwrap();
+        let check_count = c
+            .constraints
+            .iter()
+            .filter(|k| matches!(k.kind, Check { .. }))
+            .count();
+        let pk_count = c
+            .constraints
+            .iter()
+            .filter(|k| matches!(k.kind, PrimaryKey { .. }))
+            .count();
+        let uq_count = c
+            .constraints
+            .iter()
+            .filter(|k| matches!(k.kind, Unique { .. }))
+            .count();
+        assert_eq!(
+            check_count, 1,
+            "expected exactly 1 Check, got {check_count}"
+        );
+        assert_eq!(pk_count, 1, "expected exactly 1 PrimaryKey, got {pk_count}");
+        assert_eq!(uq_count, 1, "expected exactly 1 Unique, got {uq_count}");
     }
 
     /// A UNIQUE constraint-backing index and a plain `CREATE INDEX` on the same
@@ -1299,7 +1703,11 @@ mod tests {
         )
         .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let c = cat.tables.iter().find(|t| t.qname.name.as_str() == "c").unwrap();
+        let c = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "c")
+            .unwrap();
         // The UNIQUE constraint should be named c_a_key.
         let uq_name = c
             .constraints
@@ -1320,8 +1728,14 @@ mod tests {
             "Unique constraint name and plain index name must not collide: both are {uq_name:?}"
         );
         // They should follow the Postgres naming conventions.
-        assert_eq!(uq_name,  "c_a_key", "Unique constraint should be c_a_key, got {uq_name:?}");
-        assert_eq!(idx_name, "c_a_idx", "Plain index should be c_a_idx, got {idx_name:?}");
+        assert_eq!(
+            uq_name, "c_a_key",
+            "Unique constraint should be c_a_key, got {uq_name:?}"
+        );
+        assert_eq!(
+            idx_name, "c_a_idx",
+            "Plain index should be c_a_idx, got {idx_name:?}"
+        );
     }
 
     /// Multi-hop LIKE: `leaf (LIKE mid INCLUDING ALL)` where `mid (LIKE base
@@ -1341,7 +1755,11 @@ mod tests {
         )
         .unwrap();
         let (cat, _) = crate::parse::parse_directory_with_locations(dir.path(), &[]).unwrap();
-        let leaf = cat.tables.iter().find(|t| t.qname.name.as_str() == "leaf").unwrap();
+        let leaf = cat
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "leaf")
+            .unwrap();
         // The `id` column must propagate all the way to leaf.
         assert!(
             leaf.columns.iter().any(|c| c.name.as_str() == "id"),
@@ -1354,7 +1772,8 @@ mod tests {
             .find(|k| matches!(k.kind, PrimaryKey { .. }))
             .expect("leaf must have a PrimaryKey constraint");
         assert_eq!(
-            pk.qname.name.as_str(), "leaf_pkey",
+            pk.qname.name.as_str(),
+            "leaf_pkey",
             "leaf PK should be named leaf_pkey, got {:?}",
             pk.qname.name.as_str()
         );

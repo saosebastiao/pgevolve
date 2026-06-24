@@ -448,7 +448,10 @@ fn process_file(ctx: &mut ParseContext, path: &Path, contents: &str) -> Result<(
                 let mut table =
                     builder::create_stmt::build_table(&s, directives.schema.as_ref(), &location)?;
                 pending_likes.extend(builder::table_like::extract_pending_likes(
-                    &s, &table.qname, directives.schema.as_ref(), &location,
+                    &s,
+                    &table.qname,
+                    directives.schema.as_ref(),
+                    &location,
                 )?);
                 let serial_seqs =
                     builder::desugar_serial::desugar_serials_in_table(&mut table, &location)?;
