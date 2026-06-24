@@ -15,7 +15,7 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-Current release: **v0.3.9** (Postgres 14–18). See
+Current release: **v0.4.6** (Postgres 14–18). See
 [`CHANGELOG.md`](./CHANGELOG.md) for per-release detail.
 
 **Documentation:** <https://saosebastiao.github.io/pgevolve/>
@@ -140,7 +140,7 @@ Full reference: [`docs/user/configuration.md`](./docs/user/configuration.md).
   `strategy = "atomic"`.
 - **All actively-maintained PG majors.** PG 14, 15, 16, 17, 18 covered in
   CI on every push; per-version SQL paths in the catalog reader.
-- **Conformance-driven.** ~210 fixture-based end-to-end tests gate
+- **Conformance-driven.** ~260 fixture-based end-to-end tests gate
   CI. Every claimed capability has a fixture; see
   [`docs/spec/testing.md`](./docs/spec/testing.md).
 

@@ -55,7 +55,7 @@ See [`../README.md`](./README.md) for the status legend.
 | `time with time zone` (`timetz`) | ✅ Implemented | Including `time(p) with time zone`. change_kinds: [add, change_type] |
 | `timestamp` | ✅ Implemented | With sub-second precision. change_kinds: [add, change_type] |
 | `timestamp with time zone` (`timestamptz`) | ✅ Implemented | The recommended type for most workflows. change_kinds: [add, change_type] |
-| `interval` | ✅ Implemented | Including field constraints (`interval year`, `interval day to hour`, etc.) and sub-second precision. change_kinds: [add, change_type] |
+| `interval` | ✅ Implemented | Including field constraints (`interval year`, `interval day to hour`, etc.) and sub-second precision (`interval(N)`). pg_query encodes the SQL field qualifier as an `INTERVAL_MASK` bitmask in the first typmod argument; pgevolve decodes it to the canonical form so the source and catalog paths converge (no spurious `ALTER COLUMN TYPE`). change_kinds: [add, change_type] |
 
 ## Networking
 
@@ -142,7 +142,7 @@ See [`../README.md`](./README.md) for the status legend.
 
 | Variant | Status | Notes |
 |---|---|---|
-| `ColumnType::Other { raw: String }` | ✅ Implemented | Any type pgevolve doesn't recognize is preserved as a raw string. Two `Other` types compare equal iff their strings match — pgevolve makes no claim about semantic equivalence. Lets the system parse unknown types without aborting, which is essential for adopting an existing DB.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests` |
+| `ColumnType::Other { raw: String }` | ✅ Implemented | Any type pgevolve doesn't recognize is preserved as a raw string. Two `Other` types compare equal iff their strings match — pgevolve makes no claim about semantic equivalence. Lets the system parse unknown types without aborting, which is essential for adopting an existing DB. **PostGIS:** parameterized `geometry(Point,4326)` / `geography(...)` are preserved with their typmod, the subtype is normalized to lowercase so the source and `format_type` catalog forms compare equal, and the schema-qualified form (`public.geometry(Point,4326)`) is handled too.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests` |
 | `ColumnType::UserDefined(QualifiedName)` | ✅ Implemented | Schema-qualified reference to a user-defined type. The IR doesn't introspect the type's structure in v0.1 — that lands with first-class custom types in v0.2.<br>**Tests:** tier-1: `crates/pgevolve-core/src/ir/column_type.rs::tests`, `user_type.rs::tests` |
 
 ## Type-level attributes
