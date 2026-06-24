@@ -1,0 +1,17 @@
+[meta]
+title     = "CHECK constraint with a string literal — no spurious ::text cast diff (issue #47)"
+authoring = "objects"
+spec_refs = ["objects.table.check_constraint"]
+
+[pg]
+min = 14
+max = 17
+
+[expect.diff]
+contains = [
+  "t_s_nonempty",
+]
+
+[expect.plan]
+steps        = 2
+rewrites_used = ["check_not_valid_then_validate"]

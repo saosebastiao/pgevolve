@@ -14,7 +14,7 @@
 //! - Sorting commutative operands of `+`, `*`, `AND`, `OR`.
 
 use pg_query::NodeEnum;
-use pg_query::protobuf::{self, Node, ResTarget};
+use pg_query::protobuf::{self, CaseWhen, Node, ResTarget};
 
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::NormalizedExpr;
@@ -30,6 +30,11 @@ pub fn from_pg_node(
     location: &SourceLocation,
 ) -> Result<NormalizedExpr, ParseError> {
     let normalized = strip_redundant_cast(node.clone(), target_type);
+    // Strip `'literal'::text` (and text-family siblings) from anywhere in the
+    // expression tree.  PG 14–17's `pg_query_deparse` adds these casts when
+    // round-tripping CHECK constraints; PG 18 dropped them.  The cast is always
+    // redundant: a string literal's inherent type IS text.
+    let normalized = strip_redundant_string_casts(normalized);
     let raw = deparse_expr(&normalized).map_err(|e| ParseError::Structural {
         location: location.clone(),
         message: format!("could not deparse expression: {e}"),
@@ -65,6 +70,227 @@ fn strip_redundant_cast(node: NodeEnum, target_type: Option<&ColumnType>) -> Nod
         .and_then(|inner| inner.node.as_ref())
         .cloned()
         .unwrap_or(node)
+}
+
+/// Recursively walk an expression AST and strip every `'literal'::text`-family
+/// cast that is always redundant.
+///
+/// A [`NodeEnum::TypeCast`] is stripped (replaced by its inner arg) when ALL
+/// of the following hold:
+/// - the inner arg is an [`NodeEnum::AConst`] with a string value (`Sval`), AND
+/// - the cast target is a bare text-family type (`text`, `bpchar`, `varchar`,
+///   `character varying`, `character`), AND
+/// - the cast carries NO typmod (so `'x'::varchar(5)` is preserved — that is a
+///   meaningful width constraint).
+///
+/// Every other node kind is recursed into so nested casts (e.g. on `<>` operands,
+/// inside `AND`/`OR`, inside function arguments) are all reached.  Node kinds not
+/// explicitly handled are returned unchanged.
+// Long because it exhaustively matches the expression node kinds we recurse into.
+// Each arm is a structurally distinct case; extracting them would not improve clarity.
+#[allow(clippy::too_many_lines)]
+fn strip_redundant_string_casts(node: NodeEnum) -> NodeEnum {
+    match node {
+        NodeEnum::TypeCast(cast) => {
+            // Check whether this cast is the redundant string→text pattern.
+            let is_string_literal =
+                cast.arg
+                    .as_ref()
+                    .and_then(|a| a.node.as_ref())
+                    .is_some_and(|n| {
+                        matches!(
+                            n,
+                            NodeEnum::AConst(c) if matches!(
+                                c.val,
+                                Some(protobuf::a_const::Val::Sval(_))
+                            )
+                        )
+                    });
+
+            let is_text_family_no_typmod = cast
+                .type_name
+                .as_ref()
+                .and_then(|tn| render_type_name(tn).map(|s| (s, tn.typmods.is_empty())))
+                .is_some_and(|(type_str, no_typmod)| {
+                    no_typmod
+                        && matches!(
+                            type_str.as_str(),
+                            "text" | "bpchar" | "varchar" | "character varying" | "character"
+                        )
+                });
+
+            if is_string_literal && is_text_family_no_typmod {
+                // Strip: replace the cast with its inner argument unchanged
+                // (string literals are leaves — no recursion needed).
+                return cast.arg.and_then(|inner| inner.node).unwrap_or_else(|| {
+                    NodeEnum::TypeCast(Box::new(protobuf::TypeCast {
+                        arg: None,
+                        type_name: None,
+                        location: -1,
+                    }))
+                });
+            }
+
+            // Not stripping — but still recurse into the arg.
+            let arg = cast.arg.map(|boxed_node| {
+                let inner = boxed_node.node.map(strip_redundant_string_casts);
+                Box::new(Node { node: inner })
+            });
+            NodeEnum::TypeCast(Box::new(protobuf::TypeCast {
+                arg,
+                type_name: cast.type_name,
+                location: cast.location,
+            }))
+        }
+
+        NodeEnum::AExpr(mut expr) => {
+            expr.lexpr = expr.lexpr.map(|boxed| {
+                let inner = boxed.node.map(strip_redundant_string_casts);
+                Box::new(Node { node: inner })
+            });
+            expr.rexpr = expr.rexpr.map(|boxed| {
+                let inner = boxed.node.map(strip_redundant_string_casts);
+                Box::new(Node { node: inner })
+            });
+            NodeEnum::AExpr(expr)
+        }
+
+        NodeEnum::BoolExpr(mut expr) => {
+            expr.args = expr
+                .args
+                .into_iter()
+                .map(|n| Node {
+                    node: n.node.map(strip_redundant_string_casts),
+                })
+                .collect();
+            NodeEnum::BoolExpr(expr)
+        }
+
+        NodeEnum::FuncCall(mut call) => {
+            call.args = call
+                .args
+                .into_iter()
+                .map(|n| Node {
+                    node: n.node.map(strip_redundant_string_casts),
+                })
+                .collect();
+            NodeEnum::FuncCall(call)
+        }
+
+        NodeEnum::NullTest(mut nt) => {
+            nt.arg = nt.arg.map(|boxed| {
+                let inner = boxed.node.map(strip_redundant_string_casts);
+                Box::new(Node { node: inner })
+            });
+            NodeEnum::NullTest(nt)
+        }
+
+        NodeEnum::BooleanTest(mut bt) => {
+            bt.arg = bt.arg.map(|boxed| {
+                let inner = boxed.node.map(strip_redundant_string_casts);
+                Box::new(Node { node: inner })
+            });
+            NodeEnum::BooleanTest(bt)
+        }
+
+        NodeEnum::CaseExpr(mut ce) => {
+            ce.arg = ce.arg.map(|boxed| {
+                let inner = boxed.node.map(strip_redundant_string_casts);
+                Box::new(Node { node: inner })
+            });
+            ce.args = ce
+                .args
+                .into_iter()
+                .map(|n| {
+                    let node = n.node.map(|inner| {
+                        // Each element is a CaseWhen node.
+                        if let NodeEnum::CaseWhen(mut cw) = inner {
+                            cw.expr = cw.expr.map(|boxed| {
+                                let e = boxed.node.map(strip_redundant_string_casts);
+                                Box::new(Node { node: e })
+                            });
+                            cw.result = cw.result.map(|boxed| {
+                                let r = boxed.node.map(strip_redundant_string_casts);
+                                Box::new(Node { node: r })
+                            });
+                            NodeEnum::CaseWhen(Box::new(CaseWhen {
+                                xpr: cw.xpr,
+                                expr: cw.expr,
+                                result: cw.result,
+                                location: cw.location,
+                            }))
+                        } else {
+                            strip_redundant_string_casts(inner)
+                        }
+                    });
+                    Node { node }
+                })
+                .collect();
+            ce.defresult = ce.defresult.map(|boxed| {
+                let inner = boxed.node.map(strip_redundant_string_casts);
+                Box::new(Node { node: inner })
+            });
+            NodeEnum::CaseExpr(ce)
+        }
+
+        NodeEnum::CoalesceExpr(mut ce) => {
+            ce.args = ce
+                .args
+                .into_iter()
+                .map(|n| Node {
+                    node: n.node.map(strip_redundant_string_casts),
+                })
+                .collect();
+            NodeEnum::CoalesceExpr(ce)
+        }
+
+        NodeEnum::MinMaxExpr(mut mm) => {
+            mm.args = mm
+                .args
+                .into_iter()
+                .map(|n| Node {
+                    node: n.node.map(strip_redundant_string_casts),
+                })
+                .collect();
+            NodeEnum::MinMaxExpr(mm)
+        }
+
+        NodeEnum::List(mut list) => {
+            list.items = list
+                .items
+                .into_iter()
+                .map(|n| Node {
+                    node: n.node.map(strip_redundant_string_casts),
+                })
+                .collect();
+            NodeEnum::List(list)
+        }
+
+        NodeEnum::RowExpr(mut re) => {
+            re.args = re
+                .args
+                .into_iter()
+                .map(|n| Node {
+                    node: n.node.map(strip_redundant_string_casts),
+                })
+                .collect();
+            NodeEnum::RowExpr(re)
+        }
+
+        NodeEnum::AArrayExpr(mut ae) => {
+            ae.elements = ae
+                .elements
+                .into_iter()
+                .map(|n| Node {
+                    node: n.node.map(strip_redundant_string_casts),
+                })
+                .collect();
+            NodeEnum::AArrayExpr(ae)
+        }
+
+        // All other node kinds are returned unchanged — no string casts inside.
+        other => other,
+    }
 }
 
 /// Walk a `TypeName`'s `names` list and join the string fragments with dots.
@@ -310,5 +536,89 @@ mod tests {
         let na = from_pg_node(&a, Some(&ColumnType::Integer), &loc()).unwrap();
         let nb = NormalizedExpr::from_text("42");
         assert_eq!(na.ast_hash, nb.ast_hash);
+    }
+
+    // ── issue-47: redundant string-literal →text casts ─────────────────────
+
+    /// `email <> ''::text` (nested cast on <> operand) must normalise to the
+    /// same text as `email <> ''`.  This is the primary PG 14–17 regression.
+    #[test]
+    fn nested_string_text_cast_stripped() {
+        let with_cast = parse_expr("email <> ''::text");
+        let without_cast = parse_expr("email <> ''");
+        let n_cast = from_pg_node(&with_cast, None, &loc()).expect("normalizes with cast");
+        let n_plain = from_pg_node(&without_cast, None, &loc()).expect("normalizes plain");
+        assert_eq!(
+            n_cast.canonical_text, n_plain.canonical_text,
+            "canonical texts differ: with_cast={:?}  plain={:?}",
+            n_cast.canonical_text, n_plain.canonical_text,
+        );
+    }
+
+    /// AND of two string-literal `::text` casts: both must be stripped.
+    #[test]
+    fn and_of_two_string_casts_stripped() {
+        let with_cast = parse_expr("a <> ''::text and b <> 'x'::text");
+        let without_cast = parse_expr("a <> '' and b <> 'x'");
+        let n_cast = from_pg_node(&with_cast, None, &loc()).expect("normalizes with cast");
+        let n_plain = from_pg_node(&without_cast, None, &loc()).expect("normalizes plain");
+        assert_eq!(
+            n_cast.canonical_text, n_plain.canonical_text,
+            "canonical texts differ: with_cast={:?}  plain={:?}",
+            n_cast.canonical_text, n_plain.canonical_text,
+        );
+    }
+
+    /// String cast inside a function argument must be stripped.
+    #[test]
+    fn func_arg_string_cast_stripped() {
+        let with_cast = parse_expr("lower(name) <> 'x'::text");
+        let without_cast = parse_expr("lower(name) <> 'x'");
+        let n_cast = from_pg_node(&with_cast, None, &loc()).expect("normalizes with cast");
+        let n_plain = from_pg_node(&without_cast, None, &loc()).expect("normalizes plain");
+        assert_eq!(
+            n_cast.canonical_text, n_plain.canonical_text,
+            "canonical texts differ: with_cast={:?}  plain={:?}",
+            n_cast.canonical_text, n_plain.canonical_text,
+        );
+    }
+
+    /// `'5'::int` is a meaningful coercion — must NOT be stripped.
+    #[test]
+    fn cast_string_to_int_kept() {
+        let node = parse_expr("'5'::int");
+        let n = from_pg_node(&node, None, &loc()).expect("normalizes");
+        // Must still reference the integer type somehow (pg_query emits `::integer`).
+        assert!(
+            n.canonical_text.contains("integer") || n.canonical_text.contains("::"),
+            "cast was unexpectedly stripped, got: {}",
+            n.canonical_text,
+        );
+    }
+
+    /// `'2024-01-01'::date` is meaningful — must NOT be stripped.
+    #[test]
+    fn cast_string_to_date_kept() {
+        let node = parse_expr("'2024-01-01'::date");
+        let n = from_pg_node(&node, None, &loc()).expect("normalizes");
+        assert!(
+            n.canonical_text.contains("date") || n.canonical_text.contains("::"),
+            "cast was unexpectedly stripped, got: {}",
+            n.canonical_text,
+        );
+    }
+
+    /// `'x'::varchar(5)` has a typmod — must NOT be stripped.
+    #[test]
+    fn cast_string_to_varchar_with_typmod_kept() {
+        let node = parse_expr("'x'::varchar(5)");
+        let n = from_pg_node(&node, None, &loc()).expect("normalizes");
+        assert!(
+            n.canonical_text.contains("character varying")
+                || n.canonical_text.contains("varchar")
+                || n.canonical_text.contains("::"),
+            "cast was unexpectedly stripped, got: {}",
+            n.canonical_text,
+        );
     }
 }
