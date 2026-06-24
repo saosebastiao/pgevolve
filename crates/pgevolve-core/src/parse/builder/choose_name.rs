@@ -20,8 +20,9 @@ pub enum IndexNameKind {
     Plain,
     /// Exclusion constraint: suffix `excl`.
     Exclude,
-    /// Extended statistics object: suffix `stat`.
-    // TODO(#43 Task 11): verify extended-statistics naming vs live PG
+    /// Extended statistics object: suffix `stat`. Verified to match PG's
+    /// `ChooseExtendedStatisticName` across PG 14–18 by the live round-trip
+    /// test `tests/table_like_round_trip.rs::like_statistics_name_matches_live_pg`.
     Stat,
 }
 

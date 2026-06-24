@@ -499,7 +499,8 @@ fn copy_statistics(
     let clone_qname = QualifiedName::new(target_schema.clone(), target_name.clone());
     let mut out = Vec::new();
     for stat in catalog_statistics.iter().filter(|s| &s.target == source) {
-        // TODO(#43 Task 11): verify extended-statistics naming vs live PG
+        // Stat naming matches PG's ChooseExtendedStatisticName across PG 14–18,
+        // verified by tests/table_like_round_trip.rs::like_statistics_name_matches_live_pg.
         let col_opts: Vec<Option<&str>> = stat
             .columns
             .iter()
