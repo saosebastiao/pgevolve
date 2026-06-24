@@ -6,7 +6,7 @@ CREATE TABLE app.base (
     data  text,
     CONSTRAINT base_pkey      PRIMARY KEY (id),
     CONSTRAINT base_email_key UNIQUE (email),
-    CONSTRAINT base_email_chk CHECK (email <> '')
+    CONSTRAINT base_id_chk    CHECK (id > 0)
 );
 CREATE INDEX ON app.base (data);
 CREATE TABLE app.clone (LIKE app.base INCLUDING ALL);
