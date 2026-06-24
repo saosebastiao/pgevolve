@@ -5,6 +5,14 @@ All notable changes to pgevolve are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] — 2026-06-23
+
+### Fixed
+
+- **String-literal CHECK constraints diffed spuriously on PG 14–17 (#47).** A `CHECK` whose expression contained a string literal — e.g. `CHECK (email <> '')` — produced a perpetual spurious diff against a live database, because `pg_get_constraintdef` deparses the literal with an explicit `::text` cast (`email <> ''::text`) on PG 14–17 (PG 18 dropped it) while the source parse keeps `email <> ''`. The expression canonicalizer (`normalize_expr`) now recursively strips the always-redundant string-literal→text cast (`'x'::text`) throughout an expression tree, so both paths converge. The rule is precise — a string-literal `A_Const` cast to a bare text-family type with no typmod — so meaningful coercions like `'5'::int`, `'2024-01-01'::date`, and `'x'::varchar(5)` are preserved. Verified by a live-PG apply round-trip across PG 14–18.
+- **Unnamed CHECK constraint naming (#48).** An inline unnamed `CHECK` was named `{table}_check`, but Postgres names a single-column check `{table}_{col}_check`, forcing a spurious diff against the live catalog. Unnamed checks are now named the Postgres-faithful way via the `ChooseIndexName` port: a column-level check → `{table}_{col}_check`, a table-level check → `{table}_check`. This also corrects the v0.4.5 `LIKE INCLUDING CONSTRAINTS` behavior: Postgres copies CHECK constraint names **verbatim** on `LIKE` (it does not re-derive), so the LIKE path now copies the source name verbatim rather than re-deriving (reverting the #45 heuristic). Verified against live PG 14–18 with unnamed-CHECK round-trip tests.
+- **Over-long generated index/constraint names truncated incorrectly (#49).** `choose_name` truncated only the table-name component when a generated name exceeded `NAMEDATALEN` (63 bytes); Postgres's `makeObjectName` shrinks the table-name and column-addition components alternately. For an index/constraint driven by long column names this produced a wrong (possibly over-length) name. The port now mirrors Postgres's alternating-shrink algorithm. The common case (long table, short columns) is unchanged; verified by a long-column live-PG round-trip across PG 14–18.
+
 ## [0.4.5] — 2026-06-23
 
 ### Added

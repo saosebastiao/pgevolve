@@ -25,7 +25,7 @@ name = "pgevolve"
 path = "src/main.rs"
 
 [dependencies]
-pgevolve-core = { version = "0.4.5", path = "../pgevolve-core", features = ["tokio-postgres-querier"] }
+pgevolve-core = { version = "0.4.6", path = "../pgevolve-core", features = ["tokio-postgres-querier"] }
 
 clap                = { workspace = true }
 anyhow              = { workspace = true }
