@@ -86,7 +86,7 @@ fn build_event_trigger_function(qname: QualifiedName) -> Function {
     let loc = SourceLocation::new(PathBuf::from("<generated>"), 1, 1);
     // `BEGIN\nEND` yields an empty dep list; mirror the reader exactly.
     let (body, body_dependencies, _commits) =
-        parse_routine_body("BEGIN\nEND", FunctionLanguage::PlPgSql, &qname, &loc)
+        parse_routine_body("BEGIN\nEND", FunctionLanguage::PlPgSql, false, &qname, &loc)
             .expect("BEGIN\\nEND is a valid PL/pgSQL body");
     Function {
         qname,

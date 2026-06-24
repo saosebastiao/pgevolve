@@ -83,10 +83,14 @@ pub(super) fn build_functions_and_procedures(
         let body_text = extract_body_from_functiondef(&full_def, &qname)?;
 
         // Re-parse the body through the same pipeline as the source side.
+        // is_set_returning must match what the source side would compute so
+        // that RETURN QUERY / RETURN NEXT bodies parse correctly here too.
+        let is_set_returning = result_is_set_returning(&return_type_str);
         let (body, body_dependencies, commits_in_body) =
             crate::parse::builder::plpgsql::parse_routine_body(
                 &body_text,
                 language,
+                is_set_returning,
                 &qname,
                 &catalog_location,
             )
@@ -183,6 +187,18 @@ pub(super) fn build_functions_and_procedures(
     }
 
     Ok((functions, procedures))
+}
+
+/// Return `true` when the `pg_get_function_result` string describes a
+/// set-returning function (`SETOF …` or `TABLE(…)`).
+///
+/// Used to choose the correct wrapper `RETURNS` clause when re-parsing
+/// PL/pgSQL bodies from the catalog, so that `RETURN QUERY`/`RETURN NEXT`
+/// bodies are accepted rather than rejected with "cannot use RETURN QUERY in a
+/// non-SETOF function".
+fn result_is_set_returning(s: &str) -> bool {
+    let lower = s.trim().to_ascii_lowercase();
+    lower.starts_with("setof ") || lower.starts_with("table(")
 }
 
 /// Parse a `pg_get_function_arguments` string (e.g. `"x integer, y text DEFAULT 'a'"`)

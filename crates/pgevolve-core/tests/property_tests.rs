@@ -498,12 +498,12 @@ proptest! {
         let loc = SourceLocation::new(std::path::PathBuf::from("test.sql"), 1, 1);
         let body = PLPGSQL_BODIES[body_idx];
 
-        let r1 = parse_routine_body(body, FunctionLanguage::PlPgSql, &qname, &loc);
+        let r1 = parse_routine_body(body, FunctionLanguage::PlPgSql, false, &qname, &loc);
         prop_assume!(r1.is_ok());
         let (body1, _deps1, _commits1) = r1.unwrap();
 
         // Re-canonicalize: feed canonical_text back through parse_routine_body.
-        let r2 = parse_routine_body(body1.canonical_text(), FunctionLanguage::PlPgSql, &qname, &loc);
+        let r2 = parse_routine_body(body1.canonical_text(), FunctionLanguage::PlPgSql, false, &qname, &loc);
         prop_assume!(r2.is_ok());
         let (body2, _, _) = r2.unwrap();
 

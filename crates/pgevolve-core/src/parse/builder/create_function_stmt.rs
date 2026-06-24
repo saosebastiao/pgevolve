@@ -319,11 +319,19 @@ pub(crate) fn build_function_or_procedure(
     // ── Body parsing ─────────────────────────────────────────────────────────
     // Delegate to the T4 PL/pgSQL body parser which handles both SQL and
     // PL/pgSQL languages, extracts dep edges, and detects COMMIT/ROLLBACK.
+    //
+    // is_set_returning: RETURNS TABLE(…) fills table_columns; RETURNS SETOF …
+    // sets stmt.return_type.setof.  Either form requires a RETURNS SETOF
+    // record wrapper so that RETURN QUERY / RETURN NEXT are accepted by the
+    // pg_query plpgsql analyzer.  For procedures this is naturally false (no
+    // table columns, no return type).
+    let is_set_returning =
+        !table_columns.is_empty() || stmt.return_type.as_ref().is_some_and(|tn| tn.setof);
     let raw_body = body_text.as_deref().unwrap_or("").trim().to_string();
     let (body, body_deps, commits_in_body) = if raw_body.is_empty() {
         (NormalizedBody::empty(), vec![], false)
     } else {
-        plpgsql::parse_routine_body(&raw_body, lang, &qname, location)?
+        plpgsql::parse_routine_body(&raw_body, lang, is_set_returning, &qname, location)?
     };
 
     if is_procedure {
@@ -643,5 +651,43 @@ mod tests {
              AS $$ SELECT NULL $$;",
         );
         assert!(matches!(f.security, SecurityMode::Definer));
+    }
+
+    #[test]
+    fn returns_table_with_return_query_parses_ok() {
+        // Before the fix this error'd with "cannot use RETURN QUERY in a
+        // non-SETOF function" because the PL/pgSQL wrapper used RETURNS void.
+        let f = build_fn(
+            "CREATE FUNCTION app.get_rows() RETURNS TABLE(a integer, b text) \
+             LANGUAGE plpgsql STABLE \
+             AS $$ BEGIN RETURN QUERY SELECT 1, 'hi'; END $$;",
+        );
+        assert!(
+            matches!(f.return_type, ReturnType::Table { .. }),
+            "expected Table return type"
+        );
+        assert!(
+            !f.body.canonical_text().is_empty(),
+            "body should be non-empty"
+        );
+    }
+
+    #[test]
+    fn returns_setof_with_return_query_parses_ok() {
+        // Before the fix this also error'd with "cannot use RETURN QUERY in a
+        // non-SETOF function".
+        let f = build_fn(
+            "CREATE FUNCTION app.get_ints() RETURNS SETOF integer \
+             LANGUAGE plpgsql STABLE \
+             AS $$ BEGIN RETURN QUERY SELECT 1; END $$;",
+        );
+        assert!(
+            matches!(f.return_type, ReturnType::SetOf { .. }),
+            "expected SetOf return type"
+        );
+        assert!(
+            !f.body.canonical_text().is_empty(),
+            "body should be non-empty"
+        );
     }
 }

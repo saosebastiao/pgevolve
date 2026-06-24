@@ -16,9 +16,18 @@ use crate::plan::edges::{DepEdge, DepSource, NodeId};
 ///
 /// `commits_in_body` is only meaningful for procedures; it is always `false`
 /// for SQL-language bodies (SQL functions cannot issue COMMIT/ROLLBACK).
+///
+/// `is_set_returning` controls which wrapper `RETURNS` clause the PL/pgSQL
+/// parser uses: `RETURNS SETOF record` for set-returning functions (those
+/// declared with `RETURNS SETOF …` or `RETURNS TABLE(…)`), `RETURNS void`
+/// otherwise. The `pg_query` plpgsql analyzer validates `RETURN QUERY`/`RETURN
+/// NEXT` against the declared set-returning-ness of the wrapper function, so
+/// using the wrong clause causes it to reject legal bodies with "cannot use
+/// RETURN QUERY in a non-SETOF function".  The SQL-body path ignores the flag.
 pub fn parse_routine_body(
     body_text: &str,
     language: FunctionLanguage,
+    is_set_returning: bool,
     routine_qname: &QualifiedName,
     location: &SourceLocation,
 ) -> Result<(NormalizedBody, Vec<DepEdge>, bool), ParseError> {
@@ -27,7 +36,9 @@ pub fn parse_routine_body(
             let (body, deps) = parse_sql_body(body_text, routine_qname, location)?;
             Ok((body, deps, false))
         }
-        FunctionLanguage::PlPgSql => parse_plpgsql_body(body_text, routine_qname, location),
+        FunctionLanguage::PlPgSql => {
+            parse_plpgsql_body(body_text, is_set_returning, routine_qname, location)
+        }
     }
 }
 
@@ -37,14 +48,27 @@ pub fn parse_routine_body(
 
 fn parse_plpgsql_body(
     body_text: &str,
+    is_set_returning: bool,
     routine_qname: &QualifiedName,
     location: &SourceLocation,
 ) -> Result<(NormalizedBody, Vec<DepEdge>, bool), ParseError> {
     // Wrap the body in a synthetic CREATE FUNCTION so pg_query::parse_plpgsql
-    // can parse it. Use a dollar-quote tag unlikely to collide with body
+    // can parse it.  Use a dollar-quote tag unlikely to collide with body
     // content.
+    //
+    // The RETURNS clause matters: the pg_query plpgsql analyzer validates
+    // RETURN QUERY / RETURN NEXT against the declared set-returning-ness of
+    // the wrapper function.  Using `RETURNS void` for a SETOF/TABLE body
+    // causes the analyzer to reject the body with "cannot use RETURN QUERY in
+    // a non-SETOF function".  We therefore use `RETURNS SETOF record` when the
+    // original function is set-returning.
+    let returns_clause = if is_set_returning {
+        "RETURNS SETOF record"
+    } else {
+        "RETURNS void"
+    };
     let wrapper = format!(
-        "CREATE FUNCTION pgevolve_temp() RETURNS void LANGUAGE plpgsql \
+        "CREATE FUNCTION pgevolve_temp() {returns_clause} LANGUAGE plpgsql \
          AS $pgevolve_outer${body_text}$pgevolve_outer$;"
     );
     let json = pg_query::parse_plpgsql(&wrapper).map_err(|e| ParseError::Structural {
@@ -504,16 +528,28 @@ mod tests {
     #[test]
     fn detects_commit_in_plpgsql_body() {
         let body = "BEGIN INSERT INTO app.log VALUES (1); COMMIT; END";
-        let (_body, _deps, commits) =
-            parse_routine_body(body, FunctionLanguage::PlPgSql, &qn("app", "p"), &loc()).unwrap();
+        let (_body, _deps, commits) = parse_routine_body(
+            body,
+            FunctionLanguage::PlPgSql,
+            false,
+            &qn("app", "p"),
+            &loc(),
+        )
+        .unwrap();
         assert!(commits, "COMMIT must set commits_in_body");
     }
 
     #[test]
     fn no_commit_in_plain_plpgsql_body() {
         let body = "BEGIN INSERT INTO app.log VALUES (1); END";
-        let (_body, _deps, commits) =
-            parse_routine_body(body, FunctionLanguage::PlPgSql, &qn("app", "p"), &loc()).unwrap();
+        let (_body, _deps, commits) = parse_routine_body(
+            body,
+            FunctionLanguage::PlPgSql,
+            false,
+            &qn("app", "p"),
+            &loc(),
+        )
+        .unwrap();
         assert!(
             !commits,
             "no COMMIT/ROLLBACK → commits_in_body must be false"
@@ -523,8 +559,14 @@ mod tests {
     #[test]
     fn detects_rollback_in_plpgsql_body() {
         let body = "BEGIN IF false THEN ROLLBACK; END IF; END";
-        let (_body, _deps, commits) =
-            parse_routine_body(body, FunctionLanguage::PlPgSql, &qn("app", "p"), &loc()).unwrap();
+        let (_body, _deps, commits) = parse_routine_body(
+            body,
+            FunctionLanguage::PlPgSql,
+            false,
+            &qn("app", "p"),
+            &loc(),
+        )
+        .unwrap();
         assert!(commits, "ROLLBACK must also set commits_in_body");
     }
 
@@ -532,7 +574,8 @@ mod tests {
     fn sql_body_no_commit_flag() {
         let body = "SELECT 1";
         let (_body, _deps, commits) =
-            parse_routine_body(body, FunctionLanguage::Sql, &qn("app", "f"), &loc()).unwrap();
+            parse_routine_body(body, FunctionLanguage::Sql, false, &qn("app", "f"), &loc())
+                .unwrap();
         assert!(!commits, "SQL bodies cannot set commits_in_body");
     }
 
@@ -540,8 +583,14 @@ mod tests {
     fn plpgsql_body_extracts_relation_dep() {
         // The INSERT references app.log — should produce an AstExtracted edge.
         let body = "BEGIN INSERT INTO app.log(msg) VALUES ('x'); END";
-        let (_body, deps, _commits) =
-            parse_routine_body(body, FunctionLanguage::PlPgSql, &qn("app", "p"), &loc()).unwrap();
+        let (_body, deps, _commits) = parse_routine_body(
+            body,
+            FunctionLanguage::PlPgSql,
+            false,
+            &qn("app", "p"),
+            &loc(),
+        )
+        .unwrap();
         let has_edge = deps.iter().any(|e| {
             e.to == NodeId::Table(qn("app", "log")) && e.source == DepSource::AstExtracted
         });
@@ -555,7 +604,8 @@ mod tests {
     fn sql_body_extracts_relation_dep() {
         let body = "SELECT * FROM app.users WHERE id = $1";
         let (_body, deps, _commits) =
-            parse_routine_body(body, FunctionLanguage::Sql, &qn("app", "f"), &loc()).unwrap();
+            parse_routine_body(body, FunctionLanguage::Sql, false, &qn("app", "f"), &loc())
+                .unwrap();
         let has_edge = deps.iter().any(|e| {
             e.to == NodeId::Table(qn("app", "users")) && e.source == DepSource::AstExtracted
         });
@@ -569,8 +619,14 @@ mod tests {
     fn directive_adds_declared_dep_edge() {
         let body = "-- @pgevolve dep: app.summary\n\
                     BEGIN EXECUTE 'REFRESH MATERIALIZED VIEW app.summary'; END";
-        let (_body, deps, _commits) =
-            parse_routine_body(body, FunctionLanguage::PlPgSql, &qn("app", "f"), &loc()).unwrap();
+        let (_body, deps, _commits) = parse_routine_body(
+            body,
+            FunctionLanguage::PlPgSql,
+            false,
+            &qn("app", "f"),
+            &loc(),
+        )
+        .unwrap();
         let has_declared = deps.iter().any(|e| {
             e.to == NodeId::Table(qn("app", "summary")) && e.source == DepSource::AstDeclared
         });
@@ -583,8 +639,14 @@ mod tests {
     #[test]
     fn unqualified_directive_rejected() {
         let body = "-- @pgevolve dep: nonsense\nBEGIN NULL; END";
-        let err = parse_routine_body(body, FunctionLanguage::PlPgSql, &qn("app", "f"), &loc())
-            .unwrap_err();
+        let err = parse_routine_body(
+            body,
+            FunctionLanguage::PlPgSql,
+            false,
+            &qn("app", "f"),
+            &loc(),
+        )
+        .unwrap_err();
         let msg = match &err {
             ParseError::Structural { message, .. } => message.clone(),
             other => panic!("expected Structural, got {other:?}"),
@@ -595,8 +657,62 @@ mod tests {
     #[test]
     fn canonical_text_collapses_whitespace() {
         let body = "BEGIN\n  NULL;\nEND";
-        let (body_val, _deps, _commits) =
-            parse_routine_body(body, FunctionLanguage::PlPgSql, &qn("app", "f"), &loc()).unwrap();
+        let (body_val, _deps, _commits) = parse_routine_body(
+            body,
+            FunctionLanguage::PlPgSql,
+            false,
+            &qn("app", "f"),
+            &loc(),
+        )
+        .unwrap();
         assert_eq!(body_val.canonical_text(), "BEGIN NULL; END");
+    }
+
+    #[test]
+    fn return_query_accepted_when_set_returning() {
+        let body = "BEGIN RETURN QUERY SELECT 1; END";
+        let result = parse_routine_body(
+            body,
+            FunctionLanguage::PlPgSql,
+            true,
+            &qn("app", "f"),
+            &loc(),
+        );
+        assert!(
+            result.is_ok(),
+            "RETURN QUERY must be accepted in a set-returning function; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn return_query_rejected_when_not_set_returning() {
+        let body = "BEGIN RETURN QUERY SELECT 1; END";
+        let result = parse_routine_body(
+            body,
+            FunctionLanguage::PlPgSql,
+            false,
+            &qn("app", "f"),
+            &loc(),
+        );
+        assert!(
+            result.is_err(),
+            "RETURN QUERY must be rejected in a non-SETOF function (mirrors Postgres)"
+        );
+    }
+
+    #[test]
+    fn return_next_accepted_when_set_returning() {
+        let body = "BEGIN RETURN NEXT 5; END";
+        let result = parse_routine_body(
+            body,
+            FunctionLanguage::PlPgSql,
+            true,
+            &qn("app", "f"),
+            &loc(),
+        );
+        assert!(
+            result.is_ok(),
+            "RETURN NEXT must be accepted in a set-returning function; got {result:?}"
+        );
     }
 }
