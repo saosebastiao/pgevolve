@@ -92,6 +92,19 @@ fn index_names(catalog: &Catalog, table_name: &str) -> Vec<String> {
     names
 }
 
+/// Sorted list of extended-statistics object names (from `catalog.statistics`)
+/// whose target table `name` component equals `table_name`.
+fn statistic_names(catalog: &Catalog, table_name: &str) -> Vec<String> {
+    let mut names: Vec<String> = catalog
+        .statistics
+        .iter()
+        .filter(|s| s.target.name.as_str() == table_name)
+        .map(|s| s.qname.name.as_str().to_owned())
+        .collect();
+    names.sort();
+    names
+}
+
 // ---------------------------------------------------------------------------
 // Test 1 — basic LIKE INCLUDING ALL: constraint + index names
 // ---------------------------------------------------------------------------
@@ -242,5 +255,65 @@ async fn like_index_name_truncation_matches_live_pg() {
 
     eprintln!(
         "like_index_name_truncation_matches_live_pg [{version:?}] passed — indexes: {live_indexes:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 3 — LIKE INCLUDING ALL: extended-statistics object name
+// ---------------------------------------------------------------------------
+//
+// SQL applied:
+//
+//   CREATE SCHEMA app;
+//   CREATE TABLE app.base (a int, b int);
+//   CREATE STATISTICS app.base_stat (ndistinct) ON a, b FROM app.base;
+//   CREATE TABLE app.clone (LIKE app.base INCLUDING ALL);
+//
+// `INCLUDING ALL` copies the extended statistics object onto the clone with a
+// freshly-generated name. This verifies that pgevolve's `choose_name`
+// `IndexNameKind::Stat` naming (`{table}_{cols}_stat`) matches Postgres's
+// `ChooseExtendedStatisticName` for a LIKE-copied stat. If CI surfaces a
+// mismatch, that indicates a real `choose_name` Stat-naming bug to fix.
+
+const LIKE_STATISTICS_SQL: &str = r"
+CREATE SCHEMA app;
+CREATE TABLE app.base (a int, b int);
+CREATE STATISTICS app.base_stat (ndistinct) ON a, b FROM app.base;
+CREATE TABLE app.clone (LIKE app.base INCLUDING ALL);
+";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn like_statistics_name_matches_live_pg() {
+    if !docker_available() {
+        eprintln!("skipping like_statistics_name_matches_live_pg: Docker not available");
+        return;
+    }
+
+    let version = default_pg_version();
+
+    let live = live_catalog_for(LIKE_STATISTICS_SQL, version)
+        .await
+        .expect("live catalog");
+
+    let parsed = parsed_catalog_for(LIKE_STATISTICS_SQL).expect("parsed catalog");
+
+    let live_stats = statistic_names(&live, "clone");
+    let parsed_stats = statistic_names(&parsed, "clone");
+
+    // Exactly one stat is expected on the clone; asserting this first means a
+    // "both empty" pair can't trivially satisfy the equality check below.
+    assert_eq!(
+        live_stats.len(),
+        1,
+        "live Postgres must report exactly one extended-statistics object on app.clone, got {live_stats:?}",
+    );
+
+    assert_eq!(
+        live_stats, parsed_stats,
+        "extended-statistics name sets for app.clone must match live Postgres\n  live:   {live_stats:?}\n  parsed: {parsed_stats:?}",
+    );
+
+    eprintln!(
+        "like_statistics_name_matches_live_pg [{version:?}] passed — statistics: {live_stats:?}"
     );
 }
