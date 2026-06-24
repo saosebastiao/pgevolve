@@ -243,42 +243,17 @@ fn snapshot_like(
     // PK/UNIQUE belong to INCLUDING INDEXES (handled below); FOREIGN KEY is
     // never copied by LIKE regardless of options.
     if like.options.constraints() {
-        // pgevolve auto-names an unnamed CHECK as `{table}_check` (see
-        // `constraint_qname` in `create_stmt.rs`).  When copying a CHECK
-        // from a LIKE source we must distinguish:
-        //   - auto-named  → name equals the source sentinel `{source}_check`
-        //                  → re-derive for the clone: `{target}_check`
-        //   - explicitly-named → anything else → preserve the source name
-        // This ensures that `LIKE pub.base INCLUDING CONSTRAINTS` produces a
-        // clone whose unnamed check is named `{clone}_check`, matching an
-        // equivalent hand-written clone (fixes #45).
-        //
-        // NOTE: full Postgres column-check naming fidelity (`{table}_{col}_check`)
-        // is a separate broader concern (see #44/#46) because pgevolve's inline
-        // path also uses the simpler `{table}_check` form.
-        let source_auto_name = format!("{}_check", like.source.name.as_str());
+        // Postgres copies CHECK constraint names verbatim on LIKE INCLUDING CONSTRAINTS;
+        // it does NOT re-derive the name for the clone table. Since we now correctly
+        // name inline column checks as {table}_{col}_check, verbatim copy converges
+        // with what a manually-written equivalent table would produce (fixes #48,
+        // reverts #45's re-derivation heuristic which was incorrect).
         for c in &src.constraints {
             if matches!(c.kind, ConstraintKind::Check { .. }) {
-                let local_name = if c.qname.name.as_str() == source_auto_name {
-                    // Auto-generated name: re-derive for the clone table.
-                    Identifier::from_unquoted(&format!("{}_check", target_name.as_str())).map_err(
-                        |e| ParseError::Structural {
-                            location: like.location.clone(),
-                            message: format!(
-                                "re-derived CHECK constraint name is not a valid identifier: {e}"
-                            ),
-                        },
-                    )?
-                } else {
-                    // Explicitly-named constraint: preserve the source name.
-                    c.qname.name.clone()
-                };
                 constraints.push(Constraint {
-                    qname: QualifiedName::new(target_schema.clone(), local_name),
+                    qname: QualifiedName::new(target_schema.clone(), c.qname.name.clone()),
                     kind: c.kind.clone(),
                     deferrable: c.deferrable,
-                    // comments under INCLUDING COMMENTS are handled separately;
-                    // INCLUDING CONSTRAINTS does not copy comments.
                     comment: None,
                 });
             }
@@ -1281,20 +1256,20 @@ mod tests {
         );
     }
 
-    /// An UNNAMED source CHECK (`CHECK (n > 0)`) is auto-named `base_check` by
-    /// pgevolve.  When copied via `LIKE … INCLUDING CONSTRAINTS` the clone must
-    /// receive a re-derived name (`clone_check`), NOT the source name (`base_check`).
-    /// This matches what an equivalent hand-written clone would produce and
-    /// prevents a spurious diff (fixes #45).
+    /// An UNNAMED inline column CHECK (`n int CHECK (n > 0)`) on `base` is now
+    /// correctly named `base_n_check` by pgevolve (Postgres-faithful column-level
+    /// naming).  When copied via `LIKE … INCLUDING CONSTRAINTS` the clone receives
+    /// the name verbatim (`base_n_check`), because Postgres copies CHECK names
+    /// verbatim on LIKE (fixes #48, reverts #45's re-derivation).
     #[test]
-    fn like_constraints_rederives_unnamed_check_name() {
+    fn like_constraints_copies_check_name_verbatim() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("pub")).unwrap();
         std::fs::write(dir.path().join("pub/_schema.sql"), "CREATE SCHEMA pub;\n").unwrap();
-        // Unnamed CHECK → pgevolve auto-names it `base_check`.
+        // Inline column CHECK → pgevolve now names it `base_n_check` (column-level form).
         std::fs::write(
             dir.path().join("pub/t.sql"),
-            "CREATE TABLE pub.base (n int, CHECK (n > 0));\n\
+            "CREATE TABLE pub.base (n int CHECK (n > 0));\n\
              CREATE TABLE pub.clone (LIKE pub.base INCLUDING CONSTRAINTS);\n",
         )
         .unwrap();
@@ -1311,8 +1286,8 @@ mod tests {
             .expect("clone must have a copied CHECK constraint");
         assert_eq!(
             check.qname.name.as_str(),
-            "clone_check",
-            "unnamed source CHECK must be re-derived to clone_check, got {:?}",
+            "base_n_check",
+            "unnamed source CHECK name must be copied verbatim (base_n_check), got {:?}",
             check.qname.name.as_str(),
         );
         assert_eq!(

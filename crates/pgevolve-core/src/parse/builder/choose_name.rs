@@ -24,6 +24,8 @@ pub enum IndexNameKind {
     /// `ChooseExtendedStatisticName` across PG 14–18 by the live round-trip
     /// test `tests/table_like_round_trip.rs::like_statistics_name_matches_live_pg`.
     Stat,
+    /// CHECK constraint: suffix `check`.
+    Check,
 }
 
 impl IndexNameKind {
@@ -34,6 +36,7 @@ impl IndexNameKind {
             Self::Plain => "idx",
             Self::Exclude => "excl",
             Self::Stat => "stat",
+            Self::Check => "check",
         }
     }
 }

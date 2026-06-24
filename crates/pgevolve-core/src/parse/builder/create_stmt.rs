@@ -340,8 +340,8 @@ fn build_column(
                 produced_constraints.push(fk_con);
             }
             ConstrType::ConstrCheck => {
-                let chk_con = make_check_constraint(table_qname, con, location)?;
-                taken.insert(chk_con.qname.name.as_str());
+                let chk_con =
+                    make_check_constraint(table_qname, con, Some(name.as_str()), taken, location)?;
                 produced_constraints.push(chk_con);
             }
             _ => {}
@@ -394,11 +394,7 @@ fn build_table_constraint(
             taken.insert(c.qname.name.as_str());
             c
         }
-        ConstrType::ConstrCheck => {
-            let c = make_check_constraint(table_qname, con, location)?;
-            taken.insert(c.qname.name.as_str());
-            c
-        }
+        ConstrType::ConstrCheck => make_check_constraint(table_qname, con, None, taken, location)?,
         _ => return Ok(None),
     };
     Ok(Some(built))
@@ -505,9 +501,34 @@ fn make_fk_constraint(
 fn make_check_constraint(
     table_qname: &QualifiedName,
     con: &PgConstraint,
+    col_name: Option<&str>,
+    taken: &mut choose_name::TakenNames,
     location: &SourceLocation,
 ) -> Result<Constraint, ParseError> {
-    let qname = constraint_qname(table_qname, &con.conname, "check", location)?;
+    let qname = if con.conname.is_empty() {
+        // Unnamed check: derive Postgres-faithful name.
+        // Column-level: {table}_{col}_check; Table-level: {table}_check.
+        let name = if let Some(col) = col_name {
+            choose_name::choose_index_name(
+                table_qname.name.as_str(),
+                &[Some(col)],
+                choose_name::IndexNameKind::Check,
+                taken,
+            )
+        } else {
+            choose_name::choose_index_name(
+                table_qname.name.as_str(),
+                &[],
+                choose_name::IndexNameKind::Check,
+                taken,
+            )
+        };
+        QualifiedName::new(table_qname.schema.clone(), shared::ident(&name, location)?)
+    } else {
+        // Explicit name: register as taken.
+        taken.insert(&con.conname);
+        constraint_qname(table_qname, &con.conname, "check", location)?
+    };
     let raw = con
         .raw_expr
         .as_ref()
@@ -969,6 +990,11 @@ mod tests {
             t.constraints[0].kind,
             ConstraintKind::Check { .. }
         ));
+        assert_eq!(
+            t.constraints[0].qname.name.as_str(),
+            "t_n_check",
+            "inline column CHECK must be named {{table}}_{{col}}_check"
+        );
     }
 
     #[test]

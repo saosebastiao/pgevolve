@@ -92,6 +92,29 @@ fn index_names(catalog: &Catalog, table_name: &str) -> Vec<String> {
     names
 }
 
+/// Sorted list of CHECK constraint names on the table whose `name` component equals `table_name`.
+fn check_constraint_names(catalog: &Catalog, table_name: &str) -> Vec<String> {
+    let mut names: Vec<String> = catalog
+        .tables
+        .iter()
+        .find(|t| t.qname.name.as_str() == table_name)
+        .map(|t| {
+            t.constraints
+                .iter()
+                .filter(|c| {
+                    matches!(
+                        c.kind,
+                        pgevolve_core::ir::constraint::ConstraintKind::Check { .. }
+                    )
+                })
+                .map(|c| c.qname.name.as_str().to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
 /// Sorted list of extended-statistics object names (from `catalog.statistics`)
 /// whose target table `name` component equals `table_name`.
 fn statistic_names(catalog: &Catalog, table_name: &str) -> Vec<String> {
@@ -395,5 +418,88 @@ async fn like_statistics_name_matches_live_pg() {
 
     eprintln!(
         "like_statistics_name_matches_live_pg [{version:?}] passed — statistics: {live_stats:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 5 — unnamed column CHECK: name fidelity vs live PG
+// ---------------------------------------------------------------------------
+
+const UNNAMED_COL_CHECK_SQL: &str = r"
+CREATE SCHEMA app;
+CREATE TABLE app.t (n int, CHECK (n > 0));
+";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unnamed_column_check_name_matches_live_pg() {
+    if !docker_available() {
+        eprintln!("skipping unnamed_column_check_name_matches_live_pg: Docker not available");
+        return;
+    }
+    let version = default_pg_version();
+    let live = live_catalog_for(UNNAMED_COL_CHECK_SQL, version)
+        .await
+        .expect("live catalog");
+    let parsed = parsed_catalog_for(UNNAMED_COL_CHECK_SQL).expect("parsed catalog");
+    let live_checks = check_constraint_names(&live, "t");
+    let parsed_checks = check_constraint_names(&parsed, "t");
+    assert!(
+        !live_checks.is_empty(),
+        "live PG must report at least one CHECK constraint on app.t"
+    );
+    assert_eq!(
+        live_checks, parsed_checks,
+        "CHECK constraint names for app.t must match live Postgres\n  live:   {live_checks:?}\n  parsed: {parsed_checks:?}",
+    );
+    eprintln!(
+        "unnamed_column_check_name_matches_live_pg [{version:?}] passed — checks: {live_checks:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 6 — LIKE INCLUDING CONSTRAINTS: verbatim CHECK name copy
+// ---------------------------------------------------------------------------
+
+const LIKE_UNNAMED_CHECK_SQL: &str = r"
+CREATE SCHEMA app;
+CREATE TABLE app.base (n int, CHECK (n > 0));
+CREATE TABLE app.clone (LIKE app.base INCLUDING CONSTRAINTS);
+";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn like_unnamed_check_name_matches_live_pg() {
+    if !docker_available() {
+        eprintln!("skipping like_unnamed_check_name_matches_live_pg: Docker not available");
+        return;
+    }
+    let version = default_pg_version();
+    let live = live_catalog_for(LIKE_UNNAMED_CHECK_SQL, version)
+        .await
+        .expect("live catalog");
+    let parsed = parsed_catalog_for(LIKE_UNNAMED_CHECK_SQL).expect("parsed catalog");
+    // Verify base table CHECK name matches live PG.
+    let live_base = check_constraint_names(&live, "base");
+    let parsed_base = check_constraint_names(&parsed, "base");
+    assert!(
+        !live_base.is_empty(),
+        "live PG must report CHECK on app.base"
+    );
+    assert_eq!(
+        live_base, parsed_base,
+        "CHECK names for app.base must match live\n  live: {live_base:?}\n  parsed: {parsed_base:?}"
+    );
+    // Verify clone table CHECK name (verbatim copy from base).
+    let live_clone = check_constraint_names(&live, "clone");
+    let parsed_clone = check_constraint_names(&parsed, "clone");
+    assert!(
+        !live_clone.is_empty(),
+        "live PG must report CHECK on app.clone"
+    );
+    assert_eq!(
+        live_clone, parsed_clone,
+        "CHECK names for app.clone must match live\n  live: {live_clone:?}\n  parsed: {parsed_clone:?}"
+    );
+    eprintln!(
+        "like_unnamed_check_name_matches_live_pg [{version:?}] passed — base: {live_base:?}, clone: {live_clone:?}"
     );
 }
