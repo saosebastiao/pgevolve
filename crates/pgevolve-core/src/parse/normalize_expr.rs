@@ -583,17 +583,13 @@ mod tests {
         );
     }
 
-    /// `'5'::int` is a meaningful coercion — must NOT be stripped.
+    /// `'5'::int` is a meaningful coercion — must NOT be stripped.  Pinned to
+    /// `pg_query`'s exact deparse so any over-stripping fails loudly.
     #[test]
     fn cast_string_to_int_kept() {
         let node = parse_expr("'5'::int");
         let n = from_pg_node(&node, None, &loc()).expect("normalizes");
-        // Must still reference the integer type somehow (pg_query emits `::integer`).
-        assert!(
-            n.canonical_text.contains("integer") || n.canonical_text.contains("::"),
-            "cast was unexpectedly stripped, got: {}",
-            n.canonical_text,
-        );
+        assert_eq!(n.canonical_text, "'5'::int");
     }
 
     /// `'2024-01-01'::date` is meaningful — must NOT be stripped.
@@ -601,11 +597,7 @@ mod tests {
     fn cast_string_to_date_kept() {
         let node = parse_expr("'2024-01-01'::date");
         let n = from_pg_node(&node, None, &loc()).expect("normalizes");
-        assert!(
-            n.canonical_text.contains("date") || n.canonical_text.contains("::"),
-            "cast was unexpectedly stripped, got: {}",
-            n.canonical_text,
-        );
+        assert_eq!(n.canonical_text, "'2024-01-01'::date");
     }
 
     /// `'x'::varchar(5)` has a typmod — must NOT be stripped.
@@ -613,12 +605,19 @@ mod tests {
     fn cast_string_to_varchar_with_typmod_kept() {
         let node = parse_expr("'x'::varchar(5)");
         let n = from_pg_node(&node, None, &loc()).expect("normalizes");
-        assert!(
-            n.canonical_text.contains("character varying")
-                || n.canonical_text.contains("varchar")
-                || n.canonical_text.contains("::"),
-            "cast was unexpectedly stripped, got: {}",
-            n.canonical_text,
-        );
+        assert_eq!(n.canonical_text, "'x'::varchar(5)");
+    }
+
+    /// Bare `'x'::character` — `pg_query` deparses this as `'x'::char(1)`, i.e. it
+    /// materialises an implicit typmod `(1)`.  That typmod trips the typmod gate
+    /// in `strip_redundant_string_casts`, so the cast is KEPT.  Pinning the exact
+    /// canonical text here means a future `pg_query` upgrade that changes this
+    /// implicit-typmod behaviour surfaces as a test failure rather than a silent
+    /// shift in normalisation.
+    #[test]
+    fn cast_string_to_bare_character_kept_or_documented() {
+        let node = parse_expr("'x'::character");
+        let n = from_pg_node(&node, None, &loc()).expect("normalizes");
+        assert_eq!(n.canonical_text, "'x'::char(1)");
     }
 }
