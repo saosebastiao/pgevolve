@@ -427,7 +427,7 @@ async fn like_statistics_name_matches_live_pg() {
 
 const UNNAMED_COL_CHECK_SQL: &str = r"
 CREATE SCHEMA app;
-CREATE TABLE app.t (n int, CHECK (n > 0));
+CREATE TABLE app.t (n int CHECK (n > 0));
 ";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -462,7 +462,7 @@ async fn unnamed_column_check_name_matches_live_pg() {
 
 const LIKE_UNNAMED_CHECK_SQL: &str = r"
 CREATE SCHEMA app;
-CREATE TABLE app.base (n int, CHECK (n > 0));
+CREATE TABLE app.base (n int CHECK (n > 0));
 CREATE TABLE app.clone (LIKE app.base INCLUDING CONSTRAINTS);
 ";
 
