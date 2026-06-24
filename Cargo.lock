@@ -1645,7 +1645,7 @@ dependencies = [
 
 [[package]]
 name = "pgevolve"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1671,7 +1671,7 @@ dependencies = [
 
 [[package]]
 name = "pgevolve-conformance"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "pgevolve",
@@ -1691,7 +1691,7 @@ dependencies = [
 
 [[package]]
 name = "pgevolve-core"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1716,7 +1716,7 @@ dependencies = [
 
 [[package]]
 name = "pgevolve-testkit"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "pgevolve-core",
@@ -3593,7 +3593,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "pgevolve-conformance",
