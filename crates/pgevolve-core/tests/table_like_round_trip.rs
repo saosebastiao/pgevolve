@@ -259,6 +259,86 @@ async fn like_index_name_truncation_matches_live_pg() {
 }
 
 // ---------------------------------------------------------------------------
+// Test 4 — LIKE INCLUDING INDEXES: long column name forces name2 truncation
+// ---------------------------------------------------------------------------
+//
+// This test exercises the `name2` truncation path added by #49, where the
+// column-name addition (not the table name) is the long component.  PG's
+// `makeObjectName` alternating-shrink algorithm must trim name2 when name1
+// alone cannot absorb all the excess.
+//
+// Name-length math (all ASCII, 1 byte/char):
+//   source col: "very_long_column_name_that_forces_name2_truncation_xxxxxxxxxx"
+//               ↳ 61 bytes
+//   clone table: "c"  (1 byte, deliberately short so name1 can't absorb all)
+//   would-be index: "c_<61-char-col>_idx"
+//                 = 1 + 1 + 61 + 1 + 3 = 67 bytes  > 63  → truncation required
+//
+//   overhead = 1("_" before name2) + 1("_" before label) + 3("idx") = 5
+//   availchars = 63 - 5 = 58
+//   n1=1, n2=61; sum=62 > 58; must shrink by 4.
+//   n2 > n1 every step → all 4 reductions go to n2 → n2=57.
+//   Final: "c_" + col[..57] + "_idx" = 1+1+57+1+3 = 63 bytes.
+//
+// Old (buggy) algorithm only truncated name1, leaving "c" + "_" + (61-char
+// col) + "_idx" = 67 bytes, which exceeds NAMEDATALEN.
+
+const LIKE_LONG_COL_SQL: &str = r"
+CREATE SCHEMA app;
+CREATE TABLE app.src (
+    very_long_column_name_that_forces_name2_truncation_xxxxxxxxxx int
+);
+CREATE INDEX ON app.src (very_long_column_name_that_forces_name2_truncation_xxxxxxxxxx);
+CREATE TABLE app.c (LIKE app.src INCLUDING INDEXES);
+";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn like_long_column_index_name_matches_live_pg() {
+    if !docker_available() {
+        eprintln!("skipping like_long_column_index_name_matches_live_pg: Docker not available");
+        return;
+    }
+
+    // Verify our byte-length assumptions at runtime so a rename doesn't
+    // silently invalidate the test.
+    let col_name = "very_long_column_name_that_forces_name2_truncation_xxxxxxxxxx";
+    let clone_name = "c";
+    let would_be = format!("{clone_name}_{col_name}_idx");
+    assert!(
+        would_be.len() > 63,
+        "test setup: would-be index name must exceed 63 bytes (got {})",
+        would_be.len()
+    );
+    // Also assert col is the long part (> 58 = availchars) so name2 must be truncated.
+    assert!(
+        col_name.len() > 58,
+        "test setup: col name ({} bytes) must exceed availchars (58) to force name2 truncation",
+        col_name.len()
+    );
+
+    let version = default_pg_version();
+
+    let live = live_catalog_for(LIKE_LONG_COL_SQL, version)
+        .await
+        .expect("live catalog");
+
+    let parsed = parsed_catalog_for(LIKE_LONG_COL_SQL).expect("parsed catalog");
+
+    let live_indexes = index_names(&live, clone_name);
+    let parsed_indexes = index_names(&parsed, clone_name);
+    assert_eq!(
+        live_indexes,
+        parsed_indexes,
+        "long-column truncated index name must match live Postgres\n  live:   {live_indexes:?}\n  parsed: {parsed_indexes:?}\n  (would-be untruncated: {would_be:?}, {} bytes)",
+        would_be.len(),
+    );
+
+    eprintln!(
+        "like_long_column_index_name_matches_live_pg [{version:?}] passed — indexes: {live_indexes:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Test 3 — LIKE INCLUDING ALL: extended-statistics object name
 // ---------------------------------------------------------------------------
 //

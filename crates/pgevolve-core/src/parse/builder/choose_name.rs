@@ -161,22 +161,57 @@ fn name_addition(col_names: &[Option<&str>]) -> String {
     out
 }
 
+/// Port of Postgres's `makeObjectName`: given `name1`, `name2`, and
+/// `label_full` (label + collision suffix), compute the truncated name that
+/// fits within `NAMEDATALEN` bytes.
+///
+/// The algorithm mirrors PG's alternating shrink: shrink whichever of
+/// `name1chars` / `name2chars` is currently longer (ties go to `name2`) until
+/// the sum fits within `availchars`.  This differs from the old approach that
+/// only shrank `name1`, which produced names longer than 63 bytes when `name2`
+/// alone was very long.
+///
+/// `label_full` is the complete label string (base label + any collision
+/// counter suffix) that PG calls "label" internally.
+fn make_object_name<'a>(name1: &'a str, name2: &'a str, label_full: &str) -> String {
+    // Separators: '_' before label_full always; '_' between name1 and name2
+    // only when name2 is non-empty.
+    let overhead = usize::from(!name2.is_empty()) // '_' before name2 (0 when name2 empty)
+        + label_full.len()
+        + 1; // '_' before label_full
+    let availchars = NAMEDATALEN.saturating_sub(overhead);
+
+    let mut name1chars = name1.len();
+    let mut name2chars = name2.len();
+
+    // Alternating shrink: reduce whichever side is longer (ties → name2).
+    while name1chars + name2chars > availchars {
+        if name1chars > name2chars {
+            name1chars -= 1;
+        } else {
+            name2chars -= 1;
+        }
+    }
+
+    let n1 = truncate_bytes(name1, name1chars);
+    if name2.is_empty() {
+        format!("{n1}_{label_full}")
+    } else {
+        let n2 = truncate_bytes(name2, name2chars);
+        format!("{n1}_{n2}_{label_full}")
+    }
+}
+
 /// Port of `ChooseRelationName`: build `name1[_name2]_label`, appending a
 /// decimal counter (`label1`, `label2`, …) while the candidate is already
 /// in `taken`.  Each component is truncated so the whole name fits within
-/// `NAMEDATALEN` bytes.
+/// `NAMEDATALEN` bytes using Postgres's alternating-shrink algorithm
+/// (`makeObjectName`): whichever of name1/name2 is longer is trimmed first
+/// (ties go to name2) until both fit.
 fn choose_relation_name(name1: &str, name2: &str, label: &str, taken: &TakenNames) -> String {
     let build = |suffix: &str| {
         let label_full = format!("{label}{suffix}");
-        // overhead = '_' + optional 'name2_' + label_full
-        let overhead = 1 + (if name2.is_empty() { 0 } else { name2.len() + 1 }) + label_full.len();
-        let budget1 = NAMEDATALEN.saturating_sub(overhead);
-        let n1 = truncate_bytes(name1, budget1);
-        if name2.is_empty() {
-            format!("{n1}_{label_full}")
-        } else {
-            format!("{n1}_{name2}_{label_full}")
-        }
+        make_object_name(name1, name2, &label_full)
     };
 
     let mut candidate = build("");
@@ -294,13 +329,16 @@ mod tests {
 
     /// `{table}_{col}_idx` that would exceed 63 bytes must be truncated so the
     /// total name is ≤ 63 bytes.  The expected string is pinned here to lock
-    /// pgevolve's NAMEDATALEN truncation behaviour; live-PG byte-fidelity is
-    /// verified separately in CI (#46).
+    /// pgevolve's NAMEDATALEN truncation behaviour using PG's alternating-shrink
+    /// `makeObjectName` algorithm; live-PG byte-fidelity is verified separately
+    /// in CI (#46).
     ///
     /// With table = "a"×40, col = "b"×40:
-    ///   overhead = 1("_") + 40("b"×40) + 1("_") + 3("idx") = 45
-    ///   budget1  = 63 - 45 = 18  → name1 = "a"×18
-    ///   result   = "a"×18 + "_" + "b"×40 + "_idx" = 63 bytes
+    ///   overhead   = 1("_" sep) + 1("_" before label) + 3("idx") = 5
+    ///   availchars = 63 - 5 = 58
+    ///   n1=40, n2=40; sum=80; must shrink by 22.
+    ///   Ties go to n2 (else branch in PG); 11 shrinks each → n1=29, n2=29.
+    ///   result = "a"×29 + "_" + "b"×29 + "_idx" = 63 bytes.
     #[test]
     fn long_name_truncates_to_namedatalen() {
         let table = "a".repeat(40);
@@ -320,7 +358,7 @@ mod tests {
         );
         assert!(name.ends_with("_idx"), "must end with _idx suffix");
         // Pin the exact string produced by the implementation.
-        let expected = format!("{}_{}_{}", "a".repeat(18), "b".repeat(40), "idx");
+        let expected = format!("{}_{}_{}", "a".repeat(29), "b".repeat(29), "idx");
         assert_eq!(name, expected, "truncated name did not match expected");
     }
 
@@ -328,15 +366,18 @@ mod tests {
     /// result must still fit within NAMEDATALEN.
     ///
     /// With table = "a"×40, col = "b"×40, counter "1":
-    ///   overhead = 1("_") + 40("b"×40) + 1("_") + 4("idx1") = 46
-    ///   budget1  = 63 - 46 = 17  → name1 = "a"×17
-    ///   result   = "a"×17 + "_" + "b"×40 + "_idx1" = 63 bytes
+    ///   overhead   = 1 + 1 + 4("idx1") = 6
+    ///   availchars = 63 - 6 = 57
+    ///   n1=40, n2=40; sum=80; must shrink by 23.
+    ///   Alternating (tie → n2): 11 pairs → n1=29, n2=29 (sum=58 > 57);
+    ///   one more tie-break → n2=28.  Final: n1=29, n2=28.
+    ///   result = "a"×29 + "_" + "b"×28 + "_idx1" = 63 bytes.
     #[test]
     fn truncated_collision_appends_counter() {
         let table = "a".repeat(40);
         let col = "b".repeat(40);
         // Seed taken with the first (truncated) name so the counter path is taken.
-        let first_name = format!("{}_{}_{}", "a".repeat(18), "b".repeat(40), "idx");
+        let first_name = format!("{}_{}_{}", "a".repeat(29), "b".repeat(29), "idx");
         let mut t = taken(&[&first_name]);
         let name = choose_index_name(&table, &[Some(&col)], IndexNameKind::Plain, &mut t);
         assert!(
@@ -344,8 +385,69 @@ mod tests {
             "counter name length {} > {NAMEDATALEN}: {name:?}",
             name.len()
         );
-        let expected = format!("{}_{}_{}", "a".repeat(17), "b".repeat(40), "idx1");
+        let expected = format!("{}_{}_{}", "a".repeat(29), "b".repeat(28), "idx1");
         assert_eq!(name, expected, "counter name did not match expected");
+    }
+
+    /// When `name2` (column addition) is long enough that truncating `name1` to
+    /// zero would still leave the combined name over budget, PG's
+    /// `makeObjectName` also truncates `name2`.  The alternating-shrink
+    /// algorithm shrinks whichever of name1/name2 is currently longer until
+    /// both fit.
+    ///
+    /// Byte math:
+    ///   name1 = "t" (1 byte), name2 = "c"×70 (70 bytes), label = "idx"
+    ///   overhead  = 1("_" sep) + 1("_" before label) + 3("idx") = 5
+    ///   availchars = 63 - 5 = 58
+    ///   n1=1, n2=70; sum=71 > 58; must shrink by 13.
+    ///   Since n2 (70) > n1 (1) on every step, all 13 reductions go to n2.
+    ///   Final: n1=1, n2=57 → "t" + "_" + "c"×57 + "_idx" = 63 bytes.
+    #[test]
+    fn long_column_addition_truncates_name2() {
+        let table = "t";
+        let col = "c".repeat(70);
+        let mut t = TakenNames::default();
+        let name = choose_index_name(table, &[Some(&col)], IndexNameKind::Plain, &mut t);
+        assert!(
+            name.len() <= NAMEDATALEN,
+            "name length {} > {NAMEDATALEN}: {name:?}",
+            name.len()
+        );
+        // name2 must have been truncated (col was 70 bytes, only 57 should appear).
+        let expected = format!("t_{}_idx", "c".repeat(57));
+        assert_eq!(
+            name, expected,
+            "alternating-shrink on long name2 did not match expected"
+        );
+    }
+
+    /// When both name1 and name2 are long (~40 bytes each), PG's alternating
+    /// shrink trims each by roughly equal amounts.
+    ///
+    /// Byte math:
+    ///   name1 = "a"×40, name2 = "b"×40, label = "idx"
+    ///   overhead  = 1 + 1 + 3 = 5
+    ///   availchars = 63 - 5 = 58
+    ///   n1=40, n2=40; sum=80; must shrink by 22.
+    ///   Tie ⇒ shrink n2 first (else branch in PG), then n1 alternately.
+    ///   After 22 steps (11 to n2, 11 to n1): n1=29, n2=29.
+    ///   Result = "a"×29 + "_" + "b"×29 + "_idx" = 63 bytes.
+    #[test]
+    fn both_long_alternating_truncation() {
+        let table = "a".repeat(40);
+        let col = "b".repeat(40);
+        let mut t = TakenNames::default();
+        let name = choose_index_name(&table, &[Some(&col)], IndexNameKind::Plain, &mut t);
+        assert!(
+            name.len() <= NAMEDATALEN,
+            "name length {} > {NAMEDATALEN}: {name:?}",
+            name.len()
+        );
+        let expected = format!("{}_{}_{}", "a".repeat(29), "b".repeat(29), "idx");
+        assert_eq!(
+            name, expected,
+            "both-long alternating truncation did not match expected"
+        );
     }
 
     #[test]
