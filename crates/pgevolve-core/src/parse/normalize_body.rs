@@ -32,6 +32,16 @@ pub enum BodyError {
     /// `pg_query` rejected the SQL.
     #[error("pg_query rejected body: {0}")]
     Parse(String),
+
+    /// The SQL parsed but the deparser failed to render it back.
+    ///
+    /// This used to fall back to the original SQL as the canonical form. That
+    /// is unsound as an equality key: the whole point of deparsing is that two
+    /// spellings of the same body converge on one byte-string, so falling back
+    /// to raw input makes a body compare unequal to itself as read from the
+    /// catalog, and pgevolve then plans a spurious `CREATE OR REPLACE`.
+    #[error("deparser failed on a body that parsed cleanly: {0}")]
+    Deparse(String),
 }
 
 impl NormalizedBody {
@@ -65,9 +75,10 @@ impl NormalizedBody {
     /// Canonicalize a body given its raw SQL text.
     ///
     /// The body may be any complete SQL statement (`SELECT`, `CREATE VIEW`,
-    /// etc.). Invalid SQL returns [`BodyError::Parse`]. If the deparser
-    /// unexpectedly fails on a successfully-parsed tree, the original SQL is
-    /// used as the canonical form (silent graceful degradation).
+    /// etc.). Invalid SQL returns [`BodyError::Parse`]; a deparser failure on a
+    /// tree that parsed cleanly returns [`BodyError::Deparse`]. Neither is
+    /// swallowed — the canonical text is an equality key, so a degraded value
+    /// is worse than no value.
     pub fn from_sql(sql: &str) -> Result<Self, BodyError> {
         let parsed = pg_query::parse(sql).map_err(|e| BodyError::Parse(e.to_string()))?;
         // Strip redundant table-qualifier prefixes from column references in
@@ -77,9 +88,9 @@ impl NormalizedBody {
         // to the unqualified form so source and catalog texts match.
         let mut protobuf = parsed.protobuf;
         strip_redundant_qualifiers(&mut protobuf);
-        let deparsed = pg_query::deparse(&protobuf).unwrap_or_default();
-        let source = if deparsed.is_empty() { sql } else { &deparsed };
-        let canonical_text = collapse_whitespace(source);
+        let deparsed =
+            pg_query::deparse(&protobuf).map_err(|e| BodyError::Deparse(e.to_string()))?;
+        let canonical_text = collapse_whitespace(&deparsed);
         let canonical_hash = hash_canonical(&canonical_text);
         Ok(Self {
             canonical_text,

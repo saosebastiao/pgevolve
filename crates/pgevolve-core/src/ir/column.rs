@@ -117,21 +117,27 @@ pub enum IdentityKind {
     ByDefault,
 }
 
-/// `GENERATED ALWAYS AS (expr) STORED` specification.
+/// `GENERATED ALWAYS AS (expr) { STORED | VIRTUAL }` specification.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Generated {
-    /// Stored vs virtual (PG only supports stored as of v17).
+    /// Stored vs virtual.
     pub kind: GeneratedKind,
     /// Generation expression.
     pub expression: crate::ir::default_expr::NormalizedExpr,
 }
 
 /// Generated-column kind.
+///
+/// Mirrors Postgres `pg_attribute.attgenerated` (`s` | `v`). `VIRTUAL` was
+/// added in Postgres 18; see
+/// `docs/superpowers/specs/2026-06-07-virtual-generated-columns-design.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GeneratedKind {
-    /// `STORED`.
+    /// `STORED` — materialised on write.
     Stored,
+    /// `VIRTUAL` — computed on read (PG 18+).
+    Virtual,
 }
 
 /// Per-column TOAST storage strategy.

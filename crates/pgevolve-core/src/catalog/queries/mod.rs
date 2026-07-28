@@ -37,6 +37,7 @@ pub const fn query_for(version: PgVersion, query: CatalogQuery) -> &'static str 
         (_, CatalogQuery::Schemas) => shared::SCHEMAS_QUERY,
         (_, CatalogQuery::Tables) => shared::TABLES_QUERY,
         (_, CatalogQuery::Columns) => shared::COLUMNS_QUERY,
+        (PgVersion::Pg18, CatalogQuery::Constraints) => pg18::CONSTRAINTS_QUERY,
         (_, CatalogQuery::Constraints) => shared::CONSTRAINTS_QUERY,
         (PgVersion::Pg14, CatalogQuery::Indexes) => pg14::INDEXES_QUERY,
         (_, CatalogQuery::Indexes) => shared::INDEXES_QUERY,

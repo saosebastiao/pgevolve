@@ -136,7 +136,7 @@ pub(super) fn build_views_and_mvs(
         // don't need to resolve against a KnownObjects set — the DB is the ground
         // truth. We call the internal walker without the resolution guard by
         // building an unrestricted KnownObjects that always returns true.
-        let body_dependencies = extract_deps_from_body(&body_text, &qname);
+        let body_dependencies = extract_deps_from_body(&body_text, &qname)?;
 
         match relkind.as_str() {
             "v" => {
@@ -276,18 +276,28 @@ fn walk_node_for_deps(
 /// Extract [`crate::plan::edges::DepEdge`]s from a view body on the catalog side.
 ///
 /// On the catalog side we are the ground truth — there is no "unknown object"
-/// error. We perform a best-effort extraction: any schema-qualified `RangeVar`
-/// nodes become dep edges. Unresolvable or unqualified references are silently
-/// skipped.
+/// error. Extraction stays best-effort *within a parsed body*: any
+/// schema-qualified `RangeVar` becomes a dep edge, and unresolvable or
+/// unqualified references are deliberately skipped.
+///
+/// A body that does not parse at all is a different failure and is **not**
+/// best-effort. It previously returned an empty edge list, which is
+/// indistinguishable from "this view genuinely depends on nothing" — so the
+/// planner would order the view's DDL as if it were a leaf and could emit it
+/// before the relations it selects from. Dependency edges are the whole basis
+/// of plan ordering; losing them silently is a correctness bug, not degraded
+/// service.
 fn extract_deps_from_body(
     body_text: &str,
     view_qname: &QualifiedName,
-) -> Vec<crate::plan::edges::DepEdge> {
+) -> Result<Vec<crate::plan::edges::DepEdge>, CatalogError> {
     use crate::plan::edges::DepEdge;
 
-    let Ok(parsed) = pg_query::parse(body_text) else {
-        return vec![];
-    };
+    let parsed = pg_query::parse(body_text).map_err(|_| CatalogError::UnparseableDefinition {
+        object: format!("view {view_qname}"),
+        kind: "pg_get_viewdef",
+        def: body_text.to_string(),
+    })?;
 
     let mut deps: Vec<DepEdge> = Vec::new();
     for raw_stmt in &parsed.protobuf.stmts {
@@ -298,5 +308,5 @@ fn extract_deps_from_body(
 
     deps.sort();
     deps.dedup();
-    deps
+    Ok(deps)
 }

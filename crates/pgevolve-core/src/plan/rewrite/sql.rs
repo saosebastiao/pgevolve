@@ -755,6 +755,7 @@ const fn identity_kind(k: IdentityKind) -> &'static str {
 const fn generated_kind(k: GeneratedKind) -> &'static str {
     match k {
         GeneratedKind::Stored => "STORED",
+        GeneratedKind::Virtual => "VIRTUAL",
     }
 }
 

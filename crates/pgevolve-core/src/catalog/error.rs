@@ -76,4 +76,57 @@ pub enum CatalogError {
         /// Identifier or oid of the missing object.
         what: String,
     },
+
+    /// A catalog column holding a closed set of single-character codes carried
+    /// a code we do not recognise.
+    ///
+    /// Postgres adds codes to these columns in new majors (`attgenerated` gained
+    /// `'v'` in PG 18). Decoding them exhaustively — rather than testing for the
+    /// one code we happen to care about — is what turns "a future Postgres
+    /// silently produces wrong IR" into a named error.
+    #[error("catalog column {column:?} for {object} carried unrecognised code {value:?}")]
+    UnknownCatalogCode {
+        /// The `pg_catalog` column the code came from (e.g., `attgenerated`).
+        column: &'static str,
+        /// The object the row described, for operator legibility.
+        object: String,
+        /// The code we could not decode.
+        value: String,
+    },
+
+    /// The server described an object using a feature pgevolve can read but
+    /// cannot yet represent in its IR.
+    ///
+    /// Refusing is mandatory here: emitting partial IR for an object whose
+    /// definition we only half-understand produces a plan that silently drops
+    /// or rewrites the part we missed.
+    #[error(
+        "{object}: {feature} is not yet supported by pgevolve (tracked in {tracking}); \
+         refusing to introspect rather than emit incomplete state"
+    )]
+    UnsupportedFeature {
+        /// The object carrying the feature.
+        object: String,
+        /// Human-readable feature name (e.g., `VIRTUAL generated columns`).
+        feature: &'static str,
+        /// Where the work is tracked, so the message is actionable.
+        tracking: &'static str,
+    },
+
+    /// A server-emitted definition (`pg_get_constraintdef`, `pg_get_viewdef`, …)
+    /// could not be re-parsed.
+    ///
+    /// Distinct from [`Self::ReparseFailed`]: this carries the object and the
+    /// offending text so an operator can see *which* definition defeated us,
+    /// which matters because these paths previously substituted placeholder
+    /// data and continued.
+    #[error("{object}: could not re-parse server-emitted {kind}: {def:?}")]
+    UnparseableDefinition {
+        /// The object whose definition failed to parse.
+        object: String,
+        /// Which `pg_get_*def` produced it (e.g., `pg_get_constraintdef`).
+        kind: &'static str,
+        /// The definition text, for diagnosis.
+        def: String,
+    },
 }
