@@ -26,25 +26,48 @@ was disproved, and what the decision hinges on. Nothing here changes code.
 
 ## 1. Bottom line
 
-**The premise is right, one of its two motivations is wrong, and the technical
-risk is lower than expected.**
+**The multi-version design is feasible — proved, not assumed — and it is the
+wrong thing to build. Fork one parser at the newest major instead.**
 
-- `pg_query.rs` is genuinely under-maintained — 334 days without a crates.io
-  release, 8 unreleased commits on `main`, median open-issue age 650 days.
-- But it is **not abandoned**, and it is **not the reason to build our own**.
-  A PG 18 branch exists (`d3042ed`, 2026-07-16) as draft PR #79.
-- The real reason is structural: `pg_query.rs` has **one** git submodule and
-  **one** generated `protobuf.rs`. It cannot express per-major typed bindings at
-  any level of maintenance quality. Neither can any other Rust crate.
-- **`libpg_query` (the C library) is healthy** and already publishes exactly the
-  granularity we need: long-lived `14-latest` … `18-latest` branches, each a
-  complete self-contained vendoring, each shipping machine-readable
-  `srcdata/*.json` node definitions.
-- The two things that looked hardest — **linking five Postgres parsers into one
-  binary**, and **generating a correct typed Rust AST per version** — were both
-  *prototyped and proved* during this investigation.
+The diagnosis of `pg_query.rs` is correct. The prescription is not.
+
+- `pg_query.rs` is genuinely under-maintained: 334 days without a crates.io
+  release, 8 unreleased commits on `main`, **0 of 8 open issues have any
+  maintainer reply**, and its PG 18 pull request is a draft carrying its author's
+  own unresolved typo. Its sibling Ruby binding's release PR has been open 68
+  days. Treat the arrival date of a PG-18 `pg_query` crate as **unbounded**.
+- It is also **structurally incapable** of what was asked for: one git submodule,
+  one generated `protobuf.rs`. No amount of maintenance quality would change
+  that. Neither can any other Rust crate.
+- **`libpg_query` (the C library) is healthy** and publishes exactly the
+  granularity the design wants: long-lived `14-latest` … `18-latest` branches,
+  each self-contained, each shipping machine-readable `srcdata/*.json`.
+- **Both hard technical risks were retired by building them.** Five Postgres
+  majors were symbol-prefixed, linked into one 13 MB binary, and verified to each
+  accept exactly their own grammar with flat memory over 25,000 interleaved
+  parses (§4). A srcdata-driven Rust generator ingested 32,144 regression
+  statements with zero errors (§5).
+- **Then the premise itself was tested, and it failed.** Across 50,970
+  statements, PG18's grammar accepts everything PG14–17 accept — the only five
+  regressions are regression-suite *negative* tests. Meanwhile per-version
+  deparsers would inject **2.27–2.43% byte divergence** into `NormalizedBody`,
+  the exact hash the multi-version design was meant to protect, where today's
+  single deparser is byte-identical to PG18's on **2,199/2,199** of pgevolve's
+  own fixtures (§11).
+- Worse, N=5 adds a failure mode N=1 cannot have: routing a parse tree to the
+  wrong version's deparser **aborts the process** — `abort()`, not `Err` (§11.3).
+- And it fixes none of the real pain. pgevolve's cross-version difficulty comes
+  from the **server's `ruleutils.c`** emitting differently-formatted DDL text,
+  not from grammar differences. Five parsers eliminate exactly zero of those
+  workarounds (§11.4).
 - The thing that looked easy — **lowering parse nodes into pgevolve's IR** — is
-  the actual cost centre, and it does **not** benefit from codegen.
+  the actual cost centre under any design, and it does **not** benefit from
+  codegen (§6).
+
+**Recommended: ~8.5 engineer-weeks across 5 phases (§12), the first two of which
+are correct under every possible outcome including upstream shipping next week.
+The multi-version binding is shelved behind a dated, evidence-based kill gate
+that current evidence says will never fire.**
 
 ---
 
@@ -556,3 +579,245 @@ Any option here, **including doing nothing**, requires an amendment:
 | **Stale upstream branches** (§2.2) | We would own re-vendoring 14/15/16 and carrying the glibc patch. Low likelihood of grammar drift, but it becomes our job. |
 
 ---
+
+## 11. The decisive experiment: is one current grammar enough?
+
+Everything above establishes that five co-resident parsers are *buildable*. It
+does not establish that they are *wanted*. That question was settled by
+measurement, not argument.
+
+**Method.** Five independent scanner binaries, one per libpg_query major (PG14
+from the glibc-patched tree), run over a **50,970-statement** corpus: 48,771
+statements split from libpg_query's 233 `postgres_regress` files, plus 2,199
+split from pgevolve's own 858 `.sql` fixtures.
+
+### 11.1 Acceptance is strictly monotone
+
+| | PG14 | PG15 | PG16 | PG17 | PG18 |
+|---|---|---|---|---|---|
+| statements accepted | 48,048 | 48,475 | 48,700 | 49,115 | **49,488** |
+
+Statements accepted by *any* older major but rejected by PG18: **5 of 50,970
+(0.0098%)**. All five are PostgreSQL regression-suite **negative tests** — invalid
+SQL that older grammars accepted and rejected later in parse analysis
+(`PARTITION BY MAGIC (a)`, `SELECT JSON()`, `JSON_SCALAR()`, `JSON_SERIALIZE()`,
+`JSON_TABLE()` in a target list). PG18 rejects them *earlier*, which is better
+behaviour, not a regression.
+
+**Zero valid SQL regresses.** For every purpose pgevolve has, the PG18 grammar is
+a superset of PG14–17.
+
+### 11.2 Per-version deparsers would *break* the invariant they were meant to protect
+
+This is the finding that inverts the case.
+
+`NormalizedBody::from_sql` depends on byte-equality of deparsed output. Measured
+cross-major deparse divergence on the same corpus, whitespace-collapsed exactly
+as `NormalizedBody` does:
+
+| pair | divergent statements | rate |
+|---|---|---|
+| PG16 vs PG18 | 1,093 / 48,202 | **2.268%** |
+| PG15 vs PG18 | — | 2.324% |
+| PG14 vs PG18 | — | 2.428% |
+| PG14 vs PG17 | — | 2.355% |
+| PG16 vs PG17 | — | 2.193% |
+| **PG17 vs PG18, on pgevolve's own fixtures** | **0 / 2,199** | **0.000%** |
+| PG17 vs PG18, regression corpus | 36 / 49,115 | 0.073% |
+
+Dominant divergence classes: `PARTITION BY RANGE(a)` → `RANGE (a)` (~600),
+`::json` → `::pg_catalog.json` (~150), `DEFERRABLE` rendering, and
+`DEFAULT 'foo'::text` → `DEFAULT ('foo'::text)`.
+
+So: **today's single deparser produces byte-identical output to PG18's on
+2,199/2,199 of pgevolve's fixtures, while five deparsers would inject 2.27–2.43%
+divergence into the exact hash that decides whether two view bodies are the
+same.** N=5 does not protect `NormalizedBody`; it is the thing that would break it.
+
+A proposed repair — double round-trip (`parse@16 → deparse@16 → parse@18 →
+deparse@18`) — does reduce divergence to 0.044%, but only because its terminal
+canonicaliser is PG18. It works by silently reverting to the single-parser
+architecture. It also introduces a new silent-data-loss class that N=1 does not
+have: 7 of 48,202 statements fail to re-parse at all, and
+`ALTER TABLE t DETACH PARTITION p FINALIZE` round-trips to
+`... DETACH PARTITION any_namefinalize` — PG16/17's deparser omits a space (an
+upstream bug fixed in PG18), and PG18 then re-parses the result as one
+identifier, **silently swallowing the `FINALIZE` keyword**.
+
+### 11.3 A process-abort hazard unique to N=5
+
+`crates/pgevolve-core/src/parse/normalize_expr.rs:319-321`, verbatim:
+
+> *"The `protobuf::ParseResult.version` field must match `libpg_query`'s embedded
+> `PG_VERSION_NUM`, otherwise the C deparser asserts and aborts the process."*
+
+Under N=5 every parse tree carries a version tag, and routing a tree to the wrong
+version's deparser is an `abort()` — not a `Result::Err`. Unrecoverable,
+uncatchable, and directly contrary to the constitution's no-panic posture. It is
+the same cross-version mixing hazard as the enum-discriminant shifts, with a
+worse failure mode. **N=1 cannot have this bug: only one version number exists.**
+
+### 11.4 The real cross-version pain is not grammar pain
+
+`crates/pgevolve-core/src/parse/normalize_body.rs:73-77` documents the actual
+problem: *"PG14's `pg_get_viewdef` keeps the qualifier even when unambiguous,
+while PG17 strips it."*
+
+That difference originates in the **server's `ruleutils.c`**, not in libpg_query.
+`strip_redundant_qualifiers` and `strip_redundant_string_casts` are workarounds
+for *server text formatting*. **Per-version parsers eliminate exactly zero of
+them.** This is the deepest structural reason the multi-version design does not
+pay: it installs a version axis in the one layer where the versions do not
+meaningfully differ.
+
+### 11.5 Correction: pgevolve is *already* a multi-version program
+
+The claim that "the version axis does not exist in pgevolve" is false, and
+correcting it strengthens the case against N=5.
+`crates/pgevolve-core/src/catalog/queries/` already contains `pg14.rs`, `pg15.rs`,
+`pg16.rs`, `pg17.rs` and `pg18.rs`, alongside ~120 version-conditional paths
+across `catalog/`, `plan/rewrite/`, `render/`. The version axis is deliberately
+absent from **`parse/` only** — verified: `PgVersion` appears 155 times across 26
+files and **zero** times under `crates/pgevolve-core/src/parse/`.
+
+That is not an oversight. It is the correct design, and the 50,970-statement scan
+is why.
+
+*(A figure from the first pass — "`PgVersion` is used 337 times" — was not
+reproducible; the real count is 155. The conclusion drawn from it was right, the
+number was not.)*
+
+---
+
+## 12. Recommendation
+
+**Feasible, but don't build it. Fork one parser at the newest major instead.**
+
+The multi-version binding is technically achievable — that is now proved rather
+than assumed. But the evidence says it would cost roughly 20+ engineer-weeks to
+*introduce* a correctness regression in the deparse invariant, an unrecoverable
+`abort()` failure mode, and a version axis in the only layer that doesn't need
+one, while fixing none of pgevolve's actual cross-version pain.
+
+The pain that *is* real — pgevolve advertising PG 18 support it does not have —
+is fixed by a single vendored fork at PG 18.
+
+### 12.1 Sequenced plan (~8.5 engineer-weeks)
+
+| Phase | Deliverable | Effort | Gate |
+|---|---|---|---|
+| **0 — Stop the silent degradation** | Convert four confirmed silent-failure sites to typed hard errors; add a catalog preflight rejecting `attgenerated='v'`, `conenforced=false`, temporal constraints. Qualify the README's PG18 claim. | 1 ew | **GO unconditionally.** Correct under every future, including upstream shipping next week. |
+| **1 — Seal the public API** | Remove `pg_query` from `pgevolve-core`'s public surface (`parse::Statement`'s 33 raw protobuf payloads). | 1 ew | **GO unconditionally.** This is what makes Phase 2 a one-day symbol rename — and makes abandoning the fork equally cheap. |
+| **2 — `pgevolve-pgquery` 18.x** | Vendored fork: libpg_query `18.0.0` C sources as files (never a submodule), pg_query.rs 6.1.1's hand-written Rust, plus PR #79's delta with its author's own unresolved `AtalterConstraint` typo fixed. `protoc` path deleted; generated `protobuf.rs` checked in. Keep only the 4 entry points actually used. | 2.5 ew | **THE REAL KILL GATE.** Binary: full test suite + all 770 conformance fixtures pass against all five live PG servers with **zero fixture re-blessing**. Predicted PASS (PG17/PG18 deparse byte-identical on 2,199/2,199 fixtures). On unexplained failure: stop, keep the PG17 crate, 2.5 ew sunk. |
+| **3 — Version oracle as *tooling*** | `xtask pg-oracle` links all five majors in CI and reports the minimum major accepting each statement; fails the build when a fixture's floor exceeds its claimed lint floor. Plus 4 new plan-time lints for the PG18 features. | 1 ew | GO if Phase 2 passed. Version rejection stays at **lint** time — moving it into the parser would make parse results depend on config. |
+| **4 — PG18 semantics** | `VIRTUAL` generated columns, `NOT ENFORCED`, temporal PK/FK, named `NOT NULL`, `RETURNING WITH (OLD/NEW)` — each with IR, diff, render, lint, conformance fixture. | 3 ew | GO if Phase 2 passed. **Required identically even if upstream shipped tomorrow** — "just wait for upstream" argues against Phase 2, not against this. |
+| **5 — Multi-version kill gate** | This document stays analysis and ships no code. One review on 2026-11-01 (also PG14 EOL, which shrinks the matrix to 15–18). | 0 (0.5 ew review) | **NO-GO by default.** Build N=5 only if: (a) a reproduced case where PG18 *silently mis-parses* — not rejects — DDL emitted by a PG14/15/16 server; (b) PG19 removes or retypes something pgevolve reads such that one grammar cannot serve the matrix; (c) maintaining the fork exceeds 1 ew per Postgres major, measured on the real PG19 bump. Trigger (a) currently stands at **zero of 50,970**. |
+
+Note the elegant property of this sequence: **Phases 0 and 1 are correct under
+every outcome**, including upstream shipping a PG18 release next week. They are
+also precisely what makes switching back to upstream a one-day change. There is
+no branch of the decision tree where they are wasted.
+
+### 12.2 Why not simply wait for upstream
+
+Because the arrival date is unbounded, and the live evidence is worse than the
+commit graph suggests:
+
+- PR #79 is a **draft with an empty description** carrying its author's own
+  **unresolved** self-flagged typo (`AtalterConstraint` → should be
+  `AtAlterConstraint`), 12 days old. That is consistent with unfinished work, not
+  with a PR parked awaiting review.
+- A direct question on it — kabudu, 2026-07-27, *"Any chance of this PR being
+  reviewed and merged soon?"* — has **no maintainer reply**.
+- **All 8 open issues have zero maintainer comments. A 0% response rate**,
+  including a substantive architecture proposal with working forks (#72) and a
+  build-debuggability bug filed with an offered patch (#80).
+- The sibling bindings are stuck too, which is the strongest timeline signal:
+  pganalyze's **flagship Ruby** release PR #346 ("Release 18.0.0"), opened by the
+  founder on 2026-05-21, is **still unmerged 68 days later**. Go has no v18
+  module path at all. A Rust release landing soon would require Rust to overtake
+  the maintainer's primary binding.
+- libpg_query 18.0.0 shipped **2026-05-21** — upstream has been ready for over
+  two months.
+- One open upstream risk to carry into Phase 2's gate: libpg_query issue #337,
+  *"`pg_query_parse_plpgsql()` regressions in 18.0.0"*, is still **open**.
+  pgevolve depends on plpgsql **analyzer semantics** (it selects `SETOF` vs
+  `void` wrappers because the analyzer rejects `RETURN QUERY` in a non-`SETOF`
+  wrapper), so this is a correctness risk, not a cosmetic one.
+
+Waiting is not free — it is the status quo in which pgevolve keeps advertising
+PG 18 support it does not have.
+
+### 12.3 Silent-degradation sites to fix first (verified in-tree)
+
+These exist **today**, independent of any parser decision:
+
+- `catalog/assemble/tables.rs:245,256` — `attgenerated == "s"` with **no `"v"`
+  arm anywhere** in `catalog/`. A PG18 virtual generated column is read as a
+  plain column. Standing constitution §4 violation (stringly-typed closed set).
+- `catalog/assemble/tables.rs:399-400` — `parse_fk_referenced_columns(&def)
+  .unwrap_or_else(|| placeholder_idents(...))`.
+- `catalog/assemble/views.rs:288` — `let Ok(parsed) = pg_query::parse(body_text)
+  else { return vec![] }`. (The surrounding doc comment makes the skip
+  deliberate, so this needs a small design decision, not just an error type.)
+- `parse/normalize_body.rs:80` — `pg_query::deparse(&protobuf)
+  .unwrap_or_default()`, self-labelled "silent graceful degradation".
+
+---
+
+## 13. Decisions that are the maintainer's, not mine
+
+1. **Fork vs. wait.** The one genuine judgement call. The evidence removes the
+   technical risk — migration re-bless cost measures at **zero** on pgevolve's
+   own fixtures — but cannot bound upstream's arrival date. Suggested framing:
+   start Phases 0 and 1 now (correct under every future), set a hard 4-week watch
+   on `pganalyze/pg_query.rs`, and if 6.2.0 ships before Phase 2 begins, take it
+   and skip Phase 2 entirely.
+2. **Constitution §5 must be amended under every option, including doing
+   nothing** — it names `pg_query = "6"` literally. Suggested rewording: rebind
+   from a *crate* to a *technology* — "the official Postgres grammar and deparser
+   via libpg_query, vendored per supported major" — and keep *"Parsing is not
+   reimplemented"* verbatim. That clause gets **stronger** here, not weaker: we
+   still link upstream's C grammar and upstream's hand-written C deparser.
+3. **`deny.toml` needs `licenses.allow += "PostgreSQL"` today**, independent of
+   this decision. Vendored Postgres sources carry the PostgreSQL License; it is
+   absent from the allow-list with `exceptions = []`, and is invisible only
+   because `pg_query.rs` declares `license = "MIT"` over ~250,000 lines of
+   PostgreSQL-licensed C. **cargo-deny is currently returning a false green on a
+   §2 assertion.** The licence is OSI-approved and functionally BSD-2-Clause
+   equivalent — this is disclosure, not risk — but permanent allow-list entry vs.
+   scoped exception is a policy call.
+4. **Whether §6 adopts:** *"pgevolve does not claim support for a Postgres major
+   until the conformance suite has a fixture for every feature that major
+   added."* It has teeth — **zero `VIRTUAL` fixtures exist in `crates/` today** —
+   and it is exactly what would have prevented the current false claim. It also
+   binds future majors.
+5. **Phase ordering** — whether Phase 4 (PG18 semantics) ships before or after
+   the Phase 2 parser swap. Either is defensible once Phase 0 makes the README
+   honest.
+6. **After PG14 EOL (Nov 2026)** — whether the Phase 3 oracle keeps a PG14
+   archive for historical lint verification or drops it.
+7. **One free hour:** comment on PR #79 confirming the `AtalterConstraint` typo
+   and offering to co-maintain. Costs nothing, delays nothing, and if upstream
+   revives it, saves Phase 2 entirely.
+
+---
+
+## 14. Caveats on this analysis
+
+- The 50,970-statement corpus is **authored DDL and regression SQL, not
+  server-emitted `pg_get_viewdef` text**, and no live PG servers were available.
+  The five enumerated PG17→PG18 deparser divergence classes are the complete list
+  of what to look for, but Phase 2's gate must run against real servers.
+- The codegen prototype proves **ingestion**, not round-trip losslessness
+  (§5.2). Fields that are always zero across the corpus were never exercised.
+- In a long-running harness parsing and deparsing tens of thousands of statements
+  in one process, the **PG14/15/16 builds segfaulted around statement ~6,300**
+  where PG17/18 did not. Statement-by-statement bisection found **no individual
+  reproducer**, so this is cumulative and most likely a harness allocation-pattern
+  artefact — **do not cite it as a libpg_query defect.** It is worth one hour of
+  soak testing to rule out, since it is the class of bug that only appears in a
+  long-lived process.
+- Figures corrected during adversarial review: `PgVersion` usage (337 → 155);
+  distinct protobuf fields read (198 → **182**, by compiler-assisted measurement —
+  `grep` overcounted hot fields by up to 53×); deparse call sites (4 → **6**).
