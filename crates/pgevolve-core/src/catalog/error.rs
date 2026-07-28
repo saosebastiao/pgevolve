@@ -46,7 +46,10 @@ pub enum CatalogError {
     },
 
     /// Postgres reported a major version we do not (yet) support.
-    #[error("unsupported Postgres major version: {0} (supported: 14, 15, 16, 17)")]
+    #[error(
+        "unsupported Postgres major version: {0} (supported: {supported})",
+        supported = crate::catalog::version::PgVersion::SUPPORTED_LIST
+    )]
     UnsupportedPgVersion(u32),
 
     /// The configured managed-schema list named a reserved schema we never manage.

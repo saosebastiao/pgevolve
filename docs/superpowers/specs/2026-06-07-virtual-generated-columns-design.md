@@ -1,23 +1,25 @@
 ---
-status: blocked-upstream
-target: deferred
+status: blocked-on-plan
+target: own-the-parser-binding stage 6
 sub_spec: virtual-generated-columns
 ---
 
 # `VIRTUAL` generated columns (PG 18) — design
 
-> **BLOCKED (2026-06-07):** This feature cannot be implemented yet. The Rust
-> `pg_query` crate (the binding pgevolve uses, mandated by the constitution)
-> wraps libpg_query **17** and rejects `GENERATED ALWAYS AS (expr) VIRTUAL` with
-> `syntax error at or near "VIRTUAL"`. The libpg_query **C** library has an
-> `18.0.0` tag (2026-05-21), but the gap is the Rust binding (`pganalyze/pg_query.rs`):
-> as of 2026-06-07 its latest crates.io release **and its `main` branch** are
-> both still `6.1.1` (libpg_query 17), with no PG-18 integration even merged
-> (latest commit 2026-03-18 is unrelated build-caching work). So there is no
-> workaround: no crates.io release to bump to, no `main` to git-depend on (and
-> `cargo publish` forbids git deps anyway), and the constitution rules out
-> hand-rolled SQL parsing. The design below is complete and ready; unblock by
-> bumping `pg_query` once it ships a PG-18 release, then proceed to writing-plans.
+> **UNBLOCK PATH (updated 2026-07-28):** Still blocked, but no longer on an
+> external party. The original blocker was accurate as written: `pg_query`
+> 6.1.1 vendors PostgreSQL 17.4 and rejects `GENERATED ALWAYS AS (expr) VIRTUAL`
+> with `syntax error at or near "VIRTUAL"`. What has changed is the resolution.
+> `pg_query.rs` is now treated as permanently unmaintained — 334 days without a
+> release, 0 of 8 open issues carrying any maintainer reply — so waiting is not
+> a plan. We vendor the binding ourselves.
+>
+> This design is delivered by **stage 6** of
+> [`../plans/2026-07-28-own-the-parser-binding.md`](../plans/2026-07-28-own-the-parser-binding.md),
+> which lands the PG 18 grammar in stage 3. Stage 1 of that plan closes the
+> related correctness bug — the catalog reader tests `attgenerated == "s"` with
+> no `'v'` arm anywhere, so a virtual column read from a live PG 18 server is
+> currently materialised as a plain column with a `DEFAULT`.
 
 Adds support for PostgreSQL 18 *virtual* generated columns
 (`GENERATED ALWAYS AS (expr) VIRTUAL`), a v0.4.1 roadmap row. A virtual
@@ -76,10 +78,15 @@ registers as a difference in the diff. Update the stale doc comment on
 `crates/pgevolve-core/src/parse/builder/create_stmt.rs` handles
 `ConstrType::ConstrGenerated` and currently hardcodes `GeneratedKind::Stored`.
 pg_query's `Constraint` node carries the stored/virtual distinction. Read it and
-map `STORED → Stored`, `VIRTUAL → Virtual`. pg_query 6.1.1 ships the PG 18
-grammar, so `VIRTUAL` parses. (If pg_query does not expose a dedicated field,
-inspect the `generated_when` / location and the constraint's stored flag; verify
-against the parsed AST during implementation and decode accordingly.)
+map `STORED → Stored`, `VIRTUAL → Virtual`.
+
+> **Correction (2026-07-28):** this section previously asserted "pg_query 6.1.1
+> ships the PG 18 grammar, so `VIRTUAL` parses". That is false and was the
+> reason this design read as nearly-unblocked. Measured: 6.1.1's vendored
+> `pg_config.h` declares `PG_VERSION "17.4"`, and `virtual` does not appear in
+> its `parser/kwlist.h` at all. The PG 18 grammar arrives with stage 3 of the
+> plan above; the field to read is `Constraint.generated_kind`, which is one of
+> the eight `Constraint` fields PG 18 adds.
 
 ## §3. Catalog reader
 

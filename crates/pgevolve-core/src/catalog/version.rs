@@ -69,6 +69,16 @@ impl PgVersion {
             Self::Pg18 => 18,
         }
     }
+
+    /// Every supported major, ascending.
+    pub const ALL: [Self; 5] = [Self::Pg14, Self::Pg15, Self::Pg16, Self::Pg17, Self::Pg18];
+
+    /// The supported majors as they appear in user-facing error text.
+    ///
+    /// Kept in sync with [`Self::ALL`] by `supported_list_matches_all`, so
+    /// adding a variant without updating this string fails the test suite
+    /// rather than shipping a stale message.
+    pub const SUPPORTED_LIST: &'static str = "14, 15, 16, 17, 18";
 }
 
 #[cfg(test)]
@@ -104,6 +114,28 @@ mod tests {
             PgVersion::detect(&MockSingle(180_000)).unwrap(),
             PgVersion::Pg18,
         );
+    }
+
+    #[test]
+    fn supported_list_matches_all() {
+        let derived = PgVersion::ALL
+            .iter()
+            .map(|v| v.major().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        assert_eq!(derived, PgVersion::SUPPORTED_LIST);
+    }
+
+    #[test]
+    fn unsupported_error_names_every_supported_major() {
+        let msg = CatalogError::UnsupportedPgVersion(13).to_string();
+        for v in PgVersion::ALL {
+            assert!(
+                msg.contains(&v.major().to_string()),
+                "error text {msg:?} omits supported major {}",
+                v.major(),
+            );
+        }
     }
 
     #[test]

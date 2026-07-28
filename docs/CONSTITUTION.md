@@ -42,7 +42,13 @@ This approach reduces the testing footprint without sacrificing safety. A proper
 
 pgevolve's goal is to support the complete superset of Postgres features that any real application might use. "Most common features" is not an acceptable scope boundary. If Postgres supports it and an application can use it, pgevolve must eventually support it.
 
-We use the official Postgres parser made available by the `pg_query` crate (`pg_query = "6"` in `[workspace.dependencies]`). Parsing is not reimplemented. The `pgevolve-conformance` crate provides the authoritative conformance suite — it tests the full planning and application pipeline against all supported Postgres versions. Sub-spec implementation work is scoped to what Postgres provides, not what is convenient to implement. Gaps in conformance are tracked as issues, not quietly tolerated.
+We use the official Postgres parser. **Parsing is not reimplemented** — we link libpg_query's C, which is the PostgreSQL grammar itself plus libpg_query's hand-written deparser. What we own is the *binding*, not the parser.
+
+We maintain that binding ourselves, vendored in-tree, tracking the **newest supported Postgres major**. One binding, not one per major: the PG grammar of the newest supported major is a superset of its predecessors for every purpose pgevolve has, and per-major deparsers would break the byte-equality that view- and function-body comparison depends on. See [`superpowers/specs/2026-07-28-parser-multiversion-feasibility-design.md`](superpowers/specs/2026-07-28-parser-multiversion-feasibility-design.md) for the measurements behind that decision and for the three conditions under which it should be revisited.
+
+If libpg_query is itself abandoned, the documented fallback is to re-extract from PostgreSQL source using its checked-in `scripts/extract_source.rb` and `patches/`. The bottom of this dependency stack is PostgreSQL, not any intermediary.
+
+The `pgevolve-conformance` crate provides the authoritative conformance suite — it tests the full planning and application pipeline against all supported Postgres versions. Sub-spec implementation work is scoped to what Postgres provides, not what is convenient to implement. Gaps in conformance are tracked as issues, not quietly tolerated.
 
 ---
 
@@ -51,6 +57,8 @@ We use the official Postgres parser made available by the `pg_query` crate (`pg_
 We support every Postgres version that the Postgres community actively maintains. The currently supported versions are **14, 15, 16, 17, and 18**. The conformance suite runs against all five.
 
 When a version reaches end of life per the [Postgres versioning policy](https://www.postgresql.org/support/versioning/), we drop it from the support matrix and remove any code that existed solely for compatibility with that version. This is a feature, not a chore: EOL drops pay down maintenance debt. Postgres 14 reaches EOL in **November 2026** and will be dropped at that time.
+
+**We do not claim support for a Postgres major until the conformance suite has a fixture for every feature that major added.** Adding a version to the CI matrix is not the same as supporting it. This rule exists because it was broken: pgevolve advertised Postgres 18 while its parser was Postgres 17 and could not read `GENERATED ... VIRTUAL`, `NOT ENFORCED`, temporal keys, or `RETURNING WITH (OLD/NEW)`. A claim of support is a promise about the conformance suite, not about the test matrix.
 
 ---
 

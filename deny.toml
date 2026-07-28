@@ -33,6 +33,16 @@ allow = [
     "Unicode-3.0",
     "CC0-1.0",
     "Zlib",
+    # PostgreSQL License — carried by the PostgreSQL sources vendored inside
+    # libpg_query (and hence inside any binding that wraps it). OSI-approved and
+    # functionally equivalent to BSD-2-Clause; no copyleft, no attribution
+    # burden beyond the notice. This entry is not new exposure: pgevolve has
+    # always depended on ~250,000 lines of PostgreSQL-licensed C. It was
+    # invisible because `pg_query.rs` declares `license = "MIT"` in its
+    # manifest, so cargo-deny only ever saw the wrapper's licence — i.e. this
+    # check was returning a false green against §2. Vendoring the C ourselves
+    # makes the dependency honest, and this entry is what keeps it declared.
+    "PostgreSQL",
 ]
 # No explicit deny list needed; anything not in allow[] is rejected.
 confidence-threshold = 0.93

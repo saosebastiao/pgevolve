@@ -15,8 +15,15 @@ derive its current state, and computes ordered, dependency-aware migration
 plans that bring the database to the desired state. It refuses to lose
 data unless explicitly authorized in a per-plan intent file.
 
-Current release: **v0.4.6** (Postgres 14–18). See
+Current release: **v0.4.6** (Postgres 14–17; 18 partial — see below). See
 [`CHANGELOG.md`](./CHANGELOG.md) for per-release detail.
+
+> **Postgres 18 is not yet fully supported.** pgevolve runs against a PG 18
+> server and its catalog reader has PG 18 paths, but the bundled parser is
+> Postgres 17, so DDL using PG 18-only syntax — `GENERATED ... VIRTUAL`,
+> `NOT ENFORCED` constraints, temporal `PERIOD` / `WITHOUT OVERLAPS` keys,
+> `RETURNING WITH (OLD/NEW)` — is rejected at parse time. Tracked in
+> [`docs/superpowers/plans/2026-07-28-own-the-parser-binding.md`](./docs/superpowers/plans/2026-07-28-own-the-parser-binding.md).
 
 **Documentation:** <https://saosebastiao.github.io/pgevolve/>
 
@@ -139,7 +146,8 @@ Full reference: [`docs/user/configuration.md`](./docs/user/configuration.md).
   CONCURRENTLY` upgrade. Opt out per-environment with
   `strategy = "atomic"`.
 - **All actively-maintained PG majors.** PG 14, 15, 16, 17, 18 covered in
-  CI on every push; per-version SQL paths in the catalog reader.
+  CI on every push; per-version SQL paths in the catalog reader. PG 18-only
+  *syntax* is not yet parseable — see the note above.
 - **Conformance-driven.** ~260 fixture-based end-to-end tests gate
   CI. Every claimed capability has a fixture; see
   [`docs/spec/testing.md`](./docs/spec/testing.md).
