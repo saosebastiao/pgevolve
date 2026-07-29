@@ -50,7 +50,7 @@ cargo package --verify -p pgevolve-pgquery                   # packaging is a ga
 |---|---|---|---|
 | 0 | ✅ **done** — Policy + honesty: `deny.toml`, constitution §5/§6, README | 0.5 ew | GO — unconditional |
 | 1 | ✅ **done** — Silent-degradation sites → typed errors; PG18 catalog preflight | 1 ew | GO — unconditional; live bugs today |
-| 2 | Seal `pg_query` out of `pgevolve-core`'s public API | 1 ew | GO — unconditional; makes Stage 4 mechanical |
+| 2 | ✅ **done** — Seal `pg_query` out of `pgevolve-core`'s public API | 1 ew | GO — unconditional; makes Stage 4 mechanical |
 | 3 | `pgevolve-pgquery`: vendored libpg_query 18, stripped binding | 2.5 ew | **KILL GATE** (see below) |
 | 4 | Cut `pgevolve-core` over to it; drop `pg_query` | 0.5 ew | Zero fixture re-blessing |
 | 5 | `xtask pg-oracle` + four PG18 plan-time lints | 1 ew | Oracle reproduces the acceptance matrix |
@@ -59,7 +59,7 @@ cargo package --verify -p pgevolve-pgquery                   # packaging is a ga
 
 **Total through Stage 6: ~9.5 engineer-weeks.**
 
-Stages 0–2 are correct under every outcome and touch no parser code. Start there.
+Stages 0–2 are correct under every outcome and touch no parser code. **All three are done** — the next stage is the kill gate.
 
 ---
 
