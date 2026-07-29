@@ -15,7 +15,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 ///   (e.g. a `-- @pgevolve schema=app` directive is in effect).
 /// * Empty composite (zero attributes) is rejected.
 /// * Duplicate attribute names within the same composite are rejected.
-pub(crate) fn build_composite(
+pub fn build_composite(
     stmt: &CompositeTypeStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,

@@ -13,7 +13,7 @@ use pgevolve_core::diff::cluster::{ClusterChangeSet, diff_cluster};
 use pgevolve_core::ir::cluster::catalog::ClusterCatalog;
 use pgevolve_core::lint::Finding;
 use pgevolve_core::lint::universal::check_cluster_changeset;
-use pgevolve_core::parse::cluster::parse_cluster_sources;
+use pgevolve_core::parse::parse_cluster_sources;
 use pgevolve_core::plan::cluster_rewrite::emit_cluster_changes;
 use pgevolve_core::plan::raw_step::RawStep;
 
@@ -52,7 +52,7 @@ pub struct ClusterPlan {
 pub enum ClusterPlanError {
     /// `parse_cluster_directory` rejected the `roles/` source files.
     #[error("parse error: {0}")]
-    Parse(#[from] pgevolve_core::parse::error::ParseError),
+    Parse(#[from] pgevolve_core::parse::ParseError),
     /// `read_cluster_catalog` failed against the live database.
     #[error("catalog read error: {0}")]
     Catalog(#[from] pgevolve_core::catalog::error::CatalogError),

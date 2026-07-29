@@ -3,23 +3,46 @@
 //! This module accepts a directory of `CREATE`-style DDL files and produces a
 //! [`crate::ir::catalog::Catalog`]. Construction is I/O-free at the type level —
 //! the only I/O is performed by [`parse_directory`] on behalf of callers.
+//!
+//! # Containment
+//!
+//! This module is the **only** place in the crate that may name the underlying
+//! SQL parser. Every submodule below is `pub(crate)`, and the handful of
+//! `pub use` items at the bottom of this header are the entire public surface.
+//! That boundary is load-bearing in two directions:
+//!
+//! - **Semver.** `statement::Statement` carries the parser's own AST structs as
+//!   payloads. While it was `pub`, any change to the parser was a breaking
+//!   change to `pgevolve-core`.
+//! - **Replaceability.** Swapping the parser binding should be a change to this
+//!   directory, not a crate-wide migration.
+//!
+//! The boundary is enforced mechanically by `tests/parser_containment.rs`, which
+//! fails if any file outside `src/parse/` names the parser crate in code.
 
-pub mod ast_canon;
+pub(crate) mod ast_canon;
 mod ast_resolution;
-pub mod builder;
-pub mod cluster;
-pub mod directives;
-pub mod error;
-pub mod normalize_body;
-pub mod normalize_expr;
-pub mod statement;
+pub(crate) mod builder;
+pub(crate) mod cluster;
+pub(crate) mod directives;
+pub(crate) mod error;
+pub(crate) mod from_catalog;
+pub(crate) mod normalize_body;
+pub(crate) mod normalize_expr;
+pub(crate) mod statement;
+#[cfg(test)]
+pub(crate) mod syntax;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-pub use directives::{FileDirectives, extract_file_directives};
+pub(crate) use statement::Statement;
+
+pub use cluster::{parse_cluster_directory, parse_cluster_sources};
 pub use error::{ParseError, SourceLocation};
-pub use statement::Statement;
+pub use normalize_body::{BodyError, NormalizedBody};
+
+pub use builder::plpgsql::parse_routine_body;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::IrError;
@@ -93,7 +116,7 @@ struct ParseContext {
 ///
 /// The map keys are qname strings as rendered by `Display`: `"schema_name"`
 /// for schemas, `"schema.name"` for tables / indexes / sequences.
-pub fn parse_directory_with_locations(
+pub(crate) fn parse_directory_with_locations(
     root: &Path,
     ignores: &[glob::Pattern],
 ) -> Result<(Catalog, HashMap<String, SourceLocation>), ParseError> {
@@ -394,7 +417,7 @@ fn apply_pending_owners(
 #[allow(clippy::too_many_lines)]
 fn process_file(ctx: &mut ParseContext, path: &Path, contents: &str) -> Result<(), ParseError> {
     let directives = directives::extract_file_directives(contents, path)?;
-    let parsed = pg_query::parse(contents).map_err(|e| ParseError::PgQuery {
+    let parsed = pg_query::parse(contents).map_err(|e| ParseError::Syntax {
         location: SourceLocation::new(path.to_path_buf(), 1, 1),
         message: e.to_string(),
     })?;
@@ -975,27 +998,17 @@ fn translate_canonicalize_error(
     }
 }
 
-/// Smoke test: parse a single statement string with `pg_query`.
-#[cfg(test)]
-pub(crate) fn smoke_parse(sql: &str) -> Result<pg_query::ParseResult, pg_query::Error> {
-    pg_query::parse(sql)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn pg_query_round_trips_a_create_table() {
-        let sql = "CREATE TABLE app.users (id integer);";
-        let result = smoke_parse(sql).expect("pg_query parses");
-        // Smoke check: the parse tree contains at least one statement.
-        assert!(!result.protobuf.stmts.is_empty());
-    }
+    // Parser smoke tests live in `parse::syntax`, which owns the only
+    // remaining direct calls into the parser outside the builders.
 
     #[test]
-    fn pg_query_reports_syntax_errors() {
-        let sql = "CREATE TABLE !bad!;";
-        assert!(smoke_parse(sql).is_err());
+    fn parse_directory_rejects_a_missing_root() {
+        let err = parse_directory(Path::new("/nonexistent/pgevolve/root"), &[])
+            .expect_err("a missing root is an error, not an empty catalog");
+        assert!(matches!(err, ParseError::Io { .. }));
     }
 }

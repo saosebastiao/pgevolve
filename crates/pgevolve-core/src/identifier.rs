@@ -11,7 +11,7 @@ use thiserror::Error;
 /// Postgres identifier rules:
 /// - Length: 1..=63 bytes (NAMEDATALEN).
 /// - Unquoted: starts with `[A-Za-z_]` followed by `[A-Za-z0-9_$]*`.
-/// - Quoted: any UTF-8 except `"` (we accept any non-empty UTF-8 here; `pg_query`
+/// - Quoted: any UTF-8 except `"` (we accept any non-empty UTF-8 here; the parser
 ///   will reject anything postgres can't actually accept at parse time).
 ///
 /// We store identifiers in their *case-folded canonical form* for unquoted

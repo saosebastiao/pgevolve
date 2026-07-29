@@ -16,7 +16,7 @@ use crate::parse::builder::shared;
 use crate::parse::error::{ParseError, SourceLocation};
 
 /// Apply a standalone `ALTER <kind> name OWNER TO role` statement.
-pub(crate) fn apply(
+pub fn apply(
     s: &AlterOwnerStmt,
     cat: &mut Catalog,
     loc: &SourceLocation,
@@ -113,7 +113,7 @@ pub(crate) fn apply(
 /// Apply ownership to a relation-family object (TABLE, VIEW, or MV) by qname.
 ///
 /// Also called from `alter_table_stmt` for the `AT_ChangeOwner` sub-command.
-pub(crate) fn set_owner_for_relation(
+pub fn set_owner_for_relation(
     cat: &mut Catalog,
     qname: &QualifiedName,
     objtype: ObjectType,
@@ -147,7 +147,7 @@ pub(crate) fn set_owner_for_relation(
 // ─── Field extraction helpers ─────────────────────────────────────────────────
 
 /// Extract the `newowner` role name from an `AlterOwnerStmt`.
-pub(crate) fn extract_new_owner(
+pub fn extract_new_owner(
     s: &AlterOwnerStmt,
     loc: &SourceLocation,
 ) -> Result<Identifier, ParseError> {

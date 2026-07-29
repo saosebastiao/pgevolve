@@ -8,7 +8,7 @@
 //! [`crate::catalog::DriftReport::unmanaged_aggregates`].
 //!
 //! Argument types are resolved by re-parsing the
-//! `pg_get_function_identity_arguments` signature through `pg_query` (the same
+//! `pg_get_function_identity_arguments` signature through the parser (the same
 //! AST → [`crate::ir::column_type::ColumnType`] path the source-side
 //! `CREATE AGGREGATE` parser uses), so the catalog-side and source-side
 //! `arg_types` compare equal. The state type arrives as a `format_type` string

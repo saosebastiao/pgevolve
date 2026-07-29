@@ -26,7 +26,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 ///
 /// Builds the [`EventTrigger`] with `enabled = Enabled`, `owner = None`, and
 /// `comment = None`. Rejects duplicate names and unknown events.
-pub(crate) fn parse_create_event_trigger(
+pub fn parse_create_event_trigger(
     stmt: &CreateEventTrigStmt,
     default_schema: Option<&Identifier>,
     source_loc: SourceLocation,
@@ -72,7 +72,7 @@ pub(crate) fn parse_create_event_trigger(
 ///
 /// Sets `enabled` from the `tgenabled` single-char code on the existing record.
 /// Rejects ALTER-before-CREATE and unknown enable codes.
-pub(crate) fn parse_alter_event_trigger(
+pub fn parse_alter_event_trigger(
     stmt: &AlterEventTrigStmt,
     source_loc: SourceLocation,
     existing: &mut BTreeMap<Identifier, EventTrigger>,
@@ -104,7 +104,7 @@ pub(crate) fn parse_alter_event_trigger(
 /// Called inline from `parse/mod.rs` (not deferred) because event triggers live
 /// in a `BTreeMap` accumulator that is flushed into the catalog after the
 /// deferred-comment phase. The object reference is a bare `String` node.
-pub(crate) fn apply_event_trigger_comment(
+pub fn apply_event_trigger_comment(
     stmt: &pg_query::protobuf::CommentStmt,
     location: &SourceLocation,
     existing: &mut BTreeMap<Identifier, EventTrigger>,
@@ -126,7 +126,7 @@ pub(crate) fn apply_event_trigger_comment(
 ///
 /// Called inline from `parse/mod.rs`. The owner name is extracted from the
 /// `newowner` `RoleSpec`; the target is a bare `String` node.
-pub(crate) fn apply_event_trigger_owner(
+pub fn apply_event_trigger_owner(
     stmt: &pg_query::protobuf::AlterOwnerStmt,
     location: &SourceLocation,
     existing: &mut BTreeMap<Identifier, EventTrigger>,

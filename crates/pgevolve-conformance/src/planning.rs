@@ -187,7 +187,7 @@ fn parse_one_cluster_source(
     let roles_dir = td.path().join("roles");
     std::fs::create_dir(&roles_dir)?;
     std::fs::write(roles_dir.join("a.sql"), sql)?;
-    pgevolve_core::parse::cluster::parse_cluster_directory(&roles_dir).map_err(|source| {
+    pgevolve_core::parse::parse_cluster_directory(&roles_dir).map_err(|source| {
         PipelineError::Parse {
             label: "cluster",
             source,

@@ -17,7 +17,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 /// The named table must already be present in `cat` (declared via
 /// `CREATE TABLE` earlier in the source). Policy expressions (`USING` /
 /// `WITH CHECK`) are canonicalized via [`crate::parse::normalize_expr::from_pg_node`].
-pub(crate) fn apply(
+pub fn apply(
     s: &CreatePolicyStmt,
     cat: &mut Catalog,
     loc: &SourceLocation,

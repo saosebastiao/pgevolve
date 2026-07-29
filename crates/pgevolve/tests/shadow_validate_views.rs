@@ -14,7 +14,7 @@ use pgevolve_core::ir::constraint::{Constraint, ConstraintKind, Deferrable};
 use pgevolve_core::ir::schema::Schema;
 use pgevolve_core::ir::table::Table;
 use pgevolve_core::ir::view::{View, ViewColumn};
-use pgevolve_core::parse::normalize_body::NormalizedBody;
+use pgevolve_core::parse::NormalizedBody;
 use pgevolve_core::plan::edges::{DepEdge, DepSource, NodeId};
 use pgevolve_testkit::ephemeral_pg::{default_pg_version, docker_available};
 

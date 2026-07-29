@@ -100,7 +100,7 @@ fn collect_sql_files(dir: &Path) -> Result<Vec<std::path::PathBuf>, ParseError> 
 
 fn apply_file(sql: &str, path: &Path, cat: &mut ClusterCatalog) -> Result<(), ParseError> {
     let loc = SourceLocation::new(path.to_path_buf(), 0, 0);
-    let parsed = pg_query::parse(sql).map_err(|e| ParseError::PgQuery {
+    let parsed = pg_query::parse(sql).map_err(|e| ParseError::Syntax {
         location: loc.clone(),
         message: e.to_string(),
     })?;

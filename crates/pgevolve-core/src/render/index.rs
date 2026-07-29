@@ -53,8 +53,7 @@ mod tests {
     }
 
     fn assert_pg_parseable(sql: &str) {
-        let r = pg_query::parse(sql);
-        assert!(r.is_ok(), "pg_query rejected SQL:\n{sql}\nerr: {r:?}");
+        crate::parse::syntax::assert_parses(sql);
     }
 
     fn base_index() -> Index {
@@ -177,7 +176,7 @@ mod tests {
             };
             let sql = render_index(&idx);
             assert!(sql.contains("USING "));
-            // All methods should produce parseable SQL (pg_query accepts all).
+            // All methods should produce parseable SQL (the parser accepts all).
             assert_pg_parseable(&sql);
         }
     }

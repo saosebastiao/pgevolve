@@ -49,7 +49,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 /// and append it to the accumulator.
 ///
 /// Rejects missing `TEMPLATE`, unknown option values, and duplicate qnames.
-pub(crate) fn parse_create_dictionary(
+pub fn parse_create_dictionary(
     stmt: &DefineStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -111,7 +111,7 @@ pub(crate) fn parse_create_dictionary(
 /// Replaces the entire `options` list (Postgres `ALTER TEXT SEARCH DICTIONARY`
 /// sets the given options; we model source state declaratively so the last ALTER
 /// wins — same semantics as the accumulator for collations/aggregates).
-pub(crate) fn apply_alter_dictionary(
+pub fn apply_alter_dictionary(
     stmt: &AlterTsDictionaryStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -145,7 +145,7 @@ pub(crate) fn apply_alter_dictionary(
 /// `DefineStmt` and append it to the accumulator.
 ///
 /// Rejects `COPY =` (unsupported), missing `PARSER`, and duplicate qnames.
-pub(crate) fn parse_create_configuration(
+pub fn parse_create_configuration(
     stmt: &DefineStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -220,7 +220,7 @@ pub(crate) fn parse_create_configuration(
 /// - `DropMapping` — remove token-type entries.
 /// - `ReplaceDict` — replace one dict across all mappings.
 /// - `ReplaceDictForToken` — replace one dict within specific token mappings.
-pub(crate) fn apply_alter_configuration(
+pub fn apply_alter_configuration(
     stmt: &AlterTsConfigurationStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -299,7 +299,7 @@ pub(crate) fn apply_alter_configuration(
 // ── OWNER TO ─────────────────────────────────────────────────────────────────
 
 /// Apply `ALTER TEXT SEARCH DICTIONARY name OWNER TO role` to the accumulator.
-pub(crate) fn apply_dictionary_owner(
+pub fn apply_dictionary_owner(
     stmt: &AlterOwnerStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -313,7 +313,7 @@ pub(crate) fn apply_dictionary_owner(
 }
 
 /// Apply `ALTER TEXT SEARCH CONFIGURATION name OWNER TO role` to the accumulator.
-pub(crate) fn apply_configuration_owner(
+pub fn apply_configuration_owner(
     stmt: &AlterOwnerStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -329,7 +329,7 @@ pub(crate) fn apply_configuration_owner(
 // ── COMMENT ON ───────────────────────────────────────────────────────────────
 
 /// Apply `COMMENT ON TEXT SEARCH DICTIONARY name IS '…'` to the accumulator.
-pub(crate) fn apply_dictionary_comment(
+pub fn apply_dictionary_comment(
     stmt: &CommentStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -347,7 +347,7 @@ pub(crate) fn apply_dictionary_comment(
 }
 
 /// Apply `COMMENT ON TEXT SEARCH CONFIGURATION name IS '…'` to the accumulator.
-pub(crate) fn apply_configuration_comment(
+pub fn apply_configuration_comment(
     stmt: &CommentStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,

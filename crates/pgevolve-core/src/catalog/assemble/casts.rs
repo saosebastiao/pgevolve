@@ -29,8 +29,6 @@
 // reads, not hot loops.
 #![allow(clippy::result_large_err)]
 
-use pg_query::NodeEnum;
-
 use crate::catalog::CatalogQuery;
 use crate::catalog::DriftReport;
 use crate::catalog::error::CatalogError;
@@ -39,6 +37,7 @@ use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::cast::{Cast, CastContext, CastMethod};
 use crate::ir::column_type::ColumnType;
 use crate::parse::error::SourceLocation;
+use crate::parse::from_catalog;
 
 const Q: CatalogQuery = CatalogQuery::Casts;
 
@@ -159,64 +158,25 @@ fn decode_cast_row(
 /// Parse a `pg_get_function_identity_arguments` signature (e.g. `"integer, text"`)
 /// into the ordered list of argument [`ColumnType`]s.
 ///
-/// The signature is wrapped in a synthetic `CREATE FUNCTION` and re-parsed via
-/// `pg_query`, walking the resulting `CreateFunctionStmt.parameters`. Each
-/// parameter's type goes through the same
-/// [`crate::parse::builder::shared::type_name_to_column_type`] path the
-/// source-side `CREATE CAST … WITH FUNCTION` parser uses, so the two
-/// `arg_types` lists compare equal.
+/// Each type goes through the same lowering the source-side
+/// `CREATE CAST … WITH FUNCTION` parser uses, so the two `arg_types` lists
+/// compare equal.
 fn parse_arg_types(
     arg_signature: &str,
     func_qname: &QualifiedName,
     location: &SourceLocation,
 ) -> Result<Vec<ColumnType>, CatalogError> {
-    if arg_signature.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let wrapper = format!(
-        "CREATE FUNCTION pgevolve_temp({arg_signature}) RETURNS void LANGUAGE sql AS $$ SELECT NULL $$;"
-    );
-    let parsed = pg_query::parse(&wrapper).map_err(|e| {
+    let params = from_catalog::parameter_list(
+        "pg_get_function_identity_arguments (cast function)",
+        arg_signature,
+        location,
+    )
+    .map_err(|e| {
         CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-            "catalog cast arg parse for {func_qname} ({arg_signature:?}): {e}"
+            "catalog cast arg parse for {func_qname}: {e}"
         )))
     })?;
-    let stmt = parsed
-        .protobuf
-        .stmts
-        .into_iter()
-        .next()
-        .and_then(|r| r.stmt)
-        .and_then(|n| n.node)
-        .ok_or_else(|| {
-            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-                "catalog cast arg parse for {func_qname}: no statement"
-            )))
-        })?;
-    let NodeEnum::CreateFunctionStmt(stmt) = stmt else {
-        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-            format!("catalog cast arg parse for {func_qname}: unexpected stmt kind"),
-        )));
-    };
-
-    let mut types = Vec::with_capacity(stmt.parameters.len());
-    for param_node in &stmt.parameters {
-        let Some(NodeEnum::FunctionParameter(p)) = param_node.node.as_ref() else {
-            continue;
-        };
-        let Some(tn) = p.arg_type.as_ref() else {
-            continue;
-        };
-        let ty =
-            crate::parse::builder::shared::type_name_to_column_type(tn, location).map_err(|e| {
-                CatalogError::Ir(crate::ir::IrError::InvalidColumnType(format!(
-                    "cast {func_qname} arg type: {e}"
-                )))
-            })?;
-        types.push(ty);
-    }
-    Ok(types)
+    Ok(params.into_iter().map(|p| p.ty).collect())
 }
 
 /// Parse a raw string as an unquoted identifier, mapping the error to [`CatalogError`].

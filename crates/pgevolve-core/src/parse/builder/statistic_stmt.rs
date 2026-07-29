@@ -30,7 +30,7 @@ use crate::parse::normalize_expr;
 /// Rejects anonymous form (no name), duplicate qnames, empty column lists,
 /// and unknown kind strings. An empty `stat_types` list means PG's default
 /// (all three enabled).
-pub(crate) fn parse_create_statistics(
+pub fn parse_create_statistics(
     stmt: &CreateStatsStmt,
     source_loc: SourceLocation,
     existing: &mut BTreeMap<QualifiedName, Statistic>,
@@ -82,7 +82,7 @@ pub(crate) fn parse_create_statistics(
 /// Apply an `ALTER STATISTICS … SET STATISTICS n` statement to the accumulator.
 ///
 /// Rejects ALTER-before-CREATE.
-pub(crate) fn parse_alter_statistics(
+pub fn parse_alter_statistics(
     stmt: &AlterStatsStmt,
     source_loc: &SourceLocation,
     existing: &mut BTreeMap<QualifiedName, Statistic>,

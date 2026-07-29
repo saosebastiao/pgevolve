@@ -44,7 +44,7 @@ pub enum Routine {
 ///   `PARALLEL`, `LEAKPROOF`, `COST`, `ROWS`, and a return-type clause are
 ///   all rejected on procedures.
 #[allow(clippy::too_many_lines)] // exhaustive walk of `CREATE FUNCTION`/`CREATE PROCEDURE` options; one arm per option kind.
-pub(crate) fn build_function_or_procedure(
+pub fn build_function_or_procedure(
     stmt: &CreateFunctionStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,

@@ -17,7 +17,7 @@ use crate::parse::normalize_body::NormalizedBody;
 ///
 /// Column names are taken from the explicit alias list when present; otherwise
 /// the `body_canonical` column list is left empty until T4 fills it in.
-pub(crate) fn build_view(
+pub fn build_view(
     stmt: &ViewStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,

@@ -12,6 +12,7 @@ use crate::catalog::rows::Row;
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
 use crate::ir::view::{CheckOption, MaterializedView, View, ViewColumn};
+use crate::parse::from_catalog;
 use crate::parse::normalize_body::NormalizedBody;
 
 use super::{ident_required, qname_from};
@@ -197,116 +198,15 @@ pub(super) fn build_views_and_mvs(
     Ok((views, materialized_views))
 }
 
-/// Walk a single AST node, collecting schema-qualified `RangeVar` references.
-///
-/// Used by [`extract_deps_from_body`] to avoid nesting a `fn` after statements
-/// (which Clippy forbids with `items_after_statements`).
-fn walk_node_for_deps(
-    node: &pg_query::protobuf::Node,
-    view_qname: &QualifiedName,
-    deps: &mut Vec<crate::plan::edges::DepEdge>,
-) {
-    use crate::plan::edges::{DepEdge, DepSource, NodeId};
-    use pg_query::NodeEnum as N;
-
-    let Some(inner) = &node.node else { return };
-    match inner {
-        N::SelectStmt(sel) => {
-            for from in &sel.from_clause {
-                walk_node_for_deps(from, view_qname, deps);
-            }
-            if let Some(wc) = &sel.where_clause {
-                walk_node_for_deps(wc, view_qname, deps);
-            }
-            if let Some(larg) = &sel.larg {
-                let n = pg_query::protobuf::Node {
-                    node: Some(N::SelectStmt(Box::new(larg.as_ref().clone()))),
-                };
-                walk_node_for_deps(&n, view_qname, deps);
-            }
-            if let Some(rarg) = &sel.rarg {
-                let n = pg_query::protobuf::Node {
-                    node: Some(N::SelectStmt(Box::new(rarg.as_ref().clone()))),
-                };
-                walk_node_for_deps(&n, view_qname, deps);
-            }
-            if let Some(with) = &sel.with_clause {
-                for cte in &with.ctes {
-                    walk_node_for_deps(cte, view_qname, deps);
-                }
-            }
-        }
-        N::RangeVar(rv) if !rv.schemaname.is_empty() && !rv.relname.is_empty() => {
-            if let (Ok(s), Ok(n)) = (
-                Identifier::from_unquoted(&rv.schemaname)
-                    .or_else(|_| Identifier::from_quoted(&rv.schemaname)),
-                Identifier::from_unquoted(&rv.relname)
-                    .or_else(|_| Identifier::from_quoted(&rv.relname)),
-            ) {
-                let ref_qname = QualifiedName::new(s, n);
-                deps.push(DepEdge {
-                    from: NodeId::Table(view_qname.clone()),
-                    to: NodeId::Table(ref_qname),
-                    source: DepSource::AstExtracted,
-                });
-            }
-        }
-        N::JoinExpr(j) => {
-            if let Some(l) = &j.larg {
-                walk_node_for_deps(l, view_qname, deps);
-            }
-            if let Some(r) = &j.rarg {
-                walk_node_for_deps(r, view_qname, deps);
-            }
-        }
-        N::RangeSubselect(sub) => {
-            if let Some(sq) = &sub.subquery {
-                walk_node_for_deps(sq, view_qname, deps);
-            }
-        }
-        N::CommonTableExpr(cte) => {
-            if let Some(q) = &cte.ctequery {
-                walk_node_for_deps(q, view_qname, deps);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Extract [`crate::plan::edges::DepEdge`]s from a view body on the catalog side.
-///
-/// On the catalog side we are the ground truth — there is no "unknown object"
-/// error. Extraction stays best-effort *within a parsed body*: any
-/// schema-qualified `RangeVar` becomes a dep edge, and unresolvable or
-/// unqualified references are deliberately skipped.
-///
-/// A body that does not parse at all is a different failure and is **not**
-/// best-effort. It previously returned an empty edge list, which is
-/// indistinguishable from "this view genuinely depends on nothing" — so the
-/// planner would order the view's DDL as if it were a leaf and could emit it
-/// before the relations it selects from. Dependency edges are the whole basis
-/// of plan ordering; losing them silently is a correctness bug, not degraded
-/// service.
 fn extract_deps_from_body(
     body_text: &str,
     view_qname: &QualifiedName,
 ) -> Result<Vec<crate::plan::edges::DepEdge>, CatalogError> {
-    use crate::plan::edges::DepEdge;
-
-    let parsed = pg_query::parse(body_text).map_err(|_| CatalogError::UnparseableDefinition {
-        object: format!("view {view_qname}"),
-        kind: "pg_get_viewdef",
-        def: body_text.to_string(),
-    })?;
-
-    let mut deps: Vec<DepEdge> = Vec::new();
-    for raw_stmt in &parsed.protobuf.stmts {
-        if let Some(node) = &raw_stmt.stmt {
-            walk_node_for_deps(node, view_qname, &mut deps);
+    from_catalog::view_dep_edges(body_text, view_qname).map_err(|_| {
+        CatalogError::UnparseableDefinition {
+            object: format!("view {view_qname}"),
+            kind: "pg_get_viewdef",
+            def: body_text.to_string(),
         }
-    }
-
-    deps.sort();
-    deps.dedup();
-    Ok(deps)
+    })
 }

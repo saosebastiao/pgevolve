@@ -24,11 +24,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 /// Non-OBJECT target types (ALL IN SCHEMA, DEFAULTS) → error (DEFAULTS arrives
 /// via [`super::default_privileges`] instead).
 #[allow(clippy::too_many_lines)] // one arm per `GRANT ... ON <object-kind>` target; extraction would obscure the kind dispatch.
-pub(crate) fn apply(
-    s: &GrantStmt,
-    cat: &mut Catalog,
-    loc: &SourceLocation,
-) -> Result<(), ParseError> {
+pub fn apply(s: &GrantStmt, cat: &mut Catalog, loc: &SourceLocation) -> Result<(), ParseError> {
     // Reject REVOKE.
     if !s.is_grant {
         return Err(ParseError::Structural {

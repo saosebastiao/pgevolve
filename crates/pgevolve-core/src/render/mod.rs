@@ -423,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn parseable_by_pg_query() {
+    fn rendered_catalog_is_parseable() {
         let mut cat = Catalog::empty();
         cat.schemas.push(Schema::new(id("app")));
         cat.tables.push(Table {
@@ -497,12 +497,8 @@ mod tests {
 
         let rendered = render_catalog(&cat);
 
-        // The whole block must be parseable by pg_query as multi-statement SQL.
-        let r = pg_query::parse(&rendered);
-        assert!(
-            r.is_ok(),
-            "pg_query rejected rendered catalog:\n{rendered}\nerr: {r:?}"
-        );
+        // The whole block must be parseable as multi-statement SQL.
+        crate::parse::syntax::assert_parses(&rendered);
     }
 
     #[test]

@@ -20,12 +20,10 @@ use crate::ir::column_type::ColumnType;
 ///
 /// This pass also enforces resolution: a column whose `column_type` is still
 /// `None` (the unresolved alias-list marker) at canon time is an internal
-/// resolver bug — [`canonicalize_view_bodies`] is expected to have filled it
-/// in. Such a column raises [`IrError::UnresolvedViewColumn`] rather than
-/// silently collapsing to the sentinel, guaranteeing no unresolved type ever
-/// reaches a serialized catalog.
-///
-/// [`canonicalize_view_bodies`]: crate::parse::ast_canon::canonicalize_view_bodies
+/// resolver bug — `parse::ast_canon::canonicalize_view_bodies` is expected to
+/// have filled it in. Such a column raises [`IrError::UnresolvedViewColumn`]
+/// rather than silently collapsing to the sentinel, guaranteeing no unresolved
+/// type ever reaches a serialized catalog.
 pub fn run(cat: &mut Catalog) -> Result<(), IrError> {
     let sentinel = ColumnType::Other {
         raw: "view_column".to_string(),

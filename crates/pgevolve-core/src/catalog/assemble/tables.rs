@@ -6,8 +6,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use pg_query::NodeEnum;
-
 use crate::catalog::CatalogQuery;
 use crate::catalog::DriftReport;
 use crate::catalog::error::CatalogError;
@@ -25,8 +23,8 @@ use crate::ir::index::{Index, IndexParent};
 use crate::ir::schema::Schema;
 use crate::ir::sequence::{Sequence, SequenceOwner};
 use crate::ir::table::Table;
-use crate::parse::builder;
 use crate::parse::error::SourceLocation;
+use crate::parse::from_catalog;
 
 use super::{
     ident_required, parse_check_expression, parse_fk_referenced_columns, parse_match_type,
@@ -614,34 +612,8 @@ pub(super) fn build_indexes(
 }
 
 fn parse_index_def(sql: &str) -> Result<Index, CatalogError> {
-    let parsed = pg_query::parse(sql).map_err(|e| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-            "could not reparse indexdef {sql:?}: {e}"
-        )))
-    })?;
-    let stmt = parsed
-        .protobuf
-        .stmts
-        .into_iter()
-        .next()
-        .and_then(|raw| raw.stmt)
-        .and_then(|n| n.node)
-        .ok_or_else(|| {
-            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-                "indexdef had no statement".into(),
-            ))
-        })?;
-    let NodeEnum::IndexStmt(idx_stmt) = stmt else {
-        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-            "indexdef scaffold did not yield IndexStmt".into(),
-        )));
-    };
     let location = SourceLocation::new(PathBuf::from("<catalog>"), 1, 1);
-    builder::index_stmt::build_index(&idx_stmt, None, &location).map_err(|e| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-            "indexdef → IR failed: {e}"
-        )))
-    })
+    from_catalog::index(sql, &location).map_err(CatalogError::from)
 }
 
 pub(super) fn build_sequence(
@@ -763,55 +735,8 @@ pub(super) fn parse_default_expr_text(
     text: &str,
     target_type: &ColumnType,
 ) -> Result<DefaultExpr, CatalogError> {
-    let sql = format!("SELECT ({text}) AS __pgevolve_default__");
-    let parsed = pg_query::parse(&sql).map_err(|e| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-            "could not reparse default expression {text:?}: {e}"
-        )))
-    })?;
-    let stmt = parsed
-        .protobuf
-        .stmts
-        .into_iter()
-        .next()
-        .and_then(|raw| raw.stmt)
-        .and_then(|n| n.node)
-        .ok_or_else(|| {
-            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-                "default scaffold had no statement".into(),
-            ))
-        })?;
-    let NodeEnum::SelectStmt(s) = stmt else {
-        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-            "default scaffold not SelectStmt".into(),
-        )));
-    };
-    let target = s
-        .target_list
-        .into_iter()
-        .next()
-        .and_then(|n| n.node)
-        .ok_or_else(|| {
-            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-                "default scaffold missing target".into(),
-            ))
-        })?;
-    let NodeEnum::ResTarget(rt) = target else {
-        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-            "default scaffold target not ResTarget".into(),
-        )));
-    };
-    let inner = rt.val.and_then(|n| n.node).ok_or_else(|| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-            "default scaffold ResTarget missing value".into(),
-        ))
-    })?;
     let location = SourceLocation::new(PathBuf::from("<catalog>"), 1, 1);
-    builder::shared::build_default_expr(&inner, Some(target_type), None, &location).map_err(|e| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-            "could not build default: {e}"
-        )))
-    })
+    from_catalog::default_expr(text, target_type, &location).map_err(CatalogError::from)
 }
 
 /// Re-parse a SQL expression text by wrapping it in `SELECT (…) AS x` and

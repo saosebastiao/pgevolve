@@ -47,7 +47,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 ///
 /// Rejects `CoercionPlpgsql` context, duplicate `(source, target)` identities,
 /// and missing source/target type nodes.
-pub(crate) fn parse_create(
+pub fn parse_create(
     stmt: &CreateCastStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -124,7 +124,7 @@ pub(crate) fn parse_create(
 /// Apply a `COMMENT ON CAST (src AS tgt) IS '…'` against the accumulator.
 ///
 /// `pg_query` encodes the cast reference as `object = List[TypeName(src), TypeName(tgt)]`.
-pub(crate) fn apply_comment(
+pub fn apply_comment(
     stmt: &CommentStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,

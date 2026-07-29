@@ -25,7 +25,7 @@ use crate::parse::normalize_expr;
 /// * Unnamed `CHECK` constraints are rejected with a clear error.
 /// * Duplicate `CHECK` names within the same domain are rejected.
 #[allow(clippy::too_many_lines)] // exhaustive walk of `CREATE DOMAIN` constraints; splitting would scatter the AST decoding.
-pub(crate) fn build_domain(
+pub fn build_domain(
     stmt: &CreateDomainStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,

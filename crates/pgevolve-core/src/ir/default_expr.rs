@@ -7,7 +7,7 @@
 //! - [`DefaultExpr::Expr`]: any other expression, stored as a [`NormalizedExpr`].
 //!
 //! Real AST normalization (cast stripping, paren folding, commutative-operand sorting)
-//! lands in phase 2 once `pg_query` is wired in. Phase 1 ships the structural types.
+//! lands in phase 2 once the parser is wired in. Phase 1 ships the structural types.
 
 use serde::{Deserialize, Serialize};
 
@@ -84,7 +84,7 @@ impl NormalizedExpr {
     /// This constructor does NOT run any normalization passes — it assumes the
     /// caller has already produced canonical form. Source-side construction goes
     /// through `pgevolve_core::parse::normalize_expr::from_pg_node` which deparses
-    /// and normalizes a `pg_query` node.
+    /// and normalizes a parser node.
     pub fn from_text(canonical_text: impl Into<String>) -> Self {
         let canonical_text = canonical_text.into();
         let ast_hash = blake3::hash(canonical_text.as_bytes()).into();

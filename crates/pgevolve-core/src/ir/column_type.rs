@@ -285,7 +285,7 @@ impl ColumnType {
         let lower = trimmed.to_ascii_lowercase();
         let parsed = parse_canonical(&lower).unwrap_or_else(|| Self::Other {
             // PostGIS geometry/geography subtypes are case-insensitive, but the
-            // source parser (pg_query) lowercases the bareword subtype while
+            // The source parser lowercases the bareword subtype while
             // pg_catalog.format_type emits canonical TitleCase. Store the
             // lowercase form so source and catalog IR compare equal (Other
             // equality is exact-string), avoiding a perpetual spurious diff.
@@ -756,7 +756,7 @@ mod tests {
 
     #[test]
     fn postgis_geo_subtype_casing_is_normalized() {
-        // The source parser (pg_query) lowercases the bareword subtype while the
+        // The source parser lowercases the bareword subtype while the
         // catalog's `format_type` emits canonical TitleCase. Both must produce an
         // equal `Other` so there is no perpetual spurious ALTER COLUMN TYPE diff
         // against a live PostGIS database. (issue #40)

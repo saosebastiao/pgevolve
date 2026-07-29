@@ -16,7 +16,7 @@ use pgevolve_core::catalog::{CatalogFilter, PgVersion, read_catalog};
 use pgevolve_core::identifier::Identifier;
 use pgevolve_core::ir::column::{Compression, StorageKind};
 use pgevolve_core::ir::index::IndexParent;
-use pgevolve_core::parse::normalize_body::NormalizedBody;
+use pgevolve_core::parse::NormalizedBody;
 use pgevolve_testkit::catalog_snapshotter;
 use pgevolve_testkit::ephemeral_pg::{EphemeralPostgres, docker_available};
 use pgevolve_testkit::pg_querier::PgCatalogQuerier;

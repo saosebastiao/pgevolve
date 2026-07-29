@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use pgevolve_core::parse::cluster::parse_cluster_directory;
+use pgevolve_core::parse::parse_cluster_directory;
 use tempfile::TempDir;
 
 fn write_roles(td: &TempDir, files: &[(&str, &str)]) -> std::path::PathBuf {

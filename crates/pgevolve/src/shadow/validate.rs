@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 use pgevolve_core::ir::catalog::Catalog;
-use pgevolve_core::parse::normalize_body::NormalizedBody;
+use pgevolve_core::parse::NormalizedBody;
 use pgevolve_core::plan::edges::{DepEdge, DepSource, NodeId, build_create_graph};
 use pgevolve_core::render::render_catalog;
 

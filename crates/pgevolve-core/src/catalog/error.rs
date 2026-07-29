@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::catalog::CatalogQuery;
 use crate::ir::IrError;
 use crate::parse::ParseError;
+pub use crate::parse::from_catalog::FromCatalogError;
 
 /// Errors raised by the catalog reader.
 #[derive(Debug, Error)]
@@ -67,6 +68,15 @@ pub enum CatalogError {
     /// A `pg_get_constraintdef`/`pg_get_indexdef`/default expression failed to parse.
     #[error("re-parsing introspected SQL fragment failed: {0}")]
     ReparseFailed(#[from] Box<ParseError>),
+
+    /// Rebuilding IR from a server-emitted definition string failed.
+    ///
+    /// Distinct from [`Self::ReparseFailed`]: that one carries a bare lowering
+    /// failure, while this names the catalog accessor that produced the text
+    /// and quotes the text itself. These definitions come from the server, so
+    /// there is no source file to point a user at — the text is the evidence.
+    #[error(transparent)]
+    FromCatalog(#[from] FromCatalogError),
 
     /// A catalog row referenced an object oid that no other query produced.
     #[error("catalog assembly: dangling reference {kind} for {what}")]

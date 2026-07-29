@@ -41,12 +41,17 @@ pub enum ParseError {
         source: std::io::Error,
     },
 
-    /// `pg_query` rejected the SQL.
-    #[error("pg_query parse error at {location}: {message}")]
-    PgQuery {
+    /// The SQL parser rejected the input.
+    ///
+    /// Named for the failure rather than the parser that reported it: the
+    /// binding behind `parse/` is replaceable, and a public variant carrying
+    /// its name would have to be renamed — a breaking change — the next time it
+    /// changes.
+    #[error("syntax error at {location}: {message}")]
+    Syntax {
         /// Source location.
         location: SourceLocation,
-        /// Message from `pg_query`.
+        /// Message from the parser.
         message: String,
     },
 

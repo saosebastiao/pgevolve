@@ -6,7 +6,7 @@
 //!
 //! The strategy:
 //! - Schemas, tables, sequences, columns: direct field-for-field translation.
-//! - Indexes: re-parse `pg_get_indexdef` text via `pg_query` and reuse
+//! - Indexes: re-parse `pg_get_indexdef` text via the parser and reuse
 //!   [`crate::parse::builder::index_stmt::build_index`].
 //! - Constraints: build PK/UNIQUE/FK from row fields; for CHECK, extract the
 //!   expression from `pg_get_constraintdef` text.
@@ -35,9 +35,6 @@ mod user_types;
 mod views;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-
-use pg_query::NodeEnum;
 
 use crate::catalog::CatalogQuery;
 use crate::catalog::DriftReport;
@@ -50,6 +47,7 @@ use crate::ir::constraint::{FkMatchType, ReferentialAction};
 use crate::ir::default_expr::NormalizedExpr;
 use crate::ir::extension::Extension;
 use crate::ir::sequence::Sequence;
+use crate::parse::from_catalog;
 
 /// Bundle of rows passed to [`assemble`].
 pub struct RawRows {
@@ -305,55 +303,10 @@ pub(super) const fn parse_match_type(s: &str) -> FkMatchType {
 
 /// Extract the referenced-column list from a `pg_get_constraintdef` FK body.
 ///
-/// Wraps the constraint body in a synthetic `CREATE TABLE` statement so that
-/// `pg_query` can produce a typed AST, then reads the `pk_attrs` field of the
-/// resulting [`pg_query::protobuf::Constraint`] node — those are the columns on
-/// the *referenced* (primary-key) side of the FK.
-///
-/// Returns `None` when the body cannot be parsed or yields no constraint node,
-/// so callers can fall back to a placeholder list.
-///
-/// Constitution §5: parsing is not reimplemented — all SQL decomposition goes
-/// through `pg_query`.
+/// Returns `None` when the body cannot be parsed or names no columns; the
+/// caller has the constraint name needed to report that usefully.
 pub(super) fn parse_fk_referenced_columns(def: &str) -> Option<Vec<Identifier>> {
-    // Wrap in a synthetic CREATE TABLE so pg_query sees a full statement.
-    let synthetic =
-        format!("CREATE TABLE _pgevolve_synth (_pgevolve_dummy int, CONSTRAINT _c {def});");
-    let parsed = pg_query::parse(&synthetic).ok()?;
-
-    // Dig into: RawStmt → CreateStmt → table_elts → Constraint
-    let stmt_node = parsed
-        .protobuf
-        .stmts
-        .into_iter()
-        .next()
-        .and_then(|raw| raw.stmt)
-        .and_then(|n| n.node)?;
-    let NodeEnum::CreateStmt(create) = stmt_node else {
-        return None;
-    };
-
-    let constraint = create.table_elts.into_iter().find_map(|n| match n.node {
-        Some(NodeEnum::Constraint(c)) => Some(c),
-        _ => None,
-    })?;
-
-    // pk_attrs holds the referenced (right-hand) column names; fk_attrs holds
-    // the local (left-hand) column names.
-    let columns: Vec<Identifier> = constraint
-        .pk_attrs
-        .into_iter()
-        .filter_map(|n| match n.node {
-            Some(NodeEnum::String(s)) => Identifier::from_unquoted(&s.sval).ok(),
-            _ => None,
-        })
-        .collect();
-
-    if columns.is_empty() {
-        None
-    } else {
-        Some(columns)
-    }
+    from_catalog::fk_referenced_columns(def)
 }
 
 /// Strip the outer `CHECK (` / `)` from a `pg_get_constraintdef` payload and
@@ -373,55 +326,8 @@ pub(super) fn parse_check_expression(def: &str) -> Result<NormalizedExpr, Catalo
 /// Parse `text` as a SQL expression by wrapping it in `SELECT (...) AS x` and
 /// extracting the resulting expression node, then normalize it.
 pub(super) fn reparse_expression_text(text: &str) -> Result<NormalizedExpr, CatalogError> {
-    let sql = format!("SELECT ({text}) AS __pgevolve_expr__");
-    let parsed = pg_query::parse(&sql).map_err(|e| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-            "could not reparse expression {text:?}: {e}"
-        )))
-    })?;
-    let stmt = parsed
-        .protobuf
-        .stmts
-        .into_iter()
-        .next()
-        .and_then(|raw| raw.stmt)
-        .and_then(|n| n.node)
-        .ok_or_else(|| {
-            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-                "reparsed expression had no statement".into(),
-            ))
-        })?;
-    let NodeEnum::SelectStmt(s) = stmt else {
-        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-            "expression scaffold did not yield SelectStmt".into(),
-        )));
-    };
-    let target = s
-        .target_list
-        .into_iter()
-        .next()
-        .and_then(|n| n.node)
-        .ok_or_else(|| {
-            CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-                "expression scaffold had no target".into(),
-            ))
-        })?;
-    let NodeEnum::ResTarget(rt) = target else {
-        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-            "expression scaffold target was not a ResTarget".into(),
-        )));
-    };
-    let inner = rt.val.and_then(|n| n.node).ok_or_else(|| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-            "expression scaffold ResTarget missing value".into(),
-        ))
-    })?;
-    let location = crate::parse::error::SourceLocation::new(PathBuf::from("<catalog>"), 1, 1);
-    crate::parse::normalize_expr::from_pg_node(&inner, None, &location).map_err(|e| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-            "could not normalize expression: {e}"
-        )))
-    })
+    let location = from_catalog::catalog_location();
+    from_catalog::expression("pg_get_expr", text, &location).map_err(CatalogError::from)
 }
 
 /// Strip the outer `CHECK (…)` wrapper that `pg_get_constraintdef` prepends.

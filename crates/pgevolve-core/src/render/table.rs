@@ -160,9 +160,8 @@ mod tests {
     }
 
     fn assert_pg_parseable(sql: &str) {
-        // pg_query::parse accepts multi-statement SQL; pass the whole block.
-        let r = pg_query::parse(sql);
-        assert!(r.is_ok(), "pg_query rejected SQL:\n{sql}\nerr: {r:?}");
+        // The parser accepts multi-statement SQL; pass the whole block.
+        crate::parse::syntax::assert_parses(sql);
     }
 
     #[test]

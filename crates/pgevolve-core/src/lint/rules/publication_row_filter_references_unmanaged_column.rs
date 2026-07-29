@@ -10,7 +10,7 @@
 //! needed). Fires for each `PublishedTable` whose `row_filter` references a
 //! column name not present in the corresponding source table.
 //!
-//! Implementation parses the row filter's `canonical_text` with `pg_query`
+//! Implementation parses the row filter's `canonical_text` with the SQL parser
 //! (wrapping in `SELECT … WHERE …` so the parser can handle an expression),
 //! then walks the AST for `ColumnRef` nodes.
 
@@ -22,118 +22,9 @@ pub const RULE_ID: &str = "publication-row-filter-references-unmanaged-column";
 
 /// Extract simple (unqualified) column names referenced in a SQL expression.
 ///
-/// The expression is wrapped in `SELECT * FROM t WHERE <expr>` so `pg_query`
-/// can parse it. Only bare `ColumnRef` nodes (no schema prefix) are returned;
-/// qualified references are ignored because a row filter on a single table
-/// cannot have schema-qualified column refs.
-///
 /// Returns `None` if the expression fails to parse (caller silently skips).
 fn extract_column_refs_from_expr(expr_text: &str) -> Option<Vec<String>> {
-    // Wrap in a syntactically valid SELECT so pg_query can parse the expression.
-    let sql = format!("SELECT * FROM _t WHERE {expr_text}");
-    let parsed = pg_query::parse(&sql).ok()?;
-    let mut names = Vec::new();
-    for stmt in &parsed.protobuf.stmts {
-        let Some(node) = &stmt.stmt else { continue };
-        collect_column_refs(node, &mut names);
-    }
-    Some(names)
-}
-
-/// Recursively walk a protobuf node and collect unqualified `ColumnRef` names.
-fn collect_column_refs(node: &pg_query::protobuf::Node, out: &mut Vec<String>) {
-    use pg_query::NodeEnum;
-    let Some(inner) = &node.node else { return };
-
-    match inner {
-        NodeEnum::ColumnRef(cref)
-            // Only collect single-field column refs (not schema.table.col).
-            if cref.fields.len() == 1 =>
-        {
-            if let Some(field_node) = cref.fields.first()
-                && let Some(NodeEnum::String(s)) = &field_node.node
-                && !s.sval.is_empty()
-            {
-                out.push(s.sval.clone());
-            }
-        }
-        // Walk into sub-nodes via the standard protobuf node children.
-        // We handle the most common expression node types here.
-        NodeEnum::SelectStmt(sel) => {
-            if let Some(w) = &sel.where_clause {
-                collect_column_refs(w, out);
-            }
-            for t in &sel.target_list {
-                collect_column_refs(t, out);
-            }
-        }
-        NodeEnum::BoolExpr(b) => {
-            for arg in &b.args {
-                collect_column_refs(arg, out);
-            }
-        }
-        NodeEnum::AExpr(a) => {
-            if let Some(l) = &a.lexpr {
-                collect_column_refs(l, out);
-            }
-            if let Some(r) = &a.rexpr {
-                collect_column_refs(r, out);
-            }
-        }
-        NodeEnum::SubLink(sl) => {
-            if let Some(t) = &sl.testexpr {
-                collect_column_refs(t, out);
-            }
-            if let Some(q) = &sl.subselect {
-                collect_column_refs(q, out);
-            }
-        }
-        NodeEnum::FuncCall(fc) => {
-            for arg in &fc.args {
-                collect_column_refs(arg, out);
-            }
-        }
-        NodeEnum::NullTest(nt) => {
-            if let Some(a) = &nt.arg {
-                collect_column_refs(a, out);
-            }
-        }
-        NodeEnum::BooleanTest(bt) => {
-            if let Some(a) = &bt.arg {
-                collect_column_refs(a, out);
-            }
-        }
-        NodeEnum::CaseExpr(ce) => {
-            if let Some(a) = &ce.arg {
-                collect_column_refs(a, out);
-            }
-            for w in &ce.args {
-                collect_column_refs(w, out);
-            }
-            if let Some(d) = &ce.defresult {
-                collect_column_refs(d, out);
-            }
-        }
-        NodeEnum::CaseWhen(cw) => {
-            if let Some(e) = &cw.expr {
-                collect_column_refs(e, out);
-            }
-            if let Some(r) = &cw.result {
-                collect_column_refs(r, out);
-            }
-        }
-        NodeEnum::ResTarget(rt) => {
-            if let Some(v) = &rt.val {
-                collect_column_refs(v, out);
-            }
-        }
-        NodeEnum::TypeCast(tc) => {
-            if let Some(a) = &tc.arg {
-                collect_column_refs(a, out);
-            }
-        }
-        _ => {}
-    }
+    crate::parse::from_catalog::unqualified_column_refs(expr_text)
 }
 
 /// Source-only check: fires for each `PublishedTable` in source's publications

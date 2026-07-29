@@ -99,11 +99,13 @@ Four confirmed sites where a PG18 construct, or a parse failure, yields plausibl
 
 `parse::Statement` is a 36-variant enum whose payloads **are** 33 raw `pg_query::protobuf::*Stmt` structs, and `lib.rs:25` re-exports `pub mod parse;`. So `pg_query` is part of `pgevolve-core`'s public API and any parser change is a semver break. **No caller outside `parse/` consumes those payloads** — this is fixable now and it is what makes Stage 4 a rename rather than a rewrite.
 
-- [ ] **2.1** Seal the module: `pub(crate) mod parse` with a narrow re-exported facade (`ParseError`, `SourceLocation`, `NormalizedBody` — the only things the other 71 files import), or replace `Statement`'s payloads with pgevolve-owned lowered structs.
-- [ ] **2.2** Close the 73 outbound sites: `catalog/assemble` 41 across 9 files, `render` 18 (**all** under `#[cfg(test)]`), `lint` 8, `ir` 4, `identifier.rs` 1. The 9 `catalog/assemble` production users all do the same thing — wrap server-emitted DDL text in a synthetic statement and re-parse — so route them through **one** shared helper in `parse/` rather than migrating nine call sites independently.
-- [ ] **2.3** ~40 of the 102 used `NodeEnum` variants appear once or twice as `_ => Err(unsupported)` rejection arms; those need only a discriminant, not a struct.
+- [x] **2.1** Seal the module. Taken as the facade option, not the lowered-struct one: every submodule is now `pub(crate)` and the public surface is seven items — `parse_directory`, `parse_cluster_directory`, `parse_cluster_sources`, `parse_routine_body`, `ParseError`, `SourceLocation`, `NormalizedBody`/`BodyError`. `Statement` is `pub(crate)`. Replacing its payloads is Stage 7's job and doing it here would have collided with the Stage 4 cutover.
+- [x] **2.2** Close the outbound sites. All 72 are gone; the count was 73 with one double-counted line. Landed as `parse::from_catalog` (rebuilding IR from server-emitted definition text) plus `parse::syntax` (syntax-only checks for render tests). The predicted shared helper was real: `parameter_list` replaced three near-identical 40-line walks in `functions.rs`, `casts.rs`, and `aggregates.rs` that differed only in error wording.
+- [ ] **2.3** ~40 of the 102 used `NodeEnum` variants appear once or twice as `_ => Err(unsupported)` rejection arms; those need only a discriminant, not a struct. **Deferred to Stage 7** — this is an input to the srcdata-generated AST design, not a change that stands on its own. Nothing in Stage 4 depends on it.
 
 **Gate (binary):** zero `pg_query` types reachable from `pgevolve-core`'s public surface; `cargo doc` clean; test suite unchanged and green.
+
+**Result:** gate met. Zero parser references outside `src/parse/`, enforced by `tests/parser_containment.rs` (which also guards against passing vacuously). 2468 tests pass, 0 failures — up 4 from the 2464 at Stage 1, all new. Sealing also surfaced four dead items that `pub` had been masking from `dead_code` analysis, and ~57 lints that `avoid-breaking-exported-api` had been suppressing; both are noted in Stage 4's notes below since they are the same effect that will surface again if any module is re-exported.
 
 ---
 
@@ -134,11 +136,21 @@ A new workspace crate, published to crates.io, versioned to track the Postgres m
 
 ## Stage 4 — Cut over
 
-- [ ] **4.1** Replace `pg_query = "6"` with `pgevolve-pgquery` in `[workspace.dependencies]`; update `crates/pgevolve-core/Cargo.toml`.
-- [ ] **4.2** Rename symbols across the 53 files / 2,108 lines. Stage 2 having sealed the boundary, this should be mechanical — the AST types are unchanged in this stage.
+- [ ] **4.1** Replace `pg_query = "6"` with `pgevolve-pgquery` in `[workspace.dependencies]`; update `crates/pgevolve-core/Cargo.toml` and the `pgevolve` dev-dependency that `tests/cast_e2e.rs` uses.
+- [ ] **4.2** Rename symbols. Post-Stage-2 the footprint is **45 files / 469 lines, all under `crates/pgevolve-core/src/parse/`**, plus one dev-dependency site in `crates/pgevolve/tests/cast_e2e.rs` — down from the 53 files / 2,108 lines this stage was scoped against. The AST types are unchanged in this stage, so this is a rename, not a migration.
 - [ ] **4.3** Release ceremony now covers 3 crates (`pgevolve-pgquery` → `pgevolve-core` → `pgevolve`). Update CLAUDE.md §11 accordingly, preserving the standing rule: **never publish before CI is green across all five PG majors.**
+- [ ] **4.4** Update `tests/parser_containment.rs`'s `PARSER_CRATE` to the new crate name. The test is the thing that keeps 4.2 from silently regressing, so it has to move with the rename rather than after it.
 
 **Gate:** verify gate green; zero fixture re-blessing; `cargo deny check` green.
+
+### Notes carried from Stage 2
+
+Two effects surfaced when `parse`'s submodules went from `pub` to `pub(crate)`, and both will surface again for any module that changes visibility:
+
+- **`dead_code` starts seeing the module.** A `pub` item in a `pub` module is reachable by definition, so the lint never fires. Sealing revealed four genuinely-dead items: the whole `builder::Builder` accumulator (superseded by `ParseContext`, zero references), `AttachPartition::parent` (duplicated `partition_of.parent`), and `IndexNameKind::Exclude` (kept with a justification — it mirrors PG's closed set of name suffixes).
+- **`avoid-breaking-exported-api` stops suppressing clippy.** ~57 `redundant_pub_crate` findings plus one `struct_field_names` appeared at once, none of them new code. `cargo clippy --fix` handled all but the last.
+
+Neither is a reason to avoid sealing; both are reasons to expect a lint burst and budget for it rather than reading it as breakage.
 
 ---
 

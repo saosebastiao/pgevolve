@@ -25,7 +25,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 ///   explicitly so the dependency graph is visible.
 /// * `FROM old_version` (`old_version` `DefElem`) is rejected — it is a
 ///   migration concept not applicable to declarative desired-state files.
-pub(crate) fn build_extension(
+pub fn build_extension(
     stmt: &CreateExtensionStmt,
     location: &SourceLocation,
 ) -> Result<Extension, ParseError> {

@@ -23,7 +23,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 ///
 /// Rejects duplicates. Parses `CONNECTION`, `PUBLICATION`, and `WITH (…)`.
 /// The `CONNECTION` string is stored verbatim — no `${VAR}` resolution here.
-pub(crate) fn parse_create_subscription(
+pub fn parse_create_subscription(
     stmt: &CreateSubscriptionStmt,
     source_loc: SourceLocation,
     existing: &mut BTreeMap<Identifier, Subscription>,
@@ -65,7 +65,7 @@ pub(crate) fn parse_create_subscription(
 /// Folds ADD/DROP/SET PUBLICATION, CONNECTION, and SET (…) option changes
 /// into the existing `Subscription` record. Rejects REFRESH, SKIP, and
 /// standalone ENABLE/DISABLE. ALTER-before-CREATE returns an error.
-pub(crate) fn parse_alter_subscription(
+pub fn parse_alter_subscription(
     stmt: &AlterSubscriptionStmt,
     source_loc: SourceLocation,
     existing: &mut BTreeMap<Identifier, Subscription>,

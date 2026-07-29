@@ -37,8 +37,7 @@ mod tests {
         let sql = render_schema(&s);
         assert!(sql.contains("CREATE SCHEMA app;"));
         assert!(!sql.contains("COMMENT"));
-        let r = pg_query::parse(sql.trim());
-        assert!(r.is_ok(), "pg_query rejected: {sql:?}\nerr: {r:?}");
+        crate::parse::syntax::assert_parses(sql.trim());
     }
 
     #[test]
@@ -53,8 +52,7 @@ mod tests {
         assert!(sql.contains("CREATE SCHEMA billing;"));
         assert!(sql.contains("COMMENT ON SCHEMA billing IS 'billing namespace';"));
 
-        let r = pg_query::parse(&sql);
-        assert!(r.is_ok(), "pg_query rejected SQL:\n{sql}\nerr: {r:?}");
+        crate::parse::syntax::assert_parses(&sql);
     }
 
     #[test]
@@ -66,7 +64,6 @@ mod tests {
             sql.contains("\"MySchema\""),
             "expected quoted name in: {sql}"
         );
-        let r = pg_query::parse(&sql);
-        assert!(r.is_ok(), "pg_query rejected SQL:\n{sql}\nerr: {r:?}");
+        crate::parse::syntax::assert_parses(&sql);
     }
 }

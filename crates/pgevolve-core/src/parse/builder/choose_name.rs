@@ -19,6 +19,13 @@ pub enum IndexNameKind {
     /// Plain (non-unique, non-exclusion) index: suffix `idx`.
     Plain,
     /// Exclusion constraint: suffix `excl`.
+    ///
+    /// Not constructed yet — exclusion constraints do not go through the
+    /// auto-naming path. The variant stays because this enum mirrors the closed
+    /// set of suffixes Postgres itself picks from, and a set that is complete
+    /// except where we happen not to have written the caller is worse than one
+    /// that matches the source of truth.
+    #[allow(dead_code, reason = "mirrors PG's closed set of index-name suffixes")]
     Exclude,
     /// Extended statistics object: suffix `stat`. Verified to match PG's
     /// `ChooseExtendedStatisticName` across PG 14–18 by the live round-trip

@@ -21,7 +21,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 ///   (e.g. a `-- @pgevolve schema=app` directive is in effect).
 /// * Duplicate labels within the same enum are rejected (PG does the same).
 /// * An empty value list is rejected.
-pub(crate) fn build_enum(
+pub fn build_enum(
     stmt: &CreateEnumStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,

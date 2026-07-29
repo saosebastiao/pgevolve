@@ -38,8 +38,7 @@ mod tests {
     }
 
     fn assert_pg_parseable(sql: &str) {
-        let r = pg_query::parse(sql);
-        assert!(r.is_ok(), "pg_query rejected SQL:\n{sql}\nerr: {r:?}");
+        crate::parse::syntax::assert_parses(sql);
     }
 
     fn base_seq() -> Sequence {

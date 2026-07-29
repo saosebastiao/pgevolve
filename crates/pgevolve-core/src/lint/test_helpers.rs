@@ -37,7 +37,7 @@ pub fn make_plpgsql_function(
         arg_types_normalized,
         return_type: ReturnType::Void,
         language: FunctionLanguage::PlPgSql,
-        // PL/pgSQL bodies can't be parsed by pg_query — use from_raw_canonical.
+        // PL/pgSQL bodies are opaque to the SQL parser — use from_raw_canonical.
         body: NormalizedBody::from_raw_canonical(body_text.to_string()),
         body_dependencies: deps,
         volatility: Volatility::Volatile,
@@ -71,7 +71,7 @@ pub fn make_procedure(
         qname: qn(schema, name),
         args: vec![],
         language: FunctionLanguage::PlPgSql,
-        // PL/pgSQL bodies can't be parsed by pg_query — use from_raw_canonical.
+        // PL/pgSQL bodies are opaque to the SQL parser — use from_raw_canonical.
         body: NormalizedBody::from_raw_canonical(body_text.to_string()),
         body_dependencies: deps,
         security: SecurityMode::Invoker,

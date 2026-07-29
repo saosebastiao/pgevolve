@@ -39,7 +39,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 use crate::parse::normalize_expr;
 
 /// Build a [`Trigger`] from a parsed `CreateTrigStmt` AST node.
-pub(crate) fn build_trigger(
+pub fn build_trigger(
     stmt: &CreateTrigStmt,
     location: &SourceLocation,
 ) -> Result<Trigger, ParseError> {

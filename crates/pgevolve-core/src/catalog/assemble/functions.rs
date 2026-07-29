@@ -9,11 +9,12 @@ use crate::catalog::filter::CatalogFilter;
 use crate::catalog::rows::Row;
 use crate::identifier::QualifiedName;
 use crate::ir::function::{
-    ArgMode, Function, FunctionArg, FunctionLanguage, NormalizedArgTypes, ParallelSafety,
-    ReturnType, SecurityMode, TableColumn, Volatility,
+    Function, FunctionArg, FunctionLanguage, NormalizedArgTypes, ParallelSafety, ReturnType,
+    SecurityMode, TableColumn, Volatility,
 };
 use crate::ir::procedure::Procedure;
 use crate::parse::error::SourceLocation;
+use crate::parse::from_catalog;
 
 use super::ident_required;
 
@@ -203,102 +204,29 @@ fn result_is_set_returning(s: &str) -> bool {
 
 /// Parse a `pg_get_function_arguments` string (e.g. `"x integer, y text DEFAULT 'a'"`)
 /// into a `Vec<FunctionArg>`.
-///
-/// The strategy: synthesize a wrapper `CREATE FUNCTION` and re-parse via
-/// `pg_query`, then walk the resulting `CreateFunctionStmt.parameters`.
 fn parse_arg_full(
     arg_full: &str,
     qname: &QualifiedName,
     location: &SourceLocation,
 ) -> Result<Vec<FunctionArg>, CatalogError> {
-    use pg_query::NodeEnum;
-    use pg_query::protobuf::FunctionParameterMode;
-
-    // Empty argument list.
-    if arg_full.trim().is_empty() {
-        return Ok(vec![]);
-    }
-
-    let wrapper = format!(
-        "CREATE FUNCTION pgevolve_temp({arg_full}) RETURNS void LANGUAGE sql AS $$ SELECT NULL $$;"
-    );
-    let parsed = pg_query::parse(&wrapper).map_err(|e| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-            "catalog arg parse for {qname} ({arg_full:?}): {e}"
-        )))
-    })?;
-
-    let stmt = parsed
-        .protobuf
-        .stmts
-        .into_iter()
-        .next()
-        .and_then(|r| r.stmt)
-        .and_then(|n| n.node)
-        .ok_or_else(|| {
+    let params = from_catalog::parameter_list("pg_get_function_arguments", arg_full, location)
+        .map_err(|e| {
             CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-                "catalog arg parse for {qname}: no statement"
+                "catalog arg parse for {qname}: {e}"
             )))
         })?;
-    let NodeEnum::CreateFunctionStmt(stmt) = stmt else {
-        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-            format!("catalog arg parse for {qname}: unexpected stmt kind"),
-        )));
-    };
 
-    let mut args: Vec<FunctionArg> = Vec::new();
-
-    for param_node in &stmt.parameters {
-        let Some(NodeEnum::FunctionParameter(p)) = param_node.node.as_ref() else {
-            continue;
-        };
-        let raw_mode =
-            FunctionParameterMode::try_from(p.mode).unwrap_or(FunctionParameterMode::Undefined);
-
-        // TABLE mode params are OUT columns in the argument string — treat as Out.
-        let mode = match raw_mode {
-            FunctionParameterMode::FuncParamIn
-            | FunctionParameterMode::FuncParamDefault
-            | FunctionParameterMode::Undefined => ArgMode::In,
-            FunctionParameterMode::FuncParamOut | FunctionParameterMode::FuncParamTable => {
-                ArgMode::Out
-            }
-            FunctionParameterMode::FuncParamInout => ArgMode::InOut,
-            FunctionParameterMode::FuncParamVariadic => ArgMode::Variadic,
-        };
-
-        let Some(tn) = p.arg_type.as_ref() else {
-            continue;
-        };
-        let ty =
-            crate::parse::builder::shared::type_name_to_column_type(tn, location).map_err(|e| {
-                CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-                    "catalog arg type for {qname}: {e}"
-                )))
-            })?;
-        let arg_name = if p.name.is_empty() {
-            None
-        } else {
-            Some(ident_required(&p.name)?)
-        };
-
-        let default = p
-            .defexpr
-            .as_ref()
-            .and_then(|defexpr| defexpr.node.as_ref())
-            .and_then(|node_enum| {
-                crate::parse::normalize_expr::from_pg_node(node_enum, Some(&ty), location).ok()
-            });
-
-        args.push(FunctionArg {
-            name: arg_name,
-            mode,
-            ty,
-            default,
-        });
-    }
-
-    Ok(args)
+    params
+        .into_iter()
+        .map(|p| {
+            Ok(FunctionArg {
+                name: p.name.as_deref().map(ident_required).transpose()?,
+                mode: p.mode,
+                ty: p.ty,
+                default: p.default,
+            })
+        })
+        .collect()
 }
 
 /// Extract the body text from the output of `pg_get_functiondef`.
@@ -461,62 +389,28 @@ fn parse_return_scalar_type(
 }
 
 /// Parse `"col1 type1, col2 type2, ..."` into `Vec<TableColumn>`.
+///
+/// This is the inner text of a `RETURNS TABLE(…)` clause, which the server
+/// hands back as part of `pg_get_function_result`.
 fn parse_table_return_columns(
     inner: &str,
     qname: &QualifiedName,
 ) -> Result<Vec<TableColumn>, CatalogError> {
-    use pg_query::protobuf::FunctionParameterMode;
-
-    // We synthesize a CREATE FUNCTION with a RETURNS TABLE clause and re-parse.
-    let wrapper = format!(
-        "CREATE FUNCTION pgevolve_temp() RETURNS TABLE({inner}) LANGUAGE sql AS $$ SELECT NULL $$;"
-    );
-    let parsed = pg_query::parse(&wrapper).map_err(|e| {
-        CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-            "RETURNS TABLE parse for {qname} ({inner:?}): {e}"
-        )))
-    })?;
-    let stmt = parsed
-        .protobuf
-        .stmts
-        .into_iter()
-        .next()
-        .and_then(|r| r.stmt)
-        .and_then(|n| n.node)
-        .ok_or_else(|| {
+    let location = from_catalog::catalog_location();
+    let columns =
+        from_catalog::returns_table_columns("RETURNS TABLE", inner, &location).map_err(|e| {
             CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(format!(
-                "RETURNS TABLE parse for {qname}: no stmt"
+                "RETURNS TABLE parse for {qname}: {e}"
             )))
         })?;
-    let pg_query::NodeEnum::CreateFunctionStmt(stmt) = stmt else {
-        return Err(CatalogError::Ir(crate::ir::IrError::InvalidIdentifier(
-            format!("RETURNS TABLE parse for {qname}: unexpected stmt kind"),
-        )));
-    };
 
-    let catalog_location = SourceLocation::new(std::path::PathBuf::from("<catalog>"), 1, 1);
-    let mut columns: Vec<TableColumn> = Vec::new();
-    for param_node in &stmt.parameters {
-        let Some(pg_query::NodeEnum::FunctionParameter(p)) = param_node.node.as_ref() else {
-            continue;
-        };
-        let raw_mode =
-            FunctionParameterMode::try_from(p.mode).unwrap_or(FunctionParameterMode::Undefined);
-        if raw_mode != FunctionParameterMode::FuncParamTable {
-            continue;
-        }
-        let Some(tn) = p.arg_type.as_ref() else {
-            continue;
-        };
-        let ty = crate::parse::builder::shared::type_name_to_column_type(tn, &catalog_location)
-            .map_err(|e| {
-                CatalogError::Ir(crate::ir::IrError::InvalidColumnType(format!(
-                    "RETURNS TABLE col type for {qname}: {e}"
-                )))
-            })?;
-        let nm = ident_required(&p.name)?;
-        columns.push(TableColumn { name: nm, ty });
-    }
-
-    Ok(columns)
+    columns
+        .into_iter()
+        .map(|c| {
+            Ok(TableColumn {
+                name: ident_required(c.name.as_deref().unwrap_or_default())?,
+                ty: c.ty,
+            })
+        })
+        .collect()
 }

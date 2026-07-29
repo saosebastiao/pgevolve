@@ -12,7 +12,7 @@
 //! ## Round-trip correctness
 //!
 //! The catalog reader rebuilds a function's body by re-parsing the read-back
-//! body through [`pgevolve_core::parse::builder::plpgsql::parse_routine_body`].
+//! body through [`pgevolve_core::parse::parse_routine_body`].
 //! To guarantee the generated function's canonical body equals the read-back
 //! one, this generator builds its body through the *same* helper with the same
 //! input (`BEGIN\nEND`, PL/pgSQL). The `cost`/`rows` fields are left `None`
@@ -31,8 +31,8 @@ use pgevolve_core::ir::function::{
     Function, FunctionLanguage, NormalizedArgTypes, ParallelSafety, ReturnType, SecurityMode,
     Volatility,
 };
-use pgevolve_core::parse::builder::plpgsql::parse_routine_body;
-use pgevolve_core::parse::error::SourceLocation;
+use pgevolve_core::parse::SourceLocation;
+use pgevolve_core::parse::parse_routine_body;
 
 /// Command-tag pool for the unrestricted events (`ddl_command_start`,
 /// `ddl_command_end`, `sql_drop`). Canon sorts + dedupes the chosen subset,

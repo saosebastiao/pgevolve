@@ -671,7 +671,7 @@ fn node_kind_name(node: &NodeEnum) -> &'static str {
 ///
 /// `pub(crate)` so PART3 (ATTACH PARTITION builder) and PART4 (catalog reader)
 /// can call it directly without re-parsing the node.
-pub(crate) fn build_partition_by(
+pub fn build_partition_by(
     spec: &PartitionSpec,
     location: &SourceLocation,
 ) -> Result<PartitionBy, ParseError> {
@@ -743,7 +743,7 @@ pub(crate) fn build_partition_by(
 /// Build a [`PartitionBounds`] from a `PartitionBoundSpec` node.
 ///
 /// `pub(crate)` so PART3 and PART4 can call it without re-parsing.
-pub(crate) fn build_partition_bounds(
+pub fn build_partition_bounds(
     spec: &PartitionBoundSpec,
     location: &SourceLocation,
 ) -> Result<PartitionBounds, ParseError> {

@@ -28,7 +28,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 /// * `default_schema` — filled in when the source omits the schema prefix.
 /// * Returns [`ParseError::Structural`] for unknown options, missing locale,
 ///   or `locale` combined with `lc_collate`/`lc_ctype`.
-pub(crate) fn build_collation(
+pub fn build_collation(
     stmt: &DefineStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -260,7 +260,7 @@ mod tests {
     /// `ParseError`). Wraps just enough of the public surface to keep parser
     /// tests self-contained.
     fn parse_to_catalog(sql: &str) -> Result<Catalog, ParseError> {
-        let parsed = pg_query::parse(sql).map_err(|e| ParseError::PgQuery {
+        let parsed = pg_query::parse(sql).map_err(|e| ParseError::Syntax {
             location: loc(),
             message: e.to_string(),
         })?;

@@ -21,7 +21,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 /// * Accepts (all optional): `subtype_opclass`, `collation`, `canonical`,
 ///   `subtype_diff`, `multirange_type_name`.
 #[allow(clippy::too_many_lines)] // option-list dispatch — splitting would scatter per-option decoding.
-pub(crate) fn build_range(
+pub fn build_range(
     stmt: &CreateRangeStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,

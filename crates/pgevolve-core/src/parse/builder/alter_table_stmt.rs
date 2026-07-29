@@ -102,6 +102,17 @@ pub struct PendingTablespace {
 }
 
 /// The combined output of processing one `ALTER TABLE` statement.
+///
+/// The shared `pending_` prefix is the point rather than an accident: every
+/// field here is a fragment that cannot be resolved until *all* files have been
+/// parsed, because an `ALTER TABLE` may forward-reference a table defined in a
+/// later file. The fields land in `ParseContext` under the same names, where
+/// dropping the prefix would leave `fks` sitting next to the already-resolved
+/// catalog contents with nothing to mark the difference.
+#[allow(
+    clippy::struct_field_names,
+    reason = "the shared prefix marks deferred resolution and matches ParseContext"
+)]
 #[derive(Debug, Default)]
 pub struct AlterTableOutput {
     /// Forward-reference FK constraints to merge after all tables are parsed.

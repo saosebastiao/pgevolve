@@ -46,7 +46,7 @@ const SUPPORTED_OPTIONS: [&str; 4] = ["sfunc", "stype", "finalfunc", "initcond"]
 ///
 /// Rejects ordered-set aggregates, unknown `definition` options, missing
 /// `SFUNC`/`STYPE`, and duplicate `(qname, arg_types)` identities.
-pub(crate) fn parse_create(
+pub fn parse_create(
     stmt: &DefineStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -120,7 +120,7 @@ pub(crate) fn parse_create(
 }
 
 /// Apply an `ALTER AGGREGATE name(args) OWNER TO role` against the accumulator.
-pub(crate) fn apply_owner(
+pub fn apply_owner(
     stmt: &AlterOwnerStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
@@ -135,7 +135,7 @@ pub(crate) fn apply_owner(
 }
 
 /// Apply a `COMMENT ON AGGREGATE name(args) IS '…'` against the accumulator.
-pub(crate) fn apply_comment(
+pub fn apply_comment(
     stmt: &CommentStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,

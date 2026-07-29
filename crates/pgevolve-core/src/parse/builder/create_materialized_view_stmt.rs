@@ -22,7 +22,7 @@ use crate::parse::normalize_body::NormalizedBody;
 ///
 /// Column names are taken from the explicit alias list (`col_names` on
 /// `IntoClause`) when present; otherwise `columns` is empty until T4 fills it.
-pub(crate) fn build_materialized_view(
+pub fn build_materialized_view(
     stmt: &CreateTableAsStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,

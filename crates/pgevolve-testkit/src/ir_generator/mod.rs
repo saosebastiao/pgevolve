@@ -101,7 +101,7 @@ use pgevolve_core::ir::constraint::ConstraintKind;
 use pgevolve_core::ir::index::Index;
 use pgevolve_core::ir::table::Table;
 use pgevolve_core::ir::view::{CheckOption, View};
-use pgevolve_core::parse::normalize_body::NormalizedBody;
+use pgevolve_core::parse::NormalizedBody;
 use pgevolve_core::plan::edges::{DepEdge, DepSource, NodeId};
 
 pub mod cluster;

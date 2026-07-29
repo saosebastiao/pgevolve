@@ -7,7 +7,7 @@ use crate::ir::reloptions::{BufferingMode, IndexStorageOptions, TableStorageOpti
 use crate::parse::error::{ParseError, SourceLocation};
 
 /// Decode reloption clauses for a table or materialized view.
-pub(crate) fn decode_table_options(
+pub fn decode_table_options(
     options: &[pg_query::protobuf::Node],
     loc: &SourceLocation,
 ) -> Result<TableStorageOptions, ParseError> {
@@ -49,7 +49,7 @@ pub(crate) fn decode_table_options(
 /// `access_method` is the `USING ...` clause from the surrounding
 /// `CreateIndexStmt`; it is used to validate the fillfactor range, which
 /// differs per access method.
-pub(crate) fn decode_index_options(
+pub fn decode_index_options(
     options: &[pg_query::protobuf::Node],
     access_method: &str,
     loc: &SourceLocation,
@@ -246,7 +246,7 @@ fn parse_bool(v: &str, key: &str, loc: &SourceLocation) -> Result<bool, ParseErr
 ///
 /// For `AT_SetRelOptions` / `AT_ResetRelOptions`, `pg_query` stores the options
 /// list as a `NodeEnum::List` inside `cmd.def`. This helper unpacks it.
-pub(crate) fn extract_def_list(
+pub fn extract_def_list(
     def: Option<&pg_query::protobuf::Node>,
     loc: &SourceLocation,
 ) -> Result<Vec<pg_query::protobuf::Node>, ParseError> {

@@ -48,7 +48,7 @@ use pgevolve_core::catalog::DriftReport;
 use pgevolve_core::diff::ViewChange;
 use pgevolve_core::identifier::QualifiedName;
 use pgevolve_core::ir::catalog::Catalog;
-use pgevolve_core::parse::normalize_body::NormalizedBody;
+use pgevolve_core::parse::NormalizedBody;
 use pgevolve_core::plan::edges::NodeId;
 use pgevolve_core::plan::{PlanId, build_create_graph};
 use pgevolve_testkit::{
@@ -488,8 +488,8 @@ proptest! {
     ) {
         use pgevolve_core::identifier::{Identifier, QualifiedName};
         use pgevolve_core::ir::function::FunctionLanguage;
-        use pgevolve_core::parse::builder::plpgsql::parse_routine_body;
-        use pgevolve_core::parse::error::SourceLocation;
+        use pgevolve_core::parse::parse_routine_body;
+        use pgevolve_core::parse::SourceLocation;
 
         let qname = QualifiedName::new(
             Identifier::from_unquoted("app").unwrap(),

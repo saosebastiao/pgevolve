@@ -25,7 +25,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 ///
 /// Rejects duplicates. Parses scope (`FOR ALL TABLES` vs selective) and
 /// `WITH (publish = '...', publish_via_partition_root = ...)` options.
-pub(crate) fn parse_create_publication(
+pub fn parse_create_publication(
     stmt: &CreatePublicationStmt,
     source_loc: SourceLocation,
     existing: &mut BTreeMap<Identifier, Publication>,
@@ -68,7 +68,7 @@ pub(crate) fn parse_create_publication(
 ///
 /// Folds ADD / DROP / SET object changes and `WITH (...)` option updates
 /// into the existing `Publication` record. Rejects ALTER-before-CREATE.
-pub(crate) fn parse_alter_publication(
+pub fn parse_alter_publication(
     stmt: &AlterPublicationStmt,
     source_loc: SourceLocation,
     existing: &mut BTreeMap<Identifier, Publication>,

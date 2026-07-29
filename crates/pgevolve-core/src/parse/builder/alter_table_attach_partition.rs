@@ -12,8 +12,6 @@ use crate::parse::error::{ParseError, SourceLocation};
 /// Parsed result of `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...`.
 #[derive(Debug)]
 pub struct AttachPartition {
-    /// Schema-qualified name of the partitioned parent table.
-    pub parent: QualifiedName,
     /// Schema-qualified name of the child partition table.
     pub child: QualifiedName,
     /// The `PartitionOf` record ready to be stored on the child `Table`.
@@ -98,7 +96,6 @@ pub fn build_attach_partition(
     let bounds = crate::parse::builder::create_stmt::build_partition_bounds(bound_spec, location)?;
 
     Ok(AttachPartition {
-        parent: parent.clone(),
         child,
         partition_of: PartitionOf { parent, bounds },
     })
@@ -128,7 +125,7 @@ mod tests {
              FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');",
         );
         let r = build_attach_partition(&stmt, None, &loc()).unwrap();
-        assert_eq!(r.parent.name.as_str(), "orders");
+        assert_eq!(r.partition_of.parent.name.as_str(), "orders");
         assert_eq!(r.child.name.as_str(), "orders_2024");
         assert!(matches!(
             r.partition_of.bounds,

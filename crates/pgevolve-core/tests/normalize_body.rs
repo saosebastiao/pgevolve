@@ -3,7 +3,7 @@
 //! Two bodies that differ only in whitespace, qualifier presence, or
 //! redundant parens must produce equal `NormalizedBody`.
 
-use pgevolve_core::parse::normalize_body::NormalizedBody;
+use pgevolve_core::parse::NormalizedBody;
 
 #[test]
 fn whitespace_differences_are_equivalent() {
