@@ -37,7 +37,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace   # cargo doc clean
 From Stage 3 onward, additionally:
 
 ```sh
-cargo package --verify -p pgevolve-pgquery                   # packaging is a gate, not a surprise
+cargo package -p pgevolve-pgquery                            # packaging is a gate, not a surprise
+                                                             # (verification is the default; --verify is not a flag)
 ```
 
 > **Why `cargo package --verify` is a standing gate:** upstream `pg_query.rs` has no such check, and its `main` is currently unpublishable because `build.rs` copies a header its `include` globs do not ship. We do not inherit that failure mode.
@@ -51,7 +52,7 @@ cargo package --verify -p pgevolve-pgquery                   # packaging is a ga
 | 0 | ✅ **done** — Policy + honesty: `deny.toml`, constitution §5/§6, README | 0.5 ew | GO — unconditional |
 | 1 | ✅ **done** — Silent-degradation sites → typed errors; PG18 catalog preflight | 1 ew | GO — unconditional; live bugs today |
 | 2 | ✅ **done** — Seal `pg_query` out of `pgevolve-core`'s public API | 1 ew | GO — unconditional; makes Stage 4 mechanical |
-| 3 | `pgevolve-pgquery`: vendored libpg_query 18, stripped binding | 2.5 ew | **KILL GATE** (see below) |
+| 3 | 🔶 **partial** — `pgevolve-pgquery` crate built and packaged, vendoring libpg_query **17**; PG18 bump blocked on source access | 2.5 ew | **KILL GATE** — unrun (needs PG18 + 5 live servers) |
 | 4 | Cut `pgevolve-core` over to it; drop `pg_query` | 0.5 ew | Zero fixture re-blessing |
 | 5 | `xtask pg-oracle` + four PG18 plan-time lints | 1 ew | Oracle reproduces the acceptance matrix |
 | 6 | PG18 semantics with conformance fixtures | 3 ew | A fixture per claimed feature |
@@ -59,7 +60,7 @@ cargo package --verify -p pgevolve-pgquery                   # packaging is a ga
 
 **Total through Stage 6: ~9.5 engineer-weeks.**
 
-Stages 0–2 are correct under every outcome and touch no parser code. **All three are done** — the next stage is the kill gate.
+Stages 0–2 are correct under every outcome and touch no parser code. **All three are done.** Stage 3 is built against PG17 (see its scope note); the PG18 bump and the kill gate are the outstanding work.
 
 ---
 
@@ -113,39 +114,46 @@ Four confirmed sites where a PG18 construct, or a parse failure, yields plausibl
 
 A new workspace crate, published to crates.io, versioned to track the Postgres major it vendors.
 
-> ### ⚠️ BLOCKED on source access — 2026-07-29
+> ### Scope adaptation — PG17 vendored first (maintainer decision, 2026-07-29)
 >
-> **3.1 cannot start in a Claude Code remote session.** Vendoring requires the libpg_query 18 sources, and they are not reachable. Routes checked, all of them:
+> **The PG18 sources are unreachable from a Claude Code remote session.** Routes checked, all closed:
 >
 > | Route | Result |
 > |---|---|
 > | `codeload.github.com` tarball | HTTP 403 |
 > | `api.github.com` repo/tags | *"GitHub access to this repository is not enabled for this session. Use add_repo…"* |
 > | `add_repo pganalyze/libpg_query` | *"cross-tier adds are not supported in v1: session already has repos from owner(s) [saosebastiao]"* |
-> | crates.io published `pg_query` | highest version is **6.1.1 = libpg_query 17**. No PG18 crate exists; PG18 lives in unmerged draft PR #79. |
-> | `ftp.postgresql.org` (for the re-extraction route) | unreachable |
+> | crates.io published `pg_query` | tops out at **6.1.1 = libpg_query 17**; PG18 lives only in unmerged draft PR #79 |
+> | `ftp.postgresql.org` (re-extraction route) | unreachable |
 >
-> GitHub egress is mediated per-repository and only same-owner repos can be attached, so `pganalyze/*` is out of scope for this session by policy. This is an environment limit, not a plan defect — **3.1 needs either a session seeded with `pganalyze/libpg_query` as an initial source, or a maintainer machine.**
+> GitHub egress is mediated per-repository and only same-owner repos can be attached, so `pganalyze/*` is out of scope for this session by policy. This is an environment limit, not a plan defect.
 >
-> **Knock-on:** 3.2–3.7 are all *ports into* the vendored tree, so they inherit the block. 3.8 (re-extraction drill) needs both libpg_query's scripts and the PG tarball. 3.10 needs a PG18 build to test against.
+> **Decision: vendor PG17 now, bump to 18 later.** Rationale: the plan's operating assumption is that `pg_query.rs` is *permanently unmaintained*, so getting off it is valuable on its own and is half the stated goal. The vendoring, build, stripping, and packaging work (3.2, 3.4, 3.5, 3.6, 3.7) is identical whichever major is inside `libpg_query/`, so none of it is wasted. The 17→18 bump reduces to: drop in the new tree, regenerate `protobuf.rs`, apply the PR #79 delta, update `VENDORED_PG_MAJOR`. Procedure recorded in the crate README.
 >
-> **The kill gate is separately unrunnable here:** it needs five live PG servers, and `docker info` fails in this container. Only PG16 binaries are present locally. The gate is CI work regardless of the source-access question.
+> **Consequence, stated plainly:** Stage 3's kill gate is about PG17→PG18 deparser diffs, so it **remains unrun**. Vendoring PG17 does not close the PG14–18 support gap; it removes the unmaintained-dependency risk. The gap stays open until the bump plus Stage 6.
 >
-> **Done anyway — 3.9,** which depends on none of the above. See below.
+> **Kill gate is separately CI work.** It needs five live PG servers; `docker info` fails in this container and only PG16 binaries are present. Per maintainer decision it is delegated to CI regardless of the source-access question.
 
-- [ ] **3.1** Vendor libpg_query `18-latest` at tag **`18.0.0`** as **files in-tree**. Not a submodule (release footgun), not a download (docs.rs builds with networking disabled). Measured packed size ≈ **2.08 MB gzipped, 19% of the 10 MiB crates.io limit** — comfortable headroom.
-- [ ] **3.2** `build.rs` using `cc`: glob `src/*.c` + `src/postgres/*.c` + `vendor/`, six include dirs, flags `-fno-strict-aliasing -fwrapv -fPIC -O3`. No Make, no Ruby, no protoc, no network. Enable `cc`'s `parallel` feature (upstream compiles its 69 objects serially).
-- [ ] **3.3** Port pg_query.rs 6.1.1's hand-written Rust (~1,450 lines; the rest of its 15,027 is generated), plus the PG18 delta from upstream draft PR #79 (`d3042ed`) — **with its author's own unresolved typo fixed**: `AtalterConstraint` → `AtAlterConstraint`.
-- [ ] **3.4** **Delete the protoc path entirely.** Upstream's `build.rs:72-83` sets `OUT_DIR` to its own `src/` and renames prost output over `src/protobuf.rs`, which mutates the Cargo registry cache on any machine with `protoc` on `PATH` (reproduced: mtime changed). Check the generated `protobuf.rs` in as an ordinary source file.
-- [ ] **3.5** Keep only what pgevolve uses: `parse` (73 sites), `deparse` (6 production sites), `parse_plpgsql` (1 site), `Error`, `ParseResult`, `protobuf::*`, `NodeEnum`, `NodeRef::deparse`. **Delete** `nodes()` (covers 39 of 268 node types, zero uses here), `normalize`, `fingerprint`, `scan`, `split`, `truncate`, `.tables()`, `summary`, and the `NodeMut` raw-pointer machinery that only `truncate` needed.
-- [ ] **3.6** Declare an MSRV, workspace lints, and `docs.rs` metadata — upstream has none of these. Drop `itertools` (used in one deleted file) and the dead `clippy = "0.0.302"` optional build-dep.
-- [ ] **3.7** `#![allow(...)]` header on the generated module only, with a justification comment per CLAUDE.md §8 (prost does the same). Expect ~1,700 pedantic/nursery warnings from raw C comments carried into doc comments.
-- [ ] **3.8** **Re-extraction drill.** Run libpg_query's own `make extract_source` pipeline once (`scripts/extract_source.rb` + `extract_headers.rb` + `extract_pg_types.rb` + `generate_protobuf_and_funcs.rb` + the 11 patches, downloading `postgresql-18.4.tar.bz2`) and record the procedure in the crate's README. This proves the bottom of our dependency stack is **PostgreSQL itself**, not libpg_query — worth knowing given libpg_query's own 83%-one-person bus factor. Needs Ruby on a maintainer machine; **not** a consumer build dependency.
+- [x] **3.1** Vendored **libpg_query 17 (PG 17.4, `PG_VERSION_NUM 170004`)** as files in-tree — see the scope note above for why 17 and not 18. Not a submodule, not a download. **Measured on the real artifact: 524 files, 11.5 MiB uncompressed, 1.9 MiB compressed — 19% of the 10 MiB crates.io limit**, confirming the plan's 2.08 MB estimate.
+- [x] **3.2** `build.rs` using `cc` with the `parallel` feature: 69 objects (13 `src/*.c` + 53 `src/postgres/*.c` + protobuf-c + xxhash + `pg_query.pb-c.c`), four include dirs plus two more on Windows, `-fno-strict-aliasing` and `-fwrapv` via `flag_if_supported`. No Make, no Ruby, no protoc, no network. Also dropped upstream's `fs_extra` copy of the whole 11 MB tree into `OUT_DIR` — `cc` writes objects there regardless, so the copy bought nothing.
+- [x] **3.3** Ported 6.1.1's hand-written Rust, rewritten rather than copied: `error.rs`, `query.rs`, `parse_result.rs`, `node.rs`, `ffi.rs`, `lib.rs`. **The PG18 delta from draft PR #79 (including the `AtalterConstraint` → `AtAlterConstraint` typo fix) is deferred with the major bump** — it cannot be applied without the PR, which is in the unreachable repo.
+- [x] **3.4** **Deleted the protoc path entirely.** Upstream's `build.rs:72-83` sets `OUT_DIR` to its own `src/` and renames prost output over `src/protobuf.rs`, which mutates the Cargo registry cache on any machine with `protoc` on `PATH` (reproduced: mtime changed). Check the generated `protobuf.rs` in as an ordinary source file.
+- [x] **3.5** Keep only what pgevolve uses: `parse` (73 sites), `deparse` (6 production sites), `parse_plpgsql` (1 site), `Error`, `ParseResult`, `protobuf::*`, `NodeEnum`, `NodeRef::deparse`. **Delete** `nodes()` (covers 39 of 268 node types, zero uses here), `normalize`, `fingerprint`, `scan`, `split`, `truncate`, `.tables()`, `summary`, and the `NodeMut` raw-pointer machinery that only `truncate` needed.
+- [x] **3.6** MSRV (`rust-version` from the workspace), `[lints] workspace = true`, `[package.metadata.docs.rs]`, keywords/categories, and an explicit `include` list. Dropped `itertools`, the dead `clippy = "0.0.302"` optional build-dep, `prost-build`, and `fs_extra`.
+- [x] **3.7** Justified `#![allow(...)]` header on `src/protobuf.rs` and `src/ffi.rs` only; every hand-written module is held to the full workspace lint set and passes `-D warnings`. **Measured 3,394 warnings, roughly double the plan's ~1,700 estimate** — ~2,700 are `missing_docs` on the fields and variants of 272 generated message types, ~220 are missing backticks from C comments carried into Rustdoc, the rest style lints on generated code.
+- [~] **3.8** **Re-extraction drill — procedure recorded, not executed.** Run libpg_query's own `make extract_source` pipeline once (`scripts/extract_source.rb` + `extract_headers.rb` + `extract_pg_types.rb` + `generate_protobuf_and_funcs.rb` + the 11 patches, downloading `postgresql-18.4.tar.bz2`) and record the procedure in the crate's README. This proves the bottom of our dependency stack is **PostgreSQL itself**, not libpg_query — worth knowing given libpg_query's own 83%-one-person bus factor. Needs Ruby on a maintainer machine; **not** a consumer build dependency.
 - [x] **3.9** Soak test: parse+deparse ≥50,000 statements in one long-lived process. Landed as `parse::soak` (`#[ignore]`d; `cargo test -p pgevolve-core --lib -- --ignored soak`). **Result: 50,577 statements over 23 passes of 858 SQL files — 0 parse failures, 0 deparse failures, no crash, 10/10 consecutive runs identical.**
   - Cross-validation: the corpus yields exactly **2,199 statements per pass**, matching the figure the spec's own experiment recorded. The harness is measuring what the spec measured.
   - **Scope limit, stated because it is easy to overclaim here:** the crate linked today is the **PG17** build — one of the builds the spec says did *not* crash. So this rules out nothing about PG14/15/16 (not linkable without a per-major binding, the architecture the spec rejected) and nothing about the vendored PG18 build. **Re-run after the Stage 4 cutover**; that is when it becomes evidence about the binding pgevolve ships.
   - Value delivered now regardless: the harness exists, is deterministic, asserts against silent degradation (a run that quietly stopped parsing would still survive to the end and report "no crash"), and gives Stage 4 a before/after baseline instead of a first-ever measurement.
-- [ ] **3.10** plpgsql check: libpg_query issue **#337** (`pg_query_parse_plpgsql()` regressions in 18.0.0) is still **open**. pgevolve depends on plpgsql *analyzer semantics* — it selects `SETOF` vs `void` wrappers because the analyzer rejects `RETURN QUERY` in a non-`SETOF` wrapper — so this is a correctness risk, not cosmetic. Explicit exit-criterion line item, not a footnote.
+- [~] **3.10** plpgsql check — **baseline captured on PG17, PG18 check deferred with the bump.** `query.rs` has two characterization tests pinning the analyzer behaviour pgevolve actually depends on: it must reject `RETURN QUERY` in a non-`SETOF` function, and accept a valid `void` body. Those are the assertions a PG18 build has to keep passing. Issue **#337** (`pg_query_parse_plpgsql()` regressions in 18.0.0) is still **open**. pgevolve depends on plpgsql *analyzer semantics* — it selects `SETOF` vs `void` wrappers because the analyzer rejects `RETURN QUERY` in a non-`SETOF` wrapper — so this is a correctness risk, not cosmetic. Explicit exit-criterion line item, not a footnote.
+
+**Result so far (2026-07-29):** the crate exists, builds, packages, and passes. 10 unit tests + 5 doctests green; `cargo package` verifies (it compiles from the generated tarball — upstream's `main` does not); workspace `fmt`, `clippy -D warnings`, and `cargo doc -D warnings` clean; full suite 2,478 pass / 0 fail.
+
+Two findings worth carrying forward:
+
+- **`NodeRef` was a round trip to nowhere.** Upstream reached single-node deparsing via `NodeEnum::to_ref()` → `NodeRef::deparse()` → `NodeRef::to_enum()` — a clone into a borrowed view and a clone straight back — to arrive at a five-line wrapper. That cost ~4,100 lines of generated conversion tables (`node_ref.rs`, `node_structs.rs`, and the `to_ref`/`to_mut` half of `node_enum.rs`) to serve **two** call sites in pgevolve. `NodeEnum::deparse` is called directly now.
+- **The deparser canonicalizes SQL-standard type spellings but not Postgres-internal aliases.** Measured: `integer`→`int`, `character varying(10)`→`varchar(10)`, `timestamp without time zone`→`timestamp`, `decimal(5,2)`→`numeric(5, 2)`; but `int4`, `bool`, and `float8` pass through unchanged, so `bool` and `boolean` do **not** converge. Deparsing is therefore necessary but not sufficient for type equality — which is exactly why `ColumnType` normalization exists. Pinned by a characterization test so a change in either direction is visible.
 
 ### Stage 3 kill gate (binary)
 

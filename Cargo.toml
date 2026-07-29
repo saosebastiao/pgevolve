@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/pgevolve-pgquery",
   "crates/pgevolve-core",
   "crates/pgevolve",
   "crates/pgevolve-conformance",

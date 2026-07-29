@@ -1,0 +1,60 @@
+[package]
+name         = "pgevolve-pgquery"
+description  = "Vendored libpg_query binding: parses SQL with the real PostgreSQL grammar and deparses it back. Maintained for pgevolve."
+# Tracks the workspace so the release ceremony moves all crates together.
+# The vendored Postgres major is recorded in `VENDORED_PG_MAJOR`, not in the
+# version number — see README.md.
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+repository   = { workspace = true }
+homepage     = "https://github.com/saosebastiao/pgevolve"
+documentation = "https://docs.rs/pgevolve-pgquery"
+readme       = "README.md"
+keywords     = ["postgres", "postgresql", "parser", "sql", "libpg_query"]
+categories   = ["database", "parser-implementations", "external-ffi-bindings"]
+authors      = { workspace = true }
+
+# Vendoring the C in-tree is deliberate: not a submodule (a release footgun —
+# `cargo package` does not follow them), and not a download (docs.rs builds with
+# networking disabled). Every path the build touches must be listed here or the
+# published crate will not compile.
+#
+# `cargo package --verify -p pgevolve-pgquery` is a standing gate for exactly
+# this reason: upstream `pg_query.rs` has no such check and its `main` is
+# currently unpublishable because `build.rs` copies a header its `include` globs
+# do not ship.
+include = [
+    "README.md",
+    "build.rs",
+    "src/**/*.rs",
+    "libpg_query/pg_query.h",
+    "libpg_query/src/**/*.c",
+    "libpg_query/src/**/*.h",
+    "libpg_query/vendor/**/*.c",
+    "libpg_query/vendor/**/*.h",
+    "libpg_query/protobuf/pg_query.pb-c.c",
+    "libpg_query/protobuf/pg_query.pb-c.h",
+    "libpg_query/protobuf/pg_query.proto",
+]
+
+[lints]
+workspace = true
+
+[dependencies]
+prost       = "0.14"
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+
+[build-dependencies]
+# `parallel` matters: upstream compiles its 69 objects serially.
+cc      = { version = "1", features = ["parallel"] }
+glob    = "0.3"
+bindgen = "0.72"
+
+[package.metadata.docs.rs]
+# The C library still builds on docs.rs (no network needed — the sources are
+# vendored), but protobuf/FFI codegen must not try to reach anything.
+all-features = true
