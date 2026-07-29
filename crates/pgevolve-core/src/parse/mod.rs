@@ -29,6 +29,8 @@ pub(crate) mod error;
 pub(crate) mod from_catalog;
 pub(crate) mod normalize_body;
 pub(crate) mod normalize_expr;
+#[cfg(test)]
+mod soak;
 pub(crate) mod statement;
 #[cfg(test)]
 pub(crate) mod syntax;

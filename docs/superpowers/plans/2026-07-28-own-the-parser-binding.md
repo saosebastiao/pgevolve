@@ -113,6 +113,26 @@ Four confirmed sites where a PG18 construct, or a parse failure, yields plausibl
 
 A new workspace crate, published to crates.io, versioned to track the Postgres major it vendors.
 
+> ### ⚠️ BLOCKED on source access — 2026-07-29
+>
+> **3.1 cannot start in a Claude Code remote session.** Vendoring requires the libpg_query 18 sources, and they are not reachable. Routes checked, all of them:
+>
+> | Route | Result |
+> |---|---|
+> | `codeload.github.com` tarball | HTTP 403 |
+> | `api.github.com` repo/tags | *"GitHub access to this repository is not enabled for this session. Use add_repo…"* |
+> | `add_repo pganalyze/libpg_query` | *"cross-tier adds are not supported in v1: session already has repos from owner(s) [saosebastiao]"* |
+> | crates.io published `pg_query` | highest version is **6.1.1 = libpg_query 17**. No PG18 crate exists; PG18 lives in unmerged draft PR #79. |
+> | `ftp.postgresql.org` (for the re-extraction route) | unreachable |
+>
+> GitHub egress is mediated per-repository and only same-owner repos can be attached, so `pganalyze/*` is out of scope for this session by policy. This is an environment limit, not a plan defect — **3.1 needs either a session seeded with `pganalyze/libpg_query` as an initial source, or a maintainer machine.**
+>
+> **Knock-on:** 3.2–3.7 are all *ports into* the vendored tree, so they inherit the block. 3.8 (re-extraction drill) needs both libpg_query's scripts and the PG tarball. 3.10 needs a PG18 build to test against.
+>
+> **The kill gate is separately unrunnable here:** it needs five live PG servers, and `docker info` fails in this container. Only PG16 binaries are present locally. The gate is CI work regardless of the source-access question.
+>
+> **Done anyway — 3.9,** which depends on none of the above. See below.
+
 - [ ] **3.1** Vendor libpg_query `18-latest` at tag **`18.0.0`** as **files in-tree**. Not a submodule (release footgun), not a download (docs.rs builds with networking disabled). Measured packed size ≈ **2.08 MB gzipped, 19% of the 10 MiB crates.io limit** — comfortable headroom.
 - [ ] **3.2** `build.rs` using `cc`: glob `src/*.c` + `src/postgres/*.c` + `vendor/`, six include dirs, flags `-fno-strict-aliasing -fwrapv -fPIC -O3`. No Make, no Ruby, no protoc, no network. Enable `cc`'s `parallel` feature (upstream compiles its 69 objects serially).
 - [ ] **3.3** Port pg_query.rs 6.1.1's hand-written Rust (~1,450 lines; the rest of its 15,027 is generated), plus the PG18 delta from upstream draft PR #79 (`d3042ed`) — **with its author's own unresolved typo fixed**: `AtalterConstraint` → `AtAlterConstraint`.
@@ -121,7 +141,10 @@ A new workspace crate, published to crates.io, versioned to track the Postgres m
 - [ ] **3.6** Declare an MSRV, workspace lints, and `docs.rs` metadata — upstream has none of these. Drop `itertools` (used in one deleted file) and the dead `clippy = "0.0.302"` optional build-dep.
 - [ ] **3.7** `#![allow(...)]` header on the generated module only, with a justification comment per CLAUDE.md §8 (prost does the same). Expect ~1,700 pedantic/nursery warnings from raw C comments carried into doc comments.
 - [ ] **3.8** **Re-extraction drill.** Run libpg_query's own `make extract_source` pipeline once (`scripts/extract_source.rb` + `extract_headers.rb` + `extract_pg_types.rb` + `generate_protobuf_and_funcs.rb` + the 11 patches, downloading `postgresql-18.4.tar.bz2`) and record the procedure in the crate's README. This proves the bottom of our dependency stack is **PostgreSQL itself**, not libpg_query — worth knowing given libpg_query's own 83%-one-person bus factor. Needs Ruby on a maintainer machine; **not** a consumer build dependency.
-- [ ] **3.9** Soak test: parse+deparse ≥50,000 statements in one long-lived process. The spec (§14) records an **unreproduced** segfault at ~6,300 statements in PG14/15/16 builds in an ad-hoc harness, with no individual statement reproducing it. Rule it out here rather than meeting it in production.
+- [x] **3.9** Soak test: parse+deparse ≥50,000 statements in one long-lived process. Landed as `parse::soak` (`#[ignore]`d; `cargo test -p pgevolve-core --lib -- --ignored soak`). **Result: 50,577 statements over 23 passes of 858 SQL files — 0 parse failures, 0 deparse failures, no crash, 10/10 consecutive runs identical.**
+  - Cross-validation: the corpus yields exactly **2,199 statements per pass**, matching the figure the spec's own experiment recorded. The harness is measuring what the spec measured.
+  - **Scope limit, stated because it is easy to overclaim here:** the crate linked today is the **PG17** build — one of the builds the spec says did *not* crash. So this rules out nothing about PG14/15/16 (not linkable without a per-major binding, the architecture the spec rejected) and nothing about the vendored PG18 build. **Re-run after the Stage 4 cutover**; that is when it becomes evidence about the binding pgevolve ships.
+  - Value delivered now regardless: the harness exists, is deterministic, asserts against silent degradation (a run that quietly stopped parsing would still survive to the end and report "no crash"), and gives Stage 4 a before/after baseline instead of a first-ever measurement.
 - [ ] **3.10** plpgsql check: libpg_query issue **#337** (`pg_query_parse_plpgsql()` regressions in 18.0.0) is still **open**. pgevolve depends on plpgsql *analyzer semantics* — it selects `SETOF` vs `void` wrappers because the analyzer rejects `RETURN QUERY` in a non-`SETOF` wrapper — so this is a correctness risk, not cosmetic. Explicit exit-criterion line item, not a footnote.
 
 ### Stage 3 kill gate (binary)
