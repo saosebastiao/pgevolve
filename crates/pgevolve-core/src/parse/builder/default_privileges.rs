@@ -7,8 +7,8 @@
 //!
 //! REVOKE in source → [`ParseError::Structural`]. Missing `FOR ROLE` → error.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{AlterDefaultPrivilegesStmt, ObjectType, RoleSpecType};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{AlterDefaultPrivilegesStmt, ObjectType, RoleSpecType};
 
 use crate::identifier::Identifier;
 use crate::ir::catalog::Catalog;
@@ -59,7 +59,7 @@ pub fn apply(
 
     // Reject GRANTED BY.
     if let Some(ref grantor) = action.grantor {
-        let roletype = pg_query::protobuf::RoleSpecType::try_from(grantor.roletype)
+        let roletype = pgevolve_pgquery::protobuf::RoleSpecType::try_from(grantor.roletype)
             .unwrap_or(RoleSpecType::Undefined);
         if roletype != RoleSpecType::Undefined || !grantor.rolename.is_empty() {
             return Err(ParseError::Structural {
@@ -171,7 +171,7 @@ pub fn apply(
 ///
 /// Returns `(target_roles, schemas)`. Schemas is empty if no `IN SCHEMA` was given.
 fn decode_options(
-    options: &[pg_query::protobuf::Node],
+    options: &[pgevolve_pgquery::protobuf::Node],
     loc: &SourceLocation,
 ) -> Result<(Vec<Identifier>, Vec<Identifier>), ParseError> {
     let mut target_roles: Vec<Identifier> = Vec::new();
@@ -335,7 +335,7 @@ fn priv_from_keyword(kw: &str, loc: &SourceLocation) -> Result<Privilege, ParseE
 
 /// Decode the grantees list from the nested `GrantStmt`.
 fn decode_grantees(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     loc: &SourceLocation,
 ) -> Result<Vec<GrantTarget>, ParseError> {
     let mut out = Vec::with_capacity(nodes.len());
@@ -380,7 +380,7 @@ mod tests {
     }
 
     fn parse_adp(sql: &str) -> AlterDefaultPrivilegesStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let stmt = parsed
             .protobuf
             .stmts
@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn for_role_required() {
         let mut cat = empty_cat();
-        // Omit FOR ROLE — pg_query will parse this as current_user; the options
+        // Omit FOR ROLE — libpg_query will parse this as current_user; the options
         // list will have no "roles" entry.
         let s = parse_adp("ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO alice;");
         let err = apply(&s, &mut cat, &loc()).unwrap_err();

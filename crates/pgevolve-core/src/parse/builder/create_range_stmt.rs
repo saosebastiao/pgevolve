@@ -1,12 +1,12 @@
 //! Source-side parser for `CREATE TYPE … AS RANGE (…)`.
 //!
 //! Produces a [`UserType`] with `kind = UserTypeKind::Range { … }`.
-//! The `pg_query` AST for this statement is [`pg_query::protobuf::CreateRangeStmt`]
+//! The `libpg_query` AST for this statement is [`pgevolve_pgquery::protobuf::CreateRangeStmt`]
 //! with a `type_name: Vec<Node>` (String nodes) and a `params: Vec<Node>` list of
 //! `DefElem` entries — one per `option = value` clause.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{CreateRangeStmt, DefElem, Node, TypeName};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{CreateRangeStmt, DefElem, Node, TypeName};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::user_type::{UserType, UserTypeKind};
@@ -311,7 +311,7 @@ mod tests {
     }
 
     fn parse_range(sql: &str) -> CreateRangeStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let node = parsed
             .protobuf
             .stmts

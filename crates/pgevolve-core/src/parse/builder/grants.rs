@@ -8,8 +8,8 @@
 //! Unmanaged object kinds (DATABASE, TABLESPACE, LANGUAGE, FOREIGN TABLE,
 //! LARGE OBJECT) raise [`ParseError::Structural`].
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{GrantStmt, GrantTargetType, ObjectType, RoleSpecType};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{GrantStmt, GrantTargetType, ObjectType, RoleSpecType};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
@@ -39,7 +39,7 @@ pub fn apply(s: &GrantStmt, cat: &mut Catalog, loc: &SourceLocation) -> Result<(
     // empty (the zero-value RoleSpec produced by protobuf when the clause is
     // absent has roletype == Undefined and rolename == "").
     if let Some(ref grantor) = s.grantor {
-        let roletype = pg_query::protobuf::RoleSpecType::try_from(grantor.roletype)
+        let roletype = pgevolve_pgquery::protobuf::RoleSpecType::try_from(grantor.roletype)
             .unwrap_or(RoleSpecType::Undefined);
         if roletype != RoleSpecType::Undefined || !grantor.rolename.is_empty() {
             return Err(ParseError::Structural {
@@ -280,7 +280,7 @@ fn decode_privileges(
 
 /// Column names from an `AccessPriv.cols` list.
 fn decode_columns(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     loc: &SourceLocation,
 ) -> Result<Option<Vec<Identifier>>, ParseError> {
     if nodes.is_empty() {
@@ -355,7 +355,7 @@ fn all_privs_for(objtype: ObjectType, loc: &SourceLocation) -> Result<Vec<Privil
 
 /// Decode the `grantees` list from a `GrantStmt` into [`GrantTarget`] values.
 fn decode_grantees(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     loc: &SourceLocation,
 ) -> Result<Vec<GrantTarget>, ParseError> {
     let mut out = Vec::with_capacity(nodes.len());
@@ -385,10 +385,10 @@ fn decode_grantees(
 
 /// Extract a `RangeVar` reference from a `Node` (for table/view/MV/sequence).
 fn range_var_from_node<'a>(
-    node: &'a pg_query::protobuf::Node,
+    node: &'a pgevolve_pgquery::protobuf::Node,
     loc: &SourceLocation,
     kind: &'static str,
-) -> Result<&'a pg_query::protobuf::RangeVar, ParseError> {
+) -> Result<&'a pgevolve_pgquery::protobuf::RangeVar, ParseError> {
     match node.node.as_ref() {
         Some(NodeEnum::RangeVar(rv)) => Ok(rv),
         other => Err(ParseError::Structural {
@@ -403,10 +403,10 @@ fn range_var_from_node<'a>(
 
 /// Extract an `ObjectWithArgs` from a `Node` (for functions/procedures).
 fn obj_with_args_from_node<'a>(
-    node: &'a pg_query::protobuf::Node,
+    node: &'a pgevolve_pgquery::protobuf::Node,
     loc: &SourceLocation,
     kind: &'static str,
-) -> Result<&'a pg_query::protobuf::ObjectWithArgs, ParseError> {
+) -> Result<&'a pgevolve_pgquery::protobuf::ObjectWithArgs, ParseError> {
     match node.node.as_ref() {
         Some(NodeEnum::ObjectWithArgs(owa)) => Ok(owa),
         other => Err(ParseError::Structural {
@@ -421,7 +421,7 @@ fn obj_with_args_from_node<'a>(
 
 /// Extract a schema `Identifier` from a `Node` (schemas are bare String nodes).
 fn schema_name_from_node(
-    node: &pg_query::protobuf::Node,
+    node: &pgevolve_pgquery::protobuf::Node,
     loc: &SourceLocation,
 ) -> Result<Identifier, ParseError> {
     match node.node.as_ref() {
@@ -440,7 +440,7 @@ fn schema_name_from_node(
 ///
 /// `GRANT ... ON TYPE schema.name` arrives as a `TypeName` node.
 fn type_qname_from_node(
-    node: &pg_query::protobuf::Node,
+    node: &pgevolve_pgquery::protobuf::Node,
     loc: &SourceLocation,
 ) -> Result<QualifiedName, ParseError> {
     match node.node.as_ref() {
@@ -639,7 +639,7 @@ mod tests {
     }
 
     fn parse_grant(sql: &str) -> GrantStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let stmt = parsed
             .protobuf
             .stmts

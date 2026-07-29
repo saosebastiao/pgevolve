@@ -1,7 +1,7 @@
 //! Parser for `CREATE AGGREGATE`, `ALTER AGGREGATE … OWNER TO`, and
 //! `COMMENT ON AGGREGATE`.
 //!
-//! `pg_query` 6.x encodes `CREATE AGGREGATE` as a [`DefineStmt`] with
+//! `libpg_query` 17 encodes `CREATE AGGREGATE` as a [`DefineStmt`] with
 //! `kind = ObjectType::ObjectAggregate`:
 //! - `defnames` is a list of `String` nodes (1–2 parts: `[name]` or `[schema, name]`).
 //! - `args` is a two-element list: `args[0]` is either a `List` of
@@ -26,8 +26,8 @@
 //! `ALTER AGGREGATE … RENAME TO` in source are rejected (the latter in
 //! `statement.rs`; DROP here).
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{
     AlterOwnerStmt, CommentStmt, DefElem, DefineStmt, FunctionParameter, ObjectWithArgs, TypeName,
 };
 
@@ -321,7 +321,7 @@ fn type_name_arg<'a>(
 
 /// Borrow the `ObjectWithArgs` from an `ALTER`/`COMMENT` object reference.
 fn object_with_args<'a>(
-    object: Option<&'a pg_query::protobuf::Node>,
+    object: Option<&'a pgevolve_pgquery::protobuf::Node>,
     location: &SourceLocation,
 ) -> Result<&'a ObjectWithArgs, ParseError> {
     match object.and_then(|o| o.node.as_ref()) {
@@ -588,9 +588,10 @@ mod tests {
     /// independent of `parse_directory`'s resolution pass).
     #[test]
     fn parse_create_unit_appends() {
-        let parsed =
-            pg_query::parse("CREATE AGGREGATE app.s(integer) (SFUNC = app.sf, STYPE = bigint);")
-                .unwrap();
+        let parsed = pgevolve_pgquery::parse(
+            "CREATE AGGREGATE app.s(integer) (SFUNC = app.sf, STYPE = bigint);",
+        )
+        .unwrap();
         let node = parsed
             .protobuf
             .stmts

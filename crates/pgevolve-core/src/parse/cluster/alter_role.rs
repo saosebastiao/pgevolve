@@ -1,6 +1,6 @@
 //! `ALTER ROLE r [option…]` — mutates a previously-declared role's attributes.
 
-use pg_query::protobuf::AlterRoleStmt;
+use pgevolve_pgquery::protobuf::AlterRoleStmt;
 
 use crate::identifier::Identifier;
 use crate::ir::cluster::catalog::ClusterCatalog;

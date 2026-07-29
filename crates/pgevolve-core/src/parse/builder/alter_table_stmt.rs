@@ -15,8 +15,8 @@
 //! Everything else raises [`ParseError::Structural`] pointing the user to the
 //! declarative source-of-truth model.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{
     AlterTableCmd, AlterTableStmt, AlterTableType, ConstrType, Constraint as PgConstraint,
     ObjectType, RoleSpecType,
 };
@@ -305,7 +305,7 @@ fn process_set_compression_cmd(
 
 /// Decode an `AT_ChangeOwner` sub-command into a [`PendingOwner`].
 ///
-/// `pg_query` encodes the new owner as a `RoleSpec` in `cmd.newowner` (a
+/// `libpg_query` encodes the new owner as a `RoleSpec` in `cmd.newowner` (a
 /// dedicated field on [`AlterTableCmd`], not in the generic `cmd.def`).
 fn process_change_owner_cmd(
     cmd: &AlterTableCmd,
@@ -348,7 +348,7 @@ fn process_set_rel_options_cmd(
 
 /// Decode an `AT_SetTableSpace` sub-command.
 ///
-/// `pg_query` encodes the tablespace name in `cmd.name` for this subtype.
+/// `libpg_query` encodes the tablespace name in `cmd.name` for this subtype.
 fn process_set_tablespace_cmd(
     cmd: &AlterTableCmd,
     target: &QualifiedName,
@@ -568,7 +568,7 @@ mod tests {
     }
 
     fn build(sql: &str) -> Result<AlterTableOutput, ParseError> {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let stmt = parsed
             .protobuf
             .stmts
@@ -692,24 +692,24 @@ mod tests {
     }
 
     /// Verify that `SET STORAGE BOGUS` always surfaces as an error, regardless
-    /// of whether `pg_query` catches it at parse time or our decoder catches it.
+    /// of whether `libpg_query` catches it at parse time or our decoder catches it.
     ///
     /// The error path under test is `process_set_storage_cmd` line 176-181
-    /// (`unknown STORAGE attribute '…'`). If `pg_query` happens to accept the
-    /// keyword and pass it down, that arm is exercised. If `pg_query` rejects it
+    /// (`unknown STORAGE attribute '…'`). If `libpg_query` happens to accept the
+    /// keyword and pass it down, that arm is exercised. If `libpg_query` rejects it
     /// first, we confirm via a parse-level error — either way the contract holds.
     #[test]
     fn alter_column_set_storage_unknown_errors() {
         let sql = "ALTER TABLE app.t ALTER COLUMN doc SET STORAGE BOGUS;";
-        // pg_query may reject this SQL outright (returning Err), or it may
+        // libpg_query may reject this SQL outright (returning Err), or it may
         // accept it and pass the unknown keyword to our decoder.
-        match pg_query::parse(sql) {
+        match pgevolve_pgquery::parse(sql) {
             Err(_pg_err) => {
-                // pg_query rejected BOGUS before our decoder was reached.
+                // libpg_query rejected BOGUS before our decoder was reached.
                 // The contract is satisfied: malformed SQL fails at parse time.
             }
             Ok(parsed) => {
-                // pg_query accepted the keyword — our decoder must reject it.
+                // libpg_query accepted the keyword — our decoder must reject it.
                 let stmt = parsed
                     .protobuf
                     .stmts
@@ -742,8 +742,8 @@ mod tests {
         assert!(matches!(err, ParseError::Structural { .. }));
     }
 
-    /// `pg_query` encodes the new owner in `cmd.newowner` (a dedicated
-    /// [`pg_query::protobuf::RoleSpec`] field), not in `cmd.def`.  This test
+    /// `libpg_query` encodes the new owner in `cmd.newowner` (a dedicated
+    /// [`pgevolve_pgquery::protobuf::RoleSpec`] field), not in `cmd.def`.  This test
     /// guards that `process_change_owner_cmd` reads from the right field.
     #[test]
     fn alter_table_owner_to_role_name() {

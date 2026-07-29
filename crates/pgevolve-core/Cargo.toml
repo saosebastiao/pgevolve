@@ -17,7 +17,7 @@ authors      = { workspace = true }
 workspace = true
 
 [dependencies]
-pg_query              = { workspace = true }
+pgevolve-pgquery      = { workspace = true }
 regex       = { workspace = true }
 thiserror   = { workspace = true }
 serde       = { workspace = true }

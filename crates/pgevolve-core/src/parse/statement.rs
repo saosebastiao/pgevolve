@@ -1,11 +1,11 @@
-//! Classify a top-level `pg_query` statement node into the v0.1 whitelist.
+//! Classify a top-level `libpg_query` statement node into the v0.1 whitelist.
 //!
 //! Anything outside the whitelist is rejected with [`ParseError::UnsupportedObjectKind`]
 //! so that source-loading fails loudly instead of silently dropping unsupported DDL.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf;
-use pg_query::protobuf::ObjectType;
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf;
+use pgevolve_pgquery::protobuf::ObjectType;
 
 use crate::parse::error::{ParseError, SourceLocation};
 
@@ -143,7 +143,7 @@ impl Statement {
                 }
             }
             NodeEnum::RenameStmt(s) => {
-                use pg_query::protobuf::ObjectType;
+                use pgevolve_pgquery::protobuf::ObjectType;
                 let rename_type =
                     ObjectType::try_from(s.rename_type).unwrap_or(ObjectType::Undefined);
                 if matches!(rename_type, ObjectType::ObjectPublication) {
@@ -294,7 +294,7 @@ impl Statement {
 /// Returns `true` when the `AlterTableStmt` is exactly one `ATTACH PARTITION`
 /// sub-command so the classifier can route it to the dedicated variant.
 fn is_attach_partition_stmt(stmt: &protobuf::AlterTableStmt) -> bool {
-    use pg_query::protobuf::AlterTableType;
+    use pgevolve_pgquery::protobuf::AlterTableType;
     if stmt.cmds.len() != 1 {
         return false;
     }
@@ -361,7 +361,7 @@ mod tests {
     }
 
     fn first_node(sql: &str) -> NodeEnum {
-        let parsed = pg_query::parse(sql).expect("pg_query parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query parses");
         parsed
             .protobuf
             .stmts

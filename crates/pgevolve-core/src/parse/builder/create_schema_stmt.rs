@@ -1,6 +1,6 @@
 //! `CREATE SCHEMA` → [`crate::ir::schema::Schema`].
 
-use pg_query::protobuf::CreateSchemaStmt;
+use pgevolve_pgquery::protobuf::CreateSchemaStmt;
 
 use crate::ir::schema::Schema;
 use crate::parse::builder::shared;
@@ -23,7 +23,7 @@ pub fn build_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pg_query::NodeEnum;
+    use pgevolve_pgquery::NodeEnum;
     use std::path::PathBuf;
 
     fn loc() -> SourceLocation {
@@ -31,7 +31,7 @@ mod tests {
     }
 
     fn build(sql: &str) -> Schema {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let stmt = parsed
             .protobuf
             .stmts

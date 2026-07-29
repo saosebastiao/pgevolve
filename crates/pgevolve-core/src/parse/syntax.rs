@@ -16,7 +16,9 @@
 /// its error type — keeping the parser out of every caller's signature is the
 /// entire point of this module.
 pub fn check(sql: &str) -> Result<(), String> {
-    pg_query::parse(sql).map(|_| ()).map_err(|e| e.to_string())
+    pgevolve_pgquery::parse(sql)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// Parse `sql` and report how many top-level statements it contained.
@@ -24,7 +26,7 @@ pub fn check(sql: &str) -> Result<(), String> {
 /// Distinct from [`check`] because "parses" and "parses into something" are
 /// different assertions: a blank string parses to zero statements.
 pub fn statement_count(sql: &str) -> Result<usize, String> {
-    pg_query::parse(sql)
+    pgevolve_pgquery::parse(sql)
         .map(|r| r.protobuf.stmts.len())
         .map_err(|e| e.to_string())
 }

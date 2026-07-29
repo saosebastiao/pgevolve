@@ -4,8 +4,8 @@
 //! sentinel and `body_dependencies` is empty. T4's AST canonicalization pass
 //! fills in both fields immediately after source IR is assembled.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{AConst, ViewStmt, a_const};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{AConst, ViewStmt, a_const};
 
 use crate::identifier::Identifier;
 use crate::ir::view::{CheckOption, View, ViewColumn};
@@ -57,7 +57,7 @@ pub fn build_view(
 /// original source, but is semantically equivalent. T4 canonicalizes it
 /// further via [`NormalizedBody::from_sql`].
 fn extract_query_body(
-    query_node: Option<&pg_query::protobuf::Node>,
+    query_node: Option<&pgevolve_pgquery::protobuf::Node>,
     location: &SourceLocation,
 ) -> Result<String, ParseError> {
     let Some(node) = query_node else {
@@ -72,15 +72,13 @@ fn extract_query_body(
             message: "CREATE VIEW query body node is empty".into(),
         });
     };
-    // Use NodeRef::deparse() which correctly sets PG_VERSION_NUM in the
-    // internal ParseResult it builds.
-    let deparsed = node_inner
-        .to_ref()
-        .deparse()
-        .map_err(|e| ParseError::Structural {
-            location: location.clone(),
-            message: format!("failed to deparse view query body: {e}"),
-        })?;
+    // NodeEnum::deparse() sets PG_VERSION_NUM from the linked C library in the
+    // one-statement ParseResult it wraps the node in. Getting that wrong makes
+    // the C deparser assert and abort the process, so it is not ours to supply.
+    let deparsed = node_inner.deparse().map_err(|e| ParseError::Structural {
+        location: location.clone(),
+        message: format!("failed to deparse view query body: {e}"),
+    })?;
     if deparsed.trim().is_empty() {
         return Err(ParseError::Structural {
             location: location.clone(),
@@ -108,7 +106,7 @@ fn extract_query_body(
 /// See arch spec views sub-spec §5.1 for the AST-canonicalization-pass
 /// contract that includes column derivation.
 fn view_columns_from_aliases(
-    aliases: &[pg_query::protobuf::Node],
+    aliases: &[pgevolve_pgquery::protobuf::Node],
     location: &SourceLocation,
 ) -> Result<Vec<ViewColumn>, ParseError> {
     if aliases.is_empty() {
@@ -140,7 +138,7 @@ fn view_columns_from_aliases(
 /// Unknown options are rejected: silently swallowing them would discard
 /// user intent with no diagnostic, which constitutes silent data loss.
 fn view_reloptions(
-    options: &[pg_query::protobuf::Node],
+    options: &[pgevolve_pgquery::protobuf::Node],
     location: &SourceLocation,
 ) -> Result<(Option<bool>, Option<bool>), ParseError> {
     let mut security_barrier: Option<bool> = None;
@@ -193,7 +191,7 @@ fn extract_check_option(
     location: &SourceLocation,
 ) -> Result<Option<CheckOption>, ParseError> {
     // 1. SQL-clause form: stmt.with_check_option
-    //    pg_query 6.x ViewCheckOption: 0=Undefined, 1=NoCheckOption, 2=Local, 3=Cascaded
+    //    libpg_query 17 ViewCheckOption: 0=Undefined, 1=NoCheckOption, 2=Local, 3=Cascaded
     let sql_clause = match stmt.with_check_option {
         0 | 1 => None, // Undefined or NoCheckOption
         2 => Some(CheckOption::Local),
@@ -228,7 +226,7 @@ fn extract_check_option(
 
 /// Extract a string value from a `DefElem` node.
 fn def_elem_string(
-    de: &pg_query::protobuf::DefElem,
+    de: &pgevolve_pgquery::protobuf::DefElem,
     location: &SourceLocation,
 ) -> Result<String, ParseError> {
     let Some(arg_box) = de.arg.as_ref() else {
@@ -267,7 +265,7 @@ fn def_elem_string(
 /// When the arg is absent (bare `security_barrier` without `= true`) Postgres
 /// treats it as `true`. We do the same.
 fn def_elem_bool(
-    de: &pg_query::protobuf::DefElem,
+    de: &pgevolve_pgquery::protobuf::DefElem,
     location: &SourceLocation,
 ) -> Result<bool, ParseError> {
     let Some(arg_box) = de.arg.as_ref() else {
@@ -281,7 +279,7 @@ fn def_elem_bool(
         NodeEnum::Boolean(b) => Ok(b.boolval),
         NodeEnum::Integer(i) => Ok(i.ival != 0),
         NodeEnum::AConst(c) => aconst_to_bool(c, location),
-        // pg_query 6.x encodes view reloption boolean values as String nodes
+        // libpg_query 17 encodes view reloption boolean values as String nodes
         // (e.g. `String { sval: "true" }`).
         NodeEnum::String(s) => str_to_bool(&s.sval, &de.defname, location),
         _ => Err(ParseError::Structural {
@@ -340,7 +338,7 @@ mod tests {
     }
 
     fn parse_view(sql: &str) -> ViewStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let node = parsed
             .protobuf
             .stmts

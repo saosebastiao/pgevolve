@@ -1,6 +1,6 @@
 //! Source-side parser for `CREATE COLLATION qname (option = value, …)`.
 //!
-//! `pg_query` 6.x encodes this statement as a [`pg_query::protobuf::DefineStmt`]
+//! `libpg_query` 17 encodes this statement as a [`pgevolve_pgquery::protobuf::DefineStmt`]
 //! with `kind = ObjectType::ObjectCollation`:
 //! - `defnames` is a list of `String` nodes (1-2 parts: `[name]` or `[schema, name]`).
 //! - `definition` is a list of `DefElem` nodes, one per option.
@@ -15,8 +15,8 @@
 //! rejected with a clear error naming the bad key. The provider defaults to
 //! [`CollationProvider::Libc`] when omitted; `deterministic` defaults to `true`.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{DefElem, DefineStmt};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{DefElem, DefineStmt};
 
 use crate::identifier::Identifier;
 use crate::ir::collation::{Collation, CollationProvider};
@@ -129,7 +129,7 @@ fn extract_string(
     match arg {
         NodeEnum::String(s) => Ok(s.sval.clone()),
         NodeEnum::AConst(ac) => {
-            use pg_query::protobuf::a_const::Val;
+            use pgevolve_pgquery::protobuf::a_const::Val;
             match ac.val.as_ref() {
                 Some(Val::Sval(s)) => Ok(s.sval.clone()),
                 _ => Err(ParseError::Structural {
@@ -152,7 +152,7 @@ fn extract_string(
 
 /// Extract a bare keyword or string value from a `DefElem.arg`.
 ///
-/// `pg_query` encodes bare keywords (`provider = libc`, `deterministic = false`)
+/// `libpg_query` encodes bare keywords (`provider = libc`, `deterministic = false`)
 /// as either `TypeName { names: [String] }` or a plain `String`, depending on
 /// the parser path. This helper accepts both.
 fn extract_keyword_or_string(
@@ -185,7 +185,7 @@ fn extract_keyword_or_string(
             }),
         NodeEnum::Boolean(b) => Ok(b.boolval.to_string()),
         NodeEnum::AConst(ac) => {
-            use pg_query::protobuf::a_const::Val;
+            use pgevolve_pgquery::protobuf::a_const::Val;
             match ac.val.as_ref() {
                 Some(Val::Sval(s)) => Ok(s.sval.clone()),
                 Some(Val::Boolval(b)) => Ok(b.boolval.to_string()),
@@ -260,7 +260,7 @@ mod tests {
     /// `ParseError`). Wraps just enough of the public surface to keep parser
     /// tests self-contained.
     fn parse_to_catalog(sql: &str) -> Result<Catalog, ParseError> {
-        let parsed = pg_query::parse(sql).map_err(|e| ParseError::Syntax {
+        let parsed = pgevolve_pgquery::parse(sql).map_err(|e| ParseError::Syntax {
             location: loc(),
             message: e.to_string(),
         })?;

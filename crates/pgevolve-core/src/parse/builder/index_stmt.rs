@@ -1,7 +1,7 @@
 //! `CREATE INDEX` → [`crate::ir::index::Index`].
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{self, IndexElem, IndexStmt, SortByDir, SortByNulls};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{self, IndexElem, IndexStmt, SortByDir, SortByNulls};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::index::{
@@ -232,7 +232,7 @@ mod tests {
     }
 
     fn build(sql: &str) -> Index {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let stmt = parsed
             .protobuf
             .stmts

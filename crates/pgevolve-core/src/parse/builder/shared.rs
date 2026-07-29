@@ -5,8 +5,8 @@
 //!   can decide the canonical form).
 //! - Default-expression classification (literal vs. `nextval` vs. arbitrary expr).
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{AConst, ColumnRef, DefElem, Node, RangeVar, TypeName, a_const};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{AConst, ColumnRef, DefElem, Node, RangeVar, TypeName, a_const};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::column_type::ColumnType;
@@ -42,7 +42,7 @@ pub fn resolve_qname(
 /// Resolve a `repeated Node` type-name list (as produced by `CreateEnumStmt`,
 /// `CreateDomainStmt`, `CompositeTypeStmt`, etc.) into a [`QualifiedName`].
 ///
-/// PG encodes the name as a list of [`pg_query::NodeEnum::String`] nodes:
+/// PG encodes the name as a list of [`pgevolve_pgquery::NodeEnum::String`] nodes:
 /// - one element → unqualified name (requires `default_schema`).
 /// - two elements → `[schema, name]`.
 ///
@@ -51,7 +51,7 @@ pub fn resolve_qname(
 ///
 /// This helper is shared by the enum, domain, and composite builders (T2–T4).
 pub fn qname_from_string_list(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
 ) -> Result<QualifiedName, ParseError> {
@@ -96,7 +96,7 @@ pub fn qname_from_string_list(
 /// Extract the string value of a bare `String` [`Node`].
 ///
 /// Returns `Some(sval)` when `node` is a [`NodeEnum::String`], otherwise `None`.
-/// Used where `pg_query` encodes a list element (publication name, column name)
+/// Used where `libpg_query` encodes a list element (publication name, column name)
 /// directly as a `String` node rather than wrapping it in a `DefElem`.
 pub fn node_string_value(node: &Node) -> Option<String> {
     match node.node.as_ref()? {
@@ -107,7 +107,7 @@ pub fn node_string_value(node: &Node) -> Option<String> {
 
 /// Extract a string value from a `DefElem.arg`.
 ///
-/// Handles the encodings `pg_query` uses for scalar option values:
+/// Handles the encodings `libpg_query` uses for scalar option values:
 /// - [`NodeEnum::String`] — bare identifier or quoted string.
 /// - [`NodeEnum::Integer`] / [`NodeEnum::Float`] — numeric option values,
 ///   stringified to their textual form.
@@ -146,14 +146,14 @@ pub fn ident(s: &str, location: &SourceLocation) -> Result<Identifier, ParseErro
     })
 }
 
-/// Render a `pg_query::TypeName` into a string `ColumnType::parse_from_pg_type_string`
+/// Render a `pgevolve_pgquery::TypeName` into a string `ColumnType::parse_from_pg_type_string`
 /// can consume.
 ///
 /// Strategy: take the *last* segment of `names` (Postgres prefixes types with
 /// `pg_catalog.` internally; the parser is alias-aware), append a parenthesized
 /// list of typmod arguments, append `[]` for each array dimension.
 ///
-/// **Special case — `interval`**: `pg_query` encodes interval typmods as
+/// **Special case — `interval`**: `libpg_query` encodes interval typmods as
 /// `[fields_bitmask, precision?]` where the fields bitmask is the PG
 /// `INTERVAL_MASK` value from `datetime.h`.  Blindly joining them produces
 /// `"interval(32767,6)"` which `parse_canonical` cannot round-trip back to a
@@ -188,10 +188,10 @@ pub fn render_type_name_to_string(type_name: &TypeName) -> Option<String> {
     Some(out)
 }
 
-/// Decode the `pg_query` interval typmod encoding into a canonical string that
+/// Decode the `libpg_query` interval typmod encoding into a canonical string that
 /// `ColumnType::parse_from_pg_type_string` can round-trip.
 ///
-/// `pg_query` represents interval typmods as:
+/// `libpg_query` represents interval typmods as:
 /// - One arg: `[fields_bitmask]` — fields restriction only (e.g. `interval hour to minute`).
 /// - Two args: `[fields_bitmask, precision]` — precision (and maybe fields).
 ///
@@ -355,7 +355,7 @@ pub fn type_name_to_column_type(
         {
             // Build `schema.name(arg,arg,…)` and route through the canonical
             // parse path so casing is normalised (subtype barewords are already
-            // lowercased by pg_query) and `Other` equality holds.
+            // lowercased by libpg_query) and `Other` equality holds.
             let mut args: Vec<String> = Vec::with_capacity(type_name.typmods.len());
             for n in &type_name.typmods {
                 let arg = typmod_arg_to_string(n.node.as_ref().ok_or_else(|| {
@@ -529,7 +529,7 @@ mod tests {
     }
 
     fn parse_first(sql: &str) -> NodeEnum {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         parsed
             .protobuf
             .stmts
@@ -575,7 +575,7 @@ mod tests {
     fn bool_default() {
         let n = parse_select_expr("true");
         let d = build_default_expr(&n, Some(&ColumnType::Boolean), None, &loc()).unwrap();
-        // Booleans in pg_query may parse as a function call `'t'::boolean` form
+        // Booleans in libpg_query may parse as a function call `'t'::boolean` form
         // — accept either Bool literal or Expr containing "true".
         match d {
             DefaultExpr::Literal(LiteralValue::Bool(true)) => {}
@@ -653,9 +653,9 @@ mod tests {
     #[test]
     fn parameterized_postgis_types_parse() {
         // PostGIS parameterized types put the subtype (Point / MultiPolygon / …)
-        // in the typmod list as a *bareword*, which pg_query parses as a ColumnRef
+        // in the typmod list as a *bareword*, which libpg_query parses as a ColumnRef
         // (type modifiers are an expr_list), not an AConst. The renderer must
-        // stringify it; pg_query lowercases the bareword, so the canonical raw is
+        // stringify it; libpg_query lowercases the bareword, so the canonical raw is
         // lowercase. (issue #40)
         let cases = [
             ("geometry(Point,4326)", "geometry(point,4326)"),

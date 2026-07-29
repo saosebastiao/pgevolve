@@ -21,13 +21,13 @@
 //! # WHEN clause canonicalization
 //!
 //! The WHEN expression is canonicalized by wrapping it in a synthetic
-//! `SELECT <expr>` scaffold, deparsing via `pg_query::deparse`, stripping
+//! `SELECT <expr>` scaffold, deparsing via `pgevolve_pgquery::deparse`, stripping
 //! the `SELECT ` prefix, and feeding the result to
 //! [`NormalizedExpr::from_text`] after keyword lowercasing. This is the
 //! same approach used by [`crate::parse::normalize_expr::from_pg_node`].
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{CreateTrigStmt, Node};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{CreateTrigStmt, Node};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::constraint::Deferrable;
@@ -148,7 +148,7 @@ fn parse_timing(
 
 fn parse_events(
     events: i32,
-    update_columns: &[pg_query::protobuf::Node],
+    update_columns: &[pgevolve_pgquery::protobuf::Node],
     location: &SourceLocation,
     qname: &QualifiedName,
 ) -> Result<Vec<TriggerEvent>, ParseError> {
@@ -187,7 +187,7 @@ fn parse_events(
 }
 
 fn parse_transition_rels(
-    rels: &[pg_query::protobuf::Node],
+    rels: &[pgevolve_pgquery::protobuf::Node],
     location: &SourceLocation,
     qname: &QualifiedName,
 ) -> Result<Vec<TransitionTable>, ParseError> {
@@ -242,7 +242,7 @@ fn node_to_normalized_expr(
 }
 
 fn range_var_to_qname(
-    rv: Option<&pg_query::protobuf::RangeVar>,
+    rv: Option<&pgevolve_pgquery::protobuf::RangeVar>,
     location: &SourceLocation,
     context: &str,
 ) -> Result<QualifiedName, ParseError> {
@@ -271,7 +271,7 @@ fn range_var_to_qname(
 }
 
 fn qualified_name_from_list(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     location: &SourceLocation,
     context: &str,
 ) -> Result<QualifiedName, ParseError> {
@@ -308,7 +308,7 @@ fn qualified_name_from_list(
     Ok(QualifiedName::new(schema, name))
 }
 
-fn string_list(nodes: &[pg_query::protobuf::Node]) -> Vec<String> {
+fn string_list(nodes: &[pgevolve_pgquery::protobuf::Node]) -> Vec<String> {
     nodes
         .iter()
         .filter_map(|n| match n.node.as_ref() {
@@ -327,7 +327,7 @@ mod tests {
     }
 
     fn parse_trigger(sql: &str) -> Result<Trigger, ParseError> {
-        let parsed = pg_query::parse(sql).expect("pg_query");
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query");
         let stmt = parsed
             .protobuf
             .stmts
@@ -422,7 +422,7 @@ mod tests {
     fn rejects_constraint_trigger_with_before_timing() {
         // PostgreSQL itself rejects CONSTRAINT TRIGGER BEFORE at parse time,
         // so we construct the AST directly to exercise our validation path.
-        use pg_query::protobuf::{CreateTrigStmt, RangeVar};
+        use pgevolve_pgquery::protobuf::{CreateTrigStmt, RangeVar};
         // timing = BEFORE (bit 1 = 2), events = INSERT (bit 2 = 4)
         let stmt = CreateTrigStmt {
             replace: false,
@@ -439,13 +439,13 @@ mod tests {
             }),
             funcname: {
                 // build app.f node list
-                let s1 = pg_query::protobuf::Node {
-                    node: Some(NodeEnum::String(pg_query::protobuf::String {
+                let s1 = pgevolve_pgquery::protobuf::Node {
+                    node: Some(NodeEnum::String(pgevolve_pgquery::protobuf::String {
                         sval: "app".into(),
                     })),
                 };
-                let s2 = pg_query::protobuf::Node {
-                    node: Some(NodeEnum::String(pg_query::protobuf::String {
+                let s2 = pgevolve_pgquery::protobuf::Node {
+                    node: Some(NodeEnum::String(pgevolve_pgquery::protobuf::String {
                         sval: "f".into(),
                     })),
                 };

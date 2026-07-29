@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use pg_query::protobuf::{
+use pgevolve_pgquery::protobuf::{
     AlterOwnerStmt, AlterTableSpaceOptionsStmt, CreateTableSpaceStmt, DefElem, Node, RoleSpec,
 };
 
@@ -61,7 +61,7 @@ pub(super) fn apply_set(
     if s.is_reset {
         // RESET (opt …): args are absent, so key off the defname only.
         for node in &s.options {
-            if let Some(pg_query::NodeEnum::DefElem(def)) = node.node.as_ref() {
+            if let Some(pgevolve_pgquery::NodeEnum::DefElem(def)) = node.node.as_ref() {
                 ts.options.remove(&def.defname);
             }
         }
@@ -80,7 +80,7 @@ pub(super) fn apply_owner(
     loc: &SourceLocation,
 ) -> Result<(), ParseError> {
     let name = match s.object.as_deref().and_then(|n| n.node.as_ref()) {
-        Some(pg_query::NodeEnum::String(str_node)) => parse_name(&str_node.sval, loc)?,
+        Some(pgevolve_pgquery::NodeEnum::String(str_node)) => parse_name(&str_node.sval, loc)?,
         other => {
             return Err(ParseError::Structural {
                 location: loc.clone(),
@@ -160,7 +160,7 @@ fn def_elems_to_map(
 ) -> Result<BTreeMap<String, String>, ParseError> {
     let mut out = BTreeMap::new();
     for node in options {
-        let Some(pg_query::NodeEnum::DefElem(def)) = node.node.as_ref() else {
+        let Some(pgevolve_pgquery::NodeEnum::DefElem(def)) = node.node.as_ref() else {
             continue;
         };
         let value = def_elem_value(def, loc)?;
@@ -178,10 +178,10 @@ fn def_elem_value(def: &DefElem, loc: &SourceLocation) -> Result<String, ParseEr
         });
     };
     match arg {
-        pg_query::NodeEnum::Integer(i) => Ok(i.ival.to_string()),
-        pg_query::NodeEnum::Float(f) => Ok(f.fval.clone()),
-        pg_query::NodeEnum::String(s) => Ok(s.sval.clone()),
-        pg_query::NodeEnum::Boolean(b) => Ok(b.boolval.to_string()),
+        pgevolve_pgquery::NodeEnum::Integer(i) => Ok(i.ival.to_string()),
+        pgevolve_pgquery::NodeEnum::Float(f) => Ok(f.fval.clone()),
+        pgevolve_pgquery::NodeEnum::String(s) => Ok(s.sval.clone()),
+        pgevolve_pgquery::NodeEnum::Boolean(b) => Ok(b.boolval.to_string()),
         other => Err(ParseError::Structural {
             location: loc.clone(),
             message: format!(

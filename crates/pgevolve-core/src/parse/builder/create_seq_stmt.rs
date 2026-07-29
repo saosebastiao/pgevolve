@@ -1,7 +1,7 @@
 //! `CREATE SEQUENCE` → [`crate::ir::sequence::Sequence`].
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{AConst, CreateSeqStmt, DefElem, a_const};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{AConst, CreateSeqStmt, DefElem, a_const};
 
 use crate::identifier::Identifier;
 use crate::ir::column_type::ColumnType;
@@ -198,7 +198,7 @@ mod tests {
     }
 
     fn build(sql: &str) -> Sequence {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let stmt = parsed
             .protobuf
             .stmts

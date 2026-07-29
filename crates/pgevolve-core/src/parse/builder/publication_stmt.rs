@@ -1,6 +1,6 @@
 //! Parser for `CREATE PUBLICATION` and `ALTER PUBLICATION` statements.
 //!
-//! `pg_query` emits `CreatePublicationStmt` for CREATE and
+//! `libpg_query` emits `CreatePublicationStmt` for CREATE and
 //! `AlterPublicationStmt` for ALTER. Both are folded into one `Publication`
 //! per name — the same pattern as v0.3.3 reloptions where `CREATE TABLE WITH
 //! (...)` and `ALTER TABLE SET (...)` unified into one IR record.
@@ -10,8 +10,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{
     AlterPublicationAction, AlterPublicationStmt, CreatePublicationStmt, PublicationObjSpec,
     PublicationObjSpecType,
 };
@@ -113,7 +113,7 @@ pub fn parse_alter_publication(
 // ── Scope parsing ────────────────────────────────────────────────────────────
 
 fn parse_selective_scope(
-    objs: &[pg_query::protobuf::Node],
+    objs: &[pgevolve_pgquery::protobuf::Node],
     name: &Identifier,
     loc: &SourceLocation,
 ) -> Result<PublicationScope, ParseError> {
@@ -257,7 +257,7 @@ fn extract_schema_name(
 
 fn apply_scope_change(
     action_raw: i32,
-    objs: &[pg_query::protobuf::Node],
+    objs: &[pgevolve_pgquery::protobuf::Node],
     pub_: &mut Publication,
     name: &Identifier,
     loc: SourceLocation,
@@ -361,7 +361,7 @@ fn ensure_selective(pub_: &mut Publication) {
 /// Returns `(publish, publish_via_partition_root)`. Both are `None` when the
 /// relevant key is absent from the list.
 fn parse_publication_options(
-    options: &[pg_query::protobuf::Node],
+    options: &[pgevolve_pgquery::protobuf::Node],
     name: &Identifier,
     loc: SourceLocation,
 ) -> Result<(Option<PublishKinds>, Option<bool>), ParseError> {
@@ -428,9 +428,9 @@ fn parse_publish_string(
 // ── Node extraction helpers ───────────────────────────────────────────────────
 
 /// Extract the string value from a `DefElem.arg`, supporting all the encoding
-/// forms `pg_query` may use for `publish = '...'` and similar string options.
+/// forms `libpg_query` may use for `publish = '...'` and similar string options.
 fn extract_def_elem_text(
-    def: &pg_query::protobuf::DefElem,
+    def: &pgevolve_pgquery::protobuf::DefElem,
     name: &Identifier,
     loc: &SourceLocation,
 ) -> Result<String, ParseError> {
@@ -443,7 +443,7 @@ fn extract_def_elem_text(
     match arg {
         NodeEnum::String(s) => Ok(s.sval.clone()),
         NodeEnum::AConst(ac) => {
-            use pg_query::protobuf::a_const::Val;
+            use pgevolve_pgquery::protobuf::a_const::Val;
             match ac.val.as_ref() {
                 Some(Val::Sval(s)) => Ok(s.sval.clone()),
                 _ => Err(ParseError::PublicationOptionMalformed(
@@ -460,9 +460,9 @@ fn extract_def_elem_text(
 }
 
 /// Extract a boolean value from a `DefElem.arg`, handling the multiple forms
-/// `pg_query` may use (`Boolean`, `AConst`, `TypeName` as bare keyword).
+/// `libpg_query` may use (`Boolean`, `AConst`, `TypeName` as bare keyword).
 fn extract_def_elem_bool(
-    def: &pg_query::protobuf::DefElem,
+    def: &pgevolve_pgquery::protobuf::DefElem,
     name: &Identifier,
     loc: &SourceLocation,
 ) -> Result<bool, ParseError> {
@@ -474,7 +474,7 @@ fn extract_def_elem_bool(
     match arg_node {
         NodeEnum::Boolean(b) => Ok(b.boolval),
         NodeEnum::AConst(ac) => {
-            use pg_query::protobuf::a_const::Val;
+            use pgevolve_pgquery::protobuf::a_const::Val;
             match ac.val.as_ref() {
                 Some(Val::Boolval(b)) => Ok(b.boolval),
                 Some(Val::Sval(s)) => parse_bool_str(&s.sval, &def.defname, name, loc),
@@ -485,7 +485,7 @@ fn extract_def_elem_bool(
             }
         }
         NodeEnum::TypeName(tn) => {
-            // pg_query encodes bare-keyword booleans (true/false/on/off) as TypeName.
+            // libpg_query encodes bare-keyword booleans (true/false/on/off) as TypeName.
             let raw = tn
                 .names
                 .iter()
@@ -554,8 +554,8 @@ mod tests {
     // ── helpers to exercise parse_create_publication / parse_alter_publication
     // directly (with a local accumulator) ─────────────────────────────────────
 
-    fn parse_one_create_stmt(sql: &str) -> pg_query::protobuf::CreatePublicationStmt {
-        let parsed = pg_query::parse(sql).expect("pg_query parse");
+    fn parse_one_create_stmt(sql: &str) -> pgevolve_pgquery::protobuf::CreatePublicationStmt {
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query parse");
         let node = parsed
             .protobuf
             .stmts
@@ -570,8 +570,8 @@ mod tests {
         s
     }
 
-    fn parse_one_alter_stmt(sql: &str) -> pg_query::protobuf::AlterPublicationStmt {
-        let parsed = pg_query::parse(sql).expect("pg_query parse");
+    fn parse_one_alter_stmt(sql: &str) -> pgevolve_pgquery::protobuf::AlterPublicationStmt {
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query parse");
         let node = parsed
             .protobuf
             .stmts
@@ -736,12 +736,12 @@ mod tests {
 
     #[test]
     fn for_all_tables_with_objects_errors() {
-        // This SQL is rejected by pg_query at parse time (PG doesn't allow
+        // This SQL is rejected by libpg_query at parse time (PG doesn't allow
         // FOR ALL TABLES combined with FOR TABLE). Test the guard anyway via
         // direct function call with a crafted stmt.
         let mut stmt = parse_one_create_stmt("CREATE PUBLICATION p FOR ALL TABLES;");
         // Inject a fake pubobjects to simulate the guard.
-        let dummy_node = pg_query::protobuf::Node { node: None };
+        let dummy_node = pgevolve_pgquery::protobuf::Node { node: None };
         stmt.pubobjects.push(dummy_node);
         stmt.for_all_tables = true;
         let mut acc: BTreeMap<Identifier, Publication> = BTreeMap::new();
@@ -754,7 +754,7 @@ mod tests {
 
     #[test]
     fn empty_publication_scope_errors() {
-        // pg_query rejects `CREATE PUBLICATION p;` (no FOR clause) as a syntax
+        // libpg_query rejects `CREATE PUBLICATION p;` (no FOR clause) as a syntax
         // error, but we can reach the guard via parse_selective_scope directly.
         let err = parse_selective_scope(&[], &Identifier::from_unquoted("p").unwrap(), &loc())
             .unwrap_err();

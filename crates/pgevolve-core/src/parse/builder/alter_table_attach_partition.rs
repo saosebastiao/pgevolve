@@ -1,8 +1,8 @@
 //! `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...` — back-fills
 //! `partition_of` on an already-parsed child Table.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{AlterTableStmt, AlterTableType};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{AlterTableStmt, AlterTableType};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::partition::PartitionOf;
@@ -111,9 +111,9 @@ mod tests {
     }
 
     fn parse_alter(sql: &str) -> AlterTableStmt {
-        let parsed = pg_query::parse(sql).unwrap();
+        let parsed = pgevolve_pgquery::parse(sql).unwrap();
         match &parsed.protobuf.stmts[0].stmt.as_ref().unwrap().node {
-            Some(pg_query::NodeEnum::AlterTableStmt(s)) => s.clone(),
+            Some(pgevolve_pgquery::NodeEnum::AlterTableStmt(s)) => s.clone(),
             other => panic!("expected AlterTableStmt, got {other:?}"),
         }
     }
@@ -153,10 +153,10 @@ mod tests {
         // Flip concurrent to true to simulate that input.
         let cmd_node = stmt.cmds[0].node.as_mut().unwrap();
         match cmd_node {
-            pg_query::NodeEnum::AlterTableCmd(c) => {
+            pgevolve_pgquery::NodeEnum::AlterTableCmd(c) => {
                 let def_node = c.def.as_mut().unwrap().node.as_mut().unwrap();
                 match def_node {
-                    pg_query::NodeEnum::PartitionCmd(p) => p.concurrent = true,
+                    pgevolve_pgquery::NodeEnum::PartitionCmd(p) => p.concurrent = true,
                     _ => unreachable!(),
                 }
             }

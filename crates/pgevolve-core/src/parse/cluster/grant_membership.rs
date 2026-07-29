@@ -1,6 +1,6 @@
 //! `GRANT role TO target` — cluster-level role membership.
 
-use pg_query::protobuf::GrantRoleStmt;
+use pgevolve_pgquery::protobuf::GrantRoleStmt;
 
 use crate::identifier::Identifier;
 use crate::ir::cluster::catalog::ClusterCatalog;
@@ -43,15 +43,15 @@ pub(super) fn apply(
 }
 
 fn extract_role_specs(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     loc: &SourceLocation,
     label: &str,
 ) -> Result<Vec<Identifier>, ParseError> {
     let mut out = Vec::with_capacity(nodes.len());
     for n in nodes {
         let role_name_str = match n.node.as_ref() {
-            Some(pg_query::NodeEnum::RoleSpec(rs)) => rs.rolename.clone(),
-            Some(pg_query::NodeEnum::AccessPriv(ap)) => ap.priv_name.clone(),
+            Some(pgevolve_pgquery::NodeEnum::RoleSpec(rs)) => rs.rolename.clone(),
+            Some(pgevolve_pgquery::NodeEnum::AccessPriv(ap)) => ap.priv_name.clone(),
             other => {
                 return Err(ParseError::Structural {
                     location: loc.clone(),

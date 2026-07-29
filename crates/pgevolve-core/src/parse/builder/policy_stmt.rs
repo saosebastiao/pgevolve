@@ -2,7 +2,7 @@
 //!
 //! `ALTER POLICY` and `DROP POLICY` are rejected in source (diff-driven only).
 
-use pg_query::protobuf::CreatePolicyStmt;
+use pgevolve_pgquery::protobuf::CreatePolicyStmt;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
@@ -109,13 +109,13 @@ fn decode_cmd(s: &str, loc: &SourceLocation) -> Result<PolicyCommand, ParseError
 }
 
 fn decode_role_targets(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     loc: &SourceLocation,
 ) -> Result<Vec<GrantTarget>, ParseError> {
-    use pg_query::protobuf::RoleSpecType;
+    use pgevolve_pgquery::protobuf::RoleSpecType;
     let mut out = Vec::with_capacity(nodes.len());
     for n in nodes {
-        let Some(pg_query::NodeEnum::RoleSpec(rs)) = n.node.as_ref() else {
+        let Some(pgevolve_pgquery::NodeEnum::RoleSpec(rs)) = n.node.as_ref() else {
             return Err(ParseError::Structural {
                 location: loc.clone(),
                 message: format!("expected RoleSpec in TO clause, got {n:?}"),
@@ -137,7 +137,7 @@ fn decode_role_targets(
 }
 
 fn qname_from_rangevar(
-    rv: &pg_query::protobuf::RangeVar,
+    rv: &pgevolve_pgquery::protobuf::RangeVar,
     loc: &SourceLocation,
 ) -> Result<QualifiedName, ParseError> {
     // Delegate to the shared helper which already handles schema defaulting.
@@ -150,12 +150,12 @@ fn qname_from_rangevar(
 /// Decode an expression node to a [`NormalizedExpr`].
 ///
 /// Reuses [`crate::parse::normalize_expr::from_pg_node`], which wraps the
-/// expression in a `SELECT <expr>` scaffold, deparses through `pg_query`,
+/// expression in a `SELECT <expr>` scaffold, deparses through `libpg_query`,
 /// strips the prefix, and lowercases reserved keywords before hashing.
 /// This is the same canonicalizer used by check constraints and trigger
 /// WHEN clauses.
 fn decode_expr_node(
-    expr: &pg_query::protobuf::Node,
+    expr: &pgevolve_pgquery::protobuf::Node,
     loc: &SourceLocation,
 ) -> Result<NormalizedExpr, ParseError> {
     let inner_enum = expr.node.as_ref().ok_or_else(|| ParseError::Structural {

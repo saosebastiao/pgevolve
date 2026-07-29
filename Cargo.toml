@@ -44,9 +44,11 @@ unnecessary_wraps       = "allow"
 const_is_empty          = "allow"
 
 [workspace.dependencies]
-# Parser
-pg_query = "6"
-regex    = "1"
+# Parser — vendored binding we own; see crates/pgevolve-pgquery/README.md.
+# `path` for local builds, `version` so the published crate resolves from
+# crates.io. The release ceremony publishes pgevolve-pgquery first (CLAUDE.md §11).
+pgevolve-pgquery = { path = "crates/pgevolve-pgquery", version = "0.4.6" }
+regex            = "1"
 
 # Errors / utilities
 thiserror = "2"

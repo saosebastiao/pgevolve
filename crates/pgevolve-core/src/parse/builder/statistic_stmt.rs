@@ -4,7 +4,7 @@
 //! PUBLICATION where `CREATE … WITH (…)` and subsequent `ALTER … SET …` all
 //! unify into one IR record.
 //!
-//! `pg_query` AST nodes:
+//! `libpg_query` AST nodes:
 //! - `CreateStatsStmt` — `CREATE STATISTICS … ON … FROM …`
 //! - `AlterStatsStmt`  — `ALTER STATISTICS … SET STATISTICS n`
 //! - `RenameStmt` (`ObjectStatisticExt`) — rejected at the Statement classifier.
@@ -15,9 +15,9 @@
 
 use std::collections::BTreeMap;
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::a_const;
-use pg_query::protobuf::{AlterStatsStmt, CreateStatsStmt};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::a_const;
+use pgevolve_pgquery::protobuf::{AlterStatsStmt, CreateStatsStmt};
 
 use crate::identifier::QualifiedName;
 use crate::ir::statistic::{Statistic, StatisticColumn, StatisticKinds};
@@ -107,7 +107,7 @@ pub fn parse_alter_statistics(
 // ── Kind parsing ─────────────────────────────────────────────────────────────
 
 fn parse_statistic_kinds(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     qname: &QualifiedName,
     loc: &SourceLocation,
 ) -> Result<StatisticKinds, ParseError> {
@@ -153,7 +153,7 @@ fn parse_statistic_kinds(
 /// - `name` — non-empty means this is a plain column reference.
 /// - `expr` — non-None means this is an expression statistic (PG 14+).
 fn parse_statistic_columns(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     qname: &QualifiedName,
     loc: &SourceLocation,
 ) -> Result<Vec<StatisticColumn>, ParseError> {
@@ -191,7 +191,7 @@ fn parse_statistic_columns(
 // ── Target table extraction ───────────────────────────────────────────────────
 
 fn extract_target_table(
-    relations: &[pg_query::protobuf::Node],
+    relations: &[pgevolve_pgquery::protobuf::Node],
     qname: &QualifiedName,
     loc: &SourceLocation,
 ) -> Result<QualifiedName, ParseError> {
@@ -214,7 +214,7 @@ fn extract_target_table(
 
 /// Extract the integer target from `AlterStatsStmt.stxstattarget`.
 ///
-/// `pg_query` 6.x encodes `SET STATISTICS n` as a bare `Integer { ival }` node
+/// `libpg_query` 17 encodes `SET STATISTICS n` as a bare `Integer { ival }` node
 /// (not an `AConst`). We handle both forms for forward-compatibility.
 fn extract_stxstattarget(
     stmt: &AlterStatsStmt,
@@ -233,7 +233,7 @@ fn extract_stxstattarget(
         })?;
 
     match node {
-        // pg_query 6.x encodes the target as a bare Integer node.
+        // libpg_query 17 encodes the target as a bare Integer node.
         NodeEnum::Integer(i) => Ok(i.ival),
         // Forward-compat: also accept AConst integer form.
         NodeEnum::AConst(ac) => match ac.val.as_ref() {
@@ -286,7 +286,7 @@ mod tests {
     }
 
     fn parse_one_create_stmt(sql: &str) -> CreateStatsStmt {
-        let parsed = pg_query::parse(sql).expect("pg_query parse");
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query parse");
         let node = parsed
             .protobuf
             .stmts
@@ -302,7 +302,7 @@ mod tests {
     }
 
     fn parse_one_alter_stmt(sql: &str) -> AlterStatsStmt {
-        let parsed = pg_query::parse(sql).expect("pg_query parse");
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query parse");
         let node = parsed
             .protobuf
             .stmts
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn anonymous_form_errors() {
-        // pg_query rejects `CREATE STATISTICS ON (a, b) FROM app.t;` (no name)
+        // libpg_query rejects `CREATE STATISTICS ON (a, b) FROM app.t;` (no name)
         // at the SQL level in most PG versions — inject via empty defnames.
         let mut stmt = parse_one_create_stmt("CREATE STATISTICS app.s ON a, b FROM app.t;");
         stmt.defnames.clear();
@@ -431,8 +431,8 @@ mod tests {
     fn unknown_kind_errors() {
         // Inject a bogus kind node into a freshly-parsed stmt.
         let mut stmt = parse_one_create_stmt("CREATE STATISTICS app.s ON a FROM app.t;");
-        stmt.stat_types.push(pg_query::protobuf::Node {
-            node: Some(NodeEnum::String(pg_query::protobuf::String {
+        stmt.stat_types.push(pgevolve_pgquery::protobuf::Node {
+            node: Some(NodeEnum::String(pgevolve_pgquery::protobuf::String {
                 sval: "bogus".to_string(),
             })),
         });
@@ -561,9 +561,9 @@ mod tests {
 
     #[test]
     fn include_clause_not_supported() {
-        // No `include` field on CreateStatsStmt in pg_query 6.x (PG 14-17).
+        // No `include` field on CreateStatsStmt in libpg_query 17 (PG 14-17).
         // Verify the StatisticIncludeNotSupported variant is reachable via
-        // direct function call (simulating what a PG 18 pg_query would produce).
+        // direct function call (simulating what a PG 18 parser would produce).
         let stmt = parse_one_create_stmt("CREATE STATISTICS app.s ON a, b FROM app.t;");
         let mut acc: BTreeMap<QualifiedName, Statistic> = BTreeMap::new();
         // Normal create works fine — INCLUDE is a future field.

@@ -41,7 +41,7 @@ cargo package -p pgevolve-pgquery                            # packaging is a ga
                                                              # (verification is the default; --verify is not a flag)
 ```
 
-> **Why `cargo package --verify` is a standing gate:** upstream `pg_query.rs` has no such check, and its `main` is currently unpublishable because `build.rs` copies a header its `include` globs do not ship. We do not inherit that failure mode.
+> **Why `cargo package` is a standing gate:** upstream `pg_query.rs` has no such check, and its `main` is currently unpublishable because `build.rs` copies a header its `include` globs do not ship. We do not inherit that failure mode.
 
 ---
 
@@ -53,7 +53,7 @@ cargo package -p pgevolve-pgquery                            # packaging is a ga
 | 1 | ✅ **done** — Silent-degradation sites → typed errors; PG18 catalog preflight | 1 ew | GO — unconditional; live bugs today |
 | 2 | ✅ **done** — Seal `pg_query` out of `pgevolve-core`'s public API | 1 ew | GO — unconditional; makes Stage 4 mechanical |
 | 3 | 🔶 **partial** — `pgevolve-pgquery` crate built and packaged, vendoring libpg_query **17**; PG18 bump blocked on source access | 2.5 ew | **KILL GATE** — unrun (needs PG18 + 5 live servers) |
-| 4 | Cut `pgevolve-core` over to it; drop `pg_query` | 0.5 ew | Zero fixture re-blessing |
+| 4 | ✅ **done** — Cut `pgevolve-core` over; `pg_query` dropped from the graph | 0.5 ew | Zero fixture re-blessing ✅ |
 | 5 | `xtask pg-oracle` + four PG18 plan-time lints | 1 ew | Oracle reproduces the acceptance matrix |
 | 6 | PG18 semantics with conformance fixtures | 3 ew | A fixture per claimed feature |
 | 7 | *(separate plan)* srcdata-generated typed AST; drop prost/protoc/bindgen | ~6 ew | Deferred — see §Stage 7 |
@@ -167,12 +167,16 @@ Two findings worth carrying forward:
 
 ## Stage 4 — Cut over
 
-- [ ] **4.1** Replace `pg_query = "6"` with `pgevolve-pgquery` in `[workspace.dependencies]`; update `crates/pgevolve-core/Cargo.toml` and the `pgevolve` dev-dependency that `tests/cast_e2e.rs` uses.
-- [ ] **4.2** Rename symbols. Post-Stage-2 the footprint is **45 files / 469 lines, all under `crates/pgevolve-core/src/parse/`**, plus one dev-dependency site in `crates/pgevolve/tests/cast_e2e.rs` — down from the 53 files / 2,108 lines this stage was scoped against. The AST types are unchanged in this stage, so this is a rename, not a migration.
-- [ ] **4.3** Release ceremony now covers 3 crates (`pgevolve-pgquery` → `pgevolve-core` → `pgevolve`). Update CLAUDE.md §11 accordingly, preserving the standing rule: **never publish before CI is green across all five PG majors.**
-- [ ] **4.4** Update `tests/parser_containment.rs`'s `PARSER_CRATE` to the new crate name. The test is the thing that keeps 4.2 from silently regressing, so it has to move with the rename rather than after it.
+- [x] **4.1** Replaced in `[workspace.dependencies]` (`path` + `version`, so the published crate resolves from crates.io) and in `crates/pgevolve-core/Cargo.toml`. **No `pgevolve` dev-dependency to change** — `tests/cast_e2e.rs`'s only mention of the parser was a comment, so that crate never depended on it. `pg_query` is now absent from `cargo tree` and has zero entries in `Cargo.lock`.
+- [x] **4.2** Renamed across 46 files, all under `crates/pgevolve-core/src/parse/` — Stage 2's containment held, so this was the rename it was supposed to be. **One non-mechanical change:** `NodeRef` is gone from the new crate, so the two `.to_ref().deparse()` sites became `.deparse()` directly (identical code path — upstream's `NodeRef::deparse` cloned back to a `NodeEnum` and built the same wrapper). Prose was also corrected: ~110 comments describing AST encoding now say `libpg_query` (accurate — it is the C parser's encoding, and that library is still what is vendored), version-pinned claims like "pg_query 6.x" became "libpg_query 17", and the user-facing `BodyError::Parse` message no longer names a crate pgevolve does not depend on.
+- [x] **4.3** CLAUDE.md §11 updated: three crates, `pgevolve-pgquery` first (core depends on it by `version`, so the index must carry it before core resolves). The never-publish-before-green rule is preserved verbatim, plus two rules specific to the new crate — `cargo package` before tagging, and never regenerate `src/protobuf.rs` as part of a release.
+- [x] **4.4** `PARSER_CRATE` now spells `pgevolve_pgquery`; both containment tests pass, including the one that fails if `parse/` stops naming the parser (so the guard cannot pass vacuously against a stale constant).
 
-**Gate:** verify gate green; zero fixture re-blessing; `cargo deny check` green.
+**Gate: met, with one item deferred.** Verify gate green — fmt, `clippy --workspace --all-targets -D warnings`, `cargo doc -D warnings`, 2,478 tests pass / 0 fail, 5 doctests pass. **Zero fixture re-blessing, literally:** no file matching `fixture`/`.snap`/`expected`/`golden` changed, and the test count and results are identical to the pre-cutover run.
+
+Strongest evidence the swap is behaviour-preserving: the soak test reports **byte-identical figures before and after** — 50,577 statements, 23 passes, 2.4 MiB deparsed, 0 parse failures, 0 deparse failures. Same vendored C, same output.
+
+`cargo deny check` **not run — cargo-deny is not installed in this environment.** It is a CI gate and Stage 0 already added the `PostgreSQL` licence to `deny.toml`'s allow-list in anticipation of exactly this vendoring, so the expectation is green; but it is unverified here and should not be reported otherwise.
 
 ### Notes carried from Stage 2
 

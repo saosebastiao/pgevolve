@@ -6,8 +6,8 @@
 
 use std::collections::BTreeSet;
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::CreateEnumStmt;
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::CreateEnumStmt;
 
 use crate::identifier::Identifier;
 use crate::ir::user_type::{EnumValue, UserType, UserTypeKind};
@@ -65,14 +65,14 @@ pub fn build_enum(
 
 /// Extract a string value from a node that must be `NodeEnum::String`.
 fn string_val_from_node(
-    node: &pg_query::protobuf::Node,
+    node: &pgevolve_pgquery::protobuf::Node,
     location: &SourceLocation,
 ) -> Result<String, ParseError> {
     match node.node.as_ref() {
         Some(NodeEnum::String(s)) if !s.sval.is_empty() => Ok(s.sval.clone()),
         Some(NodeEnum::AConst(c)) => {
-            // pg_query sometimes wraps enum labels in AConst Sval nodes.
-            use pg_query::protobuf::a_const;
+            // libpg_query sometimes wraps enum labels in AConst Sval nodes.
+            use pgevolve_pgquery::protobuf::a_const;
             match c.val.as_ref() {
                 Some(a_const::Val::Sval(s)) if !s.sval.is_empty() => Ok(s.sval.clone()),
                 _ => Err(ParseError::Structural {
@@ -98,7 +98,7 @@ mod tests {
     }
 
     fn parse_enum(sql: &str) -> CreateEnumStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let node = parsed
             .protobuf
             .stmts
@@ -175,12 +175,12 @@ mod tests {
 
     #[test]
     fn empty_enum_rejected() {
-        // pg_query itself rejects empty ENUM lists at parse time, so this
+        // libpg_query itself rejects empty ENUM lists at parse time, so this
         // tests that our empty-check path is defensive. We simulate by
         // constructing a synthetic statement.
         let synthetic = CreateEnumStmt {
             type_name: {
-                use pg_query::protobuf::{Node, String as PgString};
+                use pgevolve_pgquery::protobuf::{Node, String as PgString};
                 vec![
                     Node {
                         node: Some(NodeEnum::String(PgString { sval: "app".into() })),

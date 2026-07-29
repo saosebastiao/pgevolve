@@ -1,6 +1,6 @@
 //! Parser for `CREATE SUBSCRIPTION` and `ALTER SUBSCRIPTION` statements.
 //!
-//! `pg_query` emits `CreateSubscriptionStmt` for CREATE and
+//! `libpg_query` emits `CreateSubscriptionStmt` for CREATE and
 //! `AlterSubscriptionStmt` for ALTER. Both are folded into one `Subscription`
 //! per name — the same pattern as v0.3.4 PUBLICATION where `CREATE … WITH (…)`
 //! and subsequent `ALTER … ADD/DROP/SET PUBLICATION / CONNECTION / SET (…)` all
@@ -11,8 +11,10 @@
 
 use std::collections::BTreeMap;
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{AlterSubscriptionStmt, AlterSubscriptionType, CreateSubscriptionStmt};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{
+    AlterSubscriptionStmt, AlterSubscriptionType, CreateSubscriptionStmt,
+};
 
 use crate::identifier::Identifier;
 use crate::ir::subscription::{OriginMode, StreamingMode, Subscription, SubscriptionOptions};
@@ -145,7 +147,7 @@ pub fn parse_alter_subscription(
 ///
 /// Each entry in the list is a `String` node whose `sval` is a publication name.
 fn parse_publication_list(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     name: &Identifier,
     loc: &SourceLocation,
 ) -> Result<Vec<Identifier>, ParseError> {
@@ -169,7 +171,7 @@ fn parse_publication_list(
 /// validation (e.g. `streaming = parallel` requires PG 16) is deferred to the
 /// Stage 9 lint rule — this function just stores what source declared.
 fn parse_subscription_options(
-    options: &[pg_query::protobuf::Node],
+    options: &[pgevolve_pgquery::protobuf::Node],
     name: &Identifier,
     loc: SourceLocation,
 ) -> Result<SubscriptionOptions, ParseError> {
@@ -328,10 +330,10 @@ fn merge_options(base: &mut SubscriptionOptions, delta: SubscriptionOptions) {
 /// Handles:
 /// - `String(sval)` — bare identifier or quoted string
 /// - `AConst { Sval }` — string constant
-/// - `TypeName` — `pg_query` encodes bare keywords (e.g. `parallel`, `off`) as
+/// - `TypeName` — `libpg_query` encodes bare keywords (e.g. `parallel`, `off`) as
 ///   `TypeName` nodes when they appear as option values without quoting
 fn extract_def_elem_text(
-    def: &pg_query::protobuf::DefElem,
+    def: &pgevolve_pgquery::protobuf::DefElem,
     name: &Identifier,
     loc: &SourceLocation,
 ) -> Result<String, ParseError> {
@@ -344,7 +346,7 @@ fn extract_def_elem_text(
     match arg {
         NodeEnum::String(s) => Ok(s.sval.clone()),
         NodeEnum::AConst(ac) => {
-            use pg_query::protobuf::a_const::Val;
+            use pgevolve_pgquery::protobuf::a_const::Val;
             match ac.val.as_ref() {
                 Some(Val::Sval(s)) => Ok(s.sval.clone()),
                 _ => Err(ParseError::SubscriptionOptionMalformed(
@@ -354,7 +356,7 @@ fn extract_def_elem_text(
             }
         }
         NodeEnum::TypeName(tn) => {
-            // pg_query encodes bare-keyword option values as TypeName nodes.
+            // libpg_query encodes bare-keyword option values as TypeName nodes.
             // The last non-empty String within `names` is the actual keyword.
             tn.names
                 .iter()
@@ -374,14 +376,14 @@ fn extract_def_elem_text(
 
 /// Extract a boolean value from a `DefElem.arg`.
 ///
-/// Handles all encoding forms `pg_query` may use:
+/// Handles all encoding forms `libpg_query` may use:
 /// - `Boolean { boolval: true/false }`
 /// - `AConst` with `Boolval` or `Sval`
 /// - `TypeName` (bare-keyword encoding for `true`/`false`/`on`/`off`)
 /// - `String` node
 /// - Missing `arg` (bare flag means true, e.g. `WITH (binary)`)
 fn extract_def_elem_bool(
-    def: &pg_query::protobuf::DefElem,
+    def: &pgevolve_pgquery::protobuf::DefElem,
     name: &Identifier,
     loc: &SourceLocation,
 ) -> Result<bool, ParseError> {
@@ -393,7 +395,7 @@ fn extract_def_elem_bool(
     match arg_node {
         NodeEnum::Boolean(b) => Ok(b.boolval),
         NodeEnum::AConst(ac) => {
-            use pg_query::protobuf::a_const::Val;
+            use pgevolve_pgquery::protobuf::a_const::Val;
             match ac.val.as_ref() {
                 Some(Val::Boolval(b)) => Ok(b.boolval),
                 Some(Val::Sval(s)) => parse_bool_str(&s.sval, &def.defname, name, loc),
@@ -404,7 +406,7 @@ fn extract_def_elem_bool(
             }
         }
         NodeEnum::TypeName(tn) => {
-            // pg_query encodes bare-keyword booleans (true/false/on/off) as TypeName.
+            // libpg_query encodes bare-keyword booleans (true/false/on/off) as TypeName.
             let raw = tn
                 .names
                 .iter()
@@ -474,8 +476,8 @@ mod tests {
         SourceLocation::new(PathBuf::from("test.sql"), 1, 1)
     }
 
-    fn parse_one_create_stmt(sql: &str) -> pg_query::protobuf::CreateSubscriptionStmt {
-        let parsed = pg_query::parse(sql).expect("pg_query parse");
+    fn parse_one_create_stmt(sql: &str) -> pgevolve_pgquery::protobuf::CreateSubscriptionStmt {
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query parse");
         let node = parsed
             .protobuf
             .stmts
@@ -490,8 +492,8 @@ mod tests {
         s
     }
 
-    fn parse_one_alter_stmt(sql: &str) -> pg_query::protobuf::AlterSubscriptionStmt {
-        let parsed = pg_query::parse(sql).expect("pg_query parse");
+    fn parse_one_alter_stmt(sql: &str) -> pgevolve_pgquery::protobuf::AlterSubscriptionStmt {
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query parse");
         let node = parsed
             .protobuf
             .stmts
@@ -717,7 +719,7 @@ mod tests {
 
     #[test]
     fn create_empty_connection_errors() {
-        // pg_query accepts an empty conninfo string at the AST level, so we
+        // libpg_query accepts an empty conninfo string at the AST level, so we
         // have to reject it ourselves.
         let mut stmt =
             parse_one_create_stmt("CREATE SUBSCRIPTION s CONNECTION 'host=x' PUBLICATION p;");
@@ -755,8 +757,8 @@ mod tests {
             && def.defname == "streaming"
         {
             // Replace arg with a String node containing "bogus".
-            def.arg = Some(Box::new(pg_query::protobuf::Node {
-                node: Some(NodeEnum::String(pg_query::protobuf::String {
+            def.arg = Some(Box::new(pgevolve_pgquery::protobuf::Node {
+                node: Some(NodeEnum::String(pgevolve_pgquery::protobuf::String {
                     sval: "bogus".to_string(),
                 })),
             }));

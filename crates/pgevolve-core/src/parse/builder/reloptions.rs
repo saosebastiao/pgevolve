@@ -8,12 +8,12 @@ use crate::parse::error::{ParseError, SourceLocation};
 
 /// Decode reloption clauses for a table or materialized view.
 pub fn decode_table_options(
-    options: &[pg_query::protobuf::Node],
+    options: &[pgevolve_pgquery::protobuf::Node],
     loc: &SourceLocation,
 ) -> Result<TableStorageOptions, ParseError> {
     let mut out = TableStorageOptions::default();
     for opt_node in options {
-        let Some(pg_query::NodeEnum::DefElem(def)) = opt_node.node.as_ref() else {
+        let Some(pgevolve_pgquery::NodeEnum::DefElem(def)) = opt_node.node.as_ref() else {
             continue;
         };
         let key = def.defname.as_str();
@@ -50,13 +50,13 @@ pub fn decode_table_options(
 /// `CreateIndexStmt`; it is used to validate the fillfactor range, which
 /// differs per access method.
 pub fn decode_index_options(
-    options: &[pg_query::protobuf::Node],
+    options: &[pgevolve_pgquery::protobuf::Node],
     access_method: &str,
     loc: &SourceLocation,
 ) -> Result<IndexStorageOptions, ParseError> {
     let mut out = IndexStorageOptions::default();
     for opt_node in options {
-        let Some(pg_query::NodeEnum::DefElem(def)) = opt_node.node.as_ref() else {
+        let Some(pgevolve_pgquery::NodeEnum::DefElem(def)) = opt_node.node.as_ref() else {
             continue;
         };
         let key = def.defname.as_str();
@@ -141,7 +141,7 @@ fn validate_range(
 }
 
 fn extract_value(
-    def: &pg_query::protobuf::DefElem,
+    def: &pgevolve_pgquery::protobuf::DefElem,
     loc: &SourceLocation,
 ) -> Result<String, ParseError> {
     let Some(arg) = def.arg.as_ref().and_then(|n| n.node.as_ref()) else {
@@ -150,24 +150,26 @@ fn extract_value(
     };
     match arg {
         // Raw scalar nodes (rare but possible for some callers)
-        pg_query::NodeEnum::Integer(i) => Ok(i.ival.to_string()),
-        pg_query::NodeEnum::Float(f) => Ok(f.fval.clone()),
-        pg_query::NodeEnum::String(s) => Ok(s.sval.clone()),
-        pg_query::NodeEnum::Boolean(b) => Ok(if b.boolval {
+        pgevolve_pgquery::NodeEnum::Integer(i) => Ok(i.ival.to_string()),
+        pgevolve_pgquery::NodeEnum::Float(f) => Ok(f.fval.clone()),
+        pgevolve_pgquery::NodeEnum::String(s) => Ok(s.sval.clone()),
+        pgevolve_pgquery::NodeEnum::Boolean(b) => Ok(if b.boolval {
             "true".into()
         } else {
             "false".into()
         }),
-        // pg_query 6.x wraps literal values in AConst; this is the common path
+        // libpg_query 17 wraps literal values in AConst; this is the common path
         // for reloption values written in source SQL.
-        pg_query::NodeEnum::AConst(ac) => extract_aconst_value(ac, def, loc),
-        // pg_query encodes some bare-keyword reloption values (e.g. `off`, `on`,
+        pgevolve_pgquery::NodeEnum::AConst(ac) => extract_aconst_value(ac, def, loc),
+        // libpg_query encodes some bare-keyword reloption values (e.g. `off`, `on`,
         // `auto`, `false`) as a TypeName node whose `names` list holds a single
         // String node. Treat the first name as the textual value.
-        pg_query::NodeEnum::TypeName(tn) => {
+        pgevolve_pgquery::NodeEnum::TypeName(tn) => {
             // Extract the last part of the names list (the unqualified name).
             let name_str = tn.names.iter().rev().find_map(|n| match n.node.as_ref() {
-                Some(pg_query::NodeEnum::String(s)) if !s.sval.is_empty() => Some(s.sval.clone()),
+                Some(pgevolve_pgquery::NodeEnum::String(s)) if !s.sval.is_empty() => {
+                    Some(s.sval.clone())
+                }
                 _ => None,
             });
             name_str.ok_or_else(|| ParseError::Structural {
@@ -191,11 +193,11 @@ fn extract_value(
 
 /// Extract a string representation from an `A_Const` literal node.
 fn extract_aconst_value(
-    ac: &pg_query::protobuf::AConst,
-    def: &pg_query::protobuf::DefElem,
+    ac: &pgevolve_pgquery::protobuf::AConst,
+    def: &pgevolve_pgquery::protobuf::DefElem,
     loc: &SourceLocation,
 ) -> Result<String, ParseError> {
-    use pg_query::protobuf::a_const::Val;
+    use pgevolve_pgquery::protobuf::a_const::Val;
     match ac.val.as_ref() {
         Some(Val::Ival(i)) => Ok(i.ival.to_string()),
         Some(Val::Fval(f)) => Ok(f.fval.clone()),
@@ -244,12 +246,12 @@ fn parse_bool(v: &str, key: &str, loc: &SourceLocation) -> Result<bool, ParseErr
 
 /// Extract a `DefElem` list from an `AlterTableCmd.def` node.
 ///
-/// For `AT_SetRelOptions` / `AT_ResetRelOptions`, `pg_query` stores the options
+/// For `AT_SetRelOptions` / `AT_ResetRelOptions`, `libpg_query` stores the options
 /// list as a `NodeEnum::List` inside `cmd.def`. This helper unpacks it.
 pub fn extract_def_list(
-    def: Option<&pg_query::protobuf::Node>,
+    def: Option<&pgevolve_pgquery::protobuf::Node>,
     loc: &SourceLocation,
-) -> Result<Vec<pg_query::protobuf::Node>, ParseError> {
+) -> Result<Vec<pgevolve_pgquery::protobuf::Node>, ParseError> {
     let node = def
         .and_then(|d| d.node.as_ref())
         .ok_or_else(|| ParseError::Structural {
@@ -257,7 +259,7 @@ pub fn extract_def_list(
             message: "ALTER ... SET (...) missing options list".into(),
         })?;
     match node {
-        pg_query::NodeEnum::List(list) => Ok(list.items.clone()),
+        pgevolve_pgquery::NodeEnum::List(list) => Ok(list.items.clone()),
         _ => Err(ParseError::Structural {
             location: loc.clone(),
             message: "ALTER ... SET (...) options node was not a List".into(),
@@ -275,7 +277,7 @@ mod tests {
     }
 
     fn decode_table(sql: &str) -> TableStorageOptions {
-        let parsed = pg_query::parse(sql).expect("parse");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parse");
         let stmt = parsed
             .protobuf
             .stmts
@@ -284,14 +286,14 @@ mod tests {
             .and_then(|r| r.stmt)
             .and_then(|n| n.node)
             .expect("stmt");
-        let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+        let pgevolve_pgquery::NodeEnum::CreateStmt(create) = stmt else {
             panic!("expected CreateStmt")
         };
         decode_table_options(&create.options, &loc()).expect("decode")
     }
 
     fn try_decode_table(sql: &str) -> Result<TableStorageOptions, ParseError> {
-        let parsed = pg_query::parse(sql).expect("parse");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parse");
         let stmt = parsed
             .protobuf
             .stmts
@@ -300,14 +302,14 @@ mod tests {
             .and_then(|r| r.stmt)
             .and_then(|n| n.node)
             .expect("stmt");
-        let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+        let pgevolve_pgquery::NodeEnum::CreateStmt(create) = stmt else {
             panic!("expected CreateStmt")
         };
         decode_table_options(&create.options, &loc())
     }
 
     fn decode_index(sql: &str) -> IndexStorageOptions {
-        let parsed = pg_query::parse(sql).expect("parse");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parse");
         let stmt = parsed
             .protobuf
             .stmts
@@ -316,14 +318,14 @@ mod tests {
             .and_then(|r| r.stmt)
             .and_then(|n| n.node)
             .expect("stmt");
-        let pg_query::NodeEnum::IndexStmt(idx) = stmt else {
+        let pgevolve_pgquery::NodeEnum::IndexStmt(idx) = stmt else {
             panic!("expected IndexStmt")
         };
         decode_index_options(&idx.options, &idx.access_method, &loc()).expect("decode")
     }
 
     fn try_decode_index(sql: &str) -> Result<IndexStorageOptions, ParseError> {
-        let parsed = pg_query::parse(sql).expect("parse");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parse");
         let stmt = parsed
             .protobuf
             .stmts
@@ -332,7 +334,7 @@ mod tests {
             .and_then(|r| r.stmt)
             .and_then(|n| n.node)
             .expect("stmt");
-        let pg_query::NodeEnum::IndexStmt(idx) = stmt else {
+        let pgevolve_pgquery::NodeEnum::IndexStmt(idx) = stmt else {
             panic!("expected IndexStmt")
         };
         decode_index_options(&idx.options, &idx.access_method, &loc())
@@ -403,7 +405,7 @@ mod tests {
     #[test]
     fn create_table_unknown_extra_key() {
         // Use a plain unknown key (without dot); dotted keys like pg_partman.something
-        // are encoded by pg_query with a separate defnamespace field and are
+        // are encoded by libpg_query with a separate defnamespace field and are
         // accepted but rounded through the extra bag with a simple key form.
         let s = decode_table(
             "CREATE TABLE app.t (id integer) WITH (my_extension_option = 'somevalue');",
@@ -508,11 +510,12 @@ mod tests {
 
     #[test]
     fn create_index_buffering_invalid_errors() {
-        // pg_query may reject this at parse time; if not, our decoder must.
-        let result =
-            pg_query::parse("CREATE INDEX i ON app.t USING gist (a) WITH (buffering = 'bogus');");
+        // libpg_query may reject this at parse time; if not, our decoder must.
+        let result = pgevolve_pgquery::parse(
+            "CREATE INDEX i ON app.t USING gist (a) WITH (buffering = 'bogus');",
+        );
         match result {
-            Err(_) => {} // pg_query rejected it — fine
+            Err(_) => {} // the parser rejected it — fine
             Ok(parsed) => {
                 let stmt = parsed
                     .protobuf
@@ -522,7 +525,7 @@ mod tests {
                     .and_then(|r| r.stmt)
                     .and_then(|n| n.node)
                     .unwrap();
-                let pg_query::NodeEnum::IndexStmt(idx) = stmt else {
+                let pgevolve_pgquery::NodeEnum::IndexStmt(idx) = stmt else {
                     panic!("expected IndexStmt")
                 };
                 let err =
@@ -557,14 +560,14 @@ mod tests {
     #[test]
     fn autovacuum_scale_factor_value_lands_in_extra_verbatim() {
         // Typed scale-factor validation was dropped when autovacuum_* keys
-        // moved into the generic `extra` bag. Whatever string pg_query yields
+        // moved into the generic `extra` bag. Whatever string libpg_query yields
         // for the value is now stored verbatim. We only assert the key is
         // captured; we do not reject NaN at this layer anymore.
-        let result = pg_query::parse(
+        let result = pgevolve_pgquery::parse(
             "CREATE TABLE app.t (id integer) WITH (autovacuum_vacuum_scale_factor = 'NaN');",
         );
         match result {
-            Err(_) => {} // pg_query rejected it — fine
+            Err(_) => {} // the parser rejected it — fine
             Ok(parsed) => {
                 let stmt = parsed
                     .protobuf
@@ -574,7 +577,7 @@ mod tests {
                     .and_then(|r| r.stmt)
                     .and_then(|n| n.node)
                     .unwrap();
-                let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+                let pgevolve_pgquery::NodeEnum::CreateStmt(create) = stmt else {
                     panic!("expected CreateStmt")
                 };
                 if !create.options.is_empty() {

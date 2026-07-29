@@ -2,8 +2,8 @@
 
 #![allow(clippy::similar_names, clippy::missing_const_for_fn)]
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{
     self, ColumnDef, ConstrType, Constraint as PgConstraint, CreateStmt, PartitionBoundSpec,
     PartitionSpec,
 };
@@ -169,7 +169,7 @@ pub fn build_table(
 
 /// Decode the inline `STORAGE x` clause from a `ColumnDef.storage_name` string.
 ///
-/// `pg_query` populates `storage_name` (not `storage`) with the lowercase keyword
+/// `libpg_query` populates `storage_name` (not `storage`) with the lowercase keyword
 /// for inline `STORAGE x` in `CREATE TABLE / ALTER TABLE ADD COLUMN`; `storage`
 /// is left empty. Returns `None` if no clause was written.
 fn decode_inline_storage(
@@ -257,7 +257,7 @@ fn build_column(
         .transpose()?;
 
     // Inline STORAGE / COMPRESSION clauses (PG 16+ for STORAGE inline in CREATE TABLE;
-    // COMPRESSION inline is PG 14+). pg_query populates `storage_name` (not `storage`)
+    // COMPRESSION inline is PG 14+). libpg_query populates `storage_name` (not `storage`)
     // for the inline STORAGE keyword; `compression` is populated directly.
     let storage = decode_inline_storage(&col.storage_name, location)?;
     let compression = decode_inline_compression(&col.compression, location)?;
@@ -675,7 +675,7 @@ pub fn build_partition_by(
     spec: &PartitionSpec,
     location: &SourceLocation,
 ) -> Result<PartitionBy, ParseError> {
-    use pg_query::protobuf::PartitionStrategy as PgStrategy;
+    use pgevolve_pgquery::protobuf::PartitionStrategy as PgStrategy;
 
     let pg_strategy = PgStrategy::try_from(spec.strategy).unwrap_or(PgStrategy::Undefined);
     let strategy = match pg_strategy {
@@ -805,10 +805,10 @@ pub fn build_partition_bounds(
 }
 
 fn build_bound_datum(
-    node: &pg_query::protobuf::Node,
+    node: &pgevolve_pgquery::protobuf::Node,
     location: &SourceLocation,
 ) -> Result<BoundDatum, ParseError> {
-    use pg_query::protobuf::PartitionRangeDatumKind;
+    use pgevolve_pgquery::protobuf::PartitionRangeDatumKind;
 
     if let Some(NodeEnum::PartitionRangeDatum(d)) = node.node.as_ref() {
         let kind =
@@ -851,7 +851,7 @@ fn build_bound_datum(
 /// contain one or two `String` nodes (e.g. collation or opclass overrides in a
 /// `PartitionElem`).
 fn qualified_name_from_node_list(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     location: &SourceLocation,
 ) -> Result<Option<QualifiedName>, ParseError> {
     if nodes.is_empty() {
@@ -910,7 +910,7 @@ mod tests {
     }
 
     fn build(sql: &str) -> Table {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let stmt = parsed
             .protobuf
             .stmts
@@ -1028,7 +1028,7 @@ mod tests {
 
     #[test]
     fn directive_default_schema_used() {
-        let parsed = pg_query::parse("CREATE TABLE users (id integer);").unwrap();
+        let parsed = pgevolve_pgquery::parse("CREATE TABLE users (id integer);").unwrap();
         let stmt = parsed
             .protobuf
             .stmts
@@ -1047,7 +1047,7 @@ mod tests {
 
     #[test]
     fn unqualified_without_directive_errors() {
-        let parsed = pg_query::parse("CREATE TABLE users (id integer);").unwrap();
+        let parsed = pgevolve_pgquery::parse("CREATE TABLE users (id integer);").unwrap();
         let stmt = parsed
             .protobuf
             .stmts
@@ -1068,7 +1068,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     fn try_build(sql: &str) -> Result<Table, ParseError> {
-        let parsed = pg_query::parse(sql).expect("pg_query parse");
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query parse");
         let stmt = parsed
             .protobuf
             .stmts

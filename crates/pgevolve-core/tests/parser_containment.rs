@@ -14,7 +14,12 @@
 use std::path::{Path, PathBuf};
 
 /// The parser crate, spelled so this file does not trip its own check.
-const PARSER_CRATE: &str = concat!("pg", "_query");
+///
+/// Moved with the Stage 4 cutover from `pg_query` to `pgevolve-pgquery`. It has
+/// to move *with* the rename rather than after it: this test is what keeps the
+/// containment from silently regressing, and a stale constant would make it pass
+/// while checking for a crate nothing imports any more.
+const PARSER_CRATE: &str = concat!("pgevolve", "_pgquery");
 
 /// Directory that owns the parser binding, relative to `src/`.
 const OWNING_DIR: &str = "parse";

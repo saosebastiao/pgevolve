@@ -1,10 +1,10 @@
-//! Build [`NormalizedExpr`] values from `pg_query` AST nodes.
+//! Build [`NormalizedExpr`] values from `libpg_query` AST nodes.
 //!
 //! Phase-2 scope (per `docs/superpowers/plans/phase-2-parser.md`):
 //!
 //! - Strip redundant casts to a column's own type. `42::integer` for an integer
 //!   column collapses to `42`; `'foo'::text` for a text column collapses to `'foo'`.
-//! - Lowercase reserved keywords on the canonical text emitted by `pg_query`'s deparser.
+//! - Lowercase reserved keywords on the canonical text emitted by `libpg_query`'s deparser.
 //! - Compute the BLAKE3 hash of the canonical text.
 //!
 //! Deferred to follow-up phase-2 issues (only affect equivalence sensitivity, not
@@ -13,14 +13,14 @@
 //! - Paren folding (collapsing trivial nested `A_Expr` parens).
 //! - Sorting commutative operands of `+`, `*`, `AND`, `OR`.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{self, CaseWhen, Node, ResTarget};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{self, CaseWhen, Node, ResTarget};
 
 use crate::ir::column_type::ColumnType;
 use crate::ir::default_expr::NormalizedExpr;
 use crate::parse::error::{ParseError, SourceLocation};
 
-/// Build a [`NormalizedExpr`] from a `pg_query` expression node.
+/// Build a [`NormalizedExpr`] from a `libpg_query` expression node.
 ///
 /// `target_type`, when supplied, enables redundant-cast stripping: a `TypeCast`
 /// to that type is replaced by its inner expression.
@@ -306,35 +306,35 @@ fn render_type_name(type_name: &protobuf::TypeName) -> Option<String> {
     if parts.is_empty() {
         return None;
     }
-    // pg_query stores types like `pg_catalog.int4`; we only care about the last
+    // libpg_query stores types like `pg_catalog.int4`; we only care about the last
     // segment for matching against [`ColumnType::parse_from_pg_type_string`],
     // since that already understands aliases like `int4` → `Integer`.
     Some(parts.last().cloned().unwrap_or_default())
 }
 
 /// Wrap an expression in `SELECT <expr>` and deparse, then strip the `SELECT `
-/// prefix. This is the workaround for `pg_query`'s deparse expecting a top-level
+/// prefix. This is the workaround for `libpg_query`'s deparse expecting a top-level
 /// statement node — there is no public `deparse_expr` entry point in v6.
 ///
 /// The `protobuf::ParseResult.version` field must match `libpg_query`'s
 /// embedded `PG_VERSION_NUM`, otherwise the C deparser asserts and aborts the
 /// process. We borrow that version from a freshly-parsed `SELECT 1` rather than
 /// hard-coding it.
-fn deparse_expr(node: &NodeEnum) -> Result<String, pg_query::Error> {
-    let mut scaffold = pg_query::parse("SELECT 1")?.protobuf;
+fn deparse_expr(node: &NodeEnum) -> Result<String, pgevolve_pgquery::Error> {
+    let mut scaffold = pgevolve_pgquery::parse("SELECT 1")?.protobuf;
     let raw = scaffold
         .stmts
         .get_mut(0)
-        .ok_or_else(|| pg_query::Error::Parse("scaffold has no stmts".into()))?;
+        .ok_or_else(|| pgevolve_pgquery::Error::Parse("scaffold has no stmts".into()))?;
     let select_node = raw
         .stmt
         .as_mut()
-        .ok_or_else(|| pg_query::Error::Parse("scaffold stmt is None".into()))?
+        .ok_or_else(|| pgevolve_pgquery::Error::Parse("scaffold stmt is None".into()))?
         .node
         .as_mut()
-        .ok_or_else(|| pg_query::Error::Parse("scaffold node is None".into()))?;
+        .ok_or_else(|| pgevolve_pgquery::Error::Parse("scaffold node is None".into()))?;
     let NodeEnum::SelectStmt(select) = select_node else {
-        return Err(pg_query::Error::Parse(
+        return Err(pgevolve_pgquery::Error::Parse(
             "scaffold parse did not yield SelectStmt".into(),
         ));
     };
@@ -348,12 +348,12 @@ fn deparse_expr(node: &NodeEnum) -> Result<String, pg_query::Error> {
             location: -1,
         }))),
     }];
-    let s = pg_query::deparse(&scaffold)?;
+    let s = pgevolve_pgquery::deparse(&scaffold)?;
     Ok(s.trim_start_matches("SELECT ").to_string())
 }
 
 /// Reserved Postgres keywords that should appear lowercased in canonical text.
-/// We deliberately keep this small — `pg_query`'s deparser already emits most
+/// We deliberately keep this small — `libpg_query`'s deparser already emits most
 /// keywords lowercased; this list is a belt-and-suspenders pass for any node
 /// kinds where the deparser preserves the source's casing.
 const RESERVED_FUNC_KEYWORDS: &[&str] = &[
@@ -433,7 +433,7 @@ mod tests {
     /// Parse the *value* expression of `SELECT <sql>` and return its `NodeEnum`.
     fn parse_expr(sql: &str) -> NodeEnum {
         let full = format!("SELECT {sql}");
-        let parsed = pg_query::parse(&full).expect("expression parses");
+        let parsed = pgevolve_pgquery::parse(&full).expect("expression parses");
         let stmt = parsed.protobuf.stmts.into_iter().next().expect("one stmt");
         let select = stmt.stmt.expect("stmt").node.expect("node");
         let NodeEnum::SelectStmt(s) = select else {
@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn keywords_lowercased() {
-        // pg_query already lowercases most keywords; this asserts the canonical
+        // libpg_query already lowercases most keywords; this asserts the canonical
         // text has no uppercase reserved-word artifacts.
         let node = parse_expr("LOWER('FOO')");
         let n = from_pg_node(&node, None, &loc()).expect("normalizes");
@@ -584,7 +584,7 @@ mod tests {
     }
 
     /// `'5'::int` is a meaningful coercion — must NOT be stripped.  Pinned to
-    /// `pg_query`'s exact deparse so any over-stripping fails loudly.
+    /// `libpg_query`'s exact deparse so any over-stripping fails loudly.
     #[test]
     fn cast_string_to_int_kept() {
         let node = parse_expr("'5'::int");
@@ -608,10 +608,10 @@ mod tests {
         assert_eq!(n.canonical_text, "'x'::varchar(5)");
     }
 
-    /// Bare `'x'::character` — `pg_query` deparses this as `'x'::char(1)`, i.e. it
+    /// Bare `'x'::character` — `libpg_query` deparses this as `'x'::char(1)`, i.e. it
     /// materialises an implicit typmod `(1)`.  That typmod trips the typmod gate
     /// in `strip_redundant_string_casts`, so the cast is KEPT.  Pinning the exact
-    /// canonical text here means a future `pg_query` upgrade that changes this
+    /// canonical text here means a future parser upgrade that changes this
     /// implicit-typmod behaviour surfaces as a test failure rather than a silent
     /// shift in normalisation.
     #[test]

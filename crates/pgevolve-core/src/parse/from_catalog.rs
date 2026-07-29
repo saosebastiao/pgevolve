@@ -25,7 +25,7 @@ use crate::ir::index::Index;
 use crate::ir::partition::{PartitionBounds, PartitionBy};
 use crate::ir::trigger::Trigger;
 use crate::parse::error::{ParseError, SourceLocation};
-use pg_query::NodeEnum;
+use pgevolve_pgquery::NodeEnum;
 
 /// Why rebuilding IR from a server-emitted definition failed.
 ///
@@ -116,7 +116,7 @@ fn single_statement(
     def: &str,
     sql: &str,
 ) -> Result<NodeEnum, FromCatalogError> {
-    let parsed = pg_query::parse(sql).map_err(|e| FromCatalogError::Rejected {
+    let parsed = pgevolve_pgquery::parse(sql).map_err(|e| FromCatalogError::Rejected {
         kind,
         def: def.to_string(),
         message: e.to_string(),
@@ -247,7 +247,7 @@ fn parameters_of_create_function(
     wrapper: &str,
     location: &SourceLocation,
 ) -> Result<Vec<CatalogParameter>, FromCatalogError> {
-    use pg_query::protobuf::FunctionParameterMode as PgMode;
+    use pgevolve_pgquery::protobuf::FunctionParameterMode as PgMode;
 
     let stmt = single_statement(kind, def, wrapper)?;
     let NodeEnum::CreateFunctionStmt(stmt) = stmt else {
@@ -489,7 +489,7 @@ pub fn view_dep_edges(
     body_text: &str,
     view_qname: &QualifiedName,
 ) -> Result<Vec<crate::plan::edges::DepEdge>, UnparseableViewBody> {
-    let parsed = pg_query::parse(body_text).map_err(|_| UnparseableViewBody)?;
+    let parsed = pgevolve_pgquery::parse(body_text).map_err(|_| UnparseableViewBody)?;
     let mut deps = Vec::new();
     for raw_stmt in &parsed.protobuf.stmts {
         if let Some(node) = &raw_stmt.stmt {
@@ -503,12 +503,12 @@ pub fn view_dep_edges(
 
 /// Walk a single AST node, collecting schema-qualified relation references.
 fn walk_node_for_deps(
-    node: &pg_query::protobuf::Node,
+    node: &pgevolve_pgquery::protobuf::Node,
     view_qname: &QualifiedName,
     deps: &mut Vec<crate::plan::edges::DepEdge>,
 ) {
     use crate::plan::edges::{DepEdge, DepSource, NodeId};
-    use pg_query::NodeEnum as N;
+    use pgevolve_pgquery::NodeEnum as N;
 
     let Some(inner) = &node.node else { return };
     match inner {
@@ -520,13 +520,13 @@ fn walk_node_for_deps(
                 walk_node_for_deps(wc, view_qname, deps);
             }
             if let Some(larg) = &sel.larg {
-                let n = pg_query::protobuf::Node {
+                let n = pgevolve_pgquery::protobuf::Node {
                     node: Some(N::SelectStmt(Box::new(larg.as_ref().clone()))),
                 };
                 walk_node_for_deps(&n, view_qname, deps);
             }
             if let Some(rarg) = &sel.rarg {
-                let n = pg_query::protobuf::Node {
+                let n = pgevolve_pgquery::protobuf::Node {
                     node: Some(N::SelectStmt(Box::new(rarg.as_ref().clone()))),
                 };
                 walk_node_for_deps(&n, view_qname, deps);
@@ -585,7 +585,7 @@ fn walk_node_for_deps(
 /// "nothing to say about this filter".
 pub fn unqualified_column_refs(expr_text: &str) -> Option<Vec<String>> {
     let sql = format!("SELECT * FROM _t WHERE {expr_text}");
-    let parsed = pg_query::parse(&sql).ok()?;
+    let parsed = pgevolve_pgquery::parse(&sql).ok()?;
     let mut names = Vec::new();
     for stmt in &parsed.protobuf.stmts {
         let Some(node) = &stmt.stmt else { continue };
@@ -595,8 +595,8 @@ pub fn unqualified_column_refs(expr_text: &str) -> Option<Vec<String>> {
 }
 
 /// Recursively walk a node, collecting unqualified column references.
-fn collect_column_refs(node: &pg_query::protobuf::Node, out: &mut Vec<String>) {
-    use pg_query::NodeEnum as N;
+fn collect_column_refs(node: &pgevolve_pgquery::protobuf::Node, out: &mut Vec<String>) {
+    use pgevolve_pgquery::NodeEnum as N;
 
     let Some(inner) = &node.node else { return };
     match inner {

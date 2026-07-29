@@ -45,7 +45,11 @@ These are not new principles, they're how to apply the constitution to in-sessio
     Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
     ```
 
-11. **Never `cargo publish` until CI is green.** The release ceremony order is: `git push origin main` → signed tag → `git push origin <tag>` → **wait for the push CI run to finish ✅ across all 5 PG majors** → `cargo publish -p pgevolve-core` → wait ~30s for index sync → `cargo publish -p pgevolve`. If CI fails between the tag push and publish, fix forward on `main` (re-tag or roll the version forward to a new patch). Reason: on 2026-05-28 v0.3.8 was published immediately after the tag push while CI was still mid-run; CI then failed on PG 15 and PG 16 (broken ICU collation reader), forcing a same-day yank + v0.3.9 patch release. Anyone who installed v0.3.8 in the brief window got a broken reader.
+11. **Never `cargo publish` until CI is green.** The release ceremony order is: `git push origin main` → signed tag → `git push origin <tag>` → **wait for the push CI run to finish ✅ across all 5 PG majors** → `cargo publish -p pgevolve-pgquery` → wait ~30s for index sync → `cargo publish -p pgevolve-core` → wait ~30s → `cargo publish -p pgevolve`. If CI fails between the tag push and publish, fix forward on `main` (re-tag or roll the version forward to a new patch). Reason: on 2026-05-28 v0.3.8 was published immediately after the tag push while CI was still mid-run; CI then failed on PG 15 and PG 16 (broken ICU collation reader), forcing a same-day yank + v0.3.9 patch release. Anyone who installed v0.3.8 in the brief window got a broken reader.
+
+    **Three crates as of the parser cutover.** `pgevolve-pgquery` publishes first — `pgevolve-core` depends on it by `version` as well as `path`, so the index must carry it before core will resolve. Two extra rules for it specifically:
+    - **`cargo package -p pgevolve-pgquery` before tagging.** It vendors ~11 MB of C in-tree, and every path the build touches has to be in the manifest's `include` list. Verification is the default; `--verify` is not a flag. Upstream `pg_query.rs` has no such check and its `main` is unpublishable because `build.rs` copies a header its globs do not ship — that is the failure mode this gate exists to avoid inheriting.
+    - **Never regenerate `src/protobuf.rs` as part of a release.** It is a checked-in source file. Regenerating it is a deliberate maintainer action documented in that crate's README, and its justified lint header has to survive the regeneration.
 
 ## Project layout pointers
 

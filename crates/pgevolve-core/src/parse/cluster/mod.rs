@@ -13,7 +13,7 @@ mod tablespace_stmt;
 
 use std::path::Path;
 
-use pg_query::protobuf::ObjectType;
+use pgevolve_pgquery::protobuf::ObjectType;
 
 use crate::ir::cluster::catalog::ClusterCatalog;
 use crate::parse::error::{ParseError, SourceLocation};
@@ -100,7 +100,7 @@ fn collect_sql_files(dir: &Path) -> Result<Vec<std::path::PathBuf>, ParseError> 
 
 fn apply_file(sql: &str, path: &Path, cat: &mut ClusterCatalog) -> Result<(), ParseError> {
     let loc = SourceLocation::new(path.to_path_buf(), 0, 0);
-    let parsed = pg_query::parse(sql).map_err(|e| ParseError::Syntax {
+    let parsed = pgevolve_pgquery::parse(sql).map_err(|e| ParseError::Syntax {
         location: loc.clone(),
         message: e.to_string(),
     })?;
@@ -109,22 +109,22 @@ fn apply_file(sql: &str, path: &Path, cat: &mut ClusterCatalog) -> Result<(), Pa
             continue;
         };
         match node {
-            pg_query::NodeEnum::CreateRoleStmt(s) => create_role::apply(s, cat, &loc)?,
-            pg_query::NodeEnum::AlterRoleStmt(s) => alter_role::apply(s, cat, &loc)?,
-            pg_query::NodeEnum::GrantRoleStmt(s) => grant_membership::apply(s, cat, &loc)?,
-            pg_query::NodeEnum::CommentStmt(s) => apply_comment(s, cat, &loc)?,
-            pg_query::NodeEnum::CreateTableSpaceStmt(s) => {
+            pgevolve_pgquery::NodeEnum::CreateRoleStmt(s) => create_role::apply(s, cat, &loc)?,
+            pgevolve_pgquery::NodeEnum::AlterRoleStmt(s) => alter_role::apply(s, cat, &loc)?,
+            pgevolve_pgquery::NodeEnum::GrantRoleStmt(s) => grant_membership::apply(s, cat, &loc)?,
+            pgevolve_pgquery::NodeEnum::CommentStmt(s) => apply_comment(s, cat, &loc)?,
+            pgevolve_pgquery::NodeEnum::CreateTableSpaceStmt(s) => {
                 tablespace_stmt::apply_create(s, cat, &loc)?;
             }
-            pg_query::NodeEnum::AlterTableSpaceOptionsStmt(s) => {
+            pgevolve_pgquery::NodeEnum::AlterTableSpaceOptionsStmt(s) => {
                 tablespace_stmt::apply_set(s, cat, &loc)?;
             }
-            pg_query::NodeEnum::AlterOwnerStmt(s)
+            pgevolve_pgquery::NodeEnum::AlterOwnerStmt(s)
                 if object_type_is(s.object_type, ObjectType::ObjectTablespace) =>
             {
                 tablespace_stmt::apply_owner(s, cat, &loc)?;
             }
-            pg_query::NodeEnum::RenameStmt(s)
+            pgevolve_pgquery::NodeEnum::RenameStmt(s)
                 if object_type_is(s.rename_type, ObjectType::ObjectTablespace) =>
             {
                 return Err(ParseError::Structural {
@@ -133,14 +133,14 @@ fn apply_file(sql: &str, path: &Path, cat: &mut ClusterCatalog) -> Result<(), Pa
                         .into(),
                 });
             }
-            pg_query::NodeEnum::DropTableSpaceStmt(_) => {
+            pgevolve_pgquery::NodeEnum::DropTableSpaceStmt(_) => {
                 return Err(ParseError::Structural {
                     location: loc,
                     message: "DROP TABLESPACE in source is not supported — drops happen via diff"
                         .into(),
                 });
             }
-            pg_query::NodeEnum::DropRoleStmt(_) => {
+            pgevolve_pgquery::NodeEnum::DropRoleStmt(_) => {
                 return Err(ParseError::Structural {
                     location: loc,
                     message: "DROP ROLE in source is not supported — drops happen via diff".into(),
@@ -162,7 +162,7 @@ fn apply_file(sql: &str, path: &Path, cat: &mut ClusterCatalog) -> Result<(), Pa
 }
 
 fn apply_comment(
-    s: &pg_query::protobuf::CommentStmt,
+    s: &pgevolve_pgquery::protobuf::CommentStmt,
     cat: &mut ClusterCatalog,
     loc: &SourceLocation,
 ) -> Result<(), ParseError> {
@@ -200,11 +200,11 @@ fn apply_comment(
 /// Extract a bare-`String` comment target (`COMMENT ON TABLESPACE name …` keeps
 /// the object name as a plain `String` node, not a `RoleSpec`).
 fn comment_target_string(
-    node: Option<&pg_query::protobuf::Node>,
+    node: Option<&pgevolve_pgquery::protobuf::Node>,
     loc: &SourceLocation,
 ) -> Result<String, ParseError> {
     match node.and_then(|n| n.node.as_ref()) {
-        Some(pg_query::NodeEnum::String(s)) => Ok(s.sval.clone()),
+        Some(pgevolve_pgquery::NodeEnum::String(s)) => Ok(s.sval.clone()),
         other => Err(ParseError::Structural {
             location: loc.clone(),
             message: format!("unexpected COMMENT ON TABLESPACE target {other:?}"),

@@ -1,17 +1,17 @@
 //! Source-side parser for `CREATE FUNCTION` and `CREATE PROCEDURE`.
 //!
-//! Both statements are represented in `pg_query` by a single
+//! Both statements are represented in `libpg_query` by a single
 //! `CreateFunctionStmt` with an `is_procedure: bool` discriminant.
 //! This builder dispatches on that flag and returns either a
 //! [`Routine::Function`] or a [`Routine::Procedure`].
 //!
 //! **Body parsing (T2 stub)**: SQL-language bodies are canonicalized via
 //! [`NormalizedBody::from_sql`]; PL/pgSQL bodies fall back to
-//! [`NormalizedBody::empty`] because `pg_query` cannot parse PL/pgSQL.
+//! [`NormalizedBody::empty`] because `libpg_query` cannot parse PL/pgSQL.
 //! T4 replaces the fallback with real PL/pgSQL AST parsing.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{CreateFunctionStmt, FunctionParameterMode};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{CreateFunctionStmt, FunctionParameterMode};
 
 use crate::identifier::Identifier;
 use crate::ir::function::{
@@ -323,7 +323,7 @@ pub fn build_function_or_procedure(
     // is_set_returning: RETURNS TABLE(…) fills table_columns; RETURNS SETOF …
     // sets stmt.return_type.setof.  Either form requires a RETURNS SETOF
     // record wrapper so that RETURN QUERY / RETURN NEXT are accepted by the
-    // pg_query plpgsql analyzer.  For procedures this is naturally false (no
+    // libpg_query plpgsql analyzer.  For procedures this is naturally false (no
     // table columns, no return type).
     let is_set_returning =
         !table_columns.is_empty() || stmt.return_type.as_ref().is_some_and(|tn| tn.setof);
@@ -416,7 +416,7 @@ pub fn build_function_or_procedure(
 
 /// Extract a boolean value from a `DefElem.arg`, defaulting to `true` if
 /// the arg is absent (bare keyword like `STRICT` or `LEAKPROOF`).
-fn bool_from_def_elem(de: &pg_query::protobuf::DefElem) -> bool {
+fn bool_from_def_elem(de: &pgevolve_pgquery::protobuf::DefElem) -> bool {
     let Some(arg) = de.arg.as_ref() else {
         return true; // bare keyword = true
     };
@@ -427,7 +427,7 @@ fn bool_from_def_elem(de: &pg_query::protobuf::DefElem) -> bool {
 }
 
 /// Extract a float cost/rows value from a `DefElem.arg`.
-fn float_from_def_elem(de: &pg_query::protobuf::DefElem) -> Option<f32> {
+fn float_from_def_elem(de: &pgevolve_pgquery::protobuf::DefElem) -> Option<f32> {
     let arg = de.arg.as_ref()?;
     match arg.node.as_ref()? {
         NodeEnum::Float(f) => f.fval.parse::<f32>().ok(),
@@ -442,14 +442,14 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    use pg_query::NodeEnum as PgNodeEnum;
+    use pgevolve_pgquery::NodeEnum as PgNodeEnum;
 
     fn loc() -> SourceLocation {
         SourceLocation::new(PathBuf::from("test.sql"), 1, 1)
     }
 
     fn parse_function(sql: &str) -> CreateFunctionStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let node = parsed
             .protobuf
             .stmts
@@ -576,22 +576,22 @@ mod tests {
 
     #[test]
     fn procedure_rejects_return_type() {
-        // pg_query rejects CREATE PROCEDURE ... RETURNS at the grammar level,
+        // libpg_query rejects CREATE PROCEDURE ... RETURNS at the grammar level,
         // so the builder's defensive check is unreachable via parsed SQL. We
         // construct a synthetic CreateFunctionStmt with is_procedure=true and
         // return_type=Some(...) to exercise the rejection path directly.
-        use pg_query::NodeEnum;
-        use pg_query::protobuf::{CreateFunctionStmt, Node, TypeName};
+        use pgevolve_pgquery::NodeEnum;
+        use pgevolve_pgquery::protobuf::{CreateFunctionStmt, Node, TypeName};
 
         // Build the type-name list for "app.proc".
         let funcname = vec![
             Node {
-                node: Some(NodeEnum::String(pg_query::protobuf::String {
+                node: Some(NodeEnum::String(pgevolve_pgquery::protobuf::String {
                     sval: "app".into(),
                 })),
             },
             Node {
-                node: Some(NodeEnum::String(pg_query::protobuf::String {
+                node: Some(NodeEnum::String(pgevolve_pgquery::protobuf::String {
                     sval: "proc".into(),
                 })),
             },
@@ -599,7 +599,7 @@ mod tests {
         // Build a return-type TypeName for "integer".
         let return_type = TypeName {
             names: vec![Node {
-                node: Some(NodeEnum::String(pg_query::protobuf::String {
+                node: Some(NodeEnum::String(pgevolve_pgquery::protobuf::String {
                     sval: "integer".into(),
                 })),
             }],

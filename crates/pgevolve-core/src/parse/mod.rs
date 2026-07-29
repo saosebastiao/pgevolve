@@ -98,7 +98,7 @@ struct ParseContext {
     pending_tablespaces: Vec<builder::alter_table_stmt::PendingTablespace>,
     pending_likes: Vec<builder::table_like::PendingLike>,
     deferred_comments: Vec<(
-        pg_query::protobuf::CommentStmt,
+        pgevolve_pgquery::protobuf::CommentStmt,
         SourceLocation,
         Option<crate::identifier::Identifier>,
     )>,
@@ -263,13 +263,13 @@ pub(crate) fn parse_directory_with_locations(
 /// accumulated in a `BTreeMap<QualifiedName, Statistic>` that is flushed into
 /// the catalog *after* all deferred comments are applied.
 fn apply_statistics_comment(
-    stmt: &pg_query::protobuf::CommentStmt,
+    stmt: &pgevolve_pgquery::protobuf::CommentStmt,
     statistics: &mut BTreeMap<QualifiedName, Statistic>,
     location: &SourceLocation,
 ) -> Result<(), ParseError> {
-    use pg_query::NodeEnum;
+    use pgevolve_pgquery::NodeEnum;
 
-    // pg_query encodes COMMENT ON STATISTICS as a List of String nodes.
+    // libpg_query encodes COMMENT ON STATISTICS as a List of String nodes.
     let obj = stmt
         .object
         .as_ref()
@@ -419,7 +419,7 @@ fn apply_pending_owners(
 #[allow(clippy::too_many_lines)]
 fn process_file(ctx: &mut ParseContext, path: &Path, contents: &str) -> Result<(), ParseError> {
     let directives = directives::extract_file_directives(contents, path)?;
-    let parsed = pg_query::parse(contents).map_err(|e| ParseError::Syntax {
+    let parsed = pgevolve_pgquery::parse(contents).map_err(|e| ParseError::Syntax {
         location: SourceLocation::new(path.to_path_buf(), 1, 1),
         message: e.to_string(),
     })?;
@@ -544,7 +544,7 @@ fn process_file(ctx: &mut ParseContext, path: &Path, contents: &str) -> Result<(
                 pending_tablespaces.extend(alter_out.pending_tablespaces);
             }
             Statement::Comment(s) => {
-                use pg_query::protobuf::ObjectType;
+                use pgevolve_pgquery::protobuf::ObjectType;
                 let kind = ObjectType::try_from(s.objtype).unwrap_or(ObjectType::Undefined);
                 if matches!(kind, ObjectType::ObjectStatisticExt) {
                     // COMMENT ON STATISTICS is handled inline against the statistics
@@ -814,7 +814,7 @@ fn process_file(ctx: &mut ParseContext, path: &Path, contents: &str) -> Result<(
                 builder::grants::apply(&s, catalog, &location)?;
             }
             Statement::AlterOwner(s) => {
-                use pg_query::protobuf::ObjectType;
+                use pgevolve_pgquery::protobuf::ObjectType;
                 let objtype = ObjectType::try_from(s.object_type).unwrap_or(ObjectType::Undefined);
                 if matches!(objtype, ObjectType::ObjectEventTrigger) {
                     // ALTER EVENT TRIGGER … OWNER TO is applied inline against the
@@ -957,7 +957,7 @@ fn process_file(ctx: &mut ParseContext, path: &Path, contents: &str) -> Result<(
     Ok(())
 }
 
-/// Convert a `pg_query` byte offset into a 1-based line/column.
+/// Convert a `libpg_query` byte offset into a 1-based line/column.
 fn stmt_location(path: &Path, contents: &str, byte_offset: i32) -> SourceLocation {
     let offset = usize::try_from(byte_offset).unwrap_or(0);
     let mut line = 1usize;

@@ -7,8 +7,8 @@
 //! Unsupported object kinds (DATABASE, TABLESPACE, etc.) raise
 //! [`ParseError::Structural`].
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{AlterOwnerStmt, ObjectType, RoleSpecType};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{AlterOwnerStmt, ObjectType, RoleSpecType};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
@@ -324,7 +324,7 @@ mod tests {
     }
 
     fn parse_alter_owner(sql: &str) -> AlterOwnerStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let stmt = parsed
             .protobuf
             .stmts

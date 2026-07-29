@@ -8,8 +8,8 @@
 
 use std::collections::BTreeSet;
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{ConstrType, CreateDomainStmt};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{ConstrType, CreateDomainStmt};
 
 use crate::identifier::Identifier;
 use crate::ir::default_expr::NormalizedExpr;
@@ -158,7 +158,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    use pg_query::protobuf::CreateDomainStmt as PgCreateDomainStmt;
+    use pgevolve_pgquery::protobuf::CreateDomainStmt as PgCreateDomainStmt;
 
     use crate::ir::column_type::ColumnType;
     use crate::ir::user_type::UserTypeKind;
@@ -168,7 +168,7 @@ mod tests {
     }
 
     fn parse_domain(sql: &str) -> PgCreateDomainStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let node = parsed
             .protobuf
             .stmts

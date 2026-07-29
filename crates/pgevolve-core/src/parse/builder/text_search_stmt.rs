@@ -1,7 +1,7 @@
 //! Parser for `CREATE TEXT SEARCH DICTIONARY`, `CREATE TEXT SEARCH CONFIGURATION`,
 //! and their `ALTER` / `COMMENT ON` / `ALTER OWNER TO` counterparts.
 //!
-//! ## AST structure (`pg_query` 6.1.1)
+//! ## AST structure (`libpg_query` 17)
 //!
 //! ### CREATE TEXT SEARCH DICTIONARY
 //! `DefineStmt { kind: ObjectTsdictionary, defnames: [schema, name], definition: [DefElem…] }`
@@ -32,8 +32,8 @@
 
 use std::collections::BTreeMap;
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{
     AlterOwnerStmt, AlterTsConfigType, AlterTsConfigurationStmt, AlterTsDictionaryStmt,
     CommentStmt, DefElem, DefineStmt,
 };
@@ -397,7 +397,7 @@ fn qname_from_defelem_typename(
             shared::qname_from_string_list(&tn.names, Some(&pg_catalog), location)
         }
         NodeEnum::List(list) => {
-            // Some pg_query versions encode the name as a raw List of Strings.
+            // Some parser versions encode the name as a raw List of Strings.
             shared::qname_from_string_list(&list.items, Some(&pg_catalog), location)
         }
         NodeEnum::String(s) => {
@@ -453,7 +453,7 @@ fn string_value_from_defelem(
                 })
         }
         NodeEnum::AConst(ac) => {
-            use pg_query::protobuf::a_const::Val;
+            use pgevolve_pgquery::protobuf::a_const::Val;
             match ac.val.as_ref() {
                 Some(Val::Sval(s)) => Ok(s.sval.clone()),
                 Some(Val::Ival(i)) => Ok(i.ival.to_string()),
@@ -480,7 +480,7 @@ fn string_value_from_defelem(
 ///
 /// Each item in the list is a String node holding the alias name.
 fn token_list(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     location: &SourceLocation,
 ) -> Result<Vec<String>, ParseError> {
     nodes
@@ -505,7 +505,7 @@ fn token_list(
 /// - A `List` of String nodes `[schema, name]` — a schema-qualified dict reference.
 /// - A `TypeName` node — a dict reference expressed as a type-name.
 fn dict_chain_from_nodes(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
 ) -> Result<Vec<QualifiedName>, ParseError> {
@@ -517,7 +517,7 @@ fn dict_chain_from_nodes(
 
 /// Resolve a single dictionary-reference node to a `QualifiedName`.
 fn dict_qname_from_node(
-    node: &pg_query::protobuf::Node,
+    node: &pgevolve_pgquery::protobuf::Node,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
 ) -> Result<QualifiedName, ParseError> {
@@ -553,7 +553,7 @@ fn dict_qname_from_node(
 
 /// For `REPLACE DICT old WITH new` commands: extract the (old, new) pair from `dicts`.
 fn two_dict_pair(
-    nodes: &[pg_query::protobuf::Node],
+    nodes: &[pgevolve_pgquery::protobuf::Node],
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
 ) -> Result<(QualifiedName, QualifiedName), ParseError> {
@@ -574,7 +574,7 @@ fn two_dict_pair(
 
 /// Extract a `QualifiedName` from an `AlterOwnerStmt.object` for text-search objects.
 ///
-/// `pg_query` encodes these as a `List` of String nodes.
+/// `libpg_query` encodes these as a `List` of String nodes.
 fn ts_qname_from_alter_owner(
     stmt: &AlterOwnerStmt,
     default_schema: Option<&Identifier>,
@@ -607,7 +607,7 @@ fn ts_qname_from_alter_owner(
 
 /// Extract a `QualifiedName` from a `CommentStmt.object` for text-search objects.
 ///
-/// `pg_query` encodes these as a `List` of String nodes.
+/// `libpg_query` encodes these as a `List` of String nodes.
 fn ts_qname_from_comment(
     stmt: &CommentStmt,
     default_schema: Option<&Identifier>,
@@ -910,7 +910,7 @@ mod tests {
 
     #[test]
     fn parse_create_dictionary_unit() {
-        let parsed = pg_query::parse(
+        let parsed = pgevolve_pgquery::parse(
             "CREATE TEXT SEARCH DICTIONARY app.d (TEMPLATE = snowball, language = 'english');",
         )
         .unwrap();

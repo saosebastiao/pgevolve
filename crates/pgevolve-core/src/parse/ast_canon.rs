@@ -29,7 +29,7 @@ use crate::plan::edges::{DepEdge, DepSource, NodeId};
 /// Errors raised by the AST canonicalization pass.
 #[derive(Debug, thiserror::Error)]
 pub enum AstCanonError {
-    /// `pg_query` or `NormalizedBody` failed to parse the body.
+    /// `libpg_query` or `NormalizedBody` failed to parse the body.
     #[error("view {view}: failed to canonicalize body: {reason}")]
     NormalizeFailed {
         /// Qualified name of the view.
@@ -202,7 +202,7 @@ fn walk_body_ast(
     known: &KnownObjects,
 ) -> Result<(Vec<DepEdge>, Vec<ViewColumn>), AstCanonError> {
     let qname_str = view_qname.to_string();
-    let parsed = pg_query::parse(raw_body).map_err(|e| AstCanonError::NormalizeFailed {
+    let parsed = pgevolve_pgquery::parse(raw_body).map_err(|e| AstCanonError::NormalizeFailed {
         view: qname_str.clone(),
         reason: e.to_string(),
     })?;
@@ -235,12 +235,12 @@ fn walk_body_ast(
     Ok((deps, columns))
 }
 
-/// Recursive AST walker over a [`pg_query::protobuf::Node`].
+/// Recursive AST walker over a [`pgevolve_pgquery::protobuf::Node`].
 ///
 /// `is_top_level_select` is `true` only for the outermost `SelectStmt` —
 /// this is the one whose target list produces the view's column names.
 fn walk_node(
-    node: &pg_query::protobuf::Node,
+    node: &pgevolve_pgquery::protobuf::Node,
     view_qname: &QualifiedName,
     known: &KnownObjects,
     deps: &mut Vec<DepEdge>,
@@ -248,7 +248,7 @@ fn walk_node(
     is_top_level_select: bool,
     qname_str: &str,
 ) -> Result<(), AstCanonError> {
-    use pg_query::NodeEnum as N;
+    use pgevolve_pgquery::NodeEnum as N;
     let Some(inner) = &node.node else {
         return Ok(());
     };
@@ -298,7 +298,7 @@ fn walk_node(
             // which is out of scope for v0.2 (file directives don't propagate
             // to query body resolution yet).
             // If identifier construction fails (e.g., overlong name),
-            // skip silently — pg_query already validated it's parseable.
+            // skip silently — libpg_query already validated it's parseable.
             if !rv.schemaname.is_empty()
                 && !rv.relname.is_empty()
                 && let Ok(s) = Identifier::from_unquoted(&rv.schemaname)
@@ -361,15 +361,17 @@ fn walk_node(
 
 /// Recurse into a nested `SelectStmt` (from UNION / INTERSECT / EXCEPT).
 fn walk_select(
-    sel: &pg_query::protobuf::SelectStmt,
+    sel: &pgevolve_pgquery::protobuf::SelectStmt,
     view_qname: &QualifiedName,
     known: &KnownObjects,
     deps: &mut Vec<DepEdge>,
     qname_str: &str,
 ) -> Result<(), AstCanonError> {
     // Wrap the SelectStmt in a Node for the generic walker.
-    let node = pg_query::protobuf::Node {
-        node: Some(pg_query::NodeEnum::SelectStmt(Box::new(sel.clone()))),
+    let node = pgevolve_pgquery::protobuf::Node {
+        node: Some(pgevolve_pgquery::NodeEnum::SelectStmt(Box::new(
+            sel.clone(),
+        ))),
     };
     // Pass empty columns vec; set-operation branches don't contribute column names.
     walk_node(
@@ -426,8 +428,8 @@ fn expression_placeholder() -> ColumnType {
 /// types (target) vs. catalog-side types (source), so expression-typed columns
 /// from the source side will compare as unequal to typed columns in the
 /// catalog, conservatively declaring a replace incompatible — which is correct.
-fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
-    use pg_query::NodeEnum as N;
+fn derive_column_name(target: &pgevolve_pgquery::protobuf::Node) -> Option<ViewColumn> {
+    use pgevolve_pgquery::NodeEnum as N;
     let Some(N::ResTarget(rt)) = &target.node else {
         return None;
     };
@@ -468,8 +470,8 @@ fn derive_column_name(target: &pg_query::protobuf::Node) -> Option<ViewColumn> {
 /// Attempt to extract a column name from a node that may be a `ColumnRef`.
 ///
 /// Returns `None` for expressions that are not simple column references.
-fn extract_column_ref_name(node: &pg_query::protobuf::Node) -> Option<Identifier> {
-    use pg_query::NodeEnum as N;
+fn extract_column_ref_name(node: &pgevolve_pgquery::protobuf::Node) -> Option<Identifier> {
+    use pgevolve_pgquery::NodeEnum as N;
     match &node.node {
         Some(N::ColumnRef(cr)) => {
             // Take the rightmost `String` field.
@@ -503,9 +505,9 @@ fn extract_column_ref_name(node: &pg_query::protobuf::Node) -> Option<Identifier
 /// Implementation walks the parsed protobuf, sets each `ResTarget.name` to
 /// the corresponding alias, and deparses.
 fn apply_view_column_aliases(body_sql: &str, aliases: &[String]) -> Option<String> {
-    use pg_query::NodeEnum;
+    use pgevolve_pgquery::NodeEnum;
 
-    let parsed = pg_query::parse(body_sql).ok()?;
+    let parsed = pgevolve_pgquery::parse(body_sql).ok()?;
     let mut result = parsed.protobuf;
     // Locate the first SELECT statement in the parse result.
     for stmt in &mut result.stmts {
@@ -514,7 +516,7 @@ fn apply_view_column_aliases(body_sql: &str, aliases: &[String]) -> Option<Strin
         };
         if let NodeEnum::SelectStmt(sel) = node {
             apply_aliases_to_select(sel, aliases)?;
-            return pg_query::deparse(&result).ok();
+            return pgevolve_pgquery::deparse(&result).ok();
         }
     }
     None
@@ -529,10 +531,10 @@ fn apply_view_column_aliases(body_sql: &str, aliases: &[String]) -> Option<Strin
 /// alias is non-redundant; otherwise we clear `name` so the deparser omits
 /// the `AS` clause.
 fn apply_aliases_to_select(
-    sel: &mut pg_query::protobuf::SelectStmt,
+    sel: &mut pgevolve_pgquery::protobuf::SelectStmt,
     aliases: &[String],
 ) -> Option<()> {
-    use pg_query::NodeEnum;
+    use pgevolve_pgquery::NodeEnum;
     if sel.target_list.len() != aliases.len() {
         return None;
     }
@@ -557,8 +559,8 @@ fn apply_aliases_to_select(
 /// Extract the implicit column name of a `ResTarget` (i.e., the name PG would
 /// use if no `AS` clause were given). Only `ColumnRef` target values have one;
 /// everything else is treated as having no implicit name.
-fn restarget_implicit_column_name(rt: &pg_query::protobuf::ResTarget) -> Option<String> {
-    use pg_query::NodeEnum;
+fn restarget_implicit_column_name(rt: &pgevolve_pgquery::protobuf::ResTarget) -> Option<String> {
+    use pgevolve_pgquery::NodeEnum;
     let val = rt.val.as_ref()?;
     let node = val.node.as_ref()?;
     let NodeEnum::ColumnRef(cref) = node else {

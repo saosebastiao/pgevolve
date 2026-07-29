@@ -1,10 +1,10 @@
 //! `CREATE ROLE` / `CREATE USER` builder.
 //!
 //! `CREATE USER r WITH ...` is sugar for `CREATE ROLE r WITH LOGIN ...`.
-//! `pg_query` stamps `stmt_type == 2` (`RoleStmtType::RolestmtUser`) for
+//! `libpg_query` stamps `stmt_type == 2` (`RoleStmtType::RolestmtUser`) for
 //! `CREATE USER`; `stmt_type == 1` is `RolestmtRole`.
 
-use pg_query::protobuf::CreateRoleStmt;
+use pgevolve_pgquery::protobuf::CreateRoleStmt;
 
 use crate::identifier::Identifier;
 use crate::ir::cluster::catalog::ClusterCatalog;
@@ -31,7 +31,7 @@ pub(super) fn apply(
     let mut attrs = RoleAttributes::default();
     let mut member_of: Vec<Identifier> = Vec::new();
 
-    // pg_query RoleStmtType: RolestmtRole = 1, RolestmtUser = 2, RolestmtGroup = 3.
+    // libpg_query RoleStmtType: RolestmtRole = 1, RolestmtUser = 2, RolestmtGroup = 3.
     // CREATE USER: stmt_type == 2. Sets LOGIN = true.
     let is_user_sugar = s.stmt_type == 2; // RolestmtUser
     if is_user_sugar {
@@ -40,7 +40,7 @@ pub(super) fn apply(
 
     // First pass: extract membership options.
     for opt_node in &s.options {
-        let Some(pg_query::NodeEnum::DefElem(def)) = opt_node.node.as_ref() else {
+        let Some(pgevolve_pgquery::NodeEnum::DefElem(def)) = opt_node.node.as_ref() else {
             continue;
         };
         match def.defname.as_str() {
@@ -66,11 +66,11 @@ pub(super) fn apply(
     }
 
     // Second pass: attribute options (membership filtered out).
-    let attribute_opts: Vec<pg_query::protobuf::Node> = s
+    let attribute_opts: Vec<pgevolve_pgquery::protobuf::Node> = s
         .options
         .iter()
         .filter(|opt_node| match opt_node.node.as_ref() {
-            Some(pg_query::NodeEnum::DefElem(def)) => !matches!(
+            Some(pgevolve_pgquery::NodeEnum::DefElem(def)) => !matches!(
                 def.defname.as_str(),
                 "addroleto" | "rolemembers" | "adminmembers"
             ),

@@ -6,8 +6,8 @@
 //! `comment` on the matching object. If no target is found, we emit a
 //! [`ParseError::Structural`] with the missing qname.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{CommentStmt, ObjectType};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{CommentStmt, ObjectType};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;
@@ -120,7 +120,7 @@ fn apply_comment_inner(
         }
         ObjectType::ObjectCollation => {
             // `COMMENT ON COLLATION qname IS '...'`
-            // pg_query encodes the target as a List of String parts.
+            // libpg_query encodes the target as a List of String parts.
             let qname = qualified_name(stmt, default_schema, location)?;
             let coll = catalog
                 .collations
@@ -132,7 +132,7 @@ fn apply_comment_inner(
         ObjectType::ObjectType | ObjectType::ObjectDomain => {
             // `COMMENT ON TYPE app.foo IS '...'`
             // `COMMENT ON DOMAIN app.foo IS '...'`
-            // pg_query encodes these with a TypeName node (not a List of strings),
+            // libpg_query encodes these with a TypeName node (not a List of strings),
             // so we need a different extraction path.
             let qname = qualified_name_from_type_name(stmt, default_schema, location)?;
             let ty = catalog
@@ -163,7 +163,7 @@ fn apply_comment_inner(
         }
         ObjectType::ObjectExtension => {
             // `COMMENT ON EXTENSION name IS '...'`
-            // pg_query encodes the extension name as a bare String node.
+            // libpg_query encodes the extension name as a bare String node.
             let name_str = single_string(stmt, location)?;
             let ext_name = shared::ident(&name_str, location)?;
             let ext = catalog
@@ -175,7 +175,7 @@ fn apply_comment_inner(
         }
         ObjectType::ObjectTrigger => {
             // `COMMENT ON TRIGGER trigger_name ON schema.table IS '...'`
-            // pg_query encodes this as a List of string parts:
+            // libpg_query encodes this as a List of string parts:
             //   [schema, table, trigger_name]   (3 parts, schema-qualified table)
             //   [table, trigger_name]           (2 parts, unqualified table — handled
             //                                    by inferring the default schema)
@@ -411,14 +411,14 @@ fn qualified_name(
 }
 
 /// Resolve a qualified type/domain name from `stmt.object` for `COMMENT ON TYPE`
-/// and `COMMENT ON DOMAIN`. `pg_query` encodes these as a `TypeName` node (unlike
+/// and `COMMENT ON DOMAIN`. `libpg_query` encodes these as a `TypeName` node (unlike
 /// tables/views which use a `List` of String nodes).
 fn qualified_name_from_type_name(
     stmt: &CommentStmt,
     default_schema: Option<&Identifier>,
     location: &SourceLocation,
 ) -> Result<QualifiedName, ParseError> {
-    use pg_query::NodeEnum;
+    use pgevolve_pgquery::NodeEnum;
     let obj = stmt
         .object
         .as_ref()
@@ -427,7 +427,7 @@ fn qualified_name_from_type_name(
             location: location.clone(),
             message: "COMMENT missing object reference".into(),
         })?;
-    // pg_query represents COMMENT ON TYPE / DOMAIN via a TypeName node whose
+    // libpg_query represents COMMENT ON TYPE / DOMAIN via a TypeName node whose
     // `names` field is a list of String nodes (schema, name).
     let NodeEnum::TypeName(type_name) = obj else {
         return Err(ParseError::Structural {
@@ -606,7 +606,7 @@ mod tests {
     }
 
     fn parse_first(sql: &str) -> CommentStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let stmt = parsed
             .protobuf
             .stmts

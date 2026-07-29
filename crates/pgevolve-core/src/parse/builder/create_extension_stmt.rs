@@ -9,8 +9,8 @@
 //! Rejects `CASCADE`, `FROM old_version`, and any unknown options with a
 //! [`ParseError::Structural`] error explaining the restriction.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::CreateExtensionStmt;
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::CreateExtensionStmt;
 
 use crate::ir::extension::Extension;
 use crate::parse::builder::shared;
@@ -94,7 +94,7 @@ pub fn build_extension(
 }
 
 /// Extract a string value from a `DefElem.arg`.
-fn string_from_def_elem(de: &pg_query::protobuf::DefElem) -> Option<String> {
+fn string_from_def_elem(de: &pgevolve_pgquery::protobuf::DefElem) -> Option<String> {
     let arg = de.arg.as_ref()?;
     match arg.node.as_ref()? {
         NodeEnum::String(s) => Some(s.sval.clone()),
@@ -113,7 +113,7 @@ mod tests {
     }
 
     fn parse_extension(sql: &str) -> CreateExtensionStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let node = parsed
             .protobuf
             .stmts
@@ -193,18 +193,18 @@ mod tests {
 
     #[test]
     fn rejects_from_clause() {
-        // FROM old_version maps to the "old_version" DefElem in pg_query.
-        // pg_query parses `CREATE EXTENSION foo FROM 'bar'` but the FROM
+        // FROM old_version maps to the "old_version" DefElem in libpg_query.
+        // libpg_query parses `CREATE EXTENSION foo FROM 'bar'` but the FROM
         // syntax was removed in PG14; we build the node manually to test
         // the rejection path.
-        use pg_query::protobuf::{CreateExtensionStmt, DefElem, Node};
+        use pgevolve_pgquery::protobuf::{CreateExtensionStmt, DefElem, Node};
 
         let old_version_opt = Node {
             node: Some(NodeEnum::DefElem(Box::new(DefElem {
                 defnamespace: String::new(),
                 defname: "old_version".into(),
                 arg: Some(Box::new(Node {
-                    node: Some(NodeEnum::String(pg_query::protobuf::String {
+                    node: Some(NodeEnum::String(pgevolve_pgquery::protobuf::String {
                         sval: "1.0".into(),
                     })),
                 })),

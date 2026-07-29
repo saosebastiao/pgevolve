@@ -1,6 +1,6 @@
 //! Parser for `CREATE CAST` and `COMMENT ON CAST`.
 //!
-//! `pg_query` 6.x encodes `CREATE CAST` as a [`CreateCastStmt`]:
+//! `libpg_query` 17 encodes `CREATE CAST` as a [`CreateCastStmt`]:
 //! - `sourcetype` / `targettype`: [`TypeName`] nodes for the source and target types.
 //! - `func`: `Option<ObjectWithArgs>` — present for `WITH FUNCTION`, absent for
 //!   `WITHOUT FUNCTION` (Binary) or `WITH INOUT` (distinguished by `inout: true`).
@@ -20,7 +20,7 @@
 //!
 //! ## `TypeName` → `QualifiedName` convention
 //!
-//! A cast's source and target types are always schema-qualified by `pg_query` when
+//! A cast's source and target types are always schema-qualified by `libpg_query` when
 //! the user writes a SQL-keyword type alias (e.g. `integer` → `pg_catalog.int4`),
 //! but unqualified user-type names like `text` arrive as a single String node.
 //! To ensure round-trip consistency with the future reader, we apply the
@@ -33,8 +33,8 @@
 //! This is the same resolution the reader will apply: it reads `pg_catalog.text`,
 //! `pg_catalog.int4`, etc.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{CoercionContext, CommentStmt, CreateCastStmt, TypeName};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{CoercionContext, CommentStmt, CreateCastStmt, TypeName};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::cast::{Cast, CastContext, CastMethod};
@@ -123,7 +123,7 @@ pub fn parse_create(
 
 /// Apply a `COMMENT ON CAST (src AS tgt) IS '…'` against the accumulator.
 ///
-/// `pg_query` encodes the cast reference as `object = List[TypeName(src), TypeName(tgt)]`.
+/// `libpg_query` encodes the cast reference as `object = List[TypeName(src), TypeName(tgt)]`.
 pub fn apply_comment(
     stmt: &CommentStmt,
     default_schema: Option<&Identifier>,
@@ -185,7 +185,7 @@ fn identity_from_comment(
 
 /// Borrow a `TypeName` from a list item node.
 fn extract_type_name<'a>(
-    node: &'a pg_query::protobuf::Node,
+    node: &'a pgevolve_pgquery::protobuf::Node,
     location: &SourceLocation,
 ) -> Result<&'a TypeName, ParseError> {
     match node.node.as_ref() {
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn parse_create_unit_appends() {
-        let parsed = pg_query::parse("CREATE CAST (app.a AS app.b) WITH INOUT;").unwrap();
+        let parsed = pgevolve_pgquery::parse("CREATE CAST (app.a AS app.b) WITH INOUT;").unwrap();
         let node = parsed
             .protobuf
             .stmts

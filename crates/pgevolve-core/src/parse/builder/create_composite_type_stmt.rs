@@ -1,7 +1,7 @@
 //! Source-side parser for `CREATE TYPE x AS (...)` (composite types).
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::CompositeTypeStmt;
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::CompositeTypeStmt;
 
 use crate::identifier::Identifier;
 use crate::ir::user_type::{CompositeAttribute, UserType, UserTypeKind};
@@ -108,7 +108,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    use pg_query::protobuf::CompositeTypeStmt as PgCompositeTypeStmt;
+    use pgevolve_pgquery::protobuf::CompositeTypeStmt as PgCompositeTypeStmt;
 
     use crate::ir::column_type::{ColumnType, NumericPrecision};
     use crate::ir::user_type::UserTypeKind;
@@ -118,7 +118,7 @@ mod tests {
     }
 
     fn parse_composite(sql: &str) -> PgCompositeTypeStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let node = parsed
             .protobuf
             .stmts
@@ -213,11 +213,11 @@ mod tests {
 
     #[test]
     fn empty_composite_rejected() {
-        // pg_query itself rejects `CREATE TYPE x AS ()` as a syntax error
+        // libpg_query itself rejects `CREATE TYPE x AS ()` as a syntax error
         // before this builder ever sees the statement, so we construct a
         // synthetic protobuf with an empty `coldeflist` to exercise the
         // belt-and-suspenders guard directly.
-        use pg_query::protobuf::{CompositeTypeStmt as PgCompositeTypeStmt, RangeVar};
+        use pgevolve_pgquery::protobuf::{CompositeTypeStmt as PgCompositeTypeStmt, RangeVar};
         let synthetic = PgCompositeTypeStmt {
             typevar: Some(RangeVar {
                 schemaname: "app".into(),

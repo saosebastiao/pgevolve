@@ -1,6 +1,6 @@
 //! Parser for `CREATE EVENT TRIGGER` and `ALTER EVENT TRIGGER` statements.
 //!
-//! `pg_query` emits `CreateEventTrigStmt` for CREATE and `AlterEventTrigStmt`
+//! `libpg_query` emits `CreateEventTrigStmt` for CREATE and `AlterEventTrigStmt`
 //! for the `ENABLE` / `DISABLE` / `ENABLE REPLICA` / `ENABLE ALWAYS` form. Both
 //! fold into one [`EventTrigger`] per name — the same accumulator-keyed-by-name
 //! pattern used for publications and subscriptions (event triggers are also
@@ -14,8 +14,8 @@
 
 use std::collections::BTreeMap;
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::{AlterEventTrigStmt, CreateEventTrigStmt};
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::{AlterEventTrigStmt, CreateEventTrigStmt};
 
 use crate::identifier::Identifier;
 use crate::ir::event_trigger::{EventTrigger, EventTriggerEnabled, EventTriggerEvent};
@@ -105,7 +105,7 @@ pub fn parse_alter_event_trigger(
 /// in a `BTreeMap` accumulator that is flushed into the catalog after the
 /// deferred-comment phase. The object reference is a bare `String` node.
 pub fn apply_event_trigger_comment(
-    stmt: &pg_query::protobuf::CommentStmt,
+    stmt: &pgevolve_pgquery::protobuf::CommentStmt,
     location: &SourceLocation,
     existing: &mut BTreeMap<Identifier, EventTrigger>,
 ) -> Result<(), ParseError> {
@@ -127,7 +127,7 @@ pub fn apply_event_trigger_comment(
 /// Called inline from `parse/mod.rs`. The owner name is extracted from the
 /// `newowner` `RoleSpec`; the target is a bare `String` node.
 pub fn apply_event_trigger_owner(
-    stmt: &pg_query::protobuf::AlterOwnerStmt,
+    stmt: &pgevolve_pgquery::protobuf::AlterOwnerStmt,
     location: &SourceLocation,
     existing: &mut BTreeMap<Identifier, EventTrigger>,
 ) -> Result<(), ParseError> {
@@ -148,7 +148,7 @@ pub fn apply_event_trigger_owner(
 /// `List` of `String` nodes. An empty `whenclause` (no `WHEN`) yields an empty
 /// filter. Tag strings are returned as written; canon sorts and dedupes.
 fn extract_tag_filter(
-    whenclause: &[pg_query::protobuf::Node],
+    whenclause: &[pgevolve_pgquery::protobuf::Node],
     name: &Identifier,
     loc: &SourceLocation,
 ) -> Result<Vec<String>, ParseError> {
@@ -191,7 +191,7 @@ fn extract_tag_filter(
 /// Decode a bare `String`-node object reference (used by both COMMENT and
 /// OWNER for event triggers) into an [`Identifier`].
 fn string_object_name(
-    object: Option<&pg_query::protobuf::Node>,
+    object: Option<&pgevolve_pgquery::protobuf::Node>,
     loc: &SourceLocation,
 ) -> Result<Identifier, ParseError> {
     let node = object
@@ -244,7 +244,7 @@ mod tests {
     }
 
     fn parse_one_create(sql: &str) -> CreateEventTrigStmt {
-        let parsed = pg_query::parse(sql).expect("pg_query parse");
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query parse");
         let node = parsed
             .protobuf
             .stmts
@@ -260,7 +260,7 @@ mod tests {
     }
 
     fn parse_one_alter(sql: &str) -> AlterEventTrigStmt {
-        let parsed = pg_query::parse(sql).expect("pg_query parse");
+        let parsed = pgevolve_pgquery::parse(sql).expect("pg_query parse");
         let node = parsed
             .protobuf
             .stmts
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn create_unknown_event_errors() {
-        // pg_query accepts an arbitrary event name; our enum rejects it.
+        // libpg_query accepts an arbitrary event name; our enum rejects it.
         let stmt = parse_one_create("CREATE EVENT TRIGGER e ON login EXECUTE FUNCTION public.f();");
         let mut acc: BTreeMap<Identifier, EventTrigger> = BTreeMap::new();
         let err = parse_create_event_trigger(&stmt, None, loc(), &mut acc).unwrap_err();

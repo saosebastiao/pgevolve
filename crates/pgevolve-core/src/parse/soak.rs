@@ -92,13 +92,13 @@ fn soak_pass(files: &[PathBuf], stats: &mut SoakStats) {
         let Ok(sql) = std::fs::read_to_string(path) else {
             continue;
         };
-        match pg_query::parse(&sql) {
+        match pgevolve_pgquery::parse(&sql) {
             Ok(parsed) => {
                 stats.statements += parsed.protobuf.stmts.len();
                 // Deparse is the other half of the round trip and allocates far
                 // more than parsing does; a leak or corruption that only shows
                 // up under volume is likelier to show up here.
-                match pg_query::deparse(&parsed.protobuf) {
+                match pgevolve_pgquery::deparse(&parsed.protobuf) {
                     Ok(text) => stats.deparsed_bytes += text.len(),
                     Err(_) => stats.deparse_failures += 1,
                 }

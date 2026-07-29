@@ -9,12 +9,12 @@ use crate::parse::error::{ParseError, SourceLocation};
 /// options are silently dropped (the spec says passwords are out-of-band).
 /// Membership options must be filtered out by the caller before invoking this.
 pub(super) fn apply_options(
-    options: &[pg_query::protobuf::Node],
+    options: &[pgevolve_pgquery::protobuf::Node],
     attrs: &mut RoleAttributes,
     loc: &SourceLocation,
 ) -> Result<(), ParseError> {
     for opt_node in options {
-        let Some(pg_query::NodeEnum::DefElem(def)) = opt_node.node.as_ref() else {
+        let Some(pgevolve_pgquery::NodeEnum::DefElem(def)) = opt_node.node.as_ref() else {
             continue;
         };
         apply_one(def, attrs, loc)?;
@@ -25,7 +25,7 @@ pub(super) fn apply_options(
 // apply_one is a flat match over PG's fixed option-name set; splitting it adds no clarity.
 #[allow(clippy::cognitive_complexity)]
 fn apply_one(
-    def: &pg_query::protobuf::DefElem,
+    def: &pgevolve_pgquery::protobuf::DefElem,
     attrs: &mut RoleAttributes,
     loc: &SourceLocation,
 ) -> Result<(), ParseError> {
@@ -43,7 +43,7 @@ fn apply_one(
                 n => Some(n),
             };
         }
-        // pg_query serializes this as camelCase.
+        // libpg_query serializes this as camelCase.
         "validUntil" => attrs.valid_until = Some(extract_string(def, loc)?),
         // Spec: passwords are not stored in source. Silently drop.
         "password" | "encryptedpassword" | "unencryptedpassword" => {}
@@ -70,14 +70,17 @@ fn apply_one(
 }
 
 fn extract_bool(
-    def: &pg_query::protobuf::DefElem,
+    def: &pgevolve_pgquery::protobuf::DefElem,
     loc: &SourceLocation,
 ) -> Result<bool, ParseError> {
     let int = extract_int(def, loc)?;
     Ok(int != 0)
 }
 
-fn extract_int(def: &pg_query::protobuf::DefElem, loc: &SourceLocation) -> Result<i64, ParseError> {
+fn extract_int(
+    def: &pgevolve_pgquery::protobuf::DefElem,
+    loc: &SourceLocation,
+) -> Result<i64, ParseError> {
     let Some(arg) = def.arg.as_ref().and_then(|a| a.node.as_ref()) else {
         return Err(ParseError::Structural {
             location: loc.clone(),
@@ -85,8 +88,8 @@ fn extract_int(def: &pg_query::protobuf::DefElem, loc: &SourceLocation) -> Resul
         });
     };
     match arg {
-        pg_query::NodeEnum::Integer(i) => Ok(i64::from(i.ival)),
-        pg_query::NodeEnum::Boolean(b) => Ok(i64::from(b.boolval)),
+        pgevolve_pgquery::NodeEnum::Integer(i) => Ok(i64::from(i.ival)),
+        pgevolve_pgquery::NodeEnum::Boolean(b) => Ok(i64::from(b.boolval)),
         other => Err(ParseError::Structural {
             location: loc.clone(),
             message: format!(
@@ -98,7 +101,7 @@ fn extract_int(def: &pg_query::protobuf::DefElem, loc: &SourceLocation) -> Resul
 }
 
 fn extract_string(
-    def: &pg_query::protobuf::DefElem,
+    def: &pgevolve_pgquery::protobuf::DefElem,
     loc: &SourceLocation,
 ) -> Result<String, ParseError> {
     let Some(arg) = def.arg.as_ref().and_then(|a| a.node.as_ref()) else {
@@ -108,7 +111,7 @@ fn extract_string(
         });
     };
     match arg {
-        pg_query::NodeEnum::String(s) => Ok(s.sval.clone()),
+        pgevolve_pgquery::NodeEnum::String(s) => Ok(s.sval.clone()),
         // TypeName arm removed: libpg_query (gram.c:32595) always encodes
         // VALID UNTIL via makeString(), so the String arm above is the only
         // reachable case. Confirmed by running the full test suite without it.
@@ -121,13 +124,13 @@ fn extract_string(
 
 /// Decode a list of role-name option-nodes (`IN ROLE x, y`) into `Identifier`s.
 pub(super) fn extract_role_name_list(
-    def: &pg_query::protobuf::DefElem,
+    def: &pgevolve_pgquery::protobuf::DefElem,
     loc: &SourceLocation,
 ) -> Result<Vec<Identifier>, ParseError> {
     let Some(arg_node) = def.arg.as_ref().and_then(|a| a.node.as_ref()) else {
         return Ok(vec![]);
     };
-    let pg_query::NodeEnum::List(list) = arg_node else {
+    let pgevolve_pgquery::NodeEnum::List(list) = arg_node else {
         return Err(ParseError::Structural {
             location: loc.clone(),
             message: format!(
@@ -142,8 +145,8 @@ pub(super) fn extract_role_name_list(
             continue;
         };
         let name_str = match node {
-            pg_query::NodeEnum::RoleSpec(rs) => rs.rolename.clone(),
-            pg_query::NodeEnum::String(s) => s.sval.clone(),
+            pgevolve_pgquery::NodeEnum::RoleSpec(rs) => rs.rolename.clone(),
+            pgevolve_pgquery::NodeEnum::String(s) => s.sval.clone(),
             other => {
                 return Err(ParseError::Structural {
                     location: loc.clone(),
@@ -163,7 +166,7 @@ pub(super) fn extract_role_name_list(
 
 /// Extract role name from the `object` field of `COMMENT ON ROLE r IS '...'`.
 pub(super) fn extract_role_name_from_object_node(
-    node: Option<&pg_query::protobuf::Node>,
+    node: Option<&pgevolve_pgquery::protobuf::Node>,
     loc: &SourceLocation,
 ) -> Result<Identifier, ParseError> {
     let Some(n) = node else {
@@ -173,13 +176,12 @@ pub(super) fn extract_role_name_from_object_node(
         });
     };
     match n.node.as_ref() {
-        Some(pg_query::NodeEnum::RoleSpec(rs)) => {
-            Identifier::from_unquoted(&rs.rolename).map_err(|e| ParseError::Structural {
+        Some(pgevolve_pgquery::NodeEnum::RoleSpec(rs)) => Identifier::from_unquoted(&rs.rolename)
+            .map_err(|e| ParseError::Structural {
                 location: loc.clone(),
                 message: format!("invalid role name {:?}: {e}", rs.rolename),
-            })
-        }
-        Some(pg_query::NodeEnum::String(s)) => {
+            }),
+        Some(pgevolve_pgquery::NodeEnum::String(s)) => {
             Identifier::from_unquoted(&s.sval).map_err(|e| ParseError::Structural {
                 location: loc.clone(),
                 message: format!("invalid role name {:?}: {e}", s.sval),

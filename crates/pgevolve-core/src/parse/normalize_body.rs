@@ -8,10 +8,10 @@
 //! Canonicalization rules (per arch spec Decision 10):
 //!
 //! - Whitespace collapses; one space between tokens; newlines stripped.
-//! - Keywords lowercased (via `pg_query`'s deparser, which already lowercases
+//! - Keywords lowercased (via `libpg_query`'s deparser, which already lowercases
 //!   most keywords; see `normalize_expr` for additional belt-and-suspenders
 //!   lowercasing if needed in v0.2).
-//! - Redundant parens folded (`pg_query`'s deparser removes them on round-trip).
+//! - Redundant parens folded (`libpg_query`'s deparser removes them on round-trip).
 //! - Identifiers preserved verbatim (qualification, quoting).
 //!
 //! For v0.1 this module is unused; v0.2 view/function sub-specs are
@@ -29,8 +29,8 @@ pub struct NormalizedBody {
 /// Error parsing a body.
 #[derive(Debug, thiserror::Error)]
 pub enum BodyError {
-    /// `pg_query` rejected the SQL.
-    #[error("pg_query rejected body: {0}")]
+    /// The parser rejected the SQL.
+    #[error("the parser rejected this body: {0}")]
     Parse(String),
 
     /// The SQL parsed but the deparser failed to render it back.
@@ -60,7 +60,7 @@ impl NormalizedBody {
     ///
     /// Used by the PL/pgSQL and SQL body parsers in `parse::builder::plpgsql`
     /// which produce their own canonical form (whitespace-collapsed text or
-    /// `pg_query::normalize` output) and need to inject it directly.
+    /// `pgevolve_pgquery::normalize` output) and need to inject it directly.
     ///
     /// Callers are responsible for ensuring `canonical_text` is in the
     /// pgevolve canonical form (whitespace collapsed, keywords lowercased).
@@ -80,7 +80,7 @@ impl NormalizedBody {
     /// swallowed — the canonical text is an equality key, so a degraded value
     /// is worse than no value.
     pub fn from_sql(sql: &str) -> Result<Self, BodyError> {
-        let parsed = pg_query::parse(sql).map_err(|e| BodyError::Parse(e.to_string()))?;
+        let parsed = pgevolve_pgquery::parse(sql).map_err(|e| BodyError::Parse(e.to_string()))?;
         // Strip redundant table-qualifier prefixes from column references in
         // single-table SELECTs (e.g., `SELECT users.id FROM app.users` →
         // `SELECT id FROM app.users`). PG14's `pg_get_viewdef` keeps the
@@ -89,7 +89,7 @@ impl NormalizedBody {
         let mut protobuf = parsed.protobuf;
         strip_redundant_qualifiers(&mut protobuf);
         let deparsed =
-            pg_query::deparse(&protobuf).map_err(|e| BodyError::Deparse(e.to_string()))?;
+            pgevolve_pgquery::deparse(&protobuf).map_err(|e| BodyError::Deparse(e.to_string()))?;
         let canonical_text = collapse_whitespace(&deparsed);
         let canonical_hash = hash_canonical(&canonical_text);
         Ok(Self {
@@ -109,7 +109,7 @@ impl NormalizedBody {
     /// [`crate::plan::plan::PlanId`] hashes (`pgevolve-plan-id-v1\n`).
     ///
     /// Not `const fn`: `NormalizedBody` is only constructed at runtime (via
-    /// `pg_query`), so `const` would signal intent the type cannot fulfill.
+    /// `libpg_query`), so `const` would signal intent the type cannot fulfill.
     #[allow(clippy::missing_const_for_fn)]
     pub fn canonical_hash(&self) -> &[u8; 32] {
         &self.canonical_hash
@@ -137,8 +137,8 @@ impl NormalizedBody {
 ///   not match the inner scope's local name and is therefore preserved — so
 ///   recursion can only ever remove a qualifier that is genuinely redundant
 ///   within the scope it appears in (never collapse two distinct bodies).
-fn strip_redundant_qualifiers(root: &mut pg_query::protobuf::ParseResult) {
-    use pg_query::NodeEnum;
+fn strip_redundant_qualifiers(root: &mut pgevolve_pgquery::protobuf::ParseResult) {
+    use pgevolve_pgquery::NodeEnum;
     for stmt in &mut root.stmts {
         let Some(node) = stmt.stmt.as_mut().and_then(|n| n.node.as_mut()) else {
             continue;
@@ -149,7 +149,7 @@ fn strip_redundant_qualifiers(root: &mut pg_query::protobuf::ParseResult) {
     }
 }
 
-fn strip_qualifiers_in_select(sel: &mut pg_query::protobuf::SelectStmt) {
+fn strip_qualifiers_in_select(sel: &mut pgevolve_pgquery::protobuf::SelectStmt) {
     // Recurse into every nested scope FIRST (each in its own scope), then
     // strip the local scope. This mirrors the larg/rarg ordering: a child
     // scope's qualifiers are resolved against the child's own FROM clause,
@@ -210,16 +210,16 @@ fn strip_qualifiers_in_select(sel: &mut pg_query::protobuf::SelectStmt) {
 }
 
 /// If `node` wraps a `SelectStmt`, canonicalize it in its own scope.
-fn recurse_select_node(node: &mut pg_query::protobuf::Node) {
-    use pg_query::NodeEnum;
+fn recurse_select_node(node: &mut pgevolve_pgquery::protobuf::Node) {
+    use pgevolve_pgquery::NodeEnum;
     if let Some(NodeEnum::SelectStmt(sel)) = node.node.as_mut() {
         strip_qualifiers_in_select(sel);
     }
 }
 
 /// Recurse into a CTE's query (`CommonTableExpr.ctequery`), a fresh scope.
-fn recurse_cte(cte: &mut pg_query::protobuf::Node) {
-    use pg_query::NodeEnum;
+fn recurse_cte(cte: &mut pgevolve_pgquery::protobuf::Node) {
+    use pgevolve_pgquery::NodeEnum;
     if let Some(NodeEnum::CommonTableExpr(c)) = cte.node.as_mut()
         && let Some(q) = c.ctequery.as_mut()
     {
@@ -230,8 +230,8 @@ fn recurse_cte(cte: &mut pg_query::protobuf::Node) {
 /// Recurse into a FROM-clause entry: a `RangeSubselect` subquery is its own
 /// scope; a `JoinExpr`'s arms may themselves be subselects/joins/range-vars.
 /// Plain `RangeVar`s are left for `collect_from_qualifiers` (the local scope).
-fn recurse_from_node(n: &mut pg_query::protobuf::Node) {
-    use pg_query::NodeEnum;
+fn recurse_from_node(n: &mut pgevolve_pgquery::protobuf::Node) {
+    use pgevolve_pgquery::NodeEnum;
     match n.node.as_mut() {
         Some(NodeEnum::RangeSubselect(rs)) => {
             if let Some(q) = rs.subquery.as_mut() {
@@ -254,8 +254,8 @@ fn recurse_from_node(n: &mut pg_query::protobuf::Node) {
 /// `SubLink.subselect` in its own scope. Mirrors the child-walking shape of
 /// [`strip_qualifier_in_node`] so every expression position that can hold a
 /// subquery is reached. No outer-scope name is passed down.
-fn recurse_subselects_in_node(n: &mut pg_query::protobuf::Node) {
-    use pg_query::NodeEnum;
+fn recurse_subselects_in_node(n: &mut pgevolve_pgquery::protobuf::Node) {
+    use pgevolve_pgquery::NodeEnum;
     let Some(node) = n.node.as_mut() else { return };
     match node {
         NodeEnum::SubLink(sl) => {
@@ -348,8 +348,8 @@ fn recurse_subselects_in_node(n: &mut pg_query::protobuf::Node) {
     }
 }
 
-fn collect_from_qualifiers(from: &[pg_query::protobuf::Node]) -> Vec<String> {
-    use pg_query::NodeEnum;
+fn collect_from_qualifiers(from: &[pgevolve_pgquery::protobuf::Node]) -> Vec<String> {
+    use pgevolve_pgquery::NodeEnum;
     let mut names = Vec::new();
     for n in from {
         let Some(node) = n.node.as_ref() else {
@@ -376,8 +376,8 @@ fn unique_from_qualifier(names: &[String]) -> Option<String> {
     }
 }
 
-fn strip_qualifier_in_node(n: &mut pg_query::protobuf::Node, qualifier: &str) {
-    use pg_query::NodeEnum;
+fn strip_qualifier_in_node(n: &mut pgevolve_pgquery::protobuf::Node, qualifier: &str) {
+    use pgevolve_pgquery::NodeEnum;
     let Some(node) = n.node.as_mut() else { return };
     match node {
         NodeEnum::ColumnRef(cref) => {

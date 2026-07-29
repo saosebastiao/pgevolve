@@ -8,8 +8,8 @@
 //! sentinel and `body_dependencies` is empty. T4's AST canonicalization pass
 //! fills in both fields immediately after source IR is assembled.
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::CreateTableAsStmt;
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::CreateTableAsStmt;
 
 use crate::identifier::Identifier;
 use crate::ir::view::{MaterializedView, ViewColumn};
@@ -18,7 +18,7 @@ use crate::parse::error::{ParseError, SourceLocation};
 use crate::parse::normalize_body::NormalizedBody;
 
 /// Build a provisional [`MaterializedView`] from a `CREATE MATERIALIZED VIEW`
-/// AST node (represented as `CreateTableAsStmt` in `pg_query`).
+/// AST node (represented as `CreateTableAsStmt` in `libpg_query`).
 ///
 /// Column names are taken from the explicit alias list (`col_names` on
 /// `IntoClause`) when present; otherwise `columns` is empty until T4 fills it.
@@ -66,7 +66,7 @@ pub fn build_materialized_view(
 /// original source, but is semantically equivalent. T4 canonicalizes it
 /// further via [`NormalizedBody::from_sql`].
 fn extract_query_body(
-    query_node: Option<&pg_query::protobuf::Node>,
+    query_node: Option<&pgevolve_pgquery::protobuf::Node>,
     location: &SourceLocation,
 ) -> Result<String, ParseError> {
     let Some(node) = query_node else {
@@ -81,15 +81,13 @@ fn extract_query_body(
             message: "CREATE MATERIALIZED VIEW query body node is empty".into(),
         });
     };
-    // Use NodeRef::deparse() which correctly sets PG_VERSION_NUM in the
-    // internal ParseResult it builds.
-    let deparsed = node_inner
-        .to_ref()
-        .deparse()
-        .map_err(|e| ParseError::Structural {
-            location: location.clone(),
-            message: format!("failed to deparse materialized view query body: {e}"),
-        })?;
+    // NodeEnum::deparse() sets PG_VERSION_NUM from the linked C library in the
+    // one-statement ParseResult it wraps the node in. Getting that wrong makes
+    // the C deparser assert and abort the process, so it is not ours to supply.
+    let deparsed = node_inner.deparse().map_err(|e| ParseError::Structural {
+        location: location.clone(),
+        message: format!("failed to deparse materialized view query body: {e}"),
+    })?;
     if deparsed.trim().is_empty() {
         return Err(ParseError::Structural {
             location: location.clone(),
@@ -118,7 +116,7 @@ fn extract_query_body(
 /// See arch spec views sub-spec §5.1 for the AST-canonicalization-pass
 /// contract that includes column derivation.
 fn mv_columns_from_col_names(
-    col_names: &[pg_query::protobuf::Node],
+    col_names: &[pgevolve_pgquery::protobuf::Node],
     location: &SourceLocation,
 ) -> Result<Vec<ViewColumn>, ParseError> {
     if col_names.is_empty() {
@@ -147,7 +145,7 @@ fn mv_columns_from_col_names(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pg_query::protobuf::ObjectType;
+    use pgevolve_pgquery::protobuf::ObjectType;
     use std::path::PathBuf;
 
     fn loc() -> SourceLocation {
@@ -155,7 +153,7 @@ mod tests {
     }
 
     fn parse_matview(sql: &str) -> CreateTableAsStmt {
-        let parsed = pg_query::parse(sql).expect("parses");
+        let parsed = pgevolve_pgquery::parse(sql).expect("parses");
         let node = parsed
             .protobuf
             .stmts

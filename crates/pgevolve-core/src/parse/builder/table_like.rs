@@ -7,8 +7,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pg_query::NodeEnum;
-use pg_query::protobuf::CreateStmt;
+use pgevolve_pgquery::NodeEnum;
+use pgevolve_pgquery::protobuf::CreateStmt;
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::catalog::Catalog;

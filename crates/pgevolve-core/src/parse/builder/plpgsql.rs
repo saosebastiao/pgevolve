@@ -20,7 +20,7 @@ use crate::plan::edges::{DepEdge, DepSource, NodeId};
 /// `is_set_returning` controls which wrapper `RETURNS` clause the PL/pgSQL
 /// parser uses: `RETURNS SETOF record` for set-returning functions (those
 /// declared with `RETURNS SETOF …` or `RETURNS TABLE(…)`), `RETURNS void`
-/// otherwise. The `pg_query` plpgsql analyzer validates `RETURN QUERY`/`RETURN
+/// otherwise. The `libpg_query` plpgsql analyzer validates `RETURN QUERY`/`RETURN
 /// NEXT` against the declared set-returning-ness of the wrapper function, so
 /// using the wrong clause causes it to reject legal bodies with "cannot use
 /// RETURN QUERY in a non-SETOF function".  The SQL-body path ignores the flag.
@@ -52,11 +52,11 @@ fn parse_plpgsql_body(
     routine_qname: &QualifiedName,
     location: &SourceLocation,
 ) -> Result<(NormalizedBody, Vec<DepEdge>, bool), ParseError> {
-    // Wrap the body in a synthetic CREATE FUNCTION so pg_query::parse_plpgsql
+    // Wrap the body in a synthetic CREATE FUNCTION so pgevolve_pgquery::parse_plpgsql
     // can parse it.  Use a dollar-quote tag unlikely to collide with body
     // content.
     //
-    // The RETURNS clause matters: the pg_query plpgsql analyzer validates
+    // The RETURNS clause matters: the libpg_query plpgsql analyzer validates
     // RETURN QUERY / RETURN NEXT against the declared set-returning-ness of
     // the wrapper function.  Using `RETURNS void` for a SETOF/TABLE body
     // causes the analyzer to reject the body with "cannot use RETURN QUERY in
@@ -71,7 +71,7 @@ fn parse_plpgsql_body(
         "CREATE FUNCTION pgevolve_temp() {returns_clause} LANGUAGE plpgsql \
          AS $pgevolve_outer${body_text}$pgevolve_outer$;"
     );
-    let json = pg_query::parse_plpgsql(&wrapper).map_err(|e| ParseError::Structural {
+    let json = pgevolve_pgquery::parse_plpgsql(&wrapper).map_err(|e| ParseError::Structural {
         location: location.clone(),
         message: format!("function {routine_qname}: PL/pgSQL parse error — {e}"),
     })?;
@@ -106,7 +106,7 @@ fn parse_sql_body(
     routine_qname: &QualifiedName,
     location: &SourceLocation,
 ) -> Result<(NormalizedBody, Vec<DepEdge>), ParseError> {
-    let parsed = pg_query::parse(body_text).map_err(|e| ParseError::Structural {
+    let parsed = pgevolve_pgquery::parse(body_text).map_err(|e| ParseError::Structural {
         location: location.clone(),
         message: format!("function {routine_qname}: SQL body parse error — {e}"),
     })?;
@@ -121,8 +121,8 @@ fn parse_sql_body(
     deps.sort();
     deps.dedup();
 
-    // Use pg_query parse → deparse to get a byte-stable canonical form. NOTE:
-    // pg_query::normalize is the WRONG tool here — it replaces literal
+    // Use parse → deparse to get a byte-stable canonical form. NOTE:
+    // pgevolve_pgquery::normalize is the WRONG tool here — it replaces literal
     // constants with positional placeholders (`$1`, `$2`, …) for query-log
     // aggregation. When such a normalized body is later embedded inside a
     // CREATE FUNCTION definition, PG interprets `$1` as the first function
@@ -150,7 +150,7 @@ struct PlpgsqlWalker {
 
 impl PlpgsqlWalker {
     fn walk_root(&mut self, json: &Value) {
-        // pg_query::parse_plpgsql returns a JSON array, one element per
+        // pgevolve_pgquery::parse_plpgsql returns a JSON array, one element per
         // function/procedure body.
         if let Some(arr) = json.as_array() {
             for item in arr {
@@ -178,7 +178,7 @@ impl PlpgsqlWalker {
                         // Static embedded SQL — re-parse and walk for deps.
                         // -------------------------------------------------- //
                         "PLpgSQL_stmt_execsql" => {
-                            // pg_query emits sqlstmt as:
+                            // libpg_query emits sqlstmt as:
                             //   { "PLpgSQL_expr": { "query": "<sql text>" } }
                             if let Some(query) = value
                                 .get("sqlstmt")
@@ -210,7 +210,7 @@ impl PlpgsqlWalker {
     }
 
     fn extract_embedded_sql_deps(&mut self, sql: &str) {
-        let Ok(parsed) = pg_query::parse(sql) else {
+        let Ok(parsed) = pgevolve_pgquery::parse(sql) else {
             return;
         };
         for stmt in &parsed.protobuf.stmts {
@@ -225,7 +225,7 @@ impl PlpgsqlWalker {
 // SQL AST walker — relation-ref extraction
 // ---------------------------------------------------------------------------
 
-/// Walk a `pg_query::NodeEnum` tree for relation references (`RangeVar`) and
+/// Walk a `pgevolve_pgquery::NodeEnum` tree for relation references (`RangeVar`) and
 /// emit `DepEdge` entries for each schema-qualified reference found.
 ///
 /// Mirrors the `walk_node` logic in `parse/ast_canon.rs` that extracts
@@ -234,11 +234,11 @@ impl PlpgsqlWalker {
 /// source catalog (e.g., catalog tables, external schemas). Validation is
 /// deferred to the T6 AST resolution pass.
 fn walk_sql_node_for_deps(
-    node: &pg_query::NodeEnum,
+    node: &pgevolve_pgquery::NodeEnum,
     from_qname: &QualifiedName,
     deps: &mut Vec<DepEdge>,
 ) {
-    use pg_query::NodeEnum as N;
+    use pgevolve_pgquery::NodeEnum as N;
 
     match node {
         // SELECT: walk FROM, WHERE, UNION branches, CTEs.
@@ -252,7 +252,7 @@ fn walk_sql_node_for_deps(
                 walk_sql_node_for_deps(wc, from_qname, deps);
             }
             if let Some(larg) = &sel.larg {
-                let node = pg_query::protobuf::Node {
+                let node = pgevolve_pgquery::protobuf::Node {
                     node: Some(N::SelectStmt(Box::new(*larg.clone()))),
                 };
                 if let Some(n) = node.node.as_ref() {
@@ -260,7 +260,7 @@ fn walk_sql_node_for_deps(
                 }
             }
             if let Some(rarg) = &sel.rarg {
-                let node = pg_query::protobuf::Node {
+                let node = pgevolve_pgquery::protobuf::Node {
                     node: Some(N::SelectStmt(Box::new(*rarg.clone()))),
                 };
                 if let Some(n) = node.node.as_ref() {
@@ -362,7 +362,7 @@ fn walk_sql_node_for_deps(
 /// schema-qualified. Unqualified names are skipped (search-path resolution
 /// is out of scope for static analysis).
 fn emit_range_var_dep(
-    rv: &pg_query::protobuf::RangeVar,
+    rv: &pgevolve_pgquery::protobuf::RangeVar,
     from_qname: &QualifiedName,
     deps: &mut Vec<DepEdge>,
 ) {
