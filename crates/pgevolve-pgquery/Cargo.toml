@@ -29,7 +29,12 @@ include = [
     "README.md",
     "build.rs",
     "src/**/*.rs",
-    "libpg_query/pg_query.h",
+    # Glob, not a list: PG17 had only `pg_query.h` here and PG18 added
+    # `postgres_deparse.h` beside it, which the PG18 bump hit immediately —
+    # every `.c` includes `pg_query.h`, which includes `postgres_deparse.h`.
+    # Naming root headers individually makes a major bump silently unpublishable,
+    # which is exactly upstream's failure mode.
+    "libpg_query/*.h",
     "libpg_query/src/**/*.c",
     "libpg_query/src/**/*.h",
     "libpg_query/vendor/**/*.c",

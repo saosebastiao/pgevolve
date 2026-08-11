@@ -44,7 +44,7 @@ pub use cluster::{parse_cluster_directory, parse_cluster_sources};
 pub use error::{ParseError, SourceLocation};
 pub use normalize_body::{BodyError, NormalizedBody};
 
-pub use builder::plpgsql::parse_routine_body;
+pub use builder::plpgsql::{RoutineResult, parse_routine_body};
 
 use crate::identifier::{Identifier, QualifiedName};
 use crate::ir::IrError;

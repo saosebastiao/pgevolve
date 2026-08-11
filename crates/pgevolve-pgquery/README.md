@@ -7,10 +7,9 @@ deparser extracted into a standalone C library. Parsing is not reimplemented
 here and never should be — the only implementation that agrees with Postgres in
 every corner is Postgres.
 
-**Vendored:** Postgres **17.4** (`PG_VERSION_NUM 170004`), via libpg_query's
-`17-latest` line. The C sources live in `libpg_query/` **as files in-tree** —
-not a submodule (`cargo package` does not follow them) and not a download
-(docs.rs builds with networking disabled).
+**Vendored:** Postgres **18.4** (`PG_VERSION_NUM 180004`). The C sources live in
+`libpg_query/` **as files in-tree** — not a submodule (`cargo package` does not
+follow them) and not a download (docs.rs builds with networking disabled).
 
 [libpg_query]: https://github.com/pganalyze/libpg_query
 
@@ -97,7 +96,7 @@ directly. libpg_query's own `make extract_source` does this:
 
 ```sh
 # In a libpg_query checkout. Requires Ruby and libclang.
-# Makefile sets: PG_VERSION = 17.4, PG_VERSION_NUM = 170004
+# Makefile sets: PG_VERSION = 18.4, PG_VERSION_NUM = 180004
 make tmp/postgres            # downloads and unpacks postgresql-$(PG_VERSION).tar.bz2,
                              # then applies the patches in ./patches/
 make extract_source          # runs scripts/extract_source.rb over the unpacked tree
@@ -123,13 +122,29 @@ The companion scripts `extract_headers.rb`, `extract_pg_types.rb`, and
 `protobuf/pg_query.proto` respectively.
 
 > **Not yet run here.** This procedure is recorded from libpg_query's Makefile
-> and has not been executed against this vendored tree. Doing so is the
-> outstanding half of plan item 3.8.
+> and has not been executed against this vendored tree — it needs the
+> PostgreSQL release tarball, and `ftp.postgresql.org` was unreachable from the
+> environment where the vendoring was done. Doing so is the outstanding half of
+> plan item 3.8. Note that libpg_query's own `scripts/` and `patches/` are *not*
+> vendored here (they are maintainer tools, not build inputs); take them from a
+> libpg_query checkout of the matching tag.
 
 ### Bumping the vendored Postgres major
 
-1. Replace `libpg_query/` wholesale from the new libpg_query release.
-2. Regenerate `src/protobuf.rs` (above).
+1. Replace `libpg_query/` wholesale from the new libpg_query release. **Copy
+   every root-level `.h`, not just `pg_query.h`** — PG 17 had only the one and
+   PG 18 added `postgres_deparse.h` beside it, which every `.c` reaches through
+   `pg_query.h`. The `include` list in `Cargo.toml` globs `libpg_query/*.h` for
+   this reason; naming root headers individually makes a bump silently
+   unpublishable, which is upstream's failure mode.
+2. Regenerate `src/protobuf.rs` (above), then diff the message and enum sets
+   against the previous version. The 17 → 18 bump added four node types
+   (`ReturningClause`, `ReturningExpr`, `ReturningOption`, `ATAlterConstraint`),
+   removed `SinglePartitionSpec`, and **renumbered `AlterTableType` wholesale**
+   — `AtCheckNotNull` was removed and all 58 later variants shifted down by one,
+   moving `AtAttachPartition` from 61 to 60. That is only safe because the parser
+   and the generated enum always come from the same major; any code holding a
+   hardcoded subtype integer would break silently.
 3. Update `VENDORED_PG_MAJOR` in `src/lib.rs`. The
    `vendored_version_constant_matches_the_c_library` test fails if you forget —
    it reads `PG_VERSION_NUM` back out of the compiled C.
@@ -137,7 +152,7 @@ The companion scripts `extract_headers.rb`, `extract_pg_types.rb`, and
    (`cargo test -p pgevolve-core --lib -- --ignored soak`) against the new
    binding. A recorded-but-unreproduced segfault in PG14/15/16 builds is why
    that test exists.
-5. Run `cargo package --verify -p pgevolve-pgquery`. Packaging is a standing
+5. Run `cargo package -p pgevolve-pgquery`. Packaging is a standing
    gate, not a surprise: every path the build touches must be in the `include`
    list in `Cargo.toml`, and upstream's `main` is currently unpublishable for
    exactly this reason.

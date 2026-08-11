@@ -3,9 +3,15 @@
  * - bms_copy
  * - bms_is_valid_set
  * - bms_equal
+ * - bms_add_member
+ * - bms_make_singleton
+ * - bms_free
+ * - bms_is_member
  * - bms_free
  * - bms_next_member
  * - bms_num_members
+ * - bms_add_member
+ * - bms_is_member
  *--------------------------------------------------------------------
  */
 
@@ -40,7 +46,7 @@
  * any users of the old set will be accessing pfree'd memory.  This option is
  * only intended to be used for debugging.
  *
- * Copyright (c) 2003-2024, PostgreSQL Global Development Group
+ * Copyright (c) 2003-2025, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/nodes/bitmapset.c
@@ -195,7 +201,23 @@ bms_equal(const Bitmapset *a, const Bitmapset *b)
 /*
  * bms_make_singleton - build a bitmapset containing a single member
  */
+Bitmapset *
+bms_make_singleton(int x)
+{
+	Bitmapset  *result;
+	int			wordnum,
+				bitnum;
 
+	if (x < 0)
+		elog(ERROR, "negative bitmapset member not allowed");
+	wordnum = WORDNUM(x);
+	bitnum = BITNUM(x);
+	result = (Bitmapset *) palloc0(BITMAPSET_SIZE(wordnum + 1));
+	result->type = T_Bitmapset;
+	result->nwords = wordnum + 1;
+	result->words[wordnum] = ((bitmapword) 1 << bitnum);
+	return result;
+}
 
 /*
  * bms_free - free a bitmapset
@@ -243,7 +265,28 @@ bms_free(Bitmapset *a)
 /*
  * bms_is_member - is X a member of A?
  */
+bool
+bms_is_member(int x, const Bitmapset *a)
+{
+	int			wordnum,
+				bitnum;
 
+	Assert(bms_is_valid_set(a));
+
+	/* XXX better to just return false for x<0 ? */
+	if (x < 0)
+		elog(ERROR, "negative bitmapset member not allowed");
+	if (a == NULL)
+		return false;
+
+	wordnum = WORDNUM(x);
+	bitnum = BITNUM(x);
+	if (wordnum >= a->nwords)
+		return false;
+	if ((a->words[wordnum] & ((bitmapword) 1 << bitnum)) != 0)
+		return true;
+	return false;
+}
 
 /*
  * bms_member_index
@@ -331,8 +374,51 @@ bms_num_members(const Bitmapset *a)
  *
  * 'a' is recycled when possible.
  */
+Bitmapset *
+bms_add_member(Bitmapset *a, int x)
+{
+	int			wordnum,
+				bitnum;
+
+	Assert(bms_is_valid_set(a));
+
+	if (x < 0)
+		elog(ERROR, "negative bitmapset member not allowed");
+	if (a == NULL)
+		return bms_make_singleton(x);
+
+	wordnum = WORDNUM(x);
+	bitnum = BITNUM(x);
+
+	/* enlarge the set if necessary */
+	if (wordnum >= a->nwords)
+	{
+		int			oldnwords = a->nwords;
+		int			i;
+
+		a = (Bitmapset *) repalloc(a, BITMAPSET_SIZE(wordnum + 1));
+		a->nwords = wordnum + 1;
+		/* zero out the enlarged portion */
+		i = oldnwords;
+		do
+		{
+			a->words[i] = 0;
+		} while (++i < a->nwords);
+	}
+
+	a->words[wordnum] |= ((bitmapword) 1 << bitnum);
+
 #ifdef REALLOCATE_BITMAPSETS
+
+	/*
+	 * There's no guarantee that the repalloc returned a new pointer, so copy
+	 * and free unconditionally here.
+	 */
+	a = bms_copy_and_free(a);
 #endif
+
+	return a;
+}
 
 /*
  * bms_del_member - remove a specified member from set

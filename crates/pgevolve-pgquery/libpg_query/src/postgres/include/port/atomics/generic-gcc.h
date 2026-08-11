@@ -3,7 +3,7 @@
  * generic-gcc.h
  *	  Atomic operations, implemented using gcc (or compatible) intrinsics.
  *
- * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * NOTES:
@@ -44,16 +44,22 @@
 
 #if !defined(pg_read_barrier_impl) && defined(HAVE_GCC__ATOMIC_INT32_CAS)
 /* acquire semantics include read barrier semantics */
-#		define pg_read_barrier_impl()		__atomic_thread_fence(__ATOMIC_ACQUIRE)
+#		define pg_read_barrier_impl() do \
+{ \
+	pg_compiler_barrier_impl(); \
+	__atomic_thread_fence(__ATOMIC_ACQUIRE); \
+} while (0)
 #endif
 
 #if !defined(pg_write_barrier_impl) && defined(HAVE_GCC__ATOMIC_INT32_CAS)
 /* release semantics include write barrier semantics */
-#		define pg_write_barrier_impl()		__atomic_thread_fence(__ATOMIC_RELEASE)
+#		define pg_write_barrier_impl() do \
+{ \
+	pg_compiler_barrier_impl(); \
+	__atomic_thread_fence(__ATOMIC_RELEASE); \
+} while (0)
 #endif
 
-
-#ifdef HAVE_ATOMICS
 
 /* generic gcc based atomic flag implementation */
 #if !defined(PG_HAVE_ATOMIC_FLAG_SUPPORT) \
@@ -319,5 +325,3 @@ pg_atomic_fetch_or_u64_impl(volatile pg_atomic_uint64 *ptr, uint64 or_)
 #endif
 
 #endif /* !defined(PG_DISABLE_64_BIT_ATOMICS) */
-
-#endif /* defined(HAVE_ATOMICS) */

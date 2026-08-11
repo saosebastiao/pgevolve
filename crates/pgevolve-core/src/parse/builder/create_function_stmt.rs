@@ -320,18 +320,33 @@ pub fn build_function_or_procedure(
     // Delegate to the T4 PL/pgSQL body parser which handles both SQL and
     // PL/pgSQL languages, extracts dep edges, and detects COMMIT/ROLLBACK.
     //
-    // is_set_returning: RETURNS TABLE(…) fills table_columns; RETURNS SETOF …
-    // sets stmt.return_type.setof.  Either form requires a RETURNS SETOF
-    // record wrapper so that RETURN QUERY / RETURN NEXT are accepted by the
-    // libpg_query plpgsql analyzer.  For procedures this is naturally false (no
-    // table columns, no return type).
-    let is_set_returning =
-        !table_columns.is_empty() || stmt.return_type.as_ref().is_some_and(|tn| tn.setof);
+    // Which wrapper the analyzer needs: RETURNS TABLE(…) fills table_columns and
+    // RETURNS SETOF … sets stmt.return_type.setof, both of which use RETURN
+    // QUERY / RETURN NEXT. A procedure has no return type at all. Everything
+    // else returns a value and needs a value-returning wrapper — see
+    // `plpgsql::RoutineResult` for why `void` is wrong there.
+    let routine_result =
+        if !table_columns.is_empty() || stmt.return_type.as_ref().is_some_and(|tn| tn.setof) {
+            plpgsql::RoutineResult::SetOf
+        } else {
+            // No return type at all is a procedure. A return type that will not
+            // render is treated as a value: `Value` is the safe default because
+            // its wrapper accepts both `RETURN <expr>` and a body with no
+            // `RETURN`, where `Void` accepts only the latter.
+            stmt.return_type
+                .as_ref()
+                .map_or(plpgsql::RoutineResult::Void, |tn| {
+                    shared::render_type_name_to_string(tn).as_deref().map_or(
+                        plpgsql::RoutineResult::Value,
+                        plpgsql::RoutineResult::from_result_string,
+                    )
+                })
+        };
     let raw_body = body_text.as_deref().unwrap_or("").trim().to_string();
     let (body, body_deps, commits_in_body) = if raw_body.is_empty() {
         (NormalizedBody::empty(), vec![], false)
     } else {
-        plpgsql::parse_routine_body(&raw_body, lang, is_set_returning, &qname, location)?
+        plpgsql::parse_routine_body(&raw_body, lang, routine_result, &qname, location)?
     };
 
     if is_procedure {

@@ -32,7 +32,7 @@ use pgevolve_core::ir::function::{
     Volatility,
 };
 use pgevolve_core::parse::SourceLocation;
-use pgevolve_core::parse::parse_routine_body;
+use pgevolve_core::parse::{RoutineResult, parse_routine_body};
 
 /// Command-tag pool for the unrestricted events (`ddl_command_start`,
 /// `ddl_command_end`, `sql_drop`). Canon sorts + dedupes the chosen subset,
@@ -85,9 +85,14 @@ fn build_event_trigger_function(qname: QualifiedName) -> Function {
     // Synthetic source location — the generator is not parsing a real file.
     let loc = SourceLocation::new(PathBuf::from("<generated>"), 1, 1);
     // `BEGIN\nEND` yields an empty dep list; mirror the reader exactly.
-    let (body, body_dependencies, _commits) =
-        parse_routine_body("BEGIN\nEND", FunctionLanguage::PlPgSql, false, &qname, &loc)
-            .expect("BEGIN\\nEND is a valid PL/pgSQL body");
+    let (body, body_dependencies, _commits) = parse_routine_body(
+        "BEGIN\nEND",
+        FunctionLanguage::PlPgSql,
+        RoutineResult::Void,
+        &qname,
+        &loc,
+    )
+    .expect("BEGIN\\nEND is a valid PL/pgSQL body");
     Function {
         qname,
         args,

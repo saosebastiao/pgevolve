@@ -1,4 +1,4 @@
--- @pgevolve plan id=2dc419b8e868ea7a version=0.4.6 ruleset=1
+-- @pgevolve plan id=3f82224b6658e05b version=0.4.6 ruleset=1
 -- @pgevolve target=conformance-test-target
 -- @pgevolve intents_required=0
 
@@ -8,6 +8,6 @@ BEGIN;
 CREATE OR REPLACE FUNCTION app.now_plus(n integer)
     RETURNS timestamp
     LANGUAGE sql STRICT
-AS $pgevolve$SELECT now() + CAST(n || ' days' AS interval)$pgevolve$;
+AS $pgevolve$SELECT now() + (n || ' days')::interval$pgevolve$;
 COMMIT;
 

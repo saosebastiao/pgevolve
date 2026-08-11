@@ -69,7 +69,7 @@ pub use protobuf::node::Node as NodeEnum;
 /// Recorded as a constant rather than encoded in the crate version so that the
 /// crate can follow the workspace release cadence. Read it in tests and
 /// diagnostics; a mismatch against what a live server reports is a real signal.
-pub const VENDORED_PG_MAJOR: u32 = 17;
+pub const VENDORED_PG_MAJOR: u32 = 18;
 
 /// The full `PG_VERSION_NUM` of the vendored parser, as `libpg_query` reports it.
 ///
@@ -77,7 +77,7 @@ pub const VENDORED_PG_MAJOR: u32 = 17;
 /// has to match the C library rather than being declared independently.
 #[must_use]
 pub const fn vendored_pg_version_num() -> i32 {
-    // Widening a positive C constant; the value is ~170000.
+    // Widening a positive C constant; the value is ~180000.
     #[allow(
         clippy::cast_possible_wrap,
         reason = "PG_VERSION_NUM is a small positive integer"

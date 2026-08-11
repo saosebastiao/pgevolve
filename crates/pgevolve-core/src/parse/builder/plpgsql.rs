@@ -17,17 +17,16 @@ use crate::plan::edges::{DepEdge, DepSource, NodeId};
 /// `commits_in_body` is only meaningful for procedures; it is always `false`
 /// for SQL-language bodies (SQL functions cannot issue COMMIT/ROLLBACK).
 ///
-/// `is_set_returning` controls which wrapper `RETURNS` clause the PL/pgSQL
-/// parser uses: `RETURNS SETOF record` for set-returning functions (those
-/// declared with `RETURNS SETOF …` or `RETURNS TABLE(…)`), `RETURNS void`
-/// otherwise. The `libpg_query` plpgsql analyzer validates `RETURN QUERY`/`RETURN
-/// NEXT` against the declared set-returning-ness of the wrapper function, so
-/// using the wrong clause causes it to reject legal bodies with "cannot use
-/// RETURN QUERY in a non-SETOF function".  The SQL-body path ignores the flag.
+/// `result` selects the wrapper's `RETURNS` clause. The PL/pgSQL analyzer
+/// validates `RETURN` forms against the wrapper's declared result, so the wrong
+/// clause makes it reject legal bodies. The SQL-body path ignores it.
+///
+/// See [`RoutineResult`] for the measured acceptance matrix that fixes the
+/// mapping.
 pub fn parse_routine_body(
     body_text: &str,
     language: FunctionLanguage,
-    is_set_returning: bool,
+    result: RoutineResult,
     routine_qname: &QualifiedName,
     location: &SourceLocation,
 ) -> Result<(NormalizedBody, Vec<DepEdge>, bool), ParseError> {
@@ -36,8 +35,64 @@ pub fn parse_routine_body(
             let (body, deps) = parse_sql_body(body_text, routine_qname, location)?;
             Ok((body, deps, false))
         }
-        FunctionLanguage::PlPgSql => {
-            parse_plpgsql_body(body_text, is_set_returning, routine_qname, location)
+        FunctionLanguage::PlPgSql => parse_plpgsql_body(body_text, result, routine_qname, location),
+    }
+}
+
+/// What a routine's declared result implies for the analyzer wrapper.
+///
+/// The wrapper exists only so the PL/pgSQL analyzer will accept the body; it is
+/// thrown away afterwards. But the analyzer checks `RETURN` forms against the
+/// wrapper's declared result, so the choice is not free. Measured against the
+/// vendored PG18 analyzer:
+///
+/// | body               | `void` | `record` | `SETOF record` |
+/// |--------------------|--------|----------|----------------|
+/// | `RETURN;`          | ok     | rejected | ok             |
+/// | `RETURN <expr>;`   | **rejected** | ok  | rejected       |
+/// | `RETURN QUERY …`   | rejected | rejected | ok           |
+/// | `RETURN NEXT …`    | rejected | rejected | ok           |
+/// | no `RETURN`        | ok     | ok       | ok             |
+///
+/// No single clause accepts every form, which is why this is a three-way choice
+/// and not the boolean it used to be. The boolean sent every non-set-returning
+/// function through `RETURNS void`, and PG18's analyzer rejects `RETURN <expr>`
+/// there — that is `libpg_query` issue #337, and it broke 46 conformance
+/// fixtures the moment the vendored parser moved from 17 to 18. PG17's analyzer
+/// did not make that check, so the bug was latent rather than absent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RoutineResult {
+    /// A procedure, or `RETURNS void`. Only a bare `RETURN;` is legal.
+    Void,
+    /// A scalar or composite value. `RETURN <expr>` is required.
+    Value,
+    /// `RETURNS SETOF …` or `RETURNS TABLE(…)`, using `RETURN QUERY`/`RETURN NEXT`.
+    SetOf,
+}
+
+impl RoutineResult {
+    /// The wrapper `RETURNS` clause this result needs.
+    const fn returns_clause(self) -> &'static str {
+        match self {
+            Self::Void => "RETURNS void",
+            Self::Value => "RETURNS record",
+            Self::SetOf => "RETURNS SETOF record",
+        }
+    }
+
+    /// Classify a rendered return-type string, as the catalog side sees it.
+    ///
+    /// Accepts what `pg_get_function_result` emits: `void`, `SETOF integer`,
+    /// `TABLE(a integer)`, or a bare type name.
+    #[must_use]
+    pub fn from_result_string(s: &str) -> Self {
+        let lower = s.trim().to_ascii_lowercase();
+        if lower.starts_with("setof ") || lower.starts_with("table(") {
+            Self::SetOf
+        } else if lower.is_empty() || lower == "void" {
+            Self::Void
+        } else {
+            Self::Value
         }
     }
 }
@@ -48,7 +103,7 @@ pub fn parse_routine_body(
 
 fn parse_plpgsql_body(
     body_text: &str,
-    is_set_returning: bool,
+    result: RoutineResult,
     routine_qname: &QualifiedName,
     location: &SourceLocation,
 ) -> Result<(NormalizedBody, Vec<DepEdge>, bool), ParseError> {
@@ -56,17 +111,8 @@ fn parse_plpgsql_body(
     // can parse it.  Use a dollar-quote tag unlikely to collide with body
     // content.
     //
-    // The RETURNS clause matters: the libpg_query plpgsql analyzer validates
-    // RETURN QUERY / RETURN NEXT against the declared set-returning-ness of
-    // the wrapper function.  Using `RETURNS void` for a SETOF/TABLE body
-    // causes the analyzer to reject the body with "cannot use RETURN QUERY in
-    // a non-SETOF function".  We therefore use `RETURNS SETOF record` when the
-    // original function is set-returning.
-    let returns_clause = if is_set_returning {
-        "RETURNS SETOF record"
-    } else {
-        "RETURNS void"
-    };
+    // The RETURNS clause matters — see `RoutineResult` for the measured matrix.
+    let returns_clause = result.returns_clause();
     let wrapper = format!(
         "CREATE FUNCTION pgevolve_temp() {returns_clause} LANGUAGE plpgsql \
          AS $pgevolve_outer${body_text}$pgevolve_outer$;"
@@ -531,7 +577,7 @@ mod tests {
         let (_body, _deps, commits) = parse_routine_body(
             body,
             FunctionLanguage::PlPgSql,
-            false,
+            RoutineResult::Void,
             &qn("app", "p"),
             &loc(),
         )
@@ -545,7 +591,7 @@ mod tests {
         let (_body, _deps, commits) = parse_routine_body(
             body,
             FunctionLanguage::PlPgSql,
-            false,
+            RoutineResult::Void,
             &qn("app", "p"),
             &loc(),
         )
@@ -562,7 +608,7 @@ mod tests {
         let (_body, _deps, commits) = parse_routine_body(
             body,
             FunctionLanguage::PlPgSql,
-            false,
+            RoutineResult::Void,
             &qn("app", "p"),
             &loc(),
         )
@@ -573,9 +619,14 @@ mod tests {
     #[test]
     fn sql_body_no_commit_flag() {
         let body = "SELECT 1";
-        let (_body, _deps, commits) =
-            parse_routine_body(body, FunctionLanguage::Sql, false, &qn("app", "f"), &loc())
-                .unwrap();
+        let (_body, _deps, commits) = parse_routine_body(
+            body,
+            FunctionLanguage::Sql,
+            RoutineResult::Void,
+            &qn("app", "f"),
+            &loc(),
+        )
+        .unwrap();
         assert!(!commits, "SQL bodies cannot set commits_in_body");
     }
 
@@ -586,7 +637,7 @@ mod tests {
         let (_body, deps, _commits) = parse_routine_body(
             body,
             FunctionLanguage::PlPgSql,
-            false,
+            RoutineResult::Void,
             &qn("app", "p"),
             &loc(),
         )
@@ -603,9 +654,14 @@ mod tests {
     #[test]
     fn sql_body_extracts_relation_dep() {
         let body = "SELECT * FROM app.users WHERE id = $1";
-        let (_body, deps, _commits) =
-            parse_routine_body(body, FunctionLanguage::Sql, false, &qn("app", "f"), &loc())
-                .unwrap();
+        let (_body, deps, _commits) = parse_routine_body(
+            body,
+            FunctionLanguage::Sql,
+            RoutineResult::Void,
+            &qn("app", "f"),
+            &loc(),
+        )
+        .unwrap();
         let has_edge = deps.iter().any(|e| {
             e.to == NodeId::Table(qn("app", "users")) && e.source == DepSource::AstExtracted
         });
@@ -622,7 +678,7 @@ mod tests {
         let (_body, deps, _commits) = parse_routine_body(
             body,
             FunctionLanguage::PlPgSql,
-            false,
+            RoutineResult::Void,
             &qn("app", "f"),
             &loc(),
         )
@@ -642,7 +698,7 @@ mod tests {
         let err = parse_routine_body(
             body,
             FunctionLanguage::PlPgSql,
-            false,
+            RoutineResult::Void,
             &qn("app", "f"),
             &loc(),
         )
@@ -660,7 +716,7 @@ mod tests {
         let (body_val, _deps, _commits) = parse_routine_body(
             body,
             FunctionLanguage::PlPgSql,
-            false,
+            RoutineResult::Void,
             &qn("app", "f"),
             &loc(),
         )
@@ -674,7 +730,7 @@ mod tests {
         let result = parse_routine_body(
             body,
             FunctionLanguage::PlPgSql,
-            true,
+            RoutineResult::SetOf,
             &qn("app", "f"),
             &loc(),
         );
@@ -690,7 +746,7 @@ mod tests {
         let result = parse_routine_body(
             body,
             FunctionLanguage::PlPgSql,
-            false,
+            RoutineResult::Void,
             &qn("app", "f"),
             &loc(),
         );
@@ -706,7 +762,7 @@ mod tests {
         let result = parse_routine_body(
             body,
             FunctionLanguage::PlPgSql,
-            true,
+            RoutineResult::SetOf,
             &qn("app", "f"),
             &loc(),
         );

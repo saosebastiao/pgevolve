@@ -19,10 +19,14 @@ Current release: **v0.4.6** (Postgres 14–17; 18 partial — see below). See
 [`CHANGELOG.md`](./CHANGELOG.md) for per-release detail.
 
 > **Postgres 18 is not yet fully supported.** pgevolve runs against a PG 18
-> server and its catalog reader has PG 18 paths, but the bundled parser is
-> Postgres 17, so DDL using PG 18-only syntax — `GENERATED ... VIRTUAL`,
-> `NOT ENFORCED` constraints, temporal `PERIOD` / `WITHOUT OVERLAPS` keys,
-> `RETURNING WITH (OLD/NEW)` — is rejected at parse time. Tracked in
+> server, its catalog reader has PG 18 paths, and the bundled parser is now
+> Postgres 18 — so PG 18-only DDL *parses*. What is missing is the modelling:
+> `GENERATED ... VIRTUAL`, `NOT ENFORCED` constraints, and temporal `PERIOD` /
+> `WITHOUT OVERLAPS` keys are **refused with an explicit error** on both the
+> source and catalog sides, rather than being silently mis-modelled as `STORED`,
+> enforced, and plain keys respectively. Refusing is deliberate: a construct that
+> parses but lowers to the wrong IR would emit DDL that quietly changes your
+> schema. Tracked in
 > [`docs/superpowers/plans/2026-07-28-own-the-parser-binding.md`](./docs/superpowers/plans/2026-07-28-own-the-parser-binding.md).
 
 **Documentation:** <https://saosebastiao.github.io/pgevolve/>
@@ -147,7 +151,8 @@ Full reference: [`docs/user/configuration.md`](./docs/user/configuration.md).
   `strategy = "atomic"`.
 - **All actively-maintained PG majors.** PG 14, 15, 16, 17, 18 covered in
   CI on every push; per-version SQL paths in the catalog reader. PG 18-only
-  *syntax* is not yet parseable — see the note above.
+  syntax parses, but a few PG 18 features are not modelled yet and are refused
+  rather than approximated — see the note above.
 - **Conformance-driven.** ~260 fixture-based end-to-end tests gate
   CI. Every claimed capability has a fixture; see
   [`docs/spec/testing.md`](./docs/spec/testing.md).

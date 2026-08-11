@@ -306,7 +306,7 @@ fn build_column(
                 {
                     let expr = normalize_expr::from_pg_node(node, None, location)?;
                     generated = Some(Generated {
-                        kind: GeneratedKind::Stored,
+                        kind: generated_column_kind(&con.generated_kind, &name, location)?,
                         expression: expr,
                     });
                 }
@@ -378,6 +378,7 @@ fn build_table_constraint(
     location: &SourceLocation,
 ) -> Result<Option<Constraint>, ParseError> {
     let kind = ConstrType::try_from(con.contype).unwrap_or(ConstrType::Undefined);
+    refuse_unmodelled_pg18_constraint(con, kind, location)?;
     let cols = key_idents(&con.keys, location)?;
     let built = match kind {
         ConstrType::ConstrPrimary => {
@@ -623,6 +624,94 @@ fn collate_clause_to_qname(
         _ => Err(ParseError::Structural {
             location: location.clone(),
             message: "COLLATE name must have one or two components".into(),
+        }),
+    }
+}
+
+/// Refuse PG18 constraint features pgevolve does not model.
+///
+/// The PG18 grammar accepts `NOT ENFORCED` constraints and temporal
+/// (`WITHOUT OVERLAPS` / `PERIOD`) keys. pgevolve's IR represents neither, and
+/// the constraint decoder's fallback arm silently drops anything it does not
+/// recognise — so before this check, `CHECK (a > 0) NOT ENFORCED` parsed cleanly
+/// and was modelled as an ordinary *enforced* CHECK. pgevolve would then have
+/// emitted DDL creating an enforced constraint, quietly changing the semantics
+/// of the author's schema.
+///
+/// Mirrors the catalog-side preflight that reads `conenforced` / `conperiod`.
+/// Both sides have to refuse, or a source tree parses and then fails to diff
+/// against the very server that accepted it.
+///
+/// **`is_enforced` is only meaningful for CHECK and FOREIGN KEY.** Postgres
+/// leaves it false on PRIMARY KEY and UNIQUE, where the concept does not apply,
+/// so testing it unconditionally rejects every primary key in the corpus. That
+/// was measured, not reasoned about.
+///
+/// Implementing these features is PG 18 semantics work; refusing them is not.
+fn refuse_unmodelled_pg18_constraint(
+    con: &PgConstraint,
+    kind: ConstrType,
+    location: &SourceLocation,
+) -> Result<(), ParseError> {
+    let unsupported = |what: &str| ParseError::Structural {
+        location: location.clone(),
+        message: format!(
+            "{what} is not supported yet — the parser accepts it, but pgevolve \
+             does not model it; the catalog reader refuses it too"
+        ),
+    };
+
+    if matches!(kind, ConstrType::ConstrCheck | ConstrType::ConstrForeign) && !con.is_enforced {
+        return Err(unsupported("NOT ENFORCED constraints"));
+    }
+    if con.without_overlaps || con.pk_with_period || con.fk_with_period {
+        return Err(unsupported(
+            "temporal constraints (WITHOUT OVERLAPS / PERIOD)",
+        ));
+    }
+    Ok(())
+}
+
+/// Decode a generated column's `STORED` / `VIRTUAL` kind.
+///
+/// The PG18 grammar added `GENERATED ... VIRTUAL`, and with it a
+/// `Constraint.generated_kind` field carrying the same single-character codes as
+/// `pg_attribute.attgenerated`. Before the vendored parser moved to PG18 this
+/// site hardcoded [`GeneratedKind::Stored`], which was harmless only because the
+/// PG17 grammar could not produce anything else. The moment the parser bumped, a
+/// source file saying `VIRTUAL` would have been read as `STORED` — and pgevolve
+/// would have planned DDL materialising a column its author declared virtual.
+/// That is the same silent-degradation shape the catalog-side `attgenerated`
+/// decoder was fixed for; this is its mirror on the source side.
+///
+/// An empty code means the parser did not populate the field, which is what a
+/// pre-18 grammar does. It maps to `STORED` because that is the only kind those
+/// grammars can express.
+///
+/// `VIRTUAL` is refused rather than lowered. The IR can represent it and the
+/// renderer can emit it, but the semantics are not implemented and the catalog
+/// reader refuses it symmetrically — accepting it on one side only would mean a
+/// source tree that parses and then fails to diff.
+fn generated_column_kind(
+    raw: &str,
+    column: &Identifier,
+    location: &SourceLocation,
+) -> Result<GeneratedKind, ParseError> {
+    match raw {
+        "" | "s" => Ok(GeneratedKind::Stored),
+        "v" => Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "column {column}: GENERATED ... VIRTUAL is not supported yet — the \
+                 parser accepts it, but pgevolve does not model virtual generated \
+                 columns; use STORED until PG 18 semantics land"
+            ),
+        }),
+        other => Err(ParseError::Structural {
+            location: location.clone(),
+            message: format!(
+                "column {column}: unknown generated-column kind {other:?} from the parser"
+            ),
         }),
     }
 }
