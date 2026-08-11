@@ -1,0 +1,25 @@
+[meta]
+title     = "STORED -> VIRTUAL generated column — recreates the column (Postgres has no in-place conversion)"
+authoring = "objects"
+spec_refs = ["objects.column.generated"]
+
+# Postgres cannot convert a generated column between STORED and VIRTUAL in
+# place, so SET EXPRESSION would fail at apply. The planner emits DROP COLUMN +
+# ADD COLUMN instead. That is data-safe here and only here: a generated column's
+# values are a pure function of other columns, so re-adding recomputes them
+# identically. The same recreate is deliberately NOT applied to a plain ->
+# generated change, which would destroy real user data.
+#
+# Side effect worth seeing in the plan: the column moves to the end of the table.
+
+[pg]
+min = 18
+max = 18
+
+[expect.diff]
+contains = [
+  "app.items.columns.doubled",
+]
+
+[expect.plan]
+steps = 2

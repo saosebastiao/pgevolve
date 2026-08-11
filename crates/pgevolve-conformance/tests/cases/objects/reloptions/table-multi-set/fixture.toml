@@ -5,7 +5,7 @@ spec_refs = ["objects.reloptions.table"]
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 # The differ batches all three keys into a single ALTER TABLE SET step.
 [expect.plan]

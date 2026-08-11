@@ -1,11 +1,22 @@
 ---
-status: blocked-on-plan
+status: implemented
 target: own-the-parser-binding stage 6
 sub_spec: virtual-generated-columns
 ---
 
 # `VIRTUAL` generated columns (PG 18) — design
 
+> **DELIVERED (2026-07-29).** Implemented against the vendored PG 18 binding:
+> parser (§2), catalog reader (§3), diff recreate (§4), render (§5), version-gate
+> lint (§6), unit tests and two conformance fixtures (§7). The `min_pg_version`
+> lint fixture from §7 is **not** included — no conformance fixture sets
+> `[managed].min_pg_version`, and Error-severity lints do not block the
+> in-process planner the suite uses; the rule has four unit tests instead.
+> The E2E round-trip against a live PG 18 remains for CI.
+>
+> Historical note on the original blocker, kept because the reasoning is
+> instructive:
+>
 > **UNBLOCK PATH (updated 2026-07-28):** Still blocked, but no longer on an
 > external party. The original blocker was accurate as written: `pg_query`
 > 6.1.1 vendors PostgreSQL 17.4 and rejects `GENERATED ALWAYS AS (expr) VIRTUAL`

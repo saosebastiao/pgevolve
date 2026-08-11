@@ -5,7 +5,7 @@ spec_refs = ["triggers.drop"]
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 [expect.diff]
 contains = [

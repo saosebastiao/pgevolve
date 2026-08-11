@@ -55,7 +55,7 @@ cargo package -p pgevolve-pgquery                            # packaging is a ga
 | 3 | 🔶 **mostly done** — `pgevolve-pgquery` built, packaged, vendoring libpg_query **18.4**; only 3.8 (re-extraction drill) outstanding | 2.5 ew | **KILL GATE** — offline suite green; 5-server run is CI |
 | 4 | ✅ **done** — Cut `pgevolve-core` over; `pg_query` dropped from the graph | 0.5 ew | Zero fixture re-blessing ✅ |
 | 5 | `xtask pg-oracle` + four PG18 plan-time lints | 1 ew | Oracle reproduces the acceptance matrix |
-| 6 | PG18 semantics with conformance fixtures | 3 ew | A fixture per claimed feature |
+| 6 | 🔶 **started** — virtual generated columns delivered; NOT ENFORCED + temporal keys remain | 3 ew | A fixture per claimed feature |
 | 7 | *(separate plan)* srcdata-generated typed AST; drop prost/protoc/bindgen | ~6 ew | Deferred — see §Stage 7 |
 
 **Total through Stage 6: ~9.5 engineer-weeks.**
@@ -207,7 +207,8 @@ Neither is a reason to avoid sealing; both are reasons to expect a lint burst an
 The one genuinely valuable idea from the multi-version proposals, extracted from the runtime and moved to CI where it costs almost nothing.
 
 - [ ] **5.1** `xtask pg-oracle`: link all five libpg_query majors (they build clean in 58 s on 4 cores) and report, for any statement, the **minimum major that accepts it**. Runs in CI over the conformance corpus and **fails the build** when a fixture's minimum accepting major exceeds the lint floor claimed for it.
-- [ ] **5.2** Four plan-time lints on the pattern already proven four times in-tree (see `lint/rules/builtin_provider_requires_pg_17.rs`): `virtual_generated_column_requires_pg_18`, `not_enforced_constraint_requires_pg_18`, `temporal_key_requires_pg_18`, `returning_old_new_requires_pg_18`.
+- [~] **5.2** Four plan-time lints on the pattern already proven four times in-tree (see `lint/rules/builtin_provider_requires_pg_17.rs`). **`column_virtual_generated_requires_pg_18` is done** (4 unit tests, registered in `check_plan_time_catalog`).
+  - **Sequencing correction: the other three cannot be written before Stage 6.** A lint fires on IR, and `NOT ENFORCED` / temporal keys currently have no IR to fire on — the parser refuses them. Writing those lints now would produce dead code that no input can reach. They land with the Stage 6 work that models each feature, exactly as the virtual-column lint landed with virtual columns. `returning_old_new` is DML, which pgevolve does not parse at all.
 
 > **Version rejection stays at LINT time.** The PG18 grammar accepts the superset; the lint tells the user their *target server* cannot run it. Do **not** move rejection into the parser — that would make parse results depend on config and destroy parse-once-plan-for-many-targets.
 
@@ -216,6 +217,23 @@ The one genuinely valuable idea from the multi-version proposals, extracted from
 ---
 
 ## Stage 6 — PG18 semantics
+
+> ### Progress — virtual generated columns delivered, 2026-07-29
+>
+> The first PG18 feature is modelled end to end: parser, catalog reader, diff, render, version-gate lint, unit tests, and two conformance fixtures (`objects/columns/create-virtual-generated`, `stored-to-virtual-generated`). The design doc is marked `implemented`. `NOT ENFORCED` and temporal keys are still refused and remain Stage 6 work.
+>
+> A `STORED ↔ VIRTUAL` flip plans as `DROP COLUMN` + `ADD COLUMN` with `intents_required=2`, because Postgres has no in-place conversion. That is data-safe **only** because a generated column's values are a pure function of other columns; the same recreate is deliberately *not* applied to a plain → generated change, which would destroy real user data.
+>
+> **The version gate is a lint, not a parse error** — per the Stage 5 directive. The parser answers "is this valid Postgres?"; the lint answers "can *your* server run it?". Rejecting by version at parse time would make parse results depend on configuration and break parse-once-plan-for-many-targets. The refusals added during the PG18 bump are a different thing: they mean "pgevolve does not model this at all", are version-independent, and disappear as each feature is implemented.
+>
+> ### ⚠️ A false green found on the way: the conformance suite was 77% skipped at PG18
+>
+> `default_pg_max()` in `pgevolve-conformance` was hardcoded to **17**, and 186 of 260 fixtures declared `max = 17` — authoring-time drift, not a real bound. **At PG18 only 61 of 260 fixtures ran; 199 were version-gated out.** A skipped fixture reports as a pass, so the suite that "gates CI" was exercising 23% of itself on the major pgevolve now parses with.
+>
+> Fixed: `max = 17` bumped to 18 across the corpus (all 245 then passed unchanged, confirming the bound was never real), and both defaults now derive from `PgVersion::ALL` so the next major bump moves them. **262 fixtures now run at PG18, 0 skipped.**
+>
+> The unit test for this had `assert!(!f.applies_to(18))` — it encoded the stale default as intended behaviour, so it agreed with the bug and could never have caught it. It now asserts an unbounded fixture applies to every supported major.
+
 
 Each with IR, diff, render, lint **and a conformance fixture**. This work is required identically under every strategy — anyone arguing "just wait for upstream" is arguing against Stage 3, not against this.
 

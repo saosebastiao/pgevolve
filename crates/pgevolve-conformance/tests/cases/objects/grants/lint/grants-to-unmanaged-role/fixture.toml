@@ -5,7 +5,7 @@ spec_refs = ["lint.grants-to-unmanaged-role"]
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 # The differ does not emit a REVOKE (lenient policy); plan is empty.
 # The advisory warning fires because the catalog has a grant to temp_consultant

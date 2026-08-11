@@ -258,6 +258,10 @@ pub fn check_plan_time_catalog(source: &Catalog, min_pg_version: u32) -> Vec<Fin
         source,
         min_pg_version,
     ));
+    out.extend(rules::column_virtual_generated_requires_pg_18::check(
+        source,
+        min_pg_version,
+    ));
     out
 }
 

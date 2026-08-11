@@ -335,27 +335,19 @@ fn build_column(r: &Row) -> Result<Column, CatalogError> {
 
     let generated = match attgenerated {
         AttGenerated::No => None,
-        AttGenerated::Stored => {
+        // Both kinds carry their expression in `pg_attrdef`, surfaced here as
+        // `default_expr`; they differ only in when Postgres evaluates it.
+        AttGenerated::Stored | AttGenerated::Virtual => {
             let text = default_text.as_deref().ok_or(CatalogError::Ir(
                 crate::ir::IrError::MissingField("generated column missing expression"),
             ))?;
             Some(Generated {
-                kind: GeneratedKind::Stored,
+                kind: match attgenerated {
+                    AttGenerated::Virtual => GeneratedKind::Virtual,
+                    _ => GeneratedKind::Stored,
+                },
                 expression: reparse_expression_text(text)?,
             })
-        }
-        // The IR can represent VIRTUAL and the renderer can emit it, but the
-        // parse → diff → plan path has not been validated for it and the
-        // bundled parser cannot even read the source-side syntax. Refusing is
-        // the honest answer until stage 6 of the own-the-parser-binding plan;
-        // the alternative — falling through to `Stored` or to a plain column —
-        // is exactly the silent corruption this decoder exists to prevent.
-        AttGenerated::Virtual => {
-            return Err(CatalogError::UnsupportedFeature {
-                object: format!("column {name}"),
-                feature: "VIRTUAL generated columns (PG 18)",
-                tracking: "docs/superpowers/plans/2026-07-28-own-the-parser-binding.md",
-            });
         }
     };
 

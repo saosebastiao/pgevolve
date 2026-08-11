@@ -5,7 +5,7 @@ authoring = "objects"
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 [expect.diff]
 contains = [

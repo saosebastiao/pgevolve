@@ -5,7 +5,7 @@ spec_refs = ["objects.publication"]
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 [expect.plan]
 steps = 1

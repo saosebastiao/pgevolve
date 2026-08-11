@@ -5,7 +5,7 @@ spec_refs = ["views.mv_no_unique_index"]
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 [planner]
 strategy = "online"

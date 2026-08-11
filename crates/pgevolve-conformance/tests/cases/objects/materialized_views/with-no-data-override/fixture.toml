@@ -5,7 +5,7 @@ spec_refs = ["views.mv_step_override"]
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 # Provide [[step_override]] in intent.toml to signal suppression at apply time.
 # The planner still emits CREATE MV + REFRESH; suppression is an executor concern.

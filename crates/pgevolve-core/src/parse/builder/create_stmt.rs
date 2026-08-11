@@ -674,24 +674,19 @@ fn refuse_unmodelled_pg18_constraint(
 
 /// Decode a generated column's `STORED` / `VIRTUAL` kind.
 ///
-/// The PG18 grammar added `GENERATED ... VIRTUAL`, and with it a
-/// `Constraint.generated_kind` field carrying the same single-character codes as
-/// `pg_attribute.attgenerated`. Before the vendored parser moved to PG18 this
-/// site hardcoded [`GeneratedKind::Stored`], which was harmless only because the
-/// PG17 grammar could not produce anything else. The moment the parser bumped, a
-/// source file saying `VIRTUAL` would have been read as `STORED` — and pgevolve
-/// would have planned DDL materialising a column its author declared virtual.
-/// That is the same silent-degradation shape the catalog-side `attgenerated`
-/// decoder was fixed for; this is its mirror on the source side.
+/// PG18 added `GENERATED ... VIRTUAL` and, with it, a `Constraint.generated_kind`
+/// field carrying the same single-character codes as `pg_attribute.attgenerated`.
+/// Before the vendored parser moved to PG18 this site hardcoded
+/// [`GeneratedKind::Stored`] — harmless only because the PG17 grammar could not
+/// produce anything else, and a live silent-degradation bug the moment it could.
 ///
 /// An empty code means the parser did not populate the field, which is what a
-/// pre-18 grammar does. It maps to `STORED` because that is the only kind those
-/// grammars can express.
+/// pre-18 grammar does. It maps to `STORED`, the only kind those grammars can
+/// express.
 ///
-/// `VIRTUAL` is refused rather than lowered. The IR can represent it and the
-/// renderer can emit it, but the semantics are not implemented and the catalog
-/// reader refuses it symmetrically — accepting it on one side only would mean a
-/// source tree that parses and then fails to diff.
+/// Unknown codes are an error rather than a forward-compatible default:
+/// guessing wrong about how a column is generated changes the DDL pgevolve
+/// emits for it.
 fn generated_column_kind(
     raw: &str,
     column: &Identifier,
@@ -699,14 +694,7 @@ fn generated_column_kind(
 ) -> Result<GeneratedKind, ParseError> {
     match raw {
         "" | "s" => Ok(GeneratedKind::Stored),
-        "v" => Err(ParseError::Structural {
-            location: location.clone(),
-            message: format!(
-                "column {column}: GENERATED ... VIRTUAL is not supported yet — the \
-                 parser accepts it, but pgevolve does not model virtual generated \
-                 columns; use STORED until PG 18 semantics land"
-            ),
-        }),
+        "v" => Ok(GeneratedKind::Virtual),
         other => Err(ParseError::Structural {
             location: location.clone(),
             message: format!(

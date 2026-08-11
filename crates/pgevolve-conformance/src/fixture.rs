@@ -10,6 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
+use pgevolve_core::catalog::version::PgVersion;
 use serde::Deserialize;
 
 /// Errors loading or validating a fixture directory.
@@ -104,10 +105,10 @@ impl Default for FixtureBudget {
 /// `[pg]` block.
 #[derive(Debug, Clone, Deserialize)]
 pub struct FixturePg {
-    /// Inclusive minimum supported PG major. Defaults to 14.
+    /// Inclusive minimum supported PG major. Defaults to the oldest supported.
     #[serde(default = "default_pg_min")]
     pub min: u32,
-    /// Inclusive maximum supported PG major. Defaults to 17.
+    /// Inclusive maximum supported PG major. Defaults to the newest supported.
     #[serde(default = "default_pg_max")]
     pub max: u32,
     /// Per-major expectation overrides. Keys are major version strings.
@@ -115,11 +116,26 @@ pub struct FixturePg {
     pub expect: FixturePgExpect,
 }
 
+/// The oldest supported major, from the single list that defines "supported".
+///
+/// Deriving these from [`PgVersion::ALL`] rather than hardcoding them is not
+/// tidiness. `default_pg_max` was pinned at 17 and went stale the moment PG18
+/// became supported, which silently version-gated every fixture that omits an
+/// explicit `max` out of the PG18 run — a fixture that skips still reports as a
+/// pass. Tying both bounds to the list makes the next major bump move them.
 const fn default_pg_min() -> u32 {
-    14
+    PgVersion::ALL
+        .first()
+        .expect("PgVersion::ALL is never empty")
+        .major()
 }
+
+/// The newest supported major. See [`default_pg_min`].
 const fn default_pg_max() -> u32 {
-    17
+    PgVersion::ALL
+        .last()
+        .expect("PgVersion::ALL is never empty")
+        .major()
 }
 
 impl Default for FixturePg {
@@ -626,18 +642,34 @@ title = "trivial"
         );
         let f = Fixture::load(tmp.path()).unwrap();
         assert_eq!(f.meta.title, "trivial");
-        assert_eq!(f.pg.min, 14);
-        assert_eq!(f.pg.max, 17);
+        // Compared against the supported-version list rather than literals:
+        // this test previously pinned `max` to 17 and would have had to be
+        // edited on every major bump, which is the same staleness that
+        // version-gated 199 fixtures out of the PG18 run.
+        assert_eq!(f.pg.min, PgVersion::ALL.first().expect("non-empty").major());
+        assert_eq!(f.pg.max, PgVersion::ALL.last().expect("non-empty").major());
         assert_eq!(
             f.expect.plan.golden.as_deref(),
             Some("expected/plan.sql"),
             "golden defaults to expected/plan.sql"
         );
         assert!(f.expect.apply.succeeds);
-        assert!(f.applies_to(14));
-        assert!(f.applies_to(17));
-        assert!(!f.applies_to(13));
-        assert!(!f.applies_to(18));
+        // A fixture that declares no version bounds applies to *every*
+        // supported major. The old form of this test asserted
+        // `!f.applies_to(18)`, which encoded the stale default as intended
+        // behaviour — so the test agreed with the bug and could not catch it.
+        for version in PgVersion::ALL {
+            assert!(
+                f.applies_to(version.major()),
+                "an unbounded fixture must apply to PG{}",
+                version.major()
+            );
+        }
+        // Outside the supported range, though, it must not.
+        let oldest = PgVersion::ALL.first().expect("non-empty").major();
+        let newest = PgVersion::ALL.last().expect("non-empty").major();
+        assert!(!f.applies_to(oldest - 1));
+        assert!(!f.applies_to(newest + 1));
     }
 
     #[test]

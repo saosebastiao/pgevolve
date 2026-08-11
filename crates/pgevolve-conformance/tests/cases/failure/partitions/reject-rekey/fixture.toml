@@ -5,7 +5,7 @@ spec_refs = ["partitioning.reject_rekey"]
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 [expect.failure]
 stage = "plan"

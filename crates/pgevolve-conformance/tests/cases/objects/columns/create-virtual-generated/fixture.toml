@@ -1,0 +1,20 @@
+[meta]
+title     = "VIRTUAL generated column — CREATE TABLE with GENERATED ALWAYS AS (expr) VIRTUAL"
+authoring = "objects"
+spec_refs = ["objects.column.generated"]
+
+# PG 18 added the VIRTUAL form, which computes on read rather than
+# materialising on write. Gated to 18: the grammar exists in the vendored
+# parser regardless, but a PG 17 server cannot run the DDL.
+
+[pg]
+min = 18
+max = 18
+
+[expect.diff]
+contains = [
+  "app.items.columns.doubled",
+]
+
+[expect.plan]
+steps = 1

@@ -11,7 +11,7 @@ spec_refs = ["triggers.lint_unmanaged_function"]
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 [expect.diff]
 contains = [

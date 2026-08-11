@@ -147,15 +147,56 @@ fn diff_column(target: &Column, source: &Column, out: &mut Vec<TableOpEntry>) {
     }
 
     if target.generated != source.generated {
-        out.push(TableOpEntry {
-            op: TableOp::SetColumnGenerated {
-                name: target.name.clone(),
-                generated: source.generated.clone(),
-            },
-            destructiveness: Destructiveness::RequiresApproval {
-                reason: "generated-column changes can fail or rewrite data".into(),
-            },
-        });
+        // A STORED ↔ VIRTUAL flip cannot be an ALTER: Postgres has no in-place
+        // conversion between the two, so `SET EXPRESSION` would fail at apply.
+        // Drop and re-add instead, which is data-safe here precisely because a
+        // generated column's values are a pure function of other columns —
+        // re-adding recomputes them identically.
+        //
+        // Deliberately narrow: this applies only when *both* sides are generated
+        // and only the kind differs. A plain ↔ generated change is NOT recreated,
+        // because dropping a plain column destroys real user data; that case
+        // keeps its existing loud failure at apply. See the virtual-generated-
+        // columns design, §4.
+        let kind_flip = match (target.generated.as_ref(), source.generated.as_ref()) {
+            (Some(t), Some(s)) => t.kind != s.kind,
+            _ => false,
+        };
+
+        if kind_flip {
+            out.push(TableOpEntry {
+                op: TableOp::DropColumn {
+                    name: target.name.clone(),
+                    is_populated: false,
+                },
+                destructiveness: Destructiveness::RequiresApproval {
+                    reason: format!(
+                        "generated column {} changes kind, which Postgres cannot do in \
+                         place — the column is dropped and re-added, moving it to the end \
+                         of the table",
+                        target.name
+                    ),
+                },
+            });
+            // No CASCADE on the drop: a dependent index or view blocks this
+            // loudly rather than being silently removed with the column.
+            out.push(TableOpEntry {
+                op: TableOp::AddColumn(source.clone()),
+                destructiveness: Destructiveness::RequiresApproval {
+                    reason: format!("re-adds generated column {}", target.name),
+                },
+            });
+        } else {
+            out.push(TableOpEntry {
+                op: TableOp::SetColumnGenerated {
+                    name: target.name.clone(),
+                    generated: source.generated.clone(),
+                },
+                destructiveness: Destructiveness::RequiresApproval {
+                    reason: "generated-column changes can fail or rewrite data".into(),
+                },
+            });
+        }
     }
 
     if target.comment != source.comment {
@@ -593,5 +634,81 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// A generated column with the given kind, over expression `(a * 2)`.
+    fn generated_col(name: &str, kind: crate::ir::column::GeneratedKind) -> Column {
+        let mut c = col(name, ColumnType::Integer, true);
+        c.generated = Some(crate::ir::column::Generated {
+            kind,
+            expression: crate::ir::default_expr::NormalizedExpr::from_text("(a * 2)"),
+        });
+        c
+    }
+
+    #[test]
+    fn generated_kind_flip_recreates_the_column() {
+        use crate::ir::column::GeneratedKind;
+
+        // Postgres cannot convert STORED <-> VIRTUAL in place, so SET EXPRESSION
+        // would fail at apply. Drop + re-add is the only route.
+        let target = tbl(vec![generated_col("b", GeneratedKind::Stored)]);
+        let source = tbl(vec![generated_col("b", GeneratedKind::Virtual)]);
+        let mut ops = Vec::new();
+        diff_columns(&target, &source, &mut ops);
+
+        assert_eq!(ops.len(), 2, "expected a drop + add pair, got {ops:?}");
+        assert!(
+            matches!(&ops[0].op, TableOp::DropColumn { name, .. } if name.as_str() == "b"),
+            "first op must drop the column: {:?}",
+            ops[0].op
+        );
+        assert!(
+            matches!(&ops[1].op, TableOp::AddColumn(c) if c.name.as_str() == "b"),
+            "second op must re-add it: {:?}",
+            ops[1].op
+        );
+        // Drop-before-add, and neither step may run without a human saying so.
+        for entry in &ops {
+            assert!(matches!(
+                entry.destructiveness,
+                Destructiveness::RequiresApproval { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn generated_expression_change_at_same_kind_stays_an_alter() {
+        use crate::ir::column::GeneratedKind;
+
+        let target = generated_col("b", GeneratedKind::Stored);
+        let mut source = generated_col("b", GeneratedKind::Stored);
+        source.generated.as_mut().expect("generated").expression =
+            crate::ir::default_expr::NormalizedExpr::from_text("(a * 3)");
+
+        let mut ops = Vec::new();
+        diff_columns(&tbl(vec![target]), &tbl(vec![source]), &mut ops);
+        assert_eq!(ops.len(), 1, "expected one ALTER, got {ops:?}");
+        assert!(matches!(ops[0].op, TableOp::SetColumnGenerated { .. }));
+    }
+
+    #[test]
+    fn plain_to_generated_is_not_recreated() {
+        use crate::ir::column::GeneratedKind;
+
+        // Dropping a plain column destroys real user data. This case keeps its
+        // loud failure at apply rather than becoming a silent data-losing
+        // recreate — see the virtual-generated-columns design, §4.
+        let target = col("b", ColumnType::Integer, true);
+        let source = generated_col("b", GeneratedKind::Stored);
+        let mut ops = Vec::new();
+        diff_columns(&tbl(vec![target]), &tbl(vec![source]), &mut ops);
+
+        assert_eq!(
+            ops.len(),
+            1,
+            "plain -> generated must not recreate: {ops:?}"
+        );
+        assert!(matches!(ops[0].op, TableOp::SetColumnGenerated { .. }));
     }
 }

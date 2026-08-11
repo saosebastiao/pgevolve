@@ -5,7 +5,7 @@ spec_refs = ["lint.unmanaged-reloption"]
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 # The differ uses a lenient policy: catalog reloptions absent from source are
 # NOT reset. This fixture verifies that removing fillfactor from source does

@@ -11,6 +11,7 @@ pub mod cast_unmanaged_function;
 pub mod closed_world_references;
 pub mod column_position_drift;
 pub mod column_references_unmanaged_collation;
+pub mod column_virtual_generated_requires_pg_18;
 pub mod composite_attribute_collision;
 pub mod compression_change_not_retroactive;
 pub mod domain_check_references_unmanaged_type;

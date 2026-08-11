@@ -9,7 +9,7 @@ spec_refs = ["objects.column.storage", "objects.column.compression"]
 # all PG versions we target: 14–18) instead.  This fixture runs on PG 14–17
 # to verify the plan is executable on all supported versions.
 min = 14
-max = 17
+max       = 18
 
 [expect.diff]
 contains = [

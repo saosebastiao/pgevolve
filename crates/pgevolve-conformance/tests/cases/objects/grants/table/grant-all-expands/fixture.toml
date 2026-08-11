@@ -5,7 +5,7 @@ spec_refs = ["grants.table.all"]
 
 [pg]
 min = 14
-max = 17
+max       = 18
 
 # GRANT ALL expands to 7 privileges (SELECT, INSERT, UPDATE, DELETE, TRUNCATE,
 # REFERENCES, TRIGGER); each is a separate Grant step in the diff.

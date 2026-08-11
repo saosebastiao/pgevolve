@@ -13,10 +13,13 @@
 //! - `NOT ENFORCED` was dropped by the constraint decoder's catch-all arm, so
 //!   the constraint was modelled as enforced.
 //!
-//! Both now refuse. This file pins that: each PG 18 feature either round-trips
-//! correctly or fails loudly, and never lands in between. When the PG 18
-//! semantics work lands, the refusals here become the list of things to
-//! implement — and the assertions flip one at a time.
+//! This file pins the outcome for each PG 18 feature: it either lowers to the
+//! right IR, or it fails loudly. Never in between.
+//!
+//! `VIRTUAL` has since moved from the second column to the first — it is
+//! modelled now, and its assertion here flipped from "refused" to "round-trips".
+//! `NOT ENFORCED` and temporal keys are still refused; when they are
+//! implemented, their assertions flip the same way.
 
 // Integration tests are separate compilation units; the crate-level allow
 // doesn't propagate. See crates/pgevolve-core/src/lib.rs for rationale.
@@ -51,15 +54,6 @@ fn accepted(sql: &str) {
 // ---- refused: parses under PG 18, not modelled by pgevolve ----
 
 #[test]
-fn virtual_generated_column_is_refused_not_silently_stored() {
-    refused(
-        "CREATE SCHEMA app;\n\
-         CREATE TABLE app.t (a int, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);",
-        "VIRTUAL is not supported yet",
-    );
-}
-
-#[test]
 fn not_enforced_constraint_is_refused_not_silently_enforced() {
     refused(
         "CREATE SCHEMA app;\n\
@@ -90,6 +84,47 @@ fn stored_generated_column_still_works() {
         "CREATE SCHEMA app;\n\
          CREATE TABLE app.t (a int, b int GENERATED ALWAYS AS (a * 2) STORED);",
     );
+}
+
+/// The kind must survive into the IR, not merely parse.
+///
+/// This is the assertion that would have caught the original bug: the DDL
+/// parsed fine while `VIRTUAL` was being read as `STORED`, so only an IR-level
+/// check distinguishes "supported" from "silently mis-modelled".
+#[test]
+fn generated_kind_round_trips_into_the_ir() {
+    use pgevolve_core::ir::column::GeneratedKind;
+
+    for (sql_kind, expected) in [
+        ("VIRTUAL", GeneratedKind::Virtual),
+        ("STORED", GeneratedKind::Stored),
+    ] {
+        let catalog = parse(&format!(
+            "CREATE SCHEMA app;\n\
+             CREATE TABLE app.t (a int, b int GENERATED ALWAYS AS (a * 2) {sql_kind});"
+        ))
+        .expect("parses and lowers");
+
+        let table = catalog
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "t")
+            .expect("table t");
+        let column = table
+            .columns
+            .iter()
+            .find(|c| c.name.as_str() == "b")
+            .expect("column b");
+        let generated = column
+            .generated
+            .as_ref()
+            .unwrap_or_else(|| panic!("{sql_kind} column should be generated"));
+
+        assert_eq!(
+            generated.kind, expected,
+            "{sql_kind} lowered to the wrong GeneratedKind"
+        );
+    }
 }
 
 #[test]
