@@ -326,6 +326,7 @@ fn add_table(c: &mut Catalog, seed: usize) {
             include: vec![],
         },
         deferrable: pgevolve_core::ir::constraint::Deferrable::NotDeferrable,
+        enforcement: pgevolve_core::ir::constraint::Enforcement::Enforced,
         comment: None,
     };
     c.tables.push(pgevolve_core::ir::table::Table {
@@ -1001,6 +1002,7 @@ mod tests {
                     include: vec![],
                 },
                 deferrable: pgevolve_core::ir::constraint::Deferrable::NotDeferrable,
+                enforcement: pgevolve_core::ir::constraint::Enforcement::Enforced,
                 comment: None,
             }],
             partition_by: None,

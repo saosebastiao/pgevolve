@@ -113,7 +113,8 @@ mod tests {
     use super::*;
     use crate::ir::catalog::Catalog;
     use crate::ir::constraint::{
-        Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
+        Constraint, ConstraintKind, Deferrable, Enforcement, FkMatchType, ForeignKey,
+        ReferentialAction,
     };
     use crate::ir::schema::Schema;
     use crate::ir::table::Table;
@@ -137,6 +138,7 @@ mod tests {
                     match_type: FkMatchType::Simple,
                 }),
                 deferrable: Deferrable::NotDeferrable,
+                enforcement: Enforcement::Enforced,
                 comment: None,
             }],
             partition_by: None,

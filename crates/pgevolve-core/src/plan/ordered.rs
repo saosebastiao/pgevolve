@@ -69,7 +69,7 @@ mod tests {
     use crate::diff::destructiveness::Destructiveness;
     use crate::identifier::Identifier;
     use crate::ir::constraint::{
-        ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
+        ConstraintKind, Deferrable, Enforcement, FkMatchType, ForeignKey, ReferentialAction,
     };
     use crate::ir::schema::Schema;
 
@@ -93,6 +93,7 @@ mod tests {
                 match_type: FkMatchType::Simple,
             }),
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         }
     }

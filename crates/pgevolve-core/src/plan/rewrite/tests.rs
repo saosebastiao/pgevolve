@@ -12,7 +12,7 @@ use crate::identifier::Identifier;
 use crate::ir::column::Column;
 use crate::ir::column_type::ColumnType;
 use crate::ir::constraint::{
-    Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
+    Constraint, ConstraintKind, Deferrable, Enforcement, FkMatchType, ForeignKey, ReferentialAction,
 };
 use crate::ir::index::{
     Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
@@ -55,6 +55,7 @@ fn pk(name: &str, cols: &[&str]) -> Constraint {
             include: vec![],
         },
         deferrable: Deferrable::NotDeferrable,
+        enforcement: Enforcement::Enforced,
         comment: None,
     }
 }
@@ -477,6 +478,7 @@ fn add_constraint_emits_single_step_in_default_path() {
                         nulls_distinct: true,
                     },
                     deferrable: Deferrable::NotDeferrable,
+                    enforcement: Enforcement::Enforced,
                     comment: None,
                 }),
                 destructiveness: Destructiveness::Safe,
@@ -615,6 +617,7 @@ fn deferred_fk_emits_alter_table_add_constraint() {
                 match_type: FkMatchType::Simple,
             }),
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         },
     };
@@ -860,6 +863,7 @@ fn fk(name: &str, ref_table: QualifiedName) -> Constraint {
             match_type: FkMatchType::Simple,
         }),
         deferrable: Deferrable::NotDeferrable,
+        enforcement: Enforcement::Enforced,
         comment: None,
     }
 }
@@ -1046,6 +1050,7 @@ fn add_unique_constraint_on_existing_table_does_not_trigger_fk_rewrite() {
                         nulls_distinct: true,
                     },
                     deferrable: Deferrable::NotDeferrable,
+                    enforcement: Enforcement::Enforced,
                     comment: None,
                 }),
                 destructiveness: Destructiveness::Safe,
@@ -1075,6 +1080,7 @@ fn check(name: &str, expr: &str) -> Constraint {
             no_inherit: false,
         },
         deferrable: Deferrable::NotDeferrable,
+        enforcement: Enforcement::Enforced,
         comment: None,
     }
 }

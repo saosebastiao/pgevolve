@@ -80,6 +80,9 @@ pub fn rewrite_steps(
             no_inherit: false,
         },
         deferrable: crate::ir::constraint::Deferrable::NotDeferrable,
+        // pgevolve synthesises this CHECK to make SET NOT NULL cheap; it must be
+        // enforced or it proves nothing about the data.
+        enforcement: crate::ir::constraint::Enforcement::Enforced,
         comment: None,
     };
 

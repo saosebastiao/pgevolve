@@ -14,7 +14,7 @@ use crate::ir::column::{
     Column, Compression, GeneratedKind, Identity, IdentityKind, SequenceOptions, StorageKind,
 };
 use crate::ir::constraint::{
-    Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
+    Constraint, ConstraintKind, Deferrable, Enforcement, FkMatchType, ForeignKey, ReferentialAction,
 };
 use crate::ir::default_expr::{DefaultExpr, LiteralValue};
 use crate::ir::index::{Index, IndexColumn, IndexColumnExpr, IndexMethod, NullsOrder, SortOrder};
@@ -617,6 +617,13 @@ pub fn constraint_def_with_name(c: &Constraint) -> String {
         Deferrable::Deferrable {
             initially_deferred: false,
         } => s.push_str(" DEFERRABLE INITIALLY IMMEDIATE"),
+    }
+    // Keyword order matters: Postgres accepts NOT ENFORCED only after the
+    // deferrability clause, and only on CHECK and FOREIGN KEY — which is the
+    // only place the parser and catalog reader ever set it.
+    match c.enforcement {
+        Enforcement::Enforced => {}
+        Enforcement::NotEnforced => s.push_str(" NOT ENFORCED"),
     }
     s
 }

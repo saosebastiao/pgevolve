@@ -760,7 +760,8 @@ mod tests {
     use crate::ir::column::Column;
     use crate::ir::column_type::ColumnType;
     use crate::ir::constraint::{
-        Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
+        Constraint, ConstraintKind, Deferrable, Enforcement, FkMatchType, ForeignKey,
+        ReferentialAction,
     };
     use crate::ir::index::{
         Index, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder, SortOrder,
@@ -815,6 +816,7 @@ mod tests {
                 include: vec![],
             },
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         }
     }
@@ -831,6 +833,7 @@ mod tests {
                 match_type: FkMatchType::Simple,
             }),
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         }
     }

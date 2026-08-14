@@ -100,6 +100,7 @@ fn small_catalog_with_view() -> Catalog {
                 include: vec![],
             },
             deferrable: Deferrable::NotDeferrable,
+            enforcement: pgevolve_core::ir::constraint::Enforcement::Enforced,
             comment: None,
         }],
         partition_by: None,

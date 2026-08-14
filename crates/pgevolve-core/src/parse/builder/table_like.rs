@@ -254,6 +254,11 @@ fn snapshot_like(
                     qname: QualifiedName::new(target_schema.clone(), c.qname.name.clone()),
                     kind: c.kind.clone(),
                     deferrable: c.deferrable,
+                    // Copied, not defaulted: `LIKE ... INCLUDING CONSTRAINTS`
+                    // reproduces the source CHECK, and a NOT ENFORCED source
+                    // constraint that came back ENFORCED on the clone would be a
+                    // different constraint.
+                    enforcement: c.enforcement,
                     comment: None,
                 });
             }
@@ -342,6 +347,7 @@ fn copy_index_constraints(
                         include: include.clone(),
                     },
                     deferrable: c.deferrable,
+                    enforcement: c.enforcement,
                     comment: None,
                 });
             }
@@ -375,6 +381,7 @@ fn copy_index_constraints(
                         nulls_distinct: *nulls_distinct,
                     },
                     deferrable: c.deferrable,
+                    enforcement: c.enforcement,
                     comment: None,
                 });
             }

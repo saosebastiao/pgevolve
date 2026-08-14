@@ -100,6 +100,7 @@ mod tests {
     use crate::identifier::Identifier;
     use crate::ir::column::Column;
     use crate::ir::column_type::ColumnType;
+    use crate::ir::constraint::Enforcement;
     use crate::ir::constraint::{Deferrable, FkMatchType, ForeignKey, ReferentialAction};
 
     fn id(s: &str) -> Identifier {
@@ -152,6 +153,7 @@ mod tests {
                 include: vec![],
             },
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         }
     }
@@ -168,6 +170,7 @@ mod tests {
                 match_type: FkMatchType::Simple,
             }),
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         }
     }
@@ -275,6 +278,7 @@ mod tests {
             deferrable: Deferrable::Deferrable {
                 initially_deferred: true,
             },
+            enforcement: Enforcement::Enforced,
             ..a.clone()
         };
         let ops = run(&tbl_with(vec![a]), &tbl_with(vec![b]));

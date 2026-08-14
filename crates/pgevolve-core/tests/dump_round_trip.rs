@@ -100,6 +100,7 @@ mod tests {
                     include: vec![],
                 },
                 deferrable: Deferrable::NotDeferrable,
+                enforcement: pgevolve_core::ir::constraint::Enforcement::Enforced,
                 comment: None,
             }],
             partition_by: None,
@@ -136,6 +137,7 @@ mod tests {
                         include: vec![],
                     },
                     deferrable: Deferrable::NotDeferrable,
+                    enforcement: pgevolve_core::ir::constraint::Enforcement::Enforced,
                     comment: None,
                 },
                 Constraint {
@@ -146,6 +148,7 @@ mod tests {
                         nulls_distinct: true,
                     },
                     deferrable: Deferrable::NotDeferrable,
+                    enforcement: pgevolve_core::ir::constraint::Enforcement::Enforced,
                     comment: None,
                 },
                 Constraint {
@@ -159,6 +162,7 @@ mod tests {
                         match_type: FkMatchType::Simple,
                     }),
                     deferrable: Deferrable::NotDeferrable,
+                    enforcement: pgevolve_core::ir::constraint::Enforcement::Enforced,
                     comment: None,
                 },
             ],

@@ -214,7 +214,7 @@ mod tests {
     use super::*;
     use crate::identifier::Identifier;
     use crate::ir::column_type::ColumnType;
-    use crate::ir::constraint::{ConstraintKind, Deferrable};
+    use crate::ir::constraint::{ConstraintKind, Deferrable, Enforcement};
 
     fn id(s: &str) -> Identifier {
         Identifier::from_unquoted(s).unwrap()
@@ -247,6 +247,7 @@ mod tests {
                 include: vec![],
             },
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         }
     }

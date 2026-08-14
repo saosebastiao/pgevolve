@@ -509,7 +509,9 @@ mod tests {
     use super::*;
     use crate::ir::column::Column;
     use crate::ir::column_type::ColumnType;
-    use crate::ir::constraint::{Constraint as IrConstraint, ConstraintKind, Deferrable};
+    use crate::ir::constraint::{
+        Constraint as IrConstraint, ConstraintKind, Deferrable, Enforcement,
+    };
     use crate::ir::index::{
         Index as IrIndex, IndexColumn, IndexColumnExpr, IndexMethod, IndexParent, NullsOrder,
         SortOrder,
@@ -555,6 +557,7 @@ mod tests {
                     include: vec![],
                 },
                 deferrable: Deferrable::NotDeferrable,
+                enforcement: Enforcement::Enforced,
                 comment: None,
             }],
             partition_by: None,

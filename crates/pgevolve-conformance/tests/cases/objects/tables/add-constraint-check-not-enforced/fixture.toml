@@ -1,0 +1,25 @@
+[meta]
+title     = "NOT ENFORCED CHECK — PG 18 constraint recorded but never checked"
+authoring = "objects"
+spec_refs = ["objects.table.constraint.check"]
+
+# PG 18 added NOT ENFORCED for CHECK and FOREIGN KEY. Gated to 18: the vendored
+# grammar accepts it on every major, but only an 18 server can run the DDL — the
+# `constraint-not-enforced-requires-pg-18` lint is what tells a user targeting an
+# older server, at plan time rather than at apply time.
+#
+# Worth knowing what this feature is: the constraint is recorded and the planner
+# may rely on it, but Postgres never checks it. Declaring one the data violates
+# produces wrong query results, not merely a lax check.
+
+[pg]
+min = 18
+max = 18
+
+[expect.diff]
+contains = [
+  "app.orders",
+]
+
+[expect.plan]
+steps = 1

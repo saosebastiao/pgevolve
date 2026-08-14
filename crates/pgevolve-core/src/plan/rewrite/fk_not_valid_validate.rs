@@ -13,17 +13,21 @@
 
 use crate::identifier::QualifiedName;
 use crate::ir::catalog::Catalog;
-use crate::ir::constraint::{Constraint, ConstraintKind};
+use crate::ir::constraint::{Constraint, ConstraintKind, Enforcement};
 use crate::plan::policy::PlannerPolicy;
 use crate::plan::raw_step::{RawStep, StepKind, TransactionConstraint};
 use crate::plan::rewrite::sql;
 
 /// Should this `AddConstraint` be rewritten as `NOT VALID` + `VALIDATE`?
 ///
-/// Three conditions:
+/// Four conditions:
 /// 1. the policy enables `fk_not_valid_then_validate`,
 /// 2. the constraint is a foreign key, and
 /// 3. the target table already exists (i.e., not being created in this plan).
+/// 4. the constraint is `ENFORCED` — a `NOT ENFORCED` constraint has nothing to
+///    validate, and Postgres 18 rejects both `NOT ENFORCED NOT VALID` and a
+///    `VALIDATE` against it. Skipping the rewrite is not an optimisation choice
+///    here; emitting it produces DDL the server refuses.
 pub fn should_rewrite(
     qname: &QualifiedName,
     c: &Constraint,
@@ -32,6 +36,7 @@ pub fn should_rewrite(
 ) -> bool {
     policy.fk_not_valid_then_validate()
         && matches!(c.kind, ConstraintKind::ForeignKey(_))
+        && c.enforcement == Enforcement::Enforced
         && target.table_exists(qname)
 }
 

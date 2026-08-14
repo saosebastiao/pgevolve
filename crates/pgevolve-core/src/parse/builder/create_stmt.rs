@@ -14,7 +14,7 @@ use crate::ir::column::{
     StorageKind,
 };
 use crate::ir::constraint::{
-    Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
+    Constraint, ConstraintKind, Deferrable, Enforcement, FkMatchType, ForeignKey, ReferentialAction,
 };
 use crate::ir::default_expr::DefaultExpr;
 use crate::ir::partition::{
@@ -378,7 +378,7 @@ fn build_table_constraint(
     location: &SourceLocation,
 ) -> Result<Option<Constraint>, ParseError> {
     let kind = ConstrType::try_from(con.contype).unwrap_or(ConstrType::Undefined);
-    refuse_unmodelled_pg18_constraint(con, kind, location)?;
+    refuse_unmodelled_pg18_constraint(con, location)?;
     let cols = key_idents(&con.keys, location)?;
     let built = match kind {
         ConstrType::ConstrPrimary => {
@@ -415,6 +415,7 @@ fn make_pk_constraint(
             include: vec![],
         },
         deferrable: Deferrable::NotDeferrable,
+        enforcement: Enforcement::Enforced,
         comment: None,
     })
 }
@@ -451,6 +452,7 @@ fn make_unique_constraint(
             nulls_distinct: !con.nulls_not_distinct,
         },
         deferrable: deferrable_from(con),
+        enforcement: Enforcement::Enforced,
         comment: None,
     })
 }
@@ -495,6 +497,7 @@ fn make_fk_constraint(
             match_type: parse_match_type(&con.fk_matchtype),
         }),
         deferrable: deferrable_from(con),
+        enforcement: constraint_enforcement(con, ConstrType::ConstrForeign),
         comment: None,
     })
 }
@@ -546,6 +549,7 @@ fn make_check_constraint(
             no_inherit: con.is_no_inherit,
         },
         deferrable: deferrable_from(con),
+        enforcement: constraint_enforcement(con, ConstrType::ConstrCheck),
         comment: None,
     })
 }
@@ -630,27 +634,20 @@ fn collate_clause_to_qname(
 
 /// Refuse PG18 constraint features pgevolve does not model.
 ///
-/// The PG18 grammar accepts `NOT ENFORCED` constraints and temporal
-/// (`WITHOUT OVERLAPS` / `PERIOD`) keys. pgevolve's IR represents neither, and
-/// the constraint decoder's fallback arm silently drops anything it does not
-/// recognise — so before this check, `CHECK (a > 0) NOT ENFORCED` parsed cleanly
-/// and was modelled as an ordinary *enforced* CHECK. pgevolve would then have
-/// emitted DDL creating an enforced constraint, quietly changing the semantics
-/// of the author's schema.
+/// The PG18 grammar accepts temporal (`WITHOUT OVERLAPS` / `PERIOD`) keys, which
+/// pgevolve's IR does not represent — and the constraint decoder's fallback arm
+/// silently drops anything it does not recognise, so a temporal key would be
+/// modelled as an ordinary one.
 ///
 /// Mirrors the catalog-side preflight that reads `conenforced` / `conperiod`.
 /// Both sides have to refuse, or a source tree parses and then fails to diff
 /// against the very server that accepted it.
 ///
-/// **`is_enforced` is only meaningful for CHECK and FOREIGN KEY.** Postgres
-/// leaves it false on PRIMARY KEY and UNIQUE, where the concept does not apply,
-/// so testing it unconditionally rejects every primary key in the corpus. That
-/// was measured, not reasoned about.
-///
 /// Implementing these features is PG 18 semantics work; refusing them is not.
+/// `NOT ENFORCED` has since been implemented and is no longer refused here — see
+/// [`constraint_enforcement`].
 fn refuse_unmodelled_pg18_constraint(
     con: &PgConstraint,
-    kind: ConstrType,
     location: &SourceLocation,
 ) -> Result<(), ParseError> {
     let unsupported = |what: &str| ParseError::Structural {
@@ -661,15 +658,27 @@ fn refuse_unmodelled_pg18_constraint(
         ),
     };
 
-    if matches!(kind, ConstrType::ConstrCheck | ConstrType::ConstrForeign) && !con.is_enforced {
-        return Err(unsupported("NOT ENFORCED constraints"));
-    }
     if con.without_overlaps || con.pk_with_period || con.fk_with_period {
         return Err(unsupported(
             "temporal constraints (WITHOUT OVERLAPS / PERIOD)",
         ));
     }
     Ok(())
+}
+
+/// Decode a constraint's `ENFORCED` / `NOT ENFORCED` state.
+///
+/// **`is_enforced` is only meaningful for CHECK and FOREIGN KEY.** Postgres
+/// leaves it false on PRIMARY KEY and UNIQUE, where the concept does not apply.
+/// Reading it unconditionally would mark every primary key `NOT ENFORCED` —
+/// measured, not reasoned about: an earlier version of the refusal this replaces
+/// tested the flag unconditionally and rejected every primary key in the corpus.
+const fn constraint_enforcement(con: &PgConstraint, kind: ConstrType) -> Enforcement {
+    if matches!(kind, ConstrType::ConstrCheck | ConstrType::ConstrForeign) && !con.is_enforced {
+        Enforcement::NotEnforced
+    } else {
+        Enforcement::Enforced
+    }
 }
 
 /// Decode a generated column's `STORED` / `VIRTUAL` kind.

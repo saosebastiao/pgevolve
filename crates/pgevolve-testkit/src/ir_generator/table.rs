@@ -9,7 +9,7 @@ use proptest::sample::SizeRange;
 use pgevolve_core::identifier::{Identifier, QualifiedName};
 use pgevolve_core::ir::column::Column;
 use pgevolve_core::ir::column_type::ColumnType;
-use pgevolve_core::ir::constraint::{Constraint, ConstraintKind, Deferrable};
+use pgevolve_core::ir::constraint::{Constraint, ConstraintKind, Deferrable, Enforcement};
 use pgevolve_core::ir::table::Table;
 
 use super::IRGeneratorConfig;
@@ -118,6 +118,7 @@ fn arbitrary_table(
                             include: vec![],
                         },
                         deferrable: Deferrable::NotDeferrable,
+                        enforcement: Enforcement::Enforced,
                         comment: None,
                     };
                     // Deduplicate policy names (proptest may generate duplicates

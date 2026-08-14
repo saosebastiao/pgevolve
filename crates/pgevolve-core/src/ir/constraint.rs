@@ -19,6 +19,8 @@ pub struct Constraint {
     pub kind: ConstraintKind,
     /// Deferrability.
     pub deferrable: Deferrable,
+    /// Whether Postgres enforces the constraint on write (PG 18+).
+    pub enforcement: Enforcement,
     /// Optional comment.
     pub comment: Option<String>,
 }
@@ -29,6 +31,7 @@ impl Equiv for Constraint {
             qname: _,
             kind: _,
             deferrable: _,
+            enforcement: _,
             comment: _,
         } = self;
         let mut out = Vec::new();
@@ -171,6 +174,26 @@ pub enum FkMatchType {
     Full,
 }
 
+/// Whether Postgres enforces a constraint on write.
+///
+/// An enum rather than a `bool` per constitution §4: the set is closed and the
+/// names carry the SQL keywords, so a call site reads as the DDL it produces.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Enforcement {
+    /// `ENFORCED` — Postgres checks the constraint on write. The default, and
+    /// the only behaviour available before PG 18.
+    #[default]
+    Enforced,
+    /// `NOT ENFORCED` (PG 18+) — recorded and shown in the catalog, but never
+    /// checked. The planner may still rely on it, so declaring one that the data
+    /// violates is a way to get wrong query results, not merely a lax check.
+    ///
+    /// Postgres allows this only on `CHECK` and `FOREIGN KEY`; the parser sets
+    /// it for those kinds alone.
+    NotEnforced,
+}
+
 /// Deferrability of a constraint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -297,6 +320,7 @@ mod tests {
                 include: vec![],
             },
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         }
     }
@@ -334,6 +358,7 @@ mod tests {
                 match_type: FkMatchType::Simple,
             }),
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         };
         let a = mk(ReferentialAction::NoAction);

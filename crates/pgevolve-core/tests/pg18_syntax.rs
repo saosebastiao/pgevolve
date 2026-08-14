@@ -16,10 +16,10 @@
 //! This file pins the outcome for each PG 18 feature: it either lowers to the
 //! right IR, or it fails loudly. Never in between.
 //!
-//! `VIRTUAL` has since moved from the second column to the first — it is
-//! modelled now, and its assertion here flipped from "refused" to "round-trips".
-//! `NOT ENFORCED` and temporal keys are still refused; when they are
-//! implemented, their assertions flip the same way.
+//! `VIRTUAL` and `NOT ENFORCED` have both since moved from the second column to
+//! the first — they are modelled now, and their assertions here flipped from
+//! "refused" to "round-trips". Temporal keys are still refused; when they are
+//! implemented, that assertion flips the same way.
 
 // Integration tests are separate compilation units; the crate-level allow
 // doesn't propagate. See crates/pgevolve-core/src/lib.rs for rationale.
@@ -52,15 +52,6 @@ fn accepted(sql: &str) {
 }
 
 // ---- refused: parses under PG 18, not modelled by pgevolve ----
-
-#[test]
-fn not_enforced_constraint_is_refused_not_silently_enforced() {
-    refused(
-        "CREATE SCHEMA app;\n\
-         CREATE TABLE app.t (a int, CONSTRAINT c CHECK (a > 0) NOT ENFORCED);",
-        "NOT ENFORCED constraints",
-    );
-}
 
 #[test]
 fn temporal_key_is_refused() {
@@ -152,6 +143,69 @@ fn ordinary_constraints_are_not_caught_by_the_pg18_refusals() {
         assert!(
             parse(&full).is_ok(),
             "the PG 18 refusals wrongly rejected an ordinary {label} constraint"
+        );
+    }
+}
+
+/// Enforcement must survive into the IR, not merely parse.
+///
+/// The original bug was the mirror of the VIRTUAL one: `NOT ENFORCED` parsed
+/// cleanly and was dropped by the constraint decoder's catch-all arm, so the
+/// constraint was modelled as *enforced* — and pgevolve would have emitted DDL
+/// that starts checking data the author declared unchecked.
+#[test]
+fn constraint_enforcement_round_trips_into_the_ir() {
+    use pgevolve_core::ir::constraint::Enforcement;
+
+    for (clause, expected) in [
+        (" NOT ENFORCED", Enforcement::NotEnforced),
+        ("", Enforcement::Enforced),
+    ] {
+        let catalog = parse(&format!(
+            "CREATE SCHEMA app;\n\
+             CREATE TABLE app.t (a int, CONSTRAINT c CHECK (a > 0){clause});"
+        ))
+        .expect("parses and lowers");
+
+        let table = catalog
+            .tables
+            .iter()
+            .find(|t| t.qname.name.as_str() == "t")
+            .expect("table t");
+        let constraint = table
+            .constraints
+            .iter()
+            .find(|c| c.qname.name.as_str() == "c")
+            .expect("constraint c");
+
+        assert_eq!(
+            constraint.enforcement, expected,
+            "CHECK{clause:?} lowered to the wrong Enforcement"
+        );
+    }
+}
+
+/// `is_enforced` is false on PK and UNIQUE, where the concept does not apply.
+/// Reading it unconditionally would mark every primary key NOT ENFORCED.
+#[test]
+fn primary_and_unique_keys_are_always_enforced() {
+    use pgevolve_core::ir::constraint::Enforcement;
+
+    let catalog = parse(
+        "CREATE SCHEMA app;\n\
+         CREATE TABLE app.t (id int, a int, CONSTRAINT pk PRIMARY KEY (id), \
+         CONSTRAINT u UNIQUE (a));",
+    )
+    .expect("parses and lowers");
+
+    let table = &catalog.tables[0];
+    assert!(!table.constraints.is_empty(), "expected constraints");
+    for constraint in &table.constraints {
+        assert_eq!(
+            constraint.enforcement,
+            Enforcement::Enforced,
+            "{} should be enforced",
+            constraint.qname.name
         );
     }
 }

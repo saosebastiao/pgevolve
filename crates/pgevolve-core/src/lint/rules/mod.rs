@@ -14,6 +14,7 @@ pub mod column_references_unmanaged_collation;
 pub mod column_virtual_generated_requires_pg_18;
 pub mod composite_attribute_collision;
 pub mod compression_change_not_retroactive;
+pub mod constraint_not_enforced_requires_pg_18;
 pub mod domain_check_references_unmanaged_type;
 pub mod enum_value_collision;
 pub mod extension_references_unmanaged_schema;

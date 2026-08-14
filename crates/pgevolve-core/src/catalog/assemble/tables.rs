@@ -17,7 +17,7 @@ use crate::ir::column::{
     StorageKind,
 };
 use crate::ir::column_type::ColumnType;
-use crate::ir::constraint::{Constraint, ConstraintKind, Deferrable, ForeignKey};
+use crate::ir::constraint::{Constraint, ConstraintKind, Deferrable, Enforcement, ForeignKey};
 use crate::ir::default_expr::{DefaultExpr, NormalizedExpr};
 use crate::ir::index::{Index, IndexParent};
 use crate::ir::schema::Schema;
@@ -52,31 +52,24 @@ fn decode_attstorage(raw: &str) -> Result<Option<StorageKind>, CatalogError> {
     }
 }
 
-/// Refuse a constraint carrying a PG 18 modifier pgevolve cannot yet model.
+/// Decode a constraint's enforcement, and refuse PG 18 modifiers not yet modelled.
 ///
-/// Both flags are read from dedicated `pg_constraint` columns supplied only by
+/// Both flags come from dedicated `pg_constraint` columns supplied only by
 /// [`crate::catalog::queries::pg18::CONSTRAINTS_QUERY`]; on PG 14–17 they are
-/// absent and this is a no-op. That exactness is the point. The obvious cheaper
-/// implementation — scanning `pg_get_constraintdef` text for `NOT ENFORCED` and
-/// `PERIOD` — is wrong in a way that breaks working schemas: a boolean column
-/// named `enforced` renders as `CHECK ((NOT enforced))`, and a column named
-/// `period` is entirely ordinary. Refusing a valid PG 14 schema is a worse
-/// failure than the window this closes.
+/// absent, which is why each is probed for presence before being read. Absence
+/// means `ENFORCED`, the only behaviour those majors have.
 ///
-/// Reading these as absent is the danger being averted: an unenforced check
-/// would be planned and applied as enforced (and fail, or lock, on real data),
-/// and a temporal key would silently lose the column that makes it temporal.
-fn reject_unsupported_constraint(r: &Row, qname: &QualifiedName) -> Result<(), CatalogError> {
+/// That exactness is the point. The obvious cheaper implementation — scanning
+/// `pg_get_constraintdef` text for `NOT ENFORCED` and `PERIOD` — is wrong in a
+/// way that breaks working schemas: a boolean column named `enforced` renders as
+/// `CHECK ((NOT enforced))`, and a column named `period` is entirely ordinary.
+/// Misreading a valid PG 14 schema is a worse failure than the window it closes.
+///
+/// Temporal keys are still refused: the IR cannot represent them, and reading
+/// one as absent would silently drop the column that makes the key temporal.
+fn constraint_enforcement(r: &Row, qname: &QualifiedName) -> Result<Enforcement, CatalogError> {
     let q = CatalogQuery::Constraints;
-    // `get_bool` errors on a missing column, so probe presence first: pre-18
-    // rows legitimately do not carry these.
-    if r.get_value(q, "conenforced").is_ok() && !r.get_bool(q, "conenforced")? {
-        return Err(CatalogError::UnsupportedFeature {
-            object: format!("constraint {qname}"),
-            feature: "NOT ENFORCED constraints (PG 18)",
-            tracking: "docs/superpowers/plans/2026-07-28-own-the-parser-binding.md",
-        });
-    }
+
     if r.get_value(q, "conperiod").is_ok() && r.get_bool(q, "conperiod")? {
         return Err(CatalogError::UnsupportedFeature {
             object: format!("constraint {qname}"),
@@ -84,7 +77,13 @@ fn reject_unsupported_constraint(r: &Row, qname: &QualifiedName) -> Result<(), C
             tracking: "docs/superpowers/plans/2026-07-28-own-the-parser-binding.md",
         });
     }
-    Ok(())
+
+    // `get_bool` errors on a missing column, so probe presence first: pre-18
+    // rows legitimately do not carry this.
+    if r.get_value(q, "conenforced").is_ok() && !r.get_bool(q, "conenforced")? {
+        return Ok(Enforcement::NotEnforced);
+    }
+    Ok(Enforcement::Enforced)
 }
 
 /// How a column is generated, decoded from `pg_attribute.attgenerated`.
@@ -458,7 +457,7 @@ fn build_constraint(
 
     // Preflight before any per-kind decoding: a PG 18 modifier we do not model
     // changes what the constraint *means*, so it must not reach the IR at all.
-    reject_unsupported_constraint(r, &qname)?;
+    let enforcement = constraint_enforcement(r, &qname)?;
 
     let kind = match contype {
         'p' => ConstraintKind::PrimaryKey {
@@ -541,6 +540,7 @@ fn build_constraint(
         qname,
         kind,
         deferrable,
+        enforcement,
         comment,
     }))
 }
@@ -876,13 +876,30 @@ mod tests {
     }
 
     #[test]
-    fn not_enforced_constraint_is_refused() {
+    fn not_enforced_constraint_decodes_rather_than_being_read_as_enforced() {
         let row = Row::new().with("conenforced", Value::Bool(false));
-        let err = reject_unsupported_constraint(&row, &qn("ck_amount"))
-            .expect_err("NOT ENFORCED must be refused, not read as enforced");
-        assert!(
-            matches!(err, CatalogError::UnsupportedFeature { .. }),
-            "got {err:?}"
+        assert_eq!(
+            constraint_enforcement(&row, &qn("ck_amount")).expect("decodes"),
+            Enforcement::NotEnforced
+        );
+    }
+
+    #[test]
+    fn enforced_constraint_decodes_as_enforced() {
+        let row = Row::new().with("conenforced", Value::Bool(true));
+        assert_eq!(
+            constraint_enforcement(&row, &qn("ck_amount")).expect("decodes"),
+            Enforcement::Enforced
+        );
+    }
+
+    #[test]
+    fn a_pre_18_row_has_no_enforcement_column_and_reads_as_enforced() {
+        // PG 14-17 do not select `conenforced`; absence must not be mistaken for
+        // false, which would mark every constraint on those majors NOT ENFORCED.
+        assert_eq!(
+            constraint_enforcement(&Row::new(), &qn("ck_amount")).expect("decodes"),
+            Enforcement::Enforced
         );
     }
 
@@ -891,7 +908,7 @@ mod tests {
         let row = Row::new()
             .with("conenforced", Value::Bool(true))
             .with("conperiod", Value::Bool(true));
-        let err = reject_unsupported_constraint(&row, &qn("pk_shifts"))
+        let err = constraint_enforcement(&row, &qn("pk_shifts"))
             .expect_err("temporal keys must be refused, not read as ordinary keys");
         assert!(
             matches!(err, CatalogError::UnsupportedFeature { .. }),
@@ -904,14 +921,14 @@ mod tests {
         let row = Row::new()
             .with("conenforced", Value::Bool(true))
             .with("conperiod", Value::Bool(false));
-        reject_unsupported_constraint(&row, &qn("pk_id")).unwrap();
+        constraint_enforcement(&row, &qn("pk_id")).unwrap();
     }
 
     #[test]
     fn pre_pg18_rows_lack_the_columns_and_are_accepted() {
         // PG 14-17 use the shared query, which selects neither column. The
         // check must be a no-op there rather than erroring on a missing column.
-        reject_unsupported_constraint(&Row::new(), &qn("pk_id")).unwrap();
+        constraint_enforcement(&Row::new(), &qn("pk_id")).unwrap();
     }
 
     #[test]

@@ -124,6 +124,7 @@ async fn aborted_mid_apply_recovers_after_replan() {
                     include: vec![],
                 },
                 deferrable: Deferrable::NotDeferrable,
+                enforcement: pgevolve_core::ir::constraint::Enforcement::Enforced,
                 comment: None,
             }],
             partition_by: None,

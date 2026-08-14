@@ -130,6 +130,7 @@ mod tests {
     use crate::identifier::Identifier;
     use crate::ir::column::Column;
     use crate::ir::column_type::ColumnType;
+    use crate::ir::constraint::Enforcement;
     use crate::ir::constraint::{
         Constraint, ConstraintKind, Deferrable, FkMatchType, ForeignKey, ReferentialAction,
     };
@@ -184,6 +185,7 @@ mod tests {
                     include: vec![],
                 },
                 deferrable: Deferrable::NotDeferrable,
+                enforcement: Enforcement::Enforced,
                 comment: None,
             }],
             partition_by: None,
@@ -222,6 +224,7 @@ mod tests {
                         include: vec![],
                     },
                     deferrable: Deferrable::NotDeferrable,
+                    enforcement: Enforcement::Enforced,
                     comment: None,
                 },
                 Constraint {
@@ -235,6 +238,7 @@ mod tests {
                         match_type: FkMatchType::Simple,
                     }),
                     deferrable: Deferrable::NotDeferrable,
+                    enforcement: Enforcement::Enforced,
                     comment: None,
                 },
             ],
@@ -271,6 +275,7 @@ mod tests {
                 match_type: FkMatchType::Simple,
             }),
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         };
         let sql = render_add_fk(&qn("app", "users"), &fk);
@@ -390,6 +395,7 @@ mod tests {
                 no_inherit: false,
             },
             deferrable: Deferrable::NotDeferrable,
+            enforcement: Enforcement::Enforced,
             comment: None,
         };
         let t = Table {

@@ -55,7 +55,7 @@ cargo package -p pgevolve-pgquery                            # packaging is a ga
 | 3 | 🔶 **mostly done** — `pgevolve-pgquery` built, packaged, vendoring libpg_query **18.4**; only 3.8 (re-extraction drill) outstanding | 2.5 ew | **KILL GATE** — offline suite green; 5-server run is CI |
 | 4 | ✅ **done** — Cut `pgevolve-core` over; `pg_query` dropped from the graph | 0.5 ew | Zero fixture re-blessing ✅ |
 | 5 | `xtask pg-oracle` + four PG18 plan-time lints | 1 ew | Oracle reproduces the acceptance matrix |
-| 6 | 🔶 **started** — virtual generated columns delivered; NOT ENFORCED + temporal keys remain | 3 ew | A fixture per claimed feature |
+| 6 | 🔶 **in progress** — virtual generated columns + NOT ENFORCED delivered; temporal keys, named NOT NULL remain | 3 ew | A fixture per claimed feature |
 | 7 | *(separate plan)* srcdata-generated typed AST; drop prost/protoc/bindgen | ~6 ew | Deferred — see §Stage 7 |
 
 **Total through Stage 6: ~9.5 engineer-weeks.**
@@ -238,7 +238,10 @@ The one genuinely valuable idea from the multi-version proposals, extracted from
 Each with IR, diff, render, lint **and a conformance fixture**. This work is required identically under every strategy — anyone arguing "just wait for upstream" is arguing against Stage 3, not against this.
 
 - [x] **6.1** `VIRTUAL` generated columns — done 2026-07-29. Parser, catalog decoder, diff (kind flip → column recreate), render, version-gate lint, unit tests, and two conformance fixtures. Design doc marked `implemented`.
-- [ ] **6.2** `NOT ENFORCED` constraints (zero `conenforced` references exist in `crates/` today).
+- [x] **6.2** `NOT ENFORCED` constraints — done 2026-07-29. New `Enforcement` enum on `Constraint` (§4: a closed set, not a bool), decoded in the parser from `Constraint.is_enforced` and in the catalog reader from `conenforced`, rendered, linted (`constraint-not-enforced-requires-pg-18`), and covered by a conformance fixture.
+  - **`is_enforced` is only meaningful for CHECK and FOREIGN KEY.** Postgres leaves it false on PRIMARY KEY and UNIQUE. Both decoders scope the read accordingly; reading it unconditionally marks every primary key `NOT ENFORCED`.
+  - **The fixture caught a real interaction bug.** pgevolve's lock-avoidance rewrite turns an added CHECK/FK into `ADD CONSTRAINT … NOT VALID` + `VALIDATE CONSTRAINT`. Applied to a `NOT ENFORCED` constraint that emits `NOT ENFORCED NOT VALID` followed by a `VALIDATE` — both of which PG 18 rejects, because an unenforced constraint has nothing to validate. Both rewrites now require `Enforcement::Enforced`. This was invisible to unit tests and only appeared once the feature was wired end to end.
+  - **Adding a field to `Constraint` rotated 83 plan-id hashes.** Every changed golden line was a `plan id=`; no SQL differed. Not a new breakage class — `PlanId` already hashes the pgevolve version, so ids rotate every release regardless.
 - [ ] **6.3** Temporal PK/FK — `PERIOD`, `WITHOUT OVERLAPS`.
 - [ ] **6.4** Named `NOT NULL` constraints.
 - [ ] **6.5** `RETURNING WITH (OLD AS o, NEW AS n)`.
