@@ -237,7 +237,7 @@ The one genuinely valuable idea from the multi-version proposals, extracted from
 
 Each with IR, diff, render, lint **and a conformance fixture**. This work is required identically under every strategy — anyone arguing "just wait for upstream" is arguing against Stage 3, not against this.
 
-- [ ] **6.1** `VIRTUAL` generated columns — `GeneratedKind::Virtual` gains real semantics; the Stage 1.1 decoder gains its `'v'` → IR arm.
+- [x] **6.1** `VIRTUAL` generated columns — done 2026-07-29. Parser, catalog decoder, diff (kind flip → column recreate), render, version-gate lint, unit tests, and two conformance fixtures. Design doc marked `implemented`.
 - [ ] **6.2** `NOT ENFORCED` constraints (zero `conenforced` references exist in `crates/` today).
 - [ ] **6.3** Temporal PK/FK — `PERIOD`, `WITHOUT OVERLAPS`.
 - [ ] **6.4** Named `NOT NULL` constraints.
